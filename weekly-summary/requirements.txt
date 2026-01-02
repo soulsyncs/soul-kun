@@ -1,0 +1,6 @@
+functions-framework==3.*
+SQLAlchemy==2.0.23
+cloud-sql-python-connector[pg8000]==1.6.0
+pg8000>=1.30.4
+google-cloud-secret-manager==2.16.4
+httpx==0.25.2

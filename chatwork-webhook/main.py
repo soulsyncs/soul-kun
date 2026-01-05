@@ -187,6 +187,25 @@ SYSTEM_CAPABILITIES = {
         "requires_confirmation": False,
         "required_data": ["chatwork_users", "sender_name"]
     },
+    # =====  =====
+    "daily_reflection": {
+        "name": "",
+        "description": "",
+        "category": "reflection",
+        "enabled": True,
+        "trigger_examples": ["3", ""],
+        "params_schema": {
+            "reflection_text": {
+                "type": "string",
+                "description": "",
+                "required": True
+            }
+        },
+        "handler": "handle_daily_reflection",
+        "requires_confirmation": False,
+        "required_data": []
+    },
+
     
     "chatwork_task_complete": {
         "name": "ChatWorkタスク完了",
@@ -2622,10 +2641,58 @@ ChatWorkアプリで直接操作してほしいウル！
 # 3. このHANDLERSに登録
 # =====================================================
 
+
+
+# =====  =====
+def handle_daily_reflection(params, room_id, account_id, sender_name, context=None):
+    """daily_reflection_logs"""
+    print(f"handle_daily_reflection : room_id={room_id}, account_id={account_id}")
+    
+    try:
+        reflection_text = params.get("reflection_text", "")
+        if not reflection_text:
+            return {"success": False, "message": "..."}
+        
+        from datetime import datetime
+        from sqlalchemy import text
+        
+        conn = get_db_connection()
+        if not conn:
+            return {"success": False, "message": "..."}
+        
+        try:
+            insert_query = text("""
+                INSERT INTO daily_reflection_logs 
+                (account_id, recorded_at, reflection_text, room_id, message_id, created_at)
+                VALUES (:account_id, :recorded_at, :reflection_text, :room_id, :message_id, NOW())
+            """)
+            
+            conn.execute(insert_query, {
+                "account_id": str(account_id),
+                "recorded_at": datetime.now().date(),
+                "reflection_text": reflection_text,
+                "room_id": str(room_id),
+                "message_id": context.get("message_id", "") if context else ""
+            })
+            conn.commit()
+            
+            print(f": account_id={account_id}")
+            return {"success": True, "message": "\n"}
+            
+        finally:
+            conn.close()
+            
+    except Exception as e:
+        print(f"handle_daily_reflection : {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "message": "..."}
+
 HANDLERS = {
     "handle_chatwork_task_create": handle_chatwork_task_create,
     "handle_chatwork_task_complete": handle_chatwork_task_complete,
     "handle_chatwork_task_search": handle_chatwork_task_search,
+    "handle_daily_reflection": handle_daily_reflection,
     "handle_save_memory": handle_save_memory,
     "handle_query_memory": handle_query_memory,
     "handle_delete_memory": handle_delete_memory,

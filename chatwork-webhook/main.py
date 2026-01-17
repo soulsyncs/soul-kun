@@ -1016,13 +1016,20 @@ def get_all_persons_summary():
 # ===== 組織図クエリ（Phase 3.5） =====
 
 def get_org_chart_overview():
-    """組織図の全体構造を取得"""
+    """組織図の全体構造を取得（兼務を含む）"""
     pool = get_pool()
     with pool.connect() as conn:
         result = conn.execute(
             sqlalchemy.text("""
                 SELECT d.id, d.name, d.level, d.parent_id,
-                       (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) as member_count
+                       (SELECT COUNT(DISTINCT e.id)
+                        FROM employees e
+                        WHERE e.department_id = d.id
+                           OR EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                               WHERE dept->>'department_id' = d.external_id
+                           )
+                       ) as member_count
                 FROM departments d
                 WHERE d.is_active = true
                 ORDER BY d.level, d.display_order, d.name
@@ -1041,13 +1048,20 @@ def get_org_chart_overview():
         return departments
 
 def search_department_by_name(partial_name):
-    """部署名で検索（部分一致）"""
+    """部署名で検索（部分一致、兼務を含む）"""
     pool = get_pool()
     with pool.connect() as conn:
         result = conn.execute(
             sqlalchemy.text("""
                 SELECT id, name, level,
-                       (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) as member_count
+                       (SELECT COUNT(DISTINCT e.id)
+                        FROM employees e
+                        WHERE e.department_id = d.id
+                           OR EXISTS (
+                               SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                               WHERE dept->>'department_id' = d.external_id
+                           )
+                       ) as member_count
                 FROM departments d
                 WHERE d.is_active = true AND d.name ILIKE :pattern
                 ORDER BY d.level, d.name
@@ -1059,13 +1073,13 @@ def search_department_by_name(partial_name):
         return [{"id": str(r[0]), "name": r[1], "level": r[2], "member_count": r[3] or 0} for r in result]
 
 def get_department_members(dept_name):
-    """部署のメンバー一覧を取得"""
+    """部署のメンバー一覧を取得（兼務者を含む）"""
     pool = get_pool()
     with pool.connect() as conn:
         # まず部署を検索
         dept_result = conn.execute(
             sqlalchemy.text("""
-                SELECT id, name FROM departments
+                SELECT id, name, external_id FROM departments
                 WHERE is_active = true AND name ILIKE :pattern
                 LIMIT 1
             """),
@@ -1077,23 +1091,43 @@ def get_department_members(dept_name):
 
         dept_id = dept_result[0]
         dept_full_name = dept_result[1]
+        dept_external_id = dept_result[2]
 
-        # 部署のメンバーを取得
+        # 部署のメンバーを取得（主所属 + 兼務者）
         members_result = conn.execute(
             sqlalchemy.text("""
-                SELECT name, position, employment_type
-                FROM employees
-                WHERE department_id = :dept_id
+                SELECT DISTINCT e.name,
+                       COALESCE(
+                           (SELECT dept->>'position'
+                            FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                            WHERE dept->>'department_id' = :ext_id
+                            LIMIT 1),
+                           e.position
+                       ) as position,
+                       e.employment_type,
+                       CASE WHEN e.department_id = :dept_id THEN 0 ELSE 1 END as is_concurrent
+                FROM employees e
+                WHERE e.department_id = :dept_id
+                   OR EXISTS (
+                       SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                       WHERE dept->>'department_id' = :ext_id
+                   )
                 ORDER BY
-                    CASE WHEN position LIKE '%部長%' OR position LIKE '%マネージャー%' THEN 1
+                    is_concurrent,
+                    CASE WHEN position LIKE '%部長%' OR position LIKE '%マネージャー%' OR position LIKE '%責任者%' THEN 1
                          WHEN position LIKE '%課長%' OR position LIKE '%リーダー%' THEN 2
                          ELSE 3 END,
-                    name
+                    e.name
             """),
-            {"dept_id": dept_id}
+            {"dept_id": dept_id, "ext_id": dept_external_id}
         ).fetchall()
 
-        members = [{"name": r[0], "position": r[1], "employment_type": r[2]} for r in members_result]
+        members = []
+        for r in members_result:
+            member = {"name": r[0], "position": r[1], "employment_type": r[2]}
+            if r[3] == 1:  # is_concurrent
+                member["is_concurrent"] = True
+            members.append(member)
         return dept_full_name, members
 
 
@@ -2739,9 +2773,10 @@ def handle_query_org_chart(params, room_id, account_id, sender_name, context=Non
 
         response = f"👥 **{dept_name}のメンバー**ウル！\n\n"
         for m in members:
+            concurrent_mark = "【兼】" if m.get("is_concurrent") else ""
             position_str = f"（{m['position']}）" if m.get("position") else ""
             emp_type_str = f" [{m['employment_type']}]" if m.get("employment_type") else ""
-            response += f"・{m['name']}{position_str}{emp_type_str}\n"
+            response += f"・{concurrent_mark}{m['name']}{position_str}{emp_type_str}\n"
 
         response += f"\n合計: {len(members)}名"
         return response
@@ -2765,8 +2800,9 @@ def handle_query_org_chart(params, room_id, account_id, sender_name, context=Non
         if members:
             response += f"\n👥 **メンバー**:\n"
             for m in members[:10]:  # 最大10名まで表示
+                concurrent_mark = "【兼】" if m.get("is_concurrent") else ""
                 position_str = f"（{m['position']}）" if m.get("position") else ""
-                response += f"　・{m['name']}{position_str}\n"
+                response += f"　・{concurrent_mark}{m['name']}{position_str}\n"
             if len(members) > 10:
                 response += f"　...他{len(members) - 10}名"
 

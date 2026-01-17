@@ -445,7 +445,37 @@ SYSTEM_CAPABILITIES = {
         "requires_confirmation": False,
         "required_data": ["sender_account_id", "room_id"]
     },
-    
+
+    # ===== 組織図クエリ（Phase 3.5） =====
+    "query_org_chart": {
+        "name": "組織図・部署情報検索",
+        "description": "組織図の全体構造、部署のメンバー、部署の詳細情報を検索して表示する。",
+        "category": "organization",
+        "enabled": True,
+        "trigger_examples": [
+            "組織図を教えて",
+            "会社の組織を見せて",
+            "営業部の人は誰？",
+            "管理部のメンバーを教えて",
+            "開発部について教えて",
+        ],
+        "params_schema": {
+            "query_type": {
+                "type": "string",
+                "description": "検索タイプ（overview=組織全体, members=部署メンバー, detail=部署詳細）",
+                "required": True
+            },
+            "department": {
+                "type": "string",
+                "description": "部署名（members/detailの場合は必須）",
+                "required": False
+            }
+        },
+        "handler": "handle_query_org_chart",
+        "requires_confirmation": False,
+        "required_data": []
+    },
+
     # ===== 一般会話 =====
     "general_chat": {
         "name": "一般会話",
@@ -982,6 +1012,89 @@ def get_all_persons_summary():
             """)
         ).fetchall()
         return [{"name": r[0], "attributes": r[1]} for r in result]
+
+# ===== 組織図クエリ（Phase 3.5） =====
+
+def get_org_chart_overview():
+    """組織図の全体構造を取得"""
+    pool = get_pool()
+    with pool.connect() as conn:
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT d.id, d.name, d.level, d.parent_id,
+                       (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) as member_count
+                FROM departments d
+                WHERE d.is_active = true
+                ORDER BY d.level, d.display_order, d.name
+            """)
+        ).fetchall()
+
+        departments = []
+        for r in result:
+            departments.append({
+                "id": str(r[0]),
+                "name": r[1],
+                "level": r[2],
+                "parent_id": str(r[3]) if r[3] else None,
+                "member_count": r[4] or 0
+            })
+        return departments
+
+def search_department_by_name(partial_name):
+    """部署名で検索（部分一致）"""
+    pool = get_pool()
+    with pool.connect() as conn:
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT id, name, level,
+                       (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) as member_count
+                FROM departments d
+                WHERE d.is_active = true AND d.name ILIKE :pattern
+                ORDER BY d.level, d.name
+                LIMIT 10
+            """),
+            {"pattern": f"%{partial_name}%"}
+        ).fetchall()
+
+        return [{"id": str(r[0]), "name": r[1], "level": r[2], "member_count": r[3] or 0} for r in result]
+
+def get_department_members(dept_name):
+    """部署のメンバー一覧を取得"""
+    pool = get_pool()
+    with pool.connect() as conn:
+        # まず部署を検索
+        dept_result = conn.execute(
+            sqlalchemy.text("""
+                SELECT id, name FROM departments
+                WHERE is_active = true AND name ILIKE :pattern
+                LIMIT 1
+            """),
+            {"pattern": f"%{dept_name}%"}
+        ).fetchone()
+
+        if not dept_result:
+            return None, []
+
+        dept_id = dept_result[0]
+        dept_full_name = dept_result[1]
+
+        # 部署のメンバーを取得
+        members_result = conn.execute(
+            sqlalchemy.text("""
+                SELECT name, position, employment_type
+                FROM employees
+                WHERE department_id = :dept_id
+                ORDER BY
+                    CASE WHEN position LIKE '%部長%' OR position LIKE '%マネージャー%' THEN 1
+                         WHEN position LIKE '%課長%' OR position LIKE '%リーダー%' THEN 2
+                         ELSE 3 END,
+                    name
+            """),
+            {"dept_id": dept_id}
+        ).fetchall()
+
+        members = [{"name": r[0], "position": r[1], "employment_type": r[2]} for r in members_result]
+        return dept_full_name, members
 
 
 def get_all_chatwork_users():
@@ -2589,6 +2702,79 @@ def notify_proposal_result(proposal: dict, approved: bool):
         traceback.print_exc()
 
 
+def handle_query_org_chart(params, room_id, account_id, sender_name, context=None):
+    """組織図クエリのハンドラー（Phase 3.5）"""
+    query_type = params.get("query_type", "overview")
+    department = params.get("department", "")
+
+    if query_type == "overview":
+        # 組織図の全体構造を表示
+        departments = get_org_chart_overview()
+        if not departments:
+            return "🤔 組織図データがまだ登録されていないウル..."
+
+        # 階層構造で表示
+        response = "🏢 **組織図**ウル！\n\n"
+
+        for dept in departments:
+            level = dept["level"]
+            indent = "　" * (level - 1)
+            member_info = f"（{dept['member_count']}名）" if dept["member_count"] > 0 else ""
+            response += f"{indent}📁 {dept['name']}{member_info}\n"
+
+        response += f"\n合計: {len(departments)}部署"
+        return response
+
+    elif query_type == "members":
+        # 部署のメンバー一覧
+        if not department:
+            return "🤔 どの部署のメンバーを知りたいウル？部署名を教えてほしいウル！"
+
+        dept_name, members = get_department_members(department)
+        if dept_name is None:
+            return f"🤔 「{department}」という部署が見つからなかったウル..."
+
+        if not members:
+            return f"📁 **{dept_name}** には現在メンバーがいないウル"
+
+        response = f"👥 **{dept_name}のメンバー**ウル！\n\n"
+        for m in members:
+            position_str = f"（{m['position']}）" if m.get("position") else ""
+            emp_type_str = f" [{m['employment_type']}]" if m.get("employment_type") else ""
+            response += f"・{m['name']}{position_str}{emp_type_str}\n"
+
+        response += f"\n合計: {len(members)}名"
+        return response
+
+    elif query_type == "detail":
+        # 部署の詳細情報
+        if not department:
+            return "🤔 どの部署の詳細を知りたいウル？部署名を教えてほしいウル！"
+
+        depts = search_department_by_name(department)
+        if not depts:
+            return f"🤔 「{department}」という部署が見つからなかったウル..."
+
+        dept = depts[0]
+        dept_name, members = get_department_members(dept["name"])
+
+        response = f"📁 **{dept['name']}** の詳細ウル！\n\n"
+        response += f"・階層レベル: {dept['level']}\n"
+        response += f"・所属人数: {dept['member_count']}名\n"
+
+        if members:
+            response += f"\n👥 **メンバー**:\n"
+            for m in members[:10]:  # 最大10名まで表示
+                position_str = f"（{m['position']}）" if m.get("position") else ""
+                response += f"　・{m['name']}{position_str}\n"
+            if len(members) > 10:
+                response += f"　...他{len(members) - 10}名"
+
+        return response
+
+    return "🤔 組織図の検索方法がわからなかったウル..."
+
+
 def handle_general_chat(params, room_id, account_id, sender_name, context=None):
     """一般会話のハンドラー（execute_actionからNoneを返して後続処理に委ねる）"""
     # 一般会話は別のフローで処理するのでNoneを返す
@@ -2698,6 +2884,8 @@ HANDLERS = {
     "handle_delete_memory": handle_delete_memory,
     "handle_general_chat": handle_general_chat,
     "handle_api_limitation": handle_api_limitation,
+    # v6.8.x: 組織図クエリ（Phase 3.5）
+    "handle_query_org_chart": handle_query_org_chart,
     # v6.9.0: 管理者学習機能
     "handle_learn_knowledge": handle_learn_knowledge,
     "handle_forget_knowledge": handle_forget_knowledge,

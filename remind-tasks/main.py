@@ -213,6 +213,15 @@ def clean_task_body(body: str) -> str:
     """
     タスク本文からChatWorkのタグや記号を完全に除去
 
+    ★★★ v10.6.1: 引用ブロック処理改善 ★★★
+
+    v10.6.0の問題:
+    - 引用ブロック全体を削除していたため、本文が引用のみの場合に空になっていた
+
+    v10.6.1の改善:
+    - 引用外のテキストがあればそれを優先使用
+    - 引用のみの場合は、引用内のテキストを抽出して使用
+
     除去対象:
     - [qt][qtmeta aid=xxx time=xxx]...[/qt] 形式の引用
     - [qtmeta ...] タグ
@@ -223,6 +232,8 @@ def clean_task_body(body: str) -> str:
     - [rp aid=xxx to=xxx-xxx] タグ
     - [dtext:xxx] タグ
     - その他の ChatWork タグ
+
+    TODO: Phase 3.5でlib/に共通化予定
     """
     if not body:
         return ""
@@ -234,10 +245,33 @@ def clean_task_body(body: str) -> str:
             return ""
 
     try:
-        # 1. [qt][qtmeta...]...[/qt] 形式の引用全体を除去
-        body = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        # =====================================================
+        # 1. 引用ブロックの処理（v10.6.1改善）
+        # =====================================================
+        # まず引用外のテキストを抽出してみる
+        non_quote_text = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        non_quote_text = non_quote_text.strip()
 
-        # 2. [qtmeta ...] タグを除去
+        # 引用外にテキストが十分あればそれを使用
+        if non_quote_text and len(non_quote_text) > 10:
+            body = non_quote_text
+        else:
+            # 引用のみ、または引用外のテキストが短い場合
+            # → 引用内のテキストを抽出
+            quote_matches = re.findall(
+                r'\[qt\]\[qtmeta[^\]]*\](.*?)\[/qt\]',
+                body,
+                flags=re.DOTALL
+            )
+            if quote_matches:
+                # 複数の引用がある場合は結合
+                extracted_text = ' '.join(quote_matches)
+                # 引用内テキストが空でなければ使用
+                if extracted_text.strip():
+                    body = extracted_text
+            # 引用からも抽出できない場合は元のテキストを使用（タグ除去後）
+
+        # 2. [qtmeta ...] タグを除去（残っている場合）
         body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
 
         # 3. [qt] [/qt] の単独タグを除去
@@ -292,6 +326,108 @@ def clean_task_body(body: str) -> str:
     except Exception as e:
         print(f"⚠️ clean_task_body エラー: {e}")
         return body  # エラー時は元のメッセージを返す
+
+
+def prepare_task_display_text(text: str, max_length: int = 40) -> str:
+    """
+    報告用のタスク表示テキストを整形する
+
+    ★★★ v10.9.0: 40文字 + 途切れ防止徹底 ★★★
+
+    変更点:
+    - デフォルト15文字 → 40文字に変更（AI要約と統一）
+    - 途切れ防止: 単語の途中で切らない
+
+    処理内容:
+    1. 改行を半角スペースに置換（1行にまとめる）
+    2. 定型挨拶文を削除（お疲れ様です、ccなど）
+    3. 連続スペースを1つに
+    4. 先頭・末尾の空白を除去
+    5. max_length文字以内で完結させる（途切れ防止）
+
+    Args:
+        text: 元のテキスト（summaryまたはclean_task_body()後のbody）
+        max_length: 最大文字数（デフォルト40）
+
+    Returns:
+        整形済みテキスト（途中で途切れない）
+    """
+    if not text:
+        return "（タスク内容なし）"
+
+    try:
+        # 1. 改行を半角スペースに置換（1行にまとめる）
+        text = text.replace('\n', ' ').replace('\r', ' ')
+
+        # 2. 定型挨拶文を削除
+        greeting_patterns = [
+            r'^お疲れ様です[！!。]?\s*',
+            r'^おつかれさまです[！!。]?\s*',
+            r'^お疲れさまです[！!。]?\s*',
+            r'^いつもお世話になっております[。]?\s*',
+            r'^お世話になっております[。]?\s*',
+            r'^おはようございます[！!。]?\s*',
+            r'^こんにちは[！!。]?\s*',
+            r'^こんばんは[！!。]?\s*',
+            r'^cc\s+',
+            r'^CC\s+',
+            r'^Re:\s*',
+            r'^RE:\s*',
+            r'^Fwd:\s*',
+            r'^FW:\s*',
+        ]
+        for pattern in greeting_patterns:
+            text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+
+        # 3. 連続スペースを1つに
+        text = re.sub(r'\s{2,}', ' ', text)
+
+        # 4. 先頭・末尾の空白を除去
+        text = text.strip()
+
+        # 空になった場合
+        if not text:
+            return "（タスク内容なし）"
+
+        # 5. max_length文字以内で完結させる（途切れ防止）
+        if len(text) <= max_length:
+            return text
+
+        # 途切れ防止: 自然な位置で切る
+        # 優先順位: 句点 > 読点 > 助詞 > 動作語
+        truncated = text[:max_length]
+
+        # 句点(。)で終わる位置を探す
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] == '。':
+                return truncated[:i + 1]
+
+        # 読点(、)で終わる位置を探す
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] == '、':
+                return truncated[:i + 1]
+
+        # 助詞の後で切る
+        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] in particles:
+                return truncated[:i + 1]
+
+        # 動作語の後で切る
+        action_words = ['確認', '依頼', '報告', '対応', '作成', '提出', '送付', '連絡', '相談', '検討', '準備', '完了', '実施', '設定', '登録', '更新', '共有', '調整']
+        for i in range(max_length - 2, max_length // 2, -1):
+            for action in action_words:
+                if i + len(action) <= len(truncated) and truncated[i:i+len(action)] == action:
+                    cut_pos = i + len(action)
+                    if cut_pos <= max_length:
+                        return truncated[:cut_pos]
+
+        # 最終手段: max_length-2文字 + 動作語で終わらせる
+        return truncated[:max_length - 2] + "対応"
+
+    except Exception as e:
+        print(f"⚠️ prepare_task_display_text エラー: {e}")
+        return text[:max_length] if len(text) > max_length else text
 
 
 # =====================================================
@@ -5247,6 +5383,16 @@ def remind_tasks(request):
             print(f"⚠️ 遅延タスク処理でエラー（リマインドは完了）: {e}")
             traceback.print_exc()
 
+        # =====================================================
+        # ステップ5: 完了タスク日次報告（管理部への報告）
+        # ★★★ v10.7.0: 新機能 ★★★
+        # =====================================================
+        try:
+            process_completed_tasks_summary()
+        except Exception as e:
+            print(f"⚠️ 完了タスク報告でエラー（リマインドは完了）: {e}")
+            traceback.print_exc()
+
         return ('Task reminders and overdue processing completed', 200)
 
     except Exception as e:
@@ -5319,11 +5465,29 @@ def process_overdue_tasks_v2():
     """
     遅延タスクを管理部に報告
 
-    ★★★ v10.6.0: 改修版 ★★★
-    - 3日以上遅延しているタスクを担当者ごとにまとめて報告
-    - テストガード適用
+    ★★★ v10.8.0: フォーマット大幅改善 ★★★
+
+    v10.7.0からの変更点:
+    - 15文字AI要約を使用
+    - 📍 チャットグループ名を追加（3行目）
+    - タスク間に1行空ける
+    - 人の切り替わりで2行空ける
+
+    フォーマット:
+    ━━━━━━━━━━━━━━━━━━━━
+    【担当者名】N件
+    ━━━━━━━━━━━━━━━━━━━━
+    ① タスク要約（15文字）
+    📅 MM/DD（N日超過）
+    📍 チャットグループ名
+
+    ② 次のタスク...
     """
     print("\n=== 遅延タスク報告（管理部向け） ===")
+
+    # 丸数字（①〜⑩）
+    CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+    DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -5377,16 +5541,20 @@ def process_overdue_tasks_v2():
                     'tasks': []
                 }
 
-            if summary:
-                task_display = summary
-            else:
-                clean_body = clean_task_body(body)
-                task_display = clean_body[:50] if len(clean_body) <= 50 else clean_body[:47] + "..."
+            # タスク内容を15文字以内に整形（v10.8.0: AI要約対応）
+            # summary優先、なければbodyをクリーニング後に整形
+            source_text = summary if summary else clean_task_body(body)
+            task_display = prepare_task_display_text(source_text, max_length=40)
+
+            # ルーム名を整形（長い場合は切り詰め）
+            room_display = room_name if room_name else "不明"
+            if len(room_display) > 15:
+                room_display = room_display[:14] + "…"
 
             overdue_by_assignee[assignee_id]['tasks'].append({
                 'task_id': task_id,
                 'body': task_display,
-                'room_name': room_name or "（不明）",
+                'room_name': room_display,
                 'limit_date': limit_date,
                 'overdue_days': overdue_days
             })
@@ -5400,24 +5568,40 @@ def process_overdue_tasks_v2():
         print(f"📊 3日以上遅延タスク: {total_overdue}件（{len(overdue_by_assignee)}人）")
 
         lines = []
-        lines.append("📊 長期遅延タスク報告")
-        lines.append(f"以下のタスクが3日以上遅延しています（計{total_overdue}件）：")
-        lines.append("")
+        lines.append(f"📊 長期遅延タスク報告（計{total_overdue}件）")
 
+        first_person = True
         for assignee_id, data in overdue_by_assignee.items():
             assignee_name = data['name']
-            tasks = data['tasks']
-            lines.append(f"【{assignee_name}さん】{len(tasks)}件")
+            # 「さん」が既についている場合は追加しない
+            if not assignee_name.endswith('さん'):
+                display_name = f"{assignee_name}さん"
+            else:
+                display_name = assignee_name
+            tasks_list = data['tasks']
 
-            for i, task in enumerate(tasks[:5], 1):  # 最大5件表示
-                lines.append(f"  {i}. {task['body']}")
-                lines.append(f"     期限: {task['limit_date'].strftime('%m/%d')} | {task['overdue_days']}日超過 | 📍{task['room_name']}")
+            # 人の切り替わりで2行空ける（最初の人以外）
+            if not first_person:
+                lines.append("")  # 2行目の空行（1行目は前のタスクの後の空行）
+            first_person = False
 
-            if len(tasks) > 5:
-                lines.append(f"  ...他{len(tasks) - 5}件")
-            lines.append("")
+            lines.append(DIVIDER)
+            lines.append(f"【{display_name}】{len(tasks_list)}件")
+            lines.append(DIVIDER)
 
-        lines.append("確認・対応をお願いします。")
+            for i, task in enumerate(tasks_list[:10]):  # 最大10件表示
+                num = CIRCLED_NUMBERS[i] if i < len(CIRCLED_NUMBERS) else f"({i+1})"
+                lines.append(f"{num} {task['body']}")
+                lines.append(f"📅 {task['limit_date'].strftime('%m/%d')}（{task['overdue_days']}日超過）")
+                lines.append(f"📍 {task['room_name']}")
+
+                # タスク間に1行空ける（最後のタスク以外）
+                if i < min(len(tasks_list), 10) - 1:
+                    lines.append("")
+
+            if len(tasks_list) > 10:
+                lines.append("")
+                lines.append(f"…他{len(tasks_list) - 10}件")
 
         message = "\n".join(lines)
 
@@ -5429,6 +5613,151 @@ def process_overdue_tasks_v2():
 
     except Exception as e:
         print(f"❌ 遅延タスク報告エラー: {e}")
+        traceback.print_exc()
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def process_completed_tasks_summary():
+    """
+    完了タスクの日次サマリーを管理部に報告
+
+    ★★★ v10.8.0: フォーマット大幅改善 ★★★
+
+    v10.7.0からの変更点:
+    - 15文字AI要約を使用
+    - 📍 チャットグループ名を追加
+    - タスク間に1行空ける
+    - 人の切り替わりで2行空ける
+
+    フォーマット:
+    ━━━━━━━━━━━━━━━━━━━━
+    【担当者名】N件
+    ━━━━━━━━━━━━━━━━━━━━
+    ① タスク要約（15文字）
+    📍 チャットグループ名
+
+    ② 次のタスク...
+    """
+    print("\n=== 完了タスク日次報告（管理部向け） ===")
+
+    # 丸数字（①〜⑩）
+    CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
+    DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        now = datetime.now(JST)
+        yesterday = now - timedelta(hours=24)
+
+        # 過去24時間に完了したタスクを取得
+        cursor.execute("""
+            SELECT task_id, room_id, assigned_to_account_id, body,
+                   room_name, assigned_to_name, summary, completed_at
+            FROM chatwork_tasks
+            WHERE status = 'done'
+              AND completed_at IS NOT NULL
+              AND completed_at >= %s
+            ORDER BY completed_at DESC
+        """, (yesterday,))
+
+        tasks = cursor.fetchall()
+
+        if not tasks:
+            print("✅ 過去24時間に完了したタスクはありません")
+            return
+
+        # 担当者ごとにグループ化
+        completed_by_assignee = {}
+
+        for task in tasks:
+            task_id, room_id, assigned_to_account_id, body, room_name, assigned_to_name, summary, completed_at = task
+
+            assignee_id = assigned_to_account_id
+
+            if assignee_id not in completed_by_assignee:
+                completed_by_assignee[assignee_id] = {
+                    'name': assigned_to_name or f"ID:{assignee_id}",
+                    'tasks': []
+                }
+
+            # タスク内容を15文字以内に整形（v10.8.0: AI要約対応）
+            # summary優先、なければbodyをクリーニング後に整形
+            source_text = summary if summary else clean_task_body(body)
+            task_display = prepare_task_display_text(source_text, max_length=40)
+
+            # ルーム名を整形（長い場合は切り詰め）
+            room_display = room_name if room_name else "不明"
+            if len(room_display) > 15:
+                room_display = room_display[:14] + "…"
+
+            completed_by_assignee[assignee_id]['tasks'].append({
+                'task_id': task_id,
+                'body': task_display,
+                'room_name': room_display
+            })
+
+        if not completed_by_assignee:
+            print("✅ 報告対象の完了タスクはありません")
+            return
+
+        # 管理部への報告メッセージを作成
+        total_completed = sum(len(data['tasks']) for data in completed_by_assignee.values())
+        print(f"✅ 過去24時間の完了タスク: {total_completed}件（{len(completed_by_assignee)}人）")
+
+        lines = []
+        lines.append(f"✅ 本日完了したタスク（計{total_completed}件）")
+
+        first_person = True
+        for assignee_id, data in completed_by_assignee.items():
+            assignee_name = data['name']
+            # 「さん」が既についている場合は追加しない
+            if not assignee_name.endswith('さん'):
+                display_name = f"{assignee_name}さん"
+            else:
+                display_name = assignee_name
+            tasks_list = data['tasks']
+
+            # 人の切り替わりで2行空ける（最初の人以外）
+            if not first_person:
+                lines.append("")  # 2行目の空行
+            first_person = False
+
+            lines.append(DIVIDER)
+            lines.append(f"【{display_name}】{len(tasks_list)}件")
+            lines.append(DIVIDER)
+
+            for i, task in enumerate(tasks_list[:10]):  # 最大10件表示
+                num = CIRCLED_NUMBERS[i] if i < len(CIRCLED_NUMBERS) else f"({i+1})"
+                lines.append(f"{num} {task['body']}")
+                lines.append(f"📍 {task['room_name']}")
+
+                # タスク間に1行空ける（最後のタスク以外）
+                if i < min(len(tasks_list), 10) - 1:
+                    lines.append("")
+
+            if len(tasks_list) > 10:
+                lines.append("")
+                lines.append(f"…他{len(tasks_list) - 10}件")
+
+        lines.append("")
+        lines.append("")
+        lines.append("お疲れ様でした！")
+
+        message = "\n".join(lines)
+
+        # 管理部に送信
+        if send_reminder_with_test_guard(ADMIN_ROOM_ID, message):
+            print(f"✅ 管理部への完了タスク報告完了")
+        else:
+            print(f"⚠️ 管理部への報告送信失敗またはブロック")
+
+    except Exception as e:
+        print(f"❌ 完了タスク報告エラー: {e}")
         traceback.print_exc()
 
     finally:

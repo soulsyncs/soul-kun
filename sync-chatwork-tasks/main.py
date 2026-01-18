@@ -17,6 +17,7 @@ import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
 import anthropic  # v10.5.0: タスク要約機能用
 import os  # v10.5.0: 環境変数取得用
+from google import genai  # v10.8.1: Gemini APIでタスク要約
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -160,11 +161,43 @@ def get_anthropic_api_key() -> str:
         return None
 
 
+def get_google_ai_api_key() -> str:
+    """
+    Google AI API キーを取得する
+
+    ★★★ v10.8.1: Gemini用APIキー取得 ★★★
+
+    Returns:
+        API キー文字列
+    """
+    # 環境変数から取得（Cloud Functionsで設定）
+    api_key = os.environ.get("GOOGLE_AI_API_KEY")
+    if api_key:
+        return api_key
+
+    # Secret Managerから取得（フォールバック）
+    try:
+        return get_secret("GOOGLE_AI_API_KEY")
+    except Exception as e:
+        print(f"⚠️ GOOGLE_AI_API_KEY の取得に失敗: {e}")
+        return None
+
+
 def clean_task_body_for_summary(body: str) -> str:
     """
     タスク本文からChatWorkのタグや記号を完全に除去（要約用）
 
-    ★★★ v10.6.0: 強化版クリーニング ★★★
+    ★★★ v10.6.1: 引用ブロック処理改善 ★★★
+
+    v10.6.0の問題:
+    - 引用ブロック全体を削除していたため、本文が引用のみの場合に空になっていた
+    - 結果として「（タスク内容なし）」が多発
+
+    v10.6.1の改善:
+    - 引用外のテキストがあればそれを優先使用
+    - 引用のみの場合は、引用内のテキストを抽出して使用
+
+    TODO: Phase 3.5でlib/に共通化予定
     """
     if not body:
         return ""
@@ -176,10 +209,33 @@ def clean_task_body_for_summary(body: str) -> str:
             return ""
 
     try:
-        # 1. [qt][qtmeta...]...[/qt] 形式の引用全体を除去
-        body = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        # =====================================================
+        # 1. 引用ブロックの処理（v10.6.1改善）
+        # =====================================================
+        # まず引用外のテキストを抽出してみる
+        non_quote_text = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        non_quote_text = non_quote_text.strip()
 
-        # 2. [qtmeta ...] タグを除去
+        # 引用外にテキストが十分あればそれを使用
+        if non_quote_text and len(non_quote_text) > 10:
+            body = non_quote_text
+        else:
+            # 引用のみ、または引用外のテキストが短い場合
+            # → 引用内のテキストを抽出
+            quote_matches = re.findall(
+                r'\[qt\]\[qtmeta[^\]]*\](.*?)\[/qt\]',
+                body,
+                flags=re.DOTALL
+            )
+            if quote_matches:
+                # 複数の引用がある場合は結合
+                extracted_text = ' '.join(quote_matches)
+                # 引用内テキストが空でなければ使用
+                if extracted_text.strip():
+                    body = extracted_text
+            # 引用からも抽出できない場合は元のテキストを使用（タグ除去後）
+
+        # 2. [qtmeta ...] タグを除去（残っている場合）
         body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
 
         # 3. [qt] [/qt] の単独タグを除去
@@ -232,18 +288,360 @@ def clean_task_body_for_summary(body: str) -> str:
         return body
 
 
+def _ensure_complete_summary(summary: str, max_length: int = 40) -> str:
+    """
+    要約が途中で途切れないように調整する
+
+    ★★★ v10.9.0: 途切れ防止の徹底 ★★★
+
+    優先順位:
+    1. max_length以内ならそのまま返す
+    2. 句点(。)で終わる位置を探す
+    3. 読点(、)で終わる位置を探す
+    4. 助詞・助動詞の後で切る（自然な区切り）
+    5. 最終手段: 動詞・名詞の後で切る
+
+    Args:
+        summary: 元の要約
+        max_length: 最大文字数
+
+    Returns:
+        完結した要約（途中で途切れない）
+    """
+    if len(summary) <= max_length:
+        return summary
+
+    # 1. 句点(。)で終わる位置を探す
+    for i in range(max_length - 1, max_length // 2, -1):
+        if summary[i] == '。':
+            return summary[:i + 1]
+
+    # 2. 読点(、)で終わる位置を探す
+    for i in range(max_length - 1, max_length // 2, -1):
+        if summary[i] == '、':
+            return summary[:i + 1]
+
+    # 3. 自然な区切り文字を探す
+    natural_breaks = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も', 'から', 'まで', 'より']
+    for i in range(max_length - 1, max_length // 2, -1):
+        for brk in natural_breaks:
+            if summary[i:i+len(brk)] == brk or (i > 0 and summary[i-len(brk)+1:i+1] == brk):
+                # 助詞の後で切る
+                cut_pos = i + 1
+                if cut_pos <= max_length:
+                    return summary[:cut_pos]
+
+    # 4. 動作を表す語の後で切る
+    action_endings = ['確認', '依頼', '報告', '対応', '作成', '提出', '送付', '連絡', '相談', '検討', '準備', '完了', '実施', '設定', '登録', '更新', '共有', '調整']
+    for i in range(max_length - 2, max_length // 2, -1):
+        for action in action_endings:
+            if summary[i:i+len(action)] == action:
+                cut_pos = i + len(action)
+                if cut_pos <= max_length:
+                    return summary[:cut_pos]
+
+    # 5. 最終手段: max_length-1文字で切って「」で終わる（「…」は使わない）
+    # ただし、漢字・ひらがな・カタカナの途中では切らない
+    # 単語の区切りを探す
+    for i in range(max_length - 1, max_length // 2, -1):
+        char = summary[i]
+        prev_char = summary[i - 1] if i > 0 else ''
+        # スペース、記号の後なら切れる
+        if char in ' 　・／/（）()「」『』【】':
+            return summary[:i]
+        # ひらがな→漢字、カタカナ→漢字の境界
+        if prev_char and (
+            (_is_hiragana(prev_char) and _is_kanji(char)) or
+            (_is_katakana(prev_char) and _is_kanji(char)) or
+            (_is_kanji(prev_char) and _is_hiragana(char))
+        ):
+            return summary[:i]
+
+    # 本当の最終手段: 38文字で切る（途切れ感を最小限に）
+    return summary[:max_length - 2] + "する"
+
+
+def _is_hiragana(char: str) -> bool:
+    """ひらがな判定"""
+    return '\u3040' <= char <= '\u309f'
+
+
+def _is_katakana(char: str) -> bool:
+    """カタカナ判定"""
+    return '\u30a0' <= char <= '\u30ff'
+
+
+def _is_kanji(char: str) -> bool:
+    """漢字判定"""
+    return '\u4e00' <= char <= '\u9fff'
+
+
+def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, retry_count: int = 0) -> str:
+    """
+    Gemini 3 Flash でタスクを要約する
+
+    ★★★ v10.9.0: 完全リニューアル ★★★
+
+    改善点:
+    - Gemini 3 Flash に変更（より高精度）
+    - 40文字制限（より詳細な要約）
+    - 途中で途切れない徹底対策
+    - 超過時は再生成を試みる
+
+    Args:
+        clean_body: タグ除去済みのタスク本文
+        max_length: 最大文字数（デフォルト40）
+        retry_count: リトライ回数（内部使用）
+
+    Returns:
+        要約（max_length文字以内、完結した文）、失敗時はNone
+    """
+    api_key = get_google_ai_api_key()
+    if not api_key:
+        print("⚠️ GOOGLE_AI_API_KEY が設定されていません")
+        return None
+
+    # リトライ上限チェック（レート制限用）
+    MAX_RATE_RETRIES = 3
+    if retry_count >= MAX_RATE_RETRIES:
+        print(f"⚠️ Gemini リトライ上限到達 ({MAX_RATE_RETRIES}回)")
+        return None
+
+    try:
+        # Gemini クライアント初期化
+        client = genai.Client(api_key=api_key)
+
+        # ============================================
+        # 第1段階: 通常のプロンプトで要約生成
+        # ============================================
+        prompt = f"""あなたはタスク管理アシスタントです。
+以下のタスク本文を読んで、「何をすべきか」を{max_length}文字以内の日本語で要約してください。
+
+【絶対に守るルール】
+1. {max_length}文字以内で必ず文を完結させる
+2. 途中で途切れる表現は絶対にNG（例: 「～を確認し…」はダメ）
+3. 「確認」「依頼」「対応」「作成」など動作で終わる
+4. 挨拶（お疲れ様です、cc、Re: など）は完全に無視
+5. 要約のみを出力（説明や補足は不要）
+
+【良い例】
+- 「ICT補助金の対象可否を確認」（21文字・完結）
+- 「給与明細を作成して提出」（11文字・完結）
+- 「カレンダー共有設定を再設定」（13文字・完結）
+
+【悪い例】
+- 「ICT補助金にソウルシンクスが…」（途切れている）
+- 「給与明細を作成し、提出を…」（途切れている）
+
+タスク本文:
+{clean_body[:500]}
+
+要約（{max_length}文字以内で完結）:"""
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+            config={
+                "max_output_tokens": 80,
+                "temperature": 0.1,
+            }
+        )
+
+        summary = response.text.strip()
+        # 余計な引用符や説明を除去
+        summary = summary.strip('"\'「」')
+        # 改行があれば最初の行のみ使用
+        if '\n' in summary:
+            summary = summary.split('\n')[0].strip()
+
+        # ============================================
+        # 第2段階: 短すぎる場合は再生成
+        # ============================================
+        MIN_SUMMARY_LENGTH = 10
+        if len(summary) < MIN_SUMMARY_LENGTH:
+            print(f"⚠️ 要約が短すぎる（{len(summary)}文字）、再生成...")
+
+            # より具体的なプロンプトで再生成
+            retry_prompt = f"""以下のタスク本文を読んで、「何をすべきか」を20〜35文字の日本語で要約してください。
+
+【絶対に守るルール】
+1. 必ず20文字以上35文字以下にする
+2. 「確認する」「作成する」「対応する」など動作で終わる完結した文にする
+3. 挨拶や定型文は無視する
+4. 要約のみを出力（説明不要）
+
+タスク本文:
+{clean_body[:500]}
+
+要約（20〜35文字の完結した文）:"""
+
+            retry_response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=retry_prompt,
+                config={
+                    "max_output_tokens": 80,
+                    "temperature": 0.2,
+                }
+            )
+
+            retry_summary = retry_response.text.strip().strip('"\'「」')
+            if '\n' in retry_summary:
+                retry_summary = retry_summary.split('\n')[0].strip()
+
+            if len(retry_summary) >= MIN_SUMMARY_LENGTH and len(retry_summary) <= max_length:
+                summary = retry_summary
+                print(f"✅ 再生成成功: {summary}（{len(summary)}文字）")
+            elif len(retry_summary) > max_length:
+                summary = _ensure_complete_summary(retry_summary, max_length)
+                print(f"✅ 再生成後調整: {summary}（{len(summary)}文字）")
+            else:
+                # 再生成でも短い場合はフォールバック
+                print(f"⚠️ 再生成でも短い（{len(retry_summary)}文字）、フォールバック使用")
+                return None
+
+        # ============================================
+        # 第3段階: 長すぎる場合は短縮
+        # ============================================
+        if len(summary) > max_length:
+            print(f"⚠️ 要約が{len(summary)}文字（{max_length}文字超過）、短縮版を再生成...")
+
+            # より厳しいプロンプトで再生成
+            strict_prompt = f"""タスク要約を{max_length - 5}文字以内で作成してください。
+
+【厳守】
+- 必ず{max_length - 5}文字以内
+- 文を完結させる（「～する」「～を確認」等で終わる）
+- 途切れ厳禁
+
+元の要約: {summary}
+
+短縮版:"""
+
+            strict_response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=strict_prompt,
+                config={
+                    "max_output_tokens": 60,
+                    "temperature": 0.0,
+                }
+            )
+
+            strict_summary = strict_response.text.strip().strip('"\'「」')
+            if '\n' in strict_summary:
+                strict_summary = strict_summary.split('\n')[0].strip()
+
+            if len(strict_summary) <= max_length:
+                summary = strict_summary
+                print(f"✅ 短縮成功: {summary}")
+            else:
+                # それでも超過する場合は賢く切り詰め
+                summary = _ensure_complete_summary(summary, max_length)
+                print(f"✅ 調整後: {summary}")
+
+        print(f"📝 Gemini要約生成: {summary}（{len(summary)}文字）")
+        return summary
+
+    except Exception as e:
+        error_str = str(e)
+        # レート制限エラーの場合はリトライ
+        if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+            wait_time = 5 * (2 ** retry_count)
+            print(f"⚠️ Gemini レート制限、{wait_time}秒待機後リトライ ({retry_count + 1}/{MAX_RATE_RETRIES})")
+            time.sleep(wait_time)
+            return generate_task_summary_with_gemini(clean_body, max_length, retry_count + 1)
+
+        print(f"⚠️ Gemini要約生成に失敗: {e}")
+        return None
+
+
+def generate_task_summary_with_anthropic(clean_body: str, max_length: int = 40) -> str:
+    """
+    Anthropic Claude でタスクを要約する（バックアップ用）
+
+    ★★★ v10.9.0: 40文字対応 + 途切れ防止 ★★★
+
+    Args:
+        clean_body: タグ除去済みのタスク本文
+        max_length: 最大文字数（デフォルト40）
+
+    Returns:
+        要約（max_length文字以内、完結した文）、失敗時はNone
+    """
+    api_key = get_anthropic_api_key()
+    if not api_key:
+        print("⚠️ ANTHROPIC_API_KEY が設定されていません")
+        return None
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=80,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""あなたはタスク管理アシスタントです。
+以下のタスク本文を読んで、「何をすべきか」を{max_length}文字以内の日本語で要約してください。
+
+【絶対に守るルール】
+1. {max_length}文字以内で必ず文を完結させる
+2. 途中で途切れる表現は絶対にNG
+3. 「確認」「依頼」「対応」「作成」など動作で終わる
+4. 挨拶（お疲れ様です、cc、Re: など）は完全に無視
+5. 要約のみを出力
+
+タスク本文:
+{clean_body[:500]}
+
+要約（{max_length}文字以内で完結）:"""
+                }
+            ]
+        )
+
+        summary = message.content[0].text.strip()
+        summary = summary.strip('"\'「」')
+        if '\n' in summary:
+            summary = summary.split('\n')[0].strip()
+
+        # 超過時は賢く切り詰め
+        if len(summary) > max_length:
+            summary = _ensure_complete_summary(summary, max_length)
+
+        print(f"📝 Anthropic要約生成: {summary}（{len(summary)}文字）")
+        return summary
+
+    except Exception as e:
+        print(f"⚠️ Anthropic要約生成に失敗: {e}")
+        return None
+
+
+# =====================================================
+# タスク要約の文字数設定
+# ★★★ v10.9.0: 40文字に変更 ★★★
+# =====================================================
+TASK_SUMMARY_MAX_LENGTH = 40
+
+
 def generate_task_summary(task_body: str) -> str:
     """
-    タスクの本文を1行に要約する
+    タスクの本文をAIで要約する
 
-    ★★★ v10.6.0: 改善版（途切れ防止、40文字以内）★★★
+    ★★★ v10.9.0: Gemini 3 Flash + 40文字 + 途切れ防止 ★★★
+
+    優先順位:
+    1. Gemini 3 Flash（メイン）
+    2. Anthropic Claude Haiku（フォールバック）
+    3. ルールベース切り詰め（最終手段）
 
     Args:
         task_body: タスクの本文
 
     Returns:
-        要約（最大50文字程度、途切れない形）
+        要約（40文字以内、完結した文）
     """
+    max_length = TASK_SUMMARY_MAX_LENGTH
+
     # まずタグを完全に除去
     clean_body = clean_task_body_for_summary(task_body)
 
@@ -251,53 +649,24 @@ def generate_task_summary(task_body: str) -> str:
     if not clean_body:
         return "（タスク内容なし）"
 
-    # 本文が短い場合はそのまま返す
-    if len(clean_body) <= 40:
+    # 本文が非常に短い場合はそのまま返す
+    if len(clean_body) <= max_length:
         return clean_body
 
-    # API キーを取得
-    api_key = get_anthropic_api_key()
-    if not api_key:
-        print("⚠️ ANTHROPIC_API_KEY が設定されていないため、要約をスキップ")
-        # エラー時は意味が通る形で切り詰め
-        return _truncate_text_safely(clean_body, 40)
-
-    try:
-        client = anthropic.Anthropic(api_key=api_key)
-
-        message = client.messages.create(
-            model="claude-3-5-haiku-20241022",
-            max_tokens=100,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""以下のタスク依頼文を、やるべきことだけを1行（40文字以内）で要約してください。
-敬語や依頼表現は省き、簡潔に。
-**重要**: 途中で切らず、意味が通る形にしてください。
-要約のみを出力し、説明は不要です。
-
-タスク依頼文:
-{clean_body[:500]}
-
-要約:"""
-                }
-            ]
-        )
-
-        summary = message.content[0].text.strip()
-        # 余計な引用符や説明を除去
-        summary = summary.strip('"\'「」')
-        # 50文字を超えたら安全に切り詰め
-        if len(summary) > 50:
-            summary = _truncate_text_safely(summary, 47)
-
-        print(f"📝 要約生成: {summary}")
+    # 1. Gemini で要約を試みる（メイン）
+    summary = generate_task_summary_with_gemini(clean_body, max_length)
+    if summary:
         return summary
 
-    except Exception as e:
-        print(f"⚠️ 要約生成に失敗（フォールバック使用）: {e}")
-        # エラー時は意味が通る形で切り詰め
-        return _truncate_text_safely(clean_body, 40)
+    # 2. Anthropic でフォールバック
+    print("⚠️ Gemini失敗、Anthropicにフォールバック")
+    summary = generate_task_summary_with_anthropic(clean_body, max_length)
+    if summary:
+        return summary
+
+    # 3. 最終フォールバック: 賢い切り詰め（途切れ防止）
+    print("⚠️ 全AIモデル失敗、賢い切り詰め使用")
+    return _ensure_complete_summary(clean_body, max_length)
 
 
 def _truncate_text_safely(text: str, max_length: int) -> str:
@@ -375,31 +744,67 @@ def backfill_task_summaries(conn, cursor, limit: int = 50) -> dict:
     return result
 
 
-def regenerate_all_summaries(conn, cursor, limit: int = 50) -> dict:
+def regenerate_all_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> dict:
     """
     全タスクの要約を再生成する（既存の要約も上書き）
 
-    ★★★ v10.6.0: 新関数 ★★★
-    clean_task_body改善後に全要約を再生成するために使用
+    ★★★ v10.6.1: バグ修正 - offset対応 ★★★
+
+    v10.6.0のバグ:
+    - ORDER BY task_id DESC LIMIT 50 が常に同じ50件を返していた
+    - 何度実行しても最新50件しか再生成されなかった
+
+    v10.6.1の修正:
+    - offsetパラメータを追加してバッチ処理に対応
+    - next_offsetを返すことで呼び出し側がループ処理可能
+    - 設計原則10.3「ページネーション対応」に準拠
 
     Args:
         conn: DB接続
         cursor: DBカーソル
+        offset: 開始位置（バッチ処理の再開に使用）
         limit: 一度に処理する件数
 
     Returns:
-        処理結果の辞書 {"total": int, "success": int, "failed": int}
+        処理結果の辞書:
+        {
+            "total": 全openタスク数,
+            "processed": 今回処理した件数,
+            "success": 成功件数,
+            "failed": 失敗件数,
+            "offset": 今回のオフセット,
+            "next_offset": 次のオフセット（Noneなら完了）
+        }
     """
-    # 全タスクを取得（既存の要約も上書き）
+    # 全件数を取得
+    cursor.execute("""
+        SELECT COUNT(*) FROM chatwork_tasks
+        WHERE status = 'open'
+    """)
+    total_count = cursor.fetchone()[0]
+
+    # offsetベースでバッチ取得（ASC順で一貫性を保つ）
     cursor.execute("""
         SELECT task_id, body FROM chatwork_tasks
         WHERE status = 'open'
-        ORDER BY task_id DESC
-        LIMIT %s
-    """, (limit,))
+        ORDER BY task_id ASC
+        LIMIT %s OFFSET %s
+    """, (limit, offset))
     tasks = cursor.fetchall()
 
-    result = {"total": len(tasks), "success": 0, "failed": 0}
+    # 次のオフセットを計算
+    next_offset = offset + len(tasks) if offset + len(tasks) < total_count else None
+
+    result = {
+        "total": total_count,
+        "processed": len(tasks),
+        "success": 0,
+        "failed": 0,
+        "offset": offset,
+        "next_offset": next_offset
+    }
+
+    print(f"📊 再生成バッチ開始: offset={offset}, limit={limit}, 取得件数={len(tasks)}, 全件数={total_count}")
 
     for task_id, body in tasks:
         try:
@@ -411,10 +816,13 @@ def regenerate_all_summaries(conn, cursor, limit: int = 50) -> dict:
             """, (summary, task_id))
             conn.commit()
             result["success"] += 1
-            print(f"✅ 要約再生成完了: task_id={task_id}, summary={summary[:30]}...")
+            # 要約が長い場合は30文字で切る
+            summary_preview = summary[:30] + "..." if len(summary) > 30 else summary
+            print(f"✅ [{offset + result['success']}/{total_count}] task_id={task_id}, summary={summary_preview}")
 
-            # レート制限対策で少し待つ
-            time.sleep(0.5)
+            # v10.8.2: レート制限対策（Gemini課金版: 1000+ RPM）
+            # 5秒間隔で十分
+            time.sleep(5)
 
         except Exception as e:
             print(f"❌ 要約再生成失敗: task_id={task_id}, error={e}")
@@ -423,6 +831,8 @@ def regenerate_all_summaries(conn, cursor, limit: int = 50) -> dict:
                 conn.rollback()
             except Exception:
                 pass
+
+    print(f"📊 再生成バッチ完了: 成功={result['success']}, 失敗={result['failed']}, next_offset={result['next_offset']}")
 
     return result
 
@@ -5890,35 +6300,46 @@ def get_room_tasks(room_id, status='open'):
 
 def send_completion_notification(room_id, task, assigned_by_name):
     """
-    タスク完了通知を送信（リトライ機構付き v10.3.3）
+    タスク完了通知を送信（個別通知）
+
+    ★★★ v10.7.0: 無効化 ★★★
+    個別グループへの完了通知を廃止。
+    代わりに remind-tasks の process_completed_tasks_summary() で
+    管理部チャットに1日1回まとめて報告する方式に変更。
 
     Args:
         room_id: ルームID
         task: タスク情報の辞書
         assigned_by_name: 依頼者名
     """
-    assigned_to_name = task.get('account', {}).get('name', '担当者')
-    task_body = task.get('body', 'タスク')
+    # v10.7.0: 個別通知を無効化（管理部への日次報告に集約）
+    task_id = task.get('task_id', 'unknown')
+    print(f"📝 [v10.7.0] 完了通知スキップ: task_id={task_id} (管理部への日次報告に集約)")
+    return
 
-    message = f"[info][title]{assigned_to_name}さんがタスクを完了しましたウル！[/title]"
-    message += f"タスク: {task_body}\n"
-    message += f"依頼者: {assigned_by_name}さん\n"
-    message += f"お疲れ様でしたウル！[/info]"
-
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-
-    response, success = call_chatwork_api_with_retry(
-        method="POST",
-        url=url,
-        headers={"X-ChatWorkToken": api_token},
-        data={'body': message}
-    )
-
-    if success and response and response.status_code == 200:
-        print(f"Completion notification sent for task {task['task_id']} in room {room_id}")
-    elif response:
-        print(f"Failed to send completion notification: {response.status_code}")
+    # --- 以下は無効化（v10.7.0以前のコード） ---
+    # assigned_to_name = task.get('account', {}).get('name', '担当者')
+    # task_body = task.get('body', 'タスク')
+    #
+    # message = f"[info][title]{assigned_to_name}さんがタスクを完了しましたウル！[/title]"
+    # message += f"タスク: {task_body}\n"
+    # message += f"依頼者: {assigned_by_name}さん\n"
+    # message += f"お疲れ様でしたウル！[/info]"
+    #
+    # url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
+    # api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    #
+    # response, success = call_chatwork_api_with_retry(
+    #     method="POST",
+    #     url=url,
+    #     headers={"X-ChatWorkToken": api_token},
+    #     data={'body': message}
+    # )
+    #
+    # if success and response and response.status_code == 200:
+    #     print(f"Completion notification sent for task {task['task_id']} in room {room_id}")
+    # elif response:
+    #     print(f"Failed to send completion notification: {response.status_code}")
 
 def sync_room_members():
     """全ルームのメンバーをchatwork_usersテーブルに同期（リトライ機構付き v10.3.3）"""
@@ -6571,14 +6992,48 @@ def sync_chatwork_tasks(request):
         # ★★★ v6.8.4: バッファに溜まった通知を送信 ★★★
         flush_dm_unavailable_notifications()
 
-        # ★★★ v10.5.0/v10.6.0: 要約バックフィル/再生成 ★★★
+        # ★★★ v10.5.0/v10.6.1: 要約バックフィル/再生成 ★★★
         backfill_result = None
         if regenerate_summaries:
-            # v10.6.0: 全タスクの要約を再生成（既存の要約も上書き）
+            # v10.6.1: 全タスクの要約を再生成（既存の要約も上書き）
+            # ★★★ バグ修正: ループ処理で全件を処理 ★★★
             print("=== Starting task summary REGENERATION (all tasks) ===")
             try:
-                backfill_result = regenerate_all_summaries(conn, cursor, limit=50)
+                total_success = 0
+                total_failed = 0
+                total_count = 0
+                offset = 0
+                batch_num = 1
+
+                while True:
+                    print(f"--- バッチ {batch_num} 開始 (offset={offset}) ---")
+                    batch_result = regenerate_all_summaries(conn, cursor, offset=offset, limit=50)
+
+                    total_count = batch_result["total"]
+                    total_success += batch_result["success"]
+                    total_failed += batch_result["failed"]
+
+                    print(f"--- バッチ {batch_num} 完了: 成功={batch_result['success']}, 失敗={batch_result['failed']} ---")
+
+                    # 次のバッチがあるかチェック
+                    if batch_result["next_offset"] is None:
+                        print("=== 全バッチ処理完了 ===")
+                        break
+
+                    offset = batch_result["next_offset"]
+                    batch_num += 1
+
+                    # 各バッチ間で少し待つ（API負荷軽減）
+                    time.sleep(1)
+
+                backfill_result = {
+                    "total": total_count,
+                    "success": total_success,
+                    "failed": total_failed,
+                    "batches": batch_num
+                }
                 print(f"✅ 要約再生成完了: {backfill_result}")
+
             except Exception as e:
                 print(f"⚠️ 要約再生成エラー: {e}")
                 import traceback

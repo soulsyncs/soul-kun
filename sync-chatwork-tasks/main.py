@@ -5572,9 +5572,10 @@ def get_room_tasks(room_id, status='open'):
         タスクのリスト
     """
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
+    # ★★★ v10.4.0: 全タスク同期対応 ★★★
+    # assigned_by_account_id フィルタを削除し、全ユーザーが作成したタスクを取得
     params = {
         'status': status,
-        'assigned_by_account_id': BOT_ACCOUNT_ID
     }
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
 
@@ -5912,6 +5913,11 @@ def log_deadline_alert_for_manual_task(
         cursor.close()
         print(f"📝 期限アラートをログに記録: task_id={task_id}, days_until={days_until}")
     except Exception as e:
+        # ★★★ v10.4.0: トランザクションをロールバックして接続を正常状態に戻す ★★★
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"⚠️ 期限アラートのログ記録に失敗（処理は続行）: {e}")
 
 
@@ -5966,14 +5972,23 @@ def send_deadline_alert_to_requester(
     # 依頼者名を取得（メンション用）
     requester_name = None
     try:
-        result = conn.execute(
-            sqlalchemy.text("SELECT name FROM chatwork_users WHERE account_id = :account_id LIMIT 1"),
-            {"account_id": int(assigned_by_account_id)}
-        ).fetchone()
+        # ★★★ v10.4.0: pg8000接続なのでcursorを使用 ★★★
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT name FROM chatwork_users WHERE account_id = %s LIMIT 1",
+            (int(assigned_by_account_id),)
+        )
+        result = cursor.fetchone()
+        cursor.close()
         if result:
             requester_name = result[0]
             print(f"👤 依頼者名取得: {assigned_by_account_id} → {requester_name}")
     except Exception as e:
+        # ★★★ v10.4.0: トランザクションをロールバック ★★★
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         print(f"⚠️ 依頼者名取得失敗（処理は続行）: {e}")
 
     # アラートメッセージを生成
@@ -6166,6 +6181,8 @@ def sync_chatwork_tasks(request):
                             assigned_to_name = %s
                         WHERE task_id = %s
                     """, (body, limit_datetime, room_name, assigned_to_name, task_id))
+                    # ★★★ v10.4.0: UPDATEをコミット ★★★
+                    conn.commit()
                 else:
                     # 新規タスクの挿入
                     cursor.execute("""
@@ -6175,6 +6192,10 @@ def sync_chatwork_tasks(request):
                         VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
                           limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
+
+                    # ★★★ v10.4.0: INSERTをコミットしてから通知処理を実行 ★★★
+                    # 通知処理でエラーが発生してもタスクの登録は保持される
+                    conn.commit()
 
                     # =====================================================
                     # v10.3.1: 期限ガードレール（手動追加時）

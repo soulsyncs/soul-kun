@@ -2041,11 +2041,12 @@ def get_room_tasks(room_id, status='open'):
         タスクのリスト
     """
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
+    # ★★★ v10.4.0: 全タスク同期対応 ★★★
+    # assigned_by_account_id フィルタを削除し、全ユーザーが作成したタスクを取得
     params = {
         'status': status,
-        'assigned_by_account_id': BOT_ACCOUNT_ID
     }
-    
+
     headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
     response = httpx.get(url, headers=headers, params=params )
     

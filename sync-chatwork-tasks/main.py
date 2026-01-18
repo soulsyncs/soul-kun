@@ -15,6 +15,8 @@ import traceback
 import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
+import anthropic  # v10.5.0: タスク要約機能用
+import os  # v10.5.0: 環境変数取得用
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -130,6 +132,149 @@ _dm_unavailable_buffer = []  # ★★★ v6.8.3: DM不可通知のバッファ�
 
 # JST タイムゾーン
 JST = timezone(timedelta(hours=9))
+
+# =====================================================
+# v10.5.0: タスク要約機能
+# =====================================================
+# Claude API (Haiku) を使用してタスク本文を1行に要約
+# リマインドメッセージで表示するために使用
+# =====================================================
+
+def get_anthropic_api_key() -> str:
+    """
+    Anthropic API キーを取得する
+
+    Returns:
+        API キー文字列
+    """
+    # 環境変数から取得（Cloud Functionsで設定）
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if api_key:
+        return api_key
+
+    # Secret Managerから取得（フォールバック）
+    try:
+        return get_secret("ANTHROPIC_API_KEY")
+    except Exception as e:
+        print(f"⚠️ ANTHROPIC_API_KEY の取得に失敗: {e}")
+        return None
+
+
+def generate_task_summary(task_body: str) -> str:
+    """
+    タスクの本文を1行に要約する
+
+    Args:
+        task_body: タスクの本文
+
+    Returns:
+        要約（最大50文字程度）
+    """
+    # ChatWorkの引用タグを除去
+    clean_body = re.sub(r'\[qt\].*?\[/qt\]', '', task_body, flags=re.DOTALL)
+    clean_body = re.sub(r'\[qtmeta[^\]]*\]', '', clean_body)
+    clean_body = re.sub(r'\[/?[a-z]+[^\]]*\]', '', clean_body)  # その他のタグも除去
+    clean_body = clean_body.strip()
+
+    # 本文が空の場合
+    if not clean_body:
+        return task_body[:30] + "..." if len(task_body) > 30 else task_body
+
+    # 本文が短い場合はそのまま返す
+    if len(clean_body) <= 30:
+        return clean_body
+
+    # API キーを取得
+    api_key = get_anthropic_api_key()
+    if not api_key:
+        print("⚠️ ANTHROPIC_API_KEY が設定されていないため、要約をスキップ")
+        return clean_body[:30] + "..." if len(clean_body) > 30 else clean_body
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        message = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=100,
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""以下のタスク依頼文を、やるべきことだけを1行（30文字以内）で要約してください。
+敬語や依頼表現は省き、動詞で終わる形にしてください。
+要約のみを出力し、説明は不要です。
+
+タスク依頼文:
+{clean_body[:500]}
+
+要約:"""
+                }
+            ]
+        )
+
+        summary = message.content[0].text.strip()
+        # 余計な引用符や説明を除去
+        summary = summary.strip('"\'「」')
+        # 50文字を超えたら切り詰め
+        if len(summary) > 50:
+            summary = summary[:47] + "..."
+
+        print(f"📝 要約生成: {summary}")
+        return summary
+
+    except Exception as e:
+        print(f"⚠️ 要約生成に失敗（フォールバック使用）: {e}")
+        # エラー時は本文の先頭30文字を返す
+        return clean_body[:30] + "..." if len(clean_body) > 30 else clean_body
+
+
+def backfill_task_summaries(conn, cursor, limit: int = 50) -> dict:
+    """
+    既存タスクの要約を一括生成する
+
+    Args:
+        conn: DB接続
+        cursor: DBカーソル
+        limit: 一度に処理する件数
+
+    Returns:
+        処理結果の辞書 {"total": int, "success": int, "failed": int}
+    """
+    # summary が NULL のタスクを取得
+    cursor.execute("""
+        SELECT task_id, body FROM chatwork_tasks
+        WHERE summary IS NULL
+        ORDER BY task_id DESC
+        LIMIT %s
+    """, (limit,))
+    tasks = cursor.fetchall()
+
+    result = {"total": len(tasks), "success": 0, "failed": 0}
+
+    for task_id, body in tasks:
+        try:
+            summary = generate_task_summary(body)
+            cursor.execute("""
+                UPDATE chatwork_tasks
+                SET summary = %s
+                WHERE task_id = %s
+            """, (summary, task_id))
+            conn.commit()
+            result["success"] += 1
+            print(f"✅ 要約生成完了: task_id={task_id}")
+
+            # レート制限対策で少し待つ
+            time.sleep(0.3)
+
+        except Exception as e:
+            print(f"❌ 要約生成失敗: task_id={task_id}, error={e}")
+            result["failed"] += 1
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+    return result
+
 
 # =====================================================
 # v10.3.1: 期限ガードレール設定
@@ -6040,6 +6185,8 @@ def sync_chatwork_tasks(request):
 
     # ★★★ v10.3.4: パラメータ取得 ★★★
     include_done = request.args.get('include_done', 'false').lower() == 'true'
+    # ★★★ v10.5.0: 要約バックフィルパラメータ ★★★
+    backfill_summaries = request.args.get('backfill_summaries', 'false').lower() == 'true'
 
     sync_mode = "open + done" if include_done else "open only"
     print(f"=== Starting task sync ({sync_mode}) ===")
@@ -6185,13 +6332,21 @@ def sync_chatwork_tasks(request):
                     conn.commit()
                 else:
                     # 新規タスクの挿入
+                    # ★★★ v10.5.0: タスク要約を生成 ★★★
+                    summary = None
+                    try:
+                        summary = generate_task_summary(body)
+                        print(f"📝 要約生成: {summary[:30]}..." if summary and len(summary) > 30 else f"📝 要約生成: {summary}")
+                    except Exception as e:
+                        print(f"⚠️ 要約生成エラー（タスク登録は続行）: {e}")
+
                     cursor.execute("""
                         INSERT INTO chatwork_tasks
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s)
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary))
 
                     # ★★★ v10.4.0: INSERTをコミットしてから通知処理を実行 ★★★
                     # 通知処理でエラーが発生してもタスクの登録は保持される
@@ -6257,11 +6412,26 @@ def sync_chatwork_tasks(request):
 
         conn.commit()
         print(f"=== Task sync completed ({sync_mode}) ===")
-        
+
         # ★★★ v6.8.4: バッファに溜まった通知を送信 ★★★
         flush_dm_unavailable_notifications()
-        
-        return ('Task sync completed', 200)
+
+        # ★★★ v10.5.0: 要約バックフィル（リクエストパラメータで指定時のみ）★★★
+        backfill_result = None
+        if backfill_summaries:
+            print("=== Starting task summary backfill ===")
+            try:
+                backfill_result = backfill_task_summaries(conn, cursor, limit=50)
+                print(f"✅ 要約バックフィル完了: {backfill_result}")
+            except Exception as e:
+                print(f"⚠️ 要約バックフィルエラー: {e}")
+                import traceback
+                traceback.print_exc()
+
+        result_msg = f'Task sync completed'
+        if backfill_result:
+            result_msg += f", backfill: {backfill_result['success']}/{backfill_result['total']}"
+        return (result_msg, 200)
         
     except Exception as e:
         # ★★★ v6.8.5: conn存在チェック追加 ★★★

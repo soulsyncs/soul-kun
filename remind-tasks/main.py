@@ -2885,6 +2885,22 @@ def ensure_overdue_tables():
                 print("✅ metadataカラム確認/追加完了")
             except Exception as e:
                 print(f"⚠️ metadataカラム追加エラー（無視）: {e}")
+            # ★★★ v10.5.0: check_notification_type制約を更新（task_escalation追加）★★★
+            try:
+                with pool.begin() as conn:
+                    conn.execute(sqlalchemy.text("""
+                        ALTER TABLE notification_logs DROP CONSTRAINT IF EXISTS check_notification_type
+                    """))
+                    conn.execute(sqlalchemy.text("""
+                        ALTER TABLE notification_logs ADD CONSTRAINT check_notification_type
+                        CHECK (notification_type IN (
+                            'task_reminder', 'task_overdue', 'task_escalation',
+                            'deadline_alert', 'escalation_alert', 'dm_unavailable'
+                        ))
+                    """))
+                print("✅ check_notification_type制約更新完了")
+            except Exception as e:
+                print(f"⚠️ check_notification_type制約更新エラー（無視）: {e}")
         else:
             with pool.begin() as conn:
                 conn.execute(sqlalchemy.text("""
@@ -4878,19 +4894,22 @@ def remind_tasks(request):
         three_days_later = today + timedelta(days=3)
         
         # リマインド対象のタスクを取得
+        # ★★★ v10.5.0: summaryカラムを追加 ★★★
         cursor.execute("""
-            SELECT task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name
+            SELECT task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary
             FROM chatwork_tasks
             WHERE status = 'open'
               AND skip_tracking = FALSE
               AND reminder_disabled = FALSE
               AND limit_time IS NOT NULL
         """)
-        
+
         tasks = cursor.fetchall()
-        
+
         for task in tasks:
-            task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name = task
+            task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary = task
+            # ★★★ v10.5.0: 要約があれば要約を、なければbodyを使用 ★★★
+            task_display = summary if summary else (body[:50] + "..." if len(body) > 50 else body)
             
             # ★★★ v6.8.6: limit_timeをdateに変換（int/float両対応）★★★
             if limit_time is None:
@@ -4930,12 +4949,13 @@ def remind_tasks(request):
                 
                 if not already_sent:
                     # リマインドメッセージを作成
+                    # ★★★ v10.5.0: bodyの代わりにtask_display（要約）を使用 ★★★
                     if reminder_type == 'today':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n今日が期限のタスクがありますウル！\n\nタスク: {body}\n期限: 今日\n\n頑張ってくださいウル！"
+                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n今日が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 今日\n\n頑張ってくださいウル！"
                     elif reminder_type == 'tomorrow':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n明日が期限のタスクがありますウル！\n\nタスク: {body}\n期限: 明日\n\n準備はできていますかウル？"
+                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n明日が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 明日\n\n準備はできていますかウル？"
                     elif reminder_type == 'three_days':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n3日後が期限のタスクがありますウル！\n\nタスク: {body}\n期限: 3日後\n\n計画的に進めましょうウル！"
+                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n3日後が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 3日後\n\n計画的に進めましょうウル！"
                     
                     # メッセージを送信
                     url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"

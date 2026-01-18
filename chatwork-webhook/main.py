@@ -1296,6 +1296,35 @@ def get_chatwork_account_id_by_name(name):
         print(f"❌ 担当者が見つかりません: {name} (クリーニング後: {clean_name}, 正規化: {normalized_name})")
         return None
 
+
+def get_room_members(room_id):
+    """ルームのメンバー一覧を取得"""
+    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
+
+    try:
+        response = httpx.get(
+            url,
+            headers={"X-ChatWorkToken": api_token},
+            timeout=10.0
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            print(f"ルームメンバー取得エラー: {response.status_code} - {response.text}")
+            return []
+    except Exception as e:
+        print(f"ルームメンバー取得例外: {e}")
+        return []
+
+
+def is_room_member(room_id, account_id):
+    """指定したアカウントがルームのメンバーかどうかを確認"""
+    members = get_room_members(room_id)
+    member_ids = [m.get("account_id") for m in members]
+    return int(account_id) in member_ids
+
+
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
     """ChatWork APIでタスクを作成"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
@@ -1878,7 +1907,12 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
         print(error_msg)
         print(f"💡 ヒント: データベースに '{assigned_to_name}' が登録されているか確認してください")
         return f"🤔 {assigned_to_name}さんが見つからなかったウル...\nデータベースに登録されているか確認してほしいウル！"
-    
+
+    # ルームメンバーシップチェック
+    if not is_room_member(room_id, assigned_to_account_id):
+        print(f"❌ ルームメンバーシップエラー: {assigned_to_name}（ID: {assigned_to_account_id}）はルーム {room_id} のメンバーではありません")
+        return f"🤔 {assigned_to_name}さんはこのルームのメンバーじゃないみたいウル...\n{assigned_to_name}さんがいるルームでタスクを作成してほしいウル！"
+
     limit_timestamp = None
     if limit_date:
         try:

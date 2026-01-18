@@ -1297,92 +1297,220 @@ def get_chatwork_account_id_by_name(name):
         return None
 
 
+# =====================================================
+# APIレート制限対策（v10.3.3）
+# =====================================================
+
+class APICallCounter:
+    """APIコール数をカウントするクラス"""
+
+    def __init__(self):
+        self.count = 0
+        self.start_time = time.time()
+
+    def increment(self):
+        self.count += 1
+
+    def get_count(self):
+        return self.count
+
+    def log_summary(self, function_name: str):
+        elapsed = time.time() - self.start_time
+        print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
+
+
+# グローバルAPIカウンター
+_api_call_counter = APICallCounter()
+
+# ルームメンバーキャッシュ（同一リクエスト内で有効）
+_room_members_cache = {}
+
+
+def get_api_call_counter():
+    """APIカウンターを取得"""
+    return _api_call_counter
+
+
+def reset_api_call_counter():
+    """APIカウンターをリセット"""
+    global _api_call_counter
+    _api_call_counter = APICallCounter()
+
+
+def clear_room_members_cache():
+    """ルームメンバーキャッシュをクリア"""
+    global _room_members_cache
+    _room_members_cache = {}
+
+
+def call_chatwork_api_with_retry(
+    method: str,
+    url: str,
+    headers: dict,
+    data: dict = None,
+    params: dict = None,
+    max_retries: int = 3,
+    initial_wait: float = 1.0,
+    timeout: float = 10.0
+):
+    """
+    ChatWork APIを呼び出す（レート制限時は自動リトライ）
+
+    Args:
+        method: HTTPメソッド（GET, POST, PUT, DELETE）
+        url: APIのURL
+        headers: リクエストヘッダー
+        data: リクエストボディ
+        params: クエリパラメータ
+        max_retries: 最大リトライ回数
+        initial_wait: 初回待機時間（秒）
+        timeout: タイムアウト（秒）
+
+    Returns:
+        (response, success): レスポンスと成功フラグのタプル
+    """
+    wait_time = initial_wait
+    counter = get_api_call_counter()
+
+    for attempt in range(max_retries + 1):
+        try:
+            counter.increment()
+
+            if method.upper() == "GET":
+                response = httpx.get(url, headers=headers, params=params, timeout=timeout)
+            elif method.upper() == "POST":
+                response = httpx.post(url, headers=headers, data=data, timeout=timeout)
+            elif method.upper() == "PUT":
+                response = httpx.put(url, headers=headers, data=data, timeout=timeout)
+            elif method.upper() == "DELETE":
+                response = httpx.delete(url, headers=headers, timeout=timeout)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+
+            # 成功（2xx）
+            if response.status_code < 400:
+                return response, True
+
+            # レート制限（429）
+            if response.status_code == 429:
+                if attempt < max_retries:
+                    print(f"⚠️ Rate limit hit (429). Waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
+                    time.sleep(wait_time)
+                    wait_time *= 2  # 指数バックオフ
+                    continue
+                else:
+                    print(f"❌ Rate limit hit (429). Max retries exceeded.")
+                    return response, False
+
+            # その他のエラー（リトライしない）
+            return response, False
+
+        except httpx.TimeoutException:
+            print(f"⚠️ API timeout on attempt {attempt + 1}")
+            if attempt < max_retries:
+                time.sleep(wait_time)
+                wait_time *= 2
+                continue
+            return None, False
+
+        except Exception as e:
+            print(f"❌ API error: {e}")
+            return None, False
+
+    return None, False
+
+
+def get_room_members_cached(room_id):
+    """
+    ルームメンバーを取得（キャッシュあり）
+    同一リクエスト内で同じルームを複数回参照する場合に効率的
+    """
+    room_id_str = str(room_id)
+    if room_id_str in _room_members_cache:
+        return _room_members_cache[room_id_str]
+
+    members = get_room_members(room_id)
+    _room_members_cache[room_id_str] = members
+    return members
+
+
 def get_room_members(room_id):
-    """ルームのメンバー一覧を取得"""
+    """ルームのメンバー一覧を取得（リトライ機構付き）"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
 
-    try:
-        response = httpx.get(
-            url,
-            headers={"X-ChatWorkToken": api_token},
-            timeout=10.0
-        )
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"ルームメンバー取得エラー: {response.status_code} - {response.text}")
-            return []
-    except Exception as e:
-        print(f"ルームメンバー取得例外: {e}")
-        return []
+    response, success = call_chatwork_api_with_retry(
+        method="GET",
+        url=url,
+        headers={"X-ChatWorkToken": api_token}
+    )
+
+    if success and response and response.status_code == 200:
+        return response.json()
+    elif response:
+        print(f"ルームメンバー取得エラー: {response.status_code} - {response.text}")
+    return []
 
 
 def is_room_member(room_id, account_id):
-    """指定したアカウントがルームのメンバーかどうかを確認"""
-    members = get_room_members(room_id)
+    """指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）"""
+    members = get_room_members_cached(room_id)
     member_ids = [m.get("account_id") for m in members]
     return int(account_id) in member_ids
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
-    """ChatWork APIでタスクを作成"""
+    """ChatWork APIでタスクを作成（リトライ機構付き）"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
-    
+
     data = {
         "body": task_body,
         "to_ids": str(assigned_to_account_id)
     }
-    
+
     if limit:
         data["limit"] = limit
-    
+
     print(f"📤 ChatWork API リクエスト: URL={url}, data={data}")
-    
-    try:
-        response = httpx.post(
-            url,
-            headers={"X-ChatWorkToken": api_token},
-            data=data,
-            timeout=10.0
-        )
+
+    response, success = call_chatwork_api_with_retry(
+        method="POST",
+        url=url,
+        headers={"X-ChatWorkToken": api_token},
+        data=data
+    )
+
+    if response:
         print(f"📥 ChatWork API レスポンス: status={response.status_code}, body={response.text}")
-        
-        if response.status_code == 200:
+        if success and response.status_code == 200:
             return response.json()
         else:
             print(f"ChatWork API エラー: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"ChatWork API 例外: {e}")
-        return None
+    return None
 
 
 def complete_chatwork_task(room_id, task_id):
-    """ChatWork APIでタスクを完了にする"""
+    """ChatWork APIでタスクを完了にする（リトライ機構付き）"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks/{task_id}/status"
-    
+
     print(f"📤 ChatWork API タスク完了リクエスト: URL={url}")
-    
-    try:
-        response = httpx.put(
-            url,
-            headers={"X-ChatWorkToken": api_token},
-            data={"body": "done"},
-            timeout=10.0
-        )
+
+    response, success = call_chatwork_api_with_retry(
+        method="PUT",
+        url=url,
+        headers={"X-ChatWorkToken": api_token},
+        data={"body": "done"}
+    )
+
+    if response:
         print(f"📥 ChatWork API レスポンス: status={response.status_code}, body={response.text}")
-        
-        if response.status_code == 200:
+        if success and response.status_code == 200:
             return response.json()
         else:
             print(f"ChatWork API エラー: {response.status_code} - {response.text}")
-            return None
-    except Exception as e:
-        print(f"ChatWork API 例外: {e}")
-        return None
+    return None
 
 
 def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_account_id=None, status="open"):
@@ -3995,42 +4123,44 @@ def update_conversation_timestamp(room_id, account_id):
         traceback.print_exc()
 
 def send_chatwork_message(room_id, message, reply_to=None, show_guide=False):
+    """メッセージを送信（リトライ機構付き）"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    
+
     # 案内文を追加（条件を満たす場合のみ）
     if show_guide:
         message += "\n\n💬 グループチャットでは @ソウルくん をつけて話しかけてウル🐕"
-    
+
     # 返信タグを一時的に無効化（テスト中）
     # if reply_to:
     #     message = f"[rp aid={reply_to}][/rp]\n{message}"
-    response = httpx.post(
-        f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+
+    response, success = call_chatwork_api_with_retry(
+        method="POST",
+        url=f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
         headers={"X-ChatWorkToken": api_token},
-        data={"body": message}, timeout=10.0
+        data={"body": message}
     )
-    return response.status_code == 200
+    return success and response and response.status_code == 200
 
 # ========================================
 # ポーリング機能（返信ボタン検知用）
 # ========================================
 
 def get_all_rooms():
-    """ソウルくんが参加している全ルームを取得"""
+    """ソウルくんが参加している全ルームを取得（リトライ機構付き）"""
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    try:
-        response = httpx.get(
-            "https://api.chatwork.com/v2/rooms",
-            headers={"X-ChatWorkToken": api_token},
-            timeout=10.0
-         )
-        if response.status_code == 200:
-            return response.json()
+
+    response, success = call_chatwork_api_with_retry(
+        method="GET",
+        url="https://api.chatwork.com/v2/rooms",
+        headers={"X-ChatWorkToken": api_token}
+    )
+
+    if success and response and response.status_code == 200:
+        return response.json()
+    elif response:
         print(f"ルーム一覧取得エラー: {response.status_code}")
-        return []
-    except Exception as e:
-        print(f"ルーム一覧取得例外: {e}")
-        return []
+    return []
 
 def get_room_messages(room_id, force=False):
     """ルームのメッセージを取得

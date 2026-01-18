@@ -281,9 +281,9 @@ await client.send_message(room_id=12345, message="Hello!")
 
 ---
 
-# ⚠️ 実装完了後の自動コミット（必須）
+# ⚠️ 実装完了後の自動コミット＆プッシュ（必須）
 
-あなた（Claude Code）は、実装が完了したら**自動的にgit commitしてください**。
+あなた（Claude Code）は、実装が完了したら**自動的にgit commit & pushしてください**。
 
 ## 📝 コミットが必要な場合
 

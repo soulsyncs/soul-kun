@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-期限ガードレール機能のテスト（v10.3.1 完全版）
+期限ガードレール機能のテスト（v10.3.2 メンション対応版）
 
 テストケース:
 1. 当日期限 → アラート必要
@@ -10,6 +10,7 @@
 5. 過去日付 → アラート不要
 6. 期限なし → アラート不要
 7. メッセージ内容確認（カズさんの意図反映）
+8. メンション機能確認（v10.3.2）
 """
 
 import sys
@@ -55,15 +56,28 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         return False, -1, None
 
 
-def generate_deadline_alert_message(task_name: str, limit_date, days_until: int) -> str:
+def generate_deadline_alert_message(
+    task_name: str,
+    limit_date,
+    days_until: int,
+    requester_account_id: str = None,
+    requester_name: str = None
+) -> str:
     """
-    期限が近いタスクのアラートメッセージを生成する（v10.3.1 修正版）
-    カズさんの意図を反映：依頼する側の配慮を促す
+    期限が近いタスクのアラートメッセージを生成する（v10.3.2 メンション対応版）
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    message = f"""⚠️ 期限が近いタスクだウル！
+    # メンション部分を生成
+    mention_line = ""
+    if requester_account_id:
+        if requester_name:
+            mention_line = f"[To:{requester_account_id}] {requester_name}さん\n\n"
+        else:
+            mention_line = f"[To:{requester_account_id}]\n\n"
+
+    message = f"""{mention_line}⚠️ 期限が近いタスクだウル！
 
 「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
@@ -80,10 +94,12 @@ def generate_deadline_alert_message_for_manual_task(
     task_name: str,
     limit_date,
     days_until: int,
-    assigned_to_name: str
+    assigned_to_name: str,
+    requester_account_id: str = None,
+    requester_name: str = None
 ) -> str:
     """
-    手動追加タスク用のアラートメッセージを生成する（v10.3.1）
+    手動追加タスク用のアラートメッセージを生成する（v10.3.2 メンション対応版）
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
@@ -91,7 +107,15 @@ def generate_deadline_alert_message_for_manual_task(
     if len(task_name) > 30:
         task_name = task_name[:30] + "..."
 
-    message = f"""⚠️ 期限が近いタスクを追加したウル！
+    # メンション部分を生成
+    mention_line = ""
+    if requester_account_id:
+        if requester_name:
+            mention_line = f"[To:{requester_account_id}] {requester_name}さん\n\n"
+        else:
+            mention_line = f"[To:{requester_account_id}]\n\n"
+
+    message = f"""{mention_line}⚠️ 期限が近いタスクを追加したウル！
 
 {assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
@@ -107,7 +131,7 @@ def generate_deadline_alert_message_for_manual_task(
 def test_deadline_alert():
     """期限ガードレールのテスト"""
     print("=" * 60)
-    print("期限ガードレール機能テスト（v10.3.1 完全版）")
+    print("期限ガードレール機能テスト（v10.3.2 メンション対応版）")
     print("=" * 60)
 
     now = datetime.now(JST)
@@ -156,8 +180,8 @@ def test_deadline_alert():
     print("【テスト2】メッセージ内容確認（カズさんの意図反映）")
     print("-" * 60)
 
-    # ソウルくん経由のメッセージ
-    print("\n■ ソウルくん経由タスク作成時のメッセージ:")
+    # ソウルくん経由のメッセージ（メンションなし - 後方互換性確認）
+    print("\n■ ソウルくん経由タスク作成時のメッセージ（メンションなし）:")
     _, _, limit_date = check_deadline_proximity(today.strftime("%Y-%m-%d"))
     msg = generate_deadline_alert_message("資料作成", limit_date, 0)
     print("-" * 40)
@@ -186,8 +210,8 @@ def test_deadline_alert():
         failed += 1
         print("  → ソウルくん経由メッセージ FAILED")
 
-    # 手動追加時のメッセージ
-    print("\n■ 手動タスク追加時のメッセージ:")
+    # 手動追加時のメッセージ（メンションなし - 後方互換性確認）
+    print("\n■ 手動タスク追加時のメッセージ（メンションなし）:")
     msg_manual = generate_deadline_alert_message_for_manual_task(
         "レポート提出", limit_date, 0, "田中"
     )
@@ -216,6 +240,80 @@ def test_deadline_alert():
     else:
         failed += 1
         print("  → 手動追加メッセージ FAILED")
+
+    print()
+    print("-" * 60)
+    print("【テスト3】メンション機能確認（v10.3.2）")
+    print("-" * 60)
+
+    # ソウルくん経由（メンションあり）
+    print("\n■ ソウルくん経由タスク作成時のメッセージ（メンションあり）:")
+    msg_with_mention = generate_deadline_alert_message(
+        task_name="資料作成",
+        limit_date=limit_date,
+        days_until=0,
+        requester_account_id="1728974",
+        requester_name="菊地"
+    )
+    print("-" * 40)
+    print(msg_with_mention)
+    print("-" * 40)
+
+    # メンションのチェック
+    mention_ok = "[To:1728974] 菊地さん" in msg_with_mention
+    if mention_ok:
+        print(f"  ✅ メンション含まれる: [To:1728974] 菊地さん")
+        passed += 1
+        print("  → ソウルくん経由メンション PASSED")
+    else:
+        print(f"  ❌ メンション不足")
+        failed += 1
+        print("  → ソウルくん経由メンション FAILED")
+
+    # 手動追加（メンションあり）
+    print("\n■ 手動タスク追加時のメッセージ（メンションあり）:")
+    msg_manual_with_mention = generate_deadline_alert_message_for_manual_task(
+        task_name="レポート提出",
+        limit_date=limit_date,
+        days_until=0,
+        assigned_to_name="田中",
+        requester_account_id="1728974",
+        requester_name="菊地"
+    )
+    print("-" * 40)
+    print(msg_manual_with_mention)
+    print("-" * 40)
+
+    # メンションのチェック
+    mention_manual_ok = "[To:1728974] 菊地さん" in msg_manual_with_mention
+    if mention_manual_ok:
+        print(f"  ✅ メンション含まれる: [To:1728974] 菊地さん")
+        passed += 1
+        print("  → 手動追加メンション PASSED")
+    else:
+        print(f"  ❌ メンション不足")
+        failed += 1
+        print("  → 手動追加メンション FAILED")
+
+    # アカウントIDのみ（名前なし）のケース
+    print("\n■ メンション（名前なし）のケース:")
+    msg_no_name = generate_deadline_alert_message(
+        task_name="資料作成",
+        limit_date=limit_date,
+        days_until=0,
+        requester_account_id="1728974",
+        requester_name=None
+    )
+
+    mention_no_name_ok = "[To:1728974]\n\n" in msg_no_name
+    if mention_no_name_ok:
+        print(f"  ✅ 名前なしメンション正常: [To:1728974]")
+        passed += 1
+        print("  → 名前なしメンション PASSED")
+    else:
+        print(f"  ❌ 名前なしメンション不正")
+        failed += 1
+        print("  → 名前なしメンション FAILED")
 
     print()
     print("=" * 60)

@@ -5586,7 +5586,9 @@ def generate_deadline_alert_message_for_manual_task(
     task_name: str,
     limit_date,
     days_until: int,
-    assigned_to_name: str
+    assigned_to_name: str,
+    requester_account_id: str = None,
+    requester_name: str = None
 ) -> str:
     """
     手動追加タスク用のアラートメッセージを生成する
@@ -5595,11 +5597,16 @@ def generate_deadline_alert_message_for_manual_task(
     - 依頼する側の配慮を促す文化づくり
     - 依頼された側が大変にならないように
 
+    v10.3.2: メンション機能追加
+    - グループチャットでアラートを送る時、依頼者にメンションをかける
+
     Args:
         task_name: タスク名
         limit_date: 期限日（date型）
         days_until: 期限までの日数
         assigned_to_name: 担当者名
+        requester_account_id: 依頼者のChatWorkアカウントID（メンション用）
+        requester_name: 依頼者の名前
 
     Returns:
         アラートメッセージ文字列
@@ -5611,7 +5618,15 @@ def generate_deadline_alert_message_for_manual_task(
     if len(task_name) > 30:
         task_name = task_name[:30] + "..."
 
-    message = f"""⚠️ 期限が近いタスクを追加したウル！
+    # メンション部分を生成
+    mention_line = ""
+    if requester_account_id:
+        if requester_name:
+            mention_line = f"[To:{requester_account_id}] {requester_name}さん\n\n"
+        else:
+            mention_line = f"[To:{requester_account_id}]\n\n"
+
+    message = f"""{mention_line}⚠️ 期限が近いタスクを追加したウル！
 
 {assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
@@ -5794,12 +5809,27 @@ def send_deadline_alert_to_requester(
         print(f"⚠️ DM取得失敗: account_id={assigned_by_account_id}")
         return False
 
+    # 依頼者名を取得（メンション用）
+    requester_name = None
+    try:
+        result = conn.execute(
+            sqlalchemy.text("SELECT name FROM chatwork_users WHERE account_id = :account_id LIMIT 1"),
+            {"account_id": int(assigned_by_account_id)}
+        ).fetchone()
+        if result:
+            requester_name = result[0]
+            print(f"👤 依頼者名取得: {assigned_by_account_id} → {requester_name}")
+    except Exception as e:
+        print(f"⚠️ 依頼者名取得失敗（処理は続行）: {e}")
+
     # アラートメッセージを生成
     message = generate_deadline_alert_message_for_manual_task(
         task_name=task_name,
         limit_date=limit_date,
         days_until=days_until,
-        assigned_to_name=assigned_to_name
+        assigned_to_name=assigned_to_name,
+        requester_account_id=assigned_by_account_id,
+        requester_name=requester_name
     )
 
     # 送信

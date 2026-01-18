@@ -1695,7 +1695,13 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         return False, -1, None
 
 
-def generate_deadline_alert_message(task_name: str, limit_date, days_until: int) -> str:
+def generate_deadline_alert_message(
+    task_name: str,
+    limit_date,
+    days_until: int,
+    requester_account_id: str = None,
+    requester_name: str = None
+) -> str:
     """
     期限が近いタスクのアラートメッセージを生成する
 
@@ -1703,10 +1709,15 @@ def generate_deadline_alert_message(task_name: str, limit_date, days_until: int)
     - 依頼する側の配慮を促す文化づくり
     - 依頼された側が大変にならないように
 
+    v10.3.2: メンション機能追加
+    - グループチャットでアラートを送る時、依頼者にメンションをかける
+
     Args:
         task_name: タスク名
         limit_date: 期限日（date型）
         days_until: 期限までの日数（0=今日, 1=明日）
+        requester_account_id: 依頼者のChatWorkアカウントID（メンション用）
+        requester_name: 依頼者の名前
 
     Returns:
         アラートメッセージ文字列
@@ -1714,7 +1725,15 @@ def generate_deadline_alert_message(task_name: str, limit_date, days_until: int)
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    message = f"""⚠️ 期限が近いタスクだウル！
+    # メンション部分を生成
+    mention_line = ""
+    if requester_account_id:
+        if requester_name:
+            mention_line = f"[To:{requester_account_id}] {requester_name}さん\n\n"
+        else:
+            mention_line = f"[To:{requester_account_id}]\n\n"
+
+    message = f"""{mention_line}⚠️ 期限が近いタスクだウル！
 
 「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
@@ -1993,7 +2012,13 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
 
     if needs_alert:
         print(f"⚠️ 期限ガードレール発動: days_until={days_until}")
-        alert_message = generate_deadline_alert_message(task_body, parsed_limit_date, days_until)
+        alert_message = generate_deadline_alert_message(
+            task_name=task_body,
+            limit_date=parsed_limit_date,
+            days_until=days_until,
+            requester_account_id=str(account_id),
+            requester_name=sender_name
+        )
         message = message + "\n\n" + "─" * 20 + "\n\n" + alert_message
 
         # アラート送信をログに記録（ノンブロッキング）

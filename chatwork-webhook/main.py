@@ -132,6 +132,17 @@ _dm_unavailable_buffer = []  # ★★★ v6.8.3: DM不可通知のバッファ�
 JST = timezone(timedelta(hours=9))
 
 # =====================================================
+# v10.3.0: 期限ガードレール設定
+# =====================================================
+# タスク追加時に期限が近すぎる場合にアラートを表示
+# 当日(0)と明日(1)の場合にアラートを送信
+# =====================================================
+DEADLINE_ALERT_DAYS = {
+    0: "今日",    # 当日
+    1: "明日",    # 翌日
+}
+
+# =====================================================
 # ===== 機能カタログ（SYSTEM_CAPABILITIES） =====
 # =====================================================
 # 
@@ -1603,8 +1614,174 @@ def parse_date_from_text(text):
         if target < today:
             target = datetime(year + 1, month, day).date()
         return target.strftime("%Y-%m-%d")
-    
+
     return None
+
+
+# =====================================================
+# v10.3.0: 期限ガードレール機能
+# =====================================================
+# タスク追加時に期限が「当日」または「明日」の場合、
+# 依頼者にアラートを送信する。タスク作成自体はブロックしない。
+# =====================================================
+
+def check_deadline_proximity(limit_date_str: str) -> tuple:
+    """
+    期限が近すぎるかチェックする
+
+    Args:
+        limit_date_str: タスクの期限日（YYYY-MM-DD形式）
+
+    Returns:
+        (needs_alert: bool, days_until: int, limit_date: date or None)
+        - needs_alert: アラートが必要か
+        - days_until: 期限までの日数（0=今日, 1=明日, 負=過去）
+        - limit_date: 期限日（date型）
+    """
+    if not limit_date_str:
+        return False, -1, None
+
+    try:
+        # JSTで現在日付を取得
+        now = datetime.now(JST)
+        today = now.date()
+
+        # 期限日をパース
+        limit_date = datetime.strptime(limit_date_str, "%Y-%m-%d").date()
+
+        # 期限までの日数を計算
+        days_until = (limit_date - today).days
+
+        # 過去の日付は別のバリデーションで処理（ここではアラート対象外）
+        if days_until < 0:
+            return False, days_until, limit_date
+
+        # 当日(0) または 明日(1) ならアラート
+        if days_until in DEADLINE_ALERT_DAYS:
+            return True, days_until, limit_date
+
+        return False, days_until, limit_date
+    except Exception as e:
+        print(f"⚠️ check_deadline_proximity エラー: {e}")
+        return False, -1, None
+
+
+def generate_deadline_alert_message(task_name: str, limit_date, days_until: int) -> str:
+    """
+    期限が近いタスクのアラートメッセージを生成する
+
+    Args:
+        task_name: タスク名
+        limit_date: 期限日（date型）
+        days_until: 期限までの日数（0=今日, 1=明日）
+
+    Returns:
+        アラートメッセージ文字列
+    """
+    day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
+    formatted_date = limit_date.strftime("%m/%d")
+
+    message = f"""⚠️ 期限が近いタスクだウル！
+
+「{task_name}」の期限が【{formatted_date}（{day_label}）】になってるウル。
+
+期限が近すぎると、リマインドが届く前にタスクが期限切れになっちゃうウル...
+
+📌 確認してほしいウル：
+・このまま追加して大丈夫？
+・間違えてたらChatWorkでタスクの期限を編集してね
+・期限を編集したら、それに連動して僕がリマインドしていくウル！
+
+このままでOKなら、何もしなくて大丈夫だウル！"""
+
+    return message
+
+
+def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_until: int) -> None:
+    """
+    期限アラートの送信をnotification_logsに記録する
+
+    Args:
+        task_id: タスクID
+        room_id: ルームID
+        account_id: 依頼者のアカウントID
+        limit_date: 期限日（date型）
+        days_until: 期限までの日数
+    """
+    try:
+        pool = get_pool()
+        with pool.begin() as conn:
+            # まずテーブルが存在するか確認し、なければ作成
+            conn.execute(sqlalchemy.text("""
+                CREATE TABLE IF NOT EXISTS notification_logs (
+                    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                    organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                    notification_type VARCHAR(50) NOT NULL,
+                    target_type VARCHAR(50) NOT NULL,
+                    target_id BIGINT,
+                    notification_date DATE NOT NULL,
+                    sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                    status VARCHAR(20) NOT NULL,
+                    error_message TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    channel VARCHAR(20),
+                    channel_target VARCHAR(255),
+                    metadata JSONB,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    created_by VARCHAR(100),
+                    UNIQUE(organization_id, target_type, target_id, notification_date, notification_type)
+                )
+            """))
+
+            # アラートをログに記録
+            conn.execute(
+                sqlalchemy.text("""
+                    INSERT INTO notification_logs (
+                        organization_id,
+                        notification_type,
+                        target_type,
+                        target_id,
+                        notification_date,
+                        sent_at,
+                        status,
+                        channel,
+                        channel_target,
+                        metadata
+                    ) VALUES (
+                        'org_soulsyncs',
+                        'deadline_alert',
+                        'task',
+                        :task_id,
+                        :notification_date,
+                        NOW(),
+                        'sent',
+                        'chatwork',
+                        :room_id,
+                        :metadata
+                    )
+                    ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                    DO UPDATE SET
+                        retry_count = notification_logs.retry_count + 1,
+                        updated_at = NOW()
+                """),
+                {
+                    "task_id": int(task_id) if task_id else 0,
+                    "notification_date": datetime.now(JST).date(),
+                    "room_id": str(room_id),
+                    "metadata": json.dumps({
+                        "room_id": str(room_id),
+                        "account_id": str(account_id),
+                        "limit_date": limit_date.isoformat() if limit_date else None,
+                        "days_until": days_until,
+                        "alert_type": "deadline_proximity"
+                    }, ensure_ascii=False)
+                }
+            )
+        print(f"📝 期限アラートをログに記録: task_id={task_id}, days_until={days_until}")
+    except Exception as e:
+        print(f"⚠️ 期限アラートのログ記録に失敗（タスク作成は成功）: {e}")
+        # ログ記録失敗してもタスク作成は成功させる（ノンブロッキング）
 
 
 def handle_chatwork_task_create(params, room_id, account_id, sender_name, context=None):
@@ -1767,11 +1944,32 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
     message = f"✅ {assigned_to_name}さんにタスクを作成したウル！🎉\n\n"
     message += f"📝 タスク内容: {task_body}\n"
     message += f"タスクID: {task_id}"
-    
+
     if limit_timestamp:
         limit_dt = datetime.fromtimestamp(limit_timestamp, tz=timezone(timedelta(hours=9)))
         message += f"\n⏰ 期限: {limit_dt.strftime('%Y年%m月%d日 %H:%M')}"
-    
+
+    # =====================================================
+    # v10.3.0: 期限ガードレール
+    # =====================================================
+    # タスク作成成功後、期限が近すぎる場合はアラートを追加
+    # =====================================================
+    needs_alert, days_until, parsed_limit_date = check_deadline_proximity(limit_date)
+
+    if needs_alert:
+        print(f"⚠️ 期限ガードレール発動: days_until={days_until}")
+        alert_message = generate_deadline_alert_message(task_body, parsed_limit_date, days_until)
+        message = message + "\n\n" + "─" * 20 + "\n\n" + alert_message
+
+        # アラート送信をログに記録（ノンブロッキング）
+        log_deadline_alert(
+            task_id=task_id,
+            room_id=room_id,
+            account_id=account_id,
+            limit_date=parsed_limit_date,
+            days_until=days_until
+        )
+
     return message
 
 

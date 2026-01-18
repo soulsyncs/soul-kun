@@ -160,35 +160,107 @@ def get_anthropic_api_key() -> str:
         return None
 
 
+def clean_task_body_for_summary(body: str) -> str:
+    """
+    タスク本文からChatWorkのタグや記号を完全に除去（要約用）
+
+    ★★★ v10.6.0: 強化版クリーニング ★★★
+    """
+    if not body:
+        return ""
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return ""
+
+    try:
+        # 1. [qt][qtmeta...]...[/qt] 形式の引用全体を除去
+        body = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+
+        # 2. [qtmeta ...] タグを除去
+        body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
+
+        # 3. [qt] [/qt] の単独タグを除去
+        body = re.sub(r'\[/?qt\]', '', body)
+
+        # 4. [To:xxx] タグを除去（名前部分も含む）
+        body = re.sub(r'\[To:\d+\]\s*[^\n\[]*(?:さん|くん|ちゃん|様|氏)?', '', body)
+        body = re.sub(r'\[To:\d+\]', '', body)
+
+        # 5. [piconname:xxx] タグを除去
+        body = re.sub(r'\[piconname:\d+\]', '', body)
+
+        # 6. [info]...[/info] タグを除去（内容は残す）
+        body = re.sub(r'\[/?info\]', '', body)
+        body = re.sub(r'\[/?title\]', '', body)
+
+        # 7. [rp aid=xxx to=xxx-xxx] タグを除去
+        body = re.sub(r'\[rp aid=\d+[^\]]*\]', '', body)
+        body = re.sub(r'\[/rp\]', '', body)
+
+        # 8. [dtext:xxx] タグを除去
+        body = re.sub(r'\[dtext:[^\]]*\]', '', body)
+
+        # 9. [preview ...] タグを除去
+        body = re.sub(r'\[preview[^\]]*\]', '', body)
+        body = re.sub(r'\[/preview\]', '', body)
+
+        # 10. [code]...[/code] タグを除去（内容は残す）
+        body = re.sub(r'\[/?code\]', '', body)
+
+        # 11. [hr] タグを除去
+        body = re.sub(r'\[hr\]', '', body)
+
+        # 12. その他の [...] 形式のタグを慎重に除去
+        body = re.sub(r'\[/?[a-z]+(?::[^\]]+)?\]', '', body, flags=re.IGNORECASE)
+
+        # 13. 連続する改行を整理
+        body = re.sub(r'\n{3,}', '\n\n', body)
+
+        # 14. 連続するスペースを整理
+        body = re.sub(r' {2,}', ' ', body)
+
+        # 15. 前後の空白を除去
+        body = body.strip()
+
+        return body
+
+    except Exception as e:
+        print(f"⚠️ clean_task_body_for_summary エラー: {e}")
+        return body
+
+
 def generate_task_summary(task_body: str) -> str:
     """
     タスクの本文を1行に要約する
+
+    ★★★ v10.6.0: 改善版（途切れ防止、40文字以内）★★★
 
     Args:
         task_body: タスクの本文
 
     Returns:
-        要約（最大50文字程度）
+        要約（最大50文字程度、途切れない形）
     """
-    # ChatWorkの引用タグを除去
-    clean_body = re.sub(r'\[qt\].*?\[/qt\]', '', task_body, flags=re.DOTALL)
-    clean_body = re.sub(r'\[qtmeta[^\]]*\]', '', clean_body)
-    clean_body = re.sub(r'\[/?[a-z]+[^\]]*\]', '', clean_body)  # その他のタグも除去
-    clean_body = clean_body.strip()
+    # まずタグを完全に除去
+    clean_body = clean_task_body_for_summary(task_body)
 
     # 本文が空の場合
     if not clean_body:
-        return task_body[:30] + "..." if len(task_body) > 30 else task_body
+        return "（タスク内容なし）"
 
     # 本文が短い場合はそのまま返す
-    if len(clean_body) <= 30:
+    if len(clean_body) <= 40:
         return clean_body
 
     # API キーを取得
     api_key = get_anthropic_api_key()
     if not api_key:
         print("⚠️ ANTHROPIC_API_KEY が設定されていないため、要約をスキップ")
-        return clean_body[:30] + "..." if len(clean_body) > 30 else clean_body
+        # エラー時は意味が通る形で切り詰め
+        return _truncate_text_safely(clean_body, 40)
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -199,8 +271,9 @@ def generate_task_summary(task_body: str) -> str:
             messages=[
                 {
                     "role": "user",
-                    "content": f"""以下のタスク依頼文を、やるべきことだけを1行（30文字以内）で要約してください。
-敬語や依頼表現は省き、動詞で終わる形にしてください。
+                    "content": f"""以下のタスク依頼文を、やるべきことだけを1行（40文字以内）で要約してください。
+敬語や依頼表現は省き、簡潔に。
+**重要**: 途中で切らず、意味が通る形にしてください。
 要約のみを出力し、説明は不要です。
 
 タスク依頼文:
@@ -214,22 +287,48 @@ def generate_task_summary(task_body: str) -> str:
         summary = message.content[0].text.strip()
         # 余計な引用符や説明を除去
         summary = summary.strip('"\'「」')
-        # 50文字を超えたら切り詰め
+        # 50文字を超えたら安全に切り詰め
         if len(summary) > 50:
-            summary = summary[:47] + "..."
+            summary = _truncate_text_safely(summary, 47)
 
         print(f"📝 要約生成: {summary}")
         return summary
 
     except Exception as e:
         print(f"⚠️ 要約生成に失敗（フォールバック使用）: {e}")
-        # エラー時は本文の先頭30文字を返す
-        return clean_body[:30] + "..." if len(clean_body) > 30 else clean_body
+        # エラー時は意味が通る形で切り詰め
+        return _truncate_text_safely(clean_body, 40)
+
+
+def _truncate_text_safely(text: str, max_length: int) -> str:
+    """
+    テキストを安全に切り詰める（意味が通る位置で切る）
+
+    ★★★ v10.6.0: 途切れ防止用のヘルパー関数 ★★★
+    """
+    if len(text) <= max_length:
+        return text
+
+    # max_length以内で切り詰め
+    truncated = text[:max_length]
+
+    # 句読点または空白で区切りを探す
+    last_break = -1
+    for char in ['。', '、', '！', '？', ' ', '　', '\n']:
+        pos = truncated.rfind(char)
+        if pos > max_length * 0.5:  # 半分より後ろなら採用
+            last_break = max(last_break, pos)
+
+    if last_break > 0:
+        return truncated[:last_break + 1]
+
+    # 区切りが見つからない場合は「...」を追加
+    return truncated[:max_length - 3] + "..."
 
 
 def backfill_task_summaries(conn, cursor, limit: int = 50) -> dict:
     """
-    既存タスクの要約を一括生成する
+    既存タスクの要約を一括生成する（NULLのみ）
 
     Args:
         conn: DB接続
@@ -267,6 +366,58 @@ def backfill_task_summaries(conn, cursor, limit: int = 50) -> dict:
 
         except Exception as e:
             print(f"❌ 要約生成失敗: task_id={task_id}, error={e}")
+            result["failed"] += 1
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+    return result
+
+
+def regenerate_all_summaries(conn, cursor, limit: int = 50) -> dict:
+    """
+    全タスクの要約を再生成する（既存の要約も上書き）
+
+    ★★★ v10.6.0: 新関数 ★★★
+    clean_task_body改善後に全要約を再生成するために使用
+
+    Args:
+        conn: DB接続
+        cursor: DBカーソル
+        limit: 一度に処理する件数
+
+    Returns:
+        処理結果の辞書 {"total": int, "success": int, "failed": int}
+    """
+    # 全タスクを取得（既存の要約も上書き）
+    cursor.execute("""
+        SELECT task_id, body FROM chatwork_tasks
+        WHERE status = 'open'
+        ORDER BY task_id DESC
+        LIMIT %s
+    """, (limit,))
+    tasks = cursor.fetchall()
+
+    result = {"total": len(tasks), "success": 0, "failed": 0}
+
+    for task_id, body in tasks:
+        try:
+            summary = generate_task_summary(body)
+            cursor.execute("""
+                UPDATE chatwork_tasks
+                SET summary = %s
+                WHERE task_id = %s
+            """, (summary, task_id))
+            conn.commit()
+            result["success"] += 1
+            print(f"✅ 要約再生成完了: task_id={task_id}, summary={summary[:30]}...")
+
+            # レート制限対策で少し待つ
+            time.sleep(0.5)
+
+        except Exception as e:
+            print(f"❌ 要約再生成失敗: task_id={task_id}, error={e}")
             result["failed"] += 1
             try:
                 conn.rollback()
@@ -6187,9 +6338,13 @@ def sync_chatwork_tasks(request):
     include_done = request.args.get('include_done', 'false').lower() == 'true'
     # ★★★ v10.5.0: 要約バックフィルパラメータ ★★★
     backfill_summaries = request.args.get('backfill_summaries', 'false').lower() == 'true'
+    # ★★★ v10.6.0: 要約再生成パラメータ（既存の要約も上書き）★★★
+    regenerate_summaries = request.args.get('regenerate_summaries', 'false').lower() == 'true'
 
     sync_mode = "open + done" if include_done else "open only"
     print(f"=== Starting task sync ({sync_mode}) ===")
+    if regenerate_summaries:
+        print("⚠️ regenerate_summaries=true: 全タスクの要約を再生成します")
 
     # ★★★ v10.3.3: APIカウンターをリセット ★★★
     reset_api_call_counter()
@@ -6416,10 +6571,21 @@ def sync_chatwork_tasks(request):
         # ★★★ v6.8.4: バッファに溜まった通知を送信 ★★★
         flush_dm_unavailable_notifications()
 
-        # ★★★ v10.5.0: 要約バックフィル（リクエストパラメータで指定時のみ）★★★
+        # ★★★ v10.5.0/v10.6.0: 要約バックフィル/再生成 ★★★
         backfill_result = None
-        if backfill_summaries:
-            print("=== Starting task summary backfill ===")
+        if regenerate_summaries:
+            # v10.6.0: 全タスクの要約を再生成（既存の要約も上書き）
+            print("=== Starting task summary REGENERATION (all tasks) ===")
+            try:
+                backfill_result = regenerate_all_summaries(conn, cursor, limit=50)
+                print(f"✅ 要約再生成完了: {backfill_result}")
+            except Exception as e:
+                print(f"⚠️ 要約再生成エラー: {e}")
+                import traceback
+                traceback.print_exc()
+        elif backfill_summaries:
+            # v10.5.0: NULLの要約のみ生成
+            print("=== Starting task summary backfill (NULL only) ===")
             try:
                 backfill_result = backfill_task_summaries(conn, cursor, limit=50)
                 print(f"✅ 要約バックフィル完了: {backfill_result}")
@@ -6430,7 +6596,7 @@ def sync_chatwork_tasks(request):
 
         result_msg = f'Task sync completed'
         if backfill_result:
-            result_msg += f", backfill: {backfill_result['success']}/{backfill_result['total']}"
+            result_msg += f", summary: {backfill_result['success']}/{backfill_result['total']}"
         return (result_msg, 200)
         
     except Exception as e:

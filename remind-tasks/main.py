@@ -131,6 +131,170 @@ def log_dry_run_message(action_type, recipient, message_preview):
 
 
 # =====================================================
+# ===== ★★★ v10.6.0: テスト送信ガード ★★★ =====
+# =====================================================
+#
+# **最重要**: テスト送信は以下の2箇所のみに限定
+# 1. 管理部チャット（room_id: 405315911）→ 遅延タスク報告
+# 2. カズさんへのDM（account_id: 1728974）→ 個人リマインドテスト
+#
+# 他のグループチャットや個人に送信したら、業務に迷惑がかかる
+# =====================================================
+
+# テスト送信許可リスト
+TEST_ALLOWED_ROOMS = {
+    405315911,  # 管理部チャット
+}
+
+# カズさん（菊地雅克）のaccount_id
+KAZU_ACCOUNT_ID = 1728974
+
+# テストモードフラグ（本番稼働時はFalseに変更）
+REMINDER_TEST_MODE = True  # ★★★ Trueの間は管理部とカズさんDMのみに送信 ★★★
+
+
+def is_test_send_allowed(room_id: int = None, account_id: int = None) -> bool:
+    """
+    テスト送信が許可されているか確認
+
+    REMINDER_TEST_MODE=True の場合:
+    - room_id が TEST_ALLOWED_ROOMS に含まれる → True
+    - account_id が KAZU_ACCOUNT_ID と一致 → True
+    - それ以外 → False（送信しない）
+
+    REMINDER_TEST_MODE=False の場合:
+    - 常にTrue（本番モード）
+    """
+    if not REMINDER_TEST_MODE:
+        return True  # 本番モードは全て許可
+
+    if room_id and int(room_id) in TEST_ALLOWED_ROOMS:
+        return True
+    if account_id and int(account_id) == KAZU_ACCOUNT_ID:
+        return True
+    return False
+
+
+def send_reminder_with_test_guard(room_id: int, message: str, account_id: int = None) -> bool:
+    """
+    テストガード付きでメッセージを送信
+
+    許可されていない宛先には送信せず、ログ出力のみ行う
+    """
+    if not is_test_send_allowed(room_id, account_id):
+        print(f"🚫 [TEST_GUARD] 送信をブロック: room_id={room_id}, account_id={account_id}")
+        print(f"   理由: REMINDER_TEST_MODE=True で許可リストに含まれていません")
+        print(f"   メッセージ（先頭100文字）: {message[:100]}...")
+        return False
+
+    # 送信実行
+    try:
+        url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
+        headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
+        data = {'body': message}
+        response = httpx.post(url, headers=headers, data=data, timeout=10.0)
+
+        if response.status_code == 200:
+            print(f"✅ メッセージ送信成功: room_id={room_id}")
+            return True
+        else:
+            print(f"❌ メッセージ送信失敗: room_id={room_id}, status={response.status_code}")
+            return False
+    except Exception as e:
+        print(f"❌ メッセージ送信エラー: room_id={room_id}, error={e}")
+        return False
+
+
+# =====================================================
+# ===== ★★★ v10.6.0: タスク本文クリーニング強化 ★★★ =====
+# =====================================================
+
+def clean_task_body(body: str) -> str:
+    """
+    タスク本文からChatWorkのタグや記号を完全に除去
+
+    除去対象:
+    - [qt][qtmeta aid=xxx time=xxx]...[/qt] 形式の引用
+    - [qtmeta ...] タグ
+    - [qt] [/qt] の単独タグ
+    - [To:xxx] タグ
+    - [piconname:xxx] タグ
+    - [info]...[/info] タグ（内容は残す）
+    - [rp aid=xxx to=xxx-xxx] タグ
+    - [dtext:xxx] タグ
+    - その他の ChatWork タグ
+    """
+    if not body:
+        return ""
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return ""
+
+    try:
+        # 1. [qt][qtmeta...]...[/qt] 形式の引用全体を除去
+        body = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+
+        # 2. [qtmeta ...] タグを除去
+        body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
+
+        # 3. [qt] [/qt] の単独タグを除去
+        body = re.sub(r'\[/?qt\]', '', body)
+
+        # 4. [To:xxx] タグを除去（名前部分も含む）
+        body = re.sub(r'\[To:\d+\]\s*[^\n\[]*(?:さん|くん|ちゃん|様|氏)?', '', body)
+        body = re.sub(r'\[To:\d+\]', '', body)
+
+        # 5. [piconname:xxx] タグを除去
+        body = re.sub(r'\[piconname:\d+\]', '', body)
+
+        # 6. [info]...[/info] タグを除去（内容は残す）
+        body = re.sub(r'\[/?info\]', '', body)
+        body = re.sub(r'\[/?title\]', '', body)
+
+        # 7. [rp aid=xxx to=xxx-xxx] タグを除去
+        body = re.sub(r'\[rp aid=\d+[^\]]*\]', '', body)
+        body = re.sub(r'\[/rp\]', '', body)
+
+        # 8. [dtext:xxx] タグを除去
+        body = re.sub(r'\[dtext:[^\]]*\]', '', body)
+
+        # 9. [preview ...] タグを除去
+        body = re.sub(r'\[preview[^\]]*\]', '', body)
+        body = re.sub(r'\[/preview\]', '', body)
+
+        # 10. [code]...[/code] タグを除去（内容は残す）
+        body = re.sub(r'\[/?code\]', '', body)
+
+        # 11. [hr] タグを除去
+        body = re.sub(r'\[hr\]', '', body)
+
+        # 12. その他の [...] 形式のタグを慎重に除去
+        # 小文字のタグ名 + オプションのパラメータ
+        body = re.sub(r'\[/?[a-z]+(?::[^\]]+)?\]', '', body, flags=re.IGNORECASE)
+
+        # 13. 連続する改行を整理（3つ以上の改行を2つに）
+        body = re.sub(r'\n{3,}', '\n\n', body)
+
+        # 14. 連続するスペースを整理
+        body = re.sub(r' {2,}', ' ', body)
+
+        # 15. 行頭・行末の空白を除去
+        body = '\n'.join(line.strip() for line in body.split('\n'))
+
+        # 16. 前後の空白を除去
+        body = body.strip()
+
+        return body
+
+    except Exception as e:
+        print(f"⚠️ clean_task_body エラー: {e}")
+        return body  # エラー時は元のメッセージを返す
+
+
+# =====================================================
 # ===== 機能カタログ（SYSTEM_CAPABILITIES） =====
 # =====================================================
 # 
@@ -4880,23 +5044,35 @@ def sync_chatwork_tasks(request):
 def remind_tasks(request):
     """
     Cloud Function: タスクのリマインドを送信
-    毎日8:30 JSTに実行される
+
+    ★★★ v10.6.0: 大幅改修 ★★★
+    - 担当者ごとにタスクを集約してDMで1通送信
+    - グループチャットへの送信を廃止
+    - テストガード実装（管理部・カズさんDMのみ）
+    - メッセージフォーマット改善
     """
-    print("=== Starting task reminders ===")
-    
+    print("=" * 60)
+    print("=== Starting task reminders (v10.6.0 - DM方式) ===")
+    print(f"REMINDER_TEST_MODE: {REMINDER_TEST_MODE}")
+    if REMINDER_TEST_MODE:
+        print("⚠️ テストモード: 管理部チャットとカズさんDMのみに送信")
+    print("=" * 60)
+
     conn = get_db_connection()
     cursor = conn.cursor()
-    
+
     try:
         now = datetime.now(JST)
         today = now.date()
         tomorrow = today + timedelta(days=1)
         three_days_later = today + timedelta(days=3)
-        
-        # リマインド対象のタスクを取得
-        # ★★★ v10.5.0: summaryカラムを追加 ★★★
+
+        # =====================================================
+        # ステップ1: リマインド対象のタスクを取得
+        # =====================================================
         cursor.execute("""
-            SELECT task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary
+            SELECT task_id, room_id, assigned_to_account_id, body, limit_time,
+                   room_name, assigned_to_name, summary
             FROM chatwork_tasks
             WHERE status = 'open'
               AND skip_tracking = FALSE
@@ -4905,16 +5081,27 @@ def remind_tasks(request):
         """)
 
         tasks = cursor.fetchall()
+        print(f"📋 リマインド候補タスク: {len(tasks)}件")
+
+        # =====================================================
+        # ステップ2: 担当者ごとにタスクをグループ化
+        # =====================================================
+        # 構造: {assignee_id: {
+        #   'name': str,
+        #   'overdue': [tasks],       # 期限超過
+        #   'today': [tasks],         # 今日期限
+        #   'tomorrow': [tasks],      # 明日期限
+        #   'three_days': [tasks]     # 3日後期限
+        # }}
+        tasks_by_assignee = {}
 
         for task in tasks:
             task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary = task
-            # ★★★ v10.5.0: 要約があれば要約を、なければbodyを使用 ★★★
-            task_display = summary if summary else (body[:50] + "..." if len(body) > 50 else body)
-            
-            # ★★★ v6.8.6: limit_timeをdateに変換（int/float両対応）★★★
+
             if limit_time is None:
                 continue
-            
+
+            # limit_time を date に変換
             try:
                 if isinstance(limit_time, (int, float)):
                     limit_date = datetime.fromtimestamp(int(limit_time), tz=JST).date()
@@ -4926,73 +5113,324 @@ def remind_tasks(request):
             except Exception as e:
                 print(f"⚠️ limit_time変換エラー: {limit_time}, task_id={task_id}, error={e}")
                 continue
-            
+
+            # リマインドタイプを判定
             reminder_type = None
-            
-            if limit_date == today:
+            overdue_days = 0
+
+            if limit_date < today:
+                reminder_type = 'overdue'
+                overdue_days = (today - limit_date).days
+            elif limit_date == today:
                 reminder_type = 'today'
             elif limit_date == tomorrow:
                 reminder_type = 'tomorrow'
             elif limit_date == three_days_later:
                 reminder_type = 'three_days'
-            
-            if reminder_type:
-                # 今日既に同じタイプのリマインドを送信済みか確認
-                cursor.execute("""
-                    SELECT id FROM task_reminders
-                    WHERE task_id = %s
-                      AND reminder_type = %s
-                      AND sent_date = %s
-                """, (task_id, reminder_type, today))
-                
-                already_sent = cursor.fetchone()
-                
-                if not already_sent:
-                    # リマインドメッセージを作成
-                    # ★★★ v10.5.0: bodyの代わりにtask_display（要約）を使用 ★★★
-                    if reminder_type == 'today':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n今日が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 今日\n\n頑張ってくださいウル！"
-                    elif reminder_type == 'tomorrow':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n明日が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 明日\n\n準備はできていますかウル？"
-                    elif reminder_type == 'three_days':
-                        message = f"[To:{assigned_to_account_id}]{assigned_to_name}さん\n3日後が期限のタスクがありますウル！\n\nタスク: {task_display}\n期限: 3日後\n\n計画的に進めましょうウル！"
-                    
-                    # メッセージを送信
-                    url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-                    data = {'body': message}
-                    headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
-                    response = httpx.post(url, headers=headers, data=data, timeout=10.0)
-                    
-                    if response.status_code == 200:
-                        # リマインド履歴を記録
-                        # ★★★ v6.8.7: sent_dateはgenerated columnなので除外 ★★★
+
+            if not reminder_type:
+                continue
+
+            # 今日既に同じタイプのリマインドを送信済みか確認
+            cursor.execute("""
+                SELECT id FROM task_reminders
+                WHERE task_id = %s
+                  AND reminder_type = %s
+                  AND sent_date = %s
+            """, (task_id, reminder_type, today))
+
+            if cursor.fetchone():
+                continue  # 既に送信済み
+
+            # 担当者グループに追加
+            assignee_id = assigned_to_account_id
+            if assignee_id not in tasks_by_assignee:
+                tasks_by_assignee[assignee_id] = {
+                    'name': assigned_to_name or f"ID:{assignee_id}",
+                    'overdue': [],
+                    'today': [],
+                    'tomorrow': [],
+                    'three_days': []
+                }
+
+            # タスク表示名を作成（要約 or クリーンな本文）
+            if summary:
+                task_display = summary
+            else:
+                clean_body = clean_task_body(body)
+                task_display = clean_body[:50] if len(clean_body) <= 50 else clean_body[:47] + "..."
+
+            task_info = {
+                'task_id': task_id,
+                'room_id': room_id,
+                'room_name': room_name or "（不明）",
+                'body': task_display,
+                'limit_date': limit_date,
+                'overdue_days': overdue_days,
+                'reminder_type': reminder_type
+            }
+
+            tasks_by_assignee[assignee_id][reminder_type].append(task_info)
+
+        print(f"👥 リマインド対象の担当者: {len(tasks_by_assignee)}人")
+
+        # =====================================================
+        # ステップ3: 各担当者にDMで送信
+        # =====================================================
+        sent_count = 0
+        blocked_count = 0
+
+        for assignee_id, assignee_data in tasks_by_assignee.items():
+            assignee_name = assignee_data['name']
+            overdue_tasks = assignee_data['overdue']
+            today_tasks = assignee_data['today']
+            tomorrow_tasks = assignee_data['tomorrow']
+            three_days_tasks = assignee_data['three_days']
+
+            # タスクが1件もなければスキップ
+            total_tasks = len(overdue_tasks) + len(today_tasks) + len(tomorrow_tasks) + len(three_days_tasks)
+            if total_tasks == 0:
+                continue
+
+            print(f"\n📨 {assignee_name}さん（ID:{assignee_id}）へのリマインド準備...")
+            print(f"   期限超過: {len(overdue_tasks)}件, 今日: {len(today_tasks)}件, 明日: {len(tomorrow_tasks)}件, 3日後: {len(three_days_tasks)}件")
+
+            # テストガードチェック
+            if not is_test_send_allowed(account_id=assignee_id):
+                print(f"🚫 [TEST_GUARD] {assignee_name}さん（ID:{assignee_id}）への送信をブロック")
+                blocked_count += 1
+                continue
+
+            # DMルームを取得
+            dm_room_id = get_direct_room(assignee_id)
+            if not dm_room_id:
+                print(f"⚠️ {assignee_name}さんのDMルームが見つかりません")
+                # DM不可の場合は管理部に通知（バッファに追加）
+                global _dm_unavailable_buffer
+                _dm_unavailable_buffer.append({
+                    'account_id': assignee_id,
+                    'name': assignee_name,
+                    'reason': 'リマインド送信',
+                    'task_count': total_tasks
+                })
+                continue
+
+            # メッセージを作成
+            message = _create_reminder_dm_message(assignee_name, overdue_tasks, today_tasks, tomorrow_tasks, three_days_tasks)
+
+            # 送信
+            if send_reminder_with_test_guard(dm_room_id, message, account_id=assignee_id):
+                sent_count += 1
+
+                # リマインド履歴を記録
+                all_tasks = overdue_tasks + today_tasks + tomorrow_tasks + three_days_tasks
+                for task_info in all_tasks:
+                    try:
                         cursor.execute("""
                             INSERT INTO task_reminders (task_id, room_id, reminder_type)
                             VALUES (%s, %s, %s)
-                        """, (task_id, room_id, reminder_type))
-                        print(f"Reminder sent: task_id={task_id}, type={reminder_type}")
-                    else:
-                        print(f"Failed to send reminder: {response.status_code}")
-        
-        conn.commit()
-        print("=== Task reminders completed ===")
-        
-        # ===== 遅延タスク処理（P1-020〜P1-022） =====
+                        """, (task_info['task_id'], dm_room_id, task_info['reminder_type']))
+                    except Exception as e:
+                        print(f"⚠️ リマインド履歴記録エラー（続行）: {e}")
+
+                conn.commit()
+                print(f"✅ {assignee_name}さんへDM送信完了 ({total_tasks}件のタスク)")
+
+        print(f"\n=== リマインド送信完了: {sent_count}人に送信, {blocked_count}人をブロック ===")
+
+        # =====================================================
+        # ステップ4: 遅延タスク処理（管理部への報告）
+        # =====================================================
         try:
-            process_overdue_tasks()
+            process_overdue_tasks_v2()
         except Exception as e:
             print(f"⚠️ 遅延タスク処理でエラー（リマインドは完了）: {e}")
             traceback.print_exc()
-        
+
         return ('Task reminders and overdue processing completed', 200)
-        
+
     except Exception as e:
         conn.rollback()
         print(f"Error during task reminders: {str(e)}")
-        import traceback
         traceback.print_exc()
         return (f'Error: {str(e)}', 500)
-        
+
+    finally:
+        cursor.close()
+        conn.close()
+
+
+def _create_reminder_dm_message(assignee_name: str, overdue_tasks: list, today_tasks: list,
+                                 tomorrow_tasks: list, three_days_tasks: list) -> str:
+    """
+    担当者へのリマインドDMメッセージを作成
+
+    ★★★ v10.6.0: 新フォーマット ★★★
+    """
+    lines = []
+    lines.append("🐺 タスクリマインド")
+    lines.append(f"{assignee_name}さん、期限が近い・超過しているタスクがありますウル！")
+    lines.append("")
+
+    task_num = 1
+
+    # 期限超過タスク
+    if overdue_tasks:
+        lines.append("【⚠️ 期限超過】")
+        for task in overdue_tasks:
+            lines.append(f"{task_num}. {task['body']}")
+            lines.append(f"   📍 {task['room_name']} | 期限: {task['limit_date'].strftime('%m/%d')} | {task['overdue_days']}日超過")
+            task_num += 1
+        lines.append("")
+
+    # 今日期限タスク
+    if today_tasks:
+        lines.append("【🔴 今日期限】")
+        for task in today_tasks:
+            lines.append(f"{task_num}. {task['body']}")
+            lines.append(f"   📍 {task['room_name']}")
+            task_num += 1
+        lines.append("")
+
+    # 明日期限タスク
+    if tomorrow_tasks:
+        lines.append("【🟡 明日期限】")
+        for task in tomorrow_tasks:
+            lines.append(f"{task_num}. {task['body']}")
+            lines.append(f"   📍 {task['room_name']}")
+            task_num += 1
+        lines.append("")
+
+    # 3日後期限タスク
+    if three_days_tasks:
+        lines.append("【🟢 3日後期限】")
+        for task in three_days_tasks:
+            lines.append(f"{task_num}. {task['body']}")
+            lines.append(f"   📍 {task['room_name']}")
+            task_num += 1
+        lines.append("")
+
+    lines.append("確認をお願いしますウル！")
+
+    return "\n".join(lines)
+
+
+def process_overdue_tasks_v2():
+    """
+    遅延タスクを管理部に報告
+
+    ★★★ v10.6.0: 改修版 ★★★
+    - 3日以上遅延しているタスクを担当者ごとにまとめて報告
+    - テストガード適用
+    """
+    print("\n=== 遅延タスク報告（管理部向け） ===")
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    try:
+        now = datetime.now(JST)
+        today = now.date()
+        three_days_ago = today - timedelta(days=3)
+
+        # 3日以上遅延しているタスクを取得
+        cursor.execute("""
+            SELECT task_id, room_id, assigned_to_account_id, body, limit_time,
+                   room_name, assigned_to_name, summary
+            FROM chatwork_tasks
+            WHERE status = 'open'
+              AND skip_tracking = FALSE
+              AND limit_time IS NOT NULL
+        """)
+
+        tasks = cursor.fetchall()
+
+        # 担当者ごとにグループ化（3日以上遅延のみ）
+        overdue_by_assignee = {}
+
+        for task in tasks:
+            task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary = task
+
+            if limit_time is None:
+                continue
+
+            try:
+                if isinstance(limit_time, (int, float)):
+                    limit_date = datetime.fromtimestamp(int(limit_time), tz=JST).date()
+                elif hasattr(limit_time, 'date'):
+                    limit_date = limit_time.date()
+                else:
+                    continue
+            except:
+                continue
+
+            # 3日以上遅延しているか
+            if limit_date > three_days_ago:
+                continue
+
+            overdue_days = (today - limit_date).days
+            assignee_id = assigned_to_account_id
+
+            if assignee_id not in overdue_by_assignee:
+                overdue_by_assignee[assignee_id] = {
+                    'name': assigned_to_name or f"ID:{assignee_id}",
+                    'tasks': []
+                }
+
+            if summary:
+                task_display = summary
+            else:
+                clean_body = clean_task_body(body)
+                task_display = clean_body[:50] if len(clean_body) <= 50 else clean_body[:47] + "..."
+
+            overdue_by_assignee[assignee_id]['tasks'].append({
+                'task_id': task_id,
+                'body': task_display,
+                'room_name': room_name or "（不明）",
+                'limit_date': limit_date,
+                'overdue_days': overdue_days
+            })
+
+        if not overdue_by_assignee:
+            print("✅ 3日以上遅延しているタスクはありません")
+            return
+
+        # 管理部への報告メッセージを作成
+        total_overdue = sum(len(data['tasks']) for data in overdue_by_assignee.values())
+        print(f"📊 3日以上遅延タスク: {total_overdue}件（{len(overdue_by_assignee)}人）")
+
+        lines = []
+        lines.append("📊 長期遅延タスク報告")
+        lines.append(f"以下のタスクが3日以上遅延しています（計{total_overdue}件）：")
+        lines.append("")
+
+        for assignee_id, data in overdue_by_assignee.items():
+            assignee_name = data['name']
+            tasks = data['tasks']
+            lines.append(f"【{assignee_name}さん】{len(tasks)}件")
+
+            for i, task in enumerate(tasks[:5], 1):  # 最大5件表示
+                lines.append(f"  {i}. {task['body']}")
+                lines.append(f"     期限: {task['limit_date'].strftime('%m/%d')} | {task['overdue_days']}日超過 | 📍{task['room_name']}")
+
+            if len(tasks) > 5:
+                lines.append(f"  ...他{len(tasks) - 5}件")
+            lines.append("")
+
+        lines.append("確認・対応をお願いします。")
+
+        message = "\n".join(lines)
+
+        # 管理部に送信
+        if send_reminder_with_test_guard(ADMIN_ROOM_ID, message):
+            print(f"✅ 管理部への遅延タスク報告完了")
+        else:
+            print(f"⚠️ 管理部への報告送信失敗またはブロック")
+
+    except Exception as e:
+        print(f"❌ 遅延タスク報告エラー: {e}")
+        traceback.print_exc()
+
     finally:
         cursor.close()
         conn.close()

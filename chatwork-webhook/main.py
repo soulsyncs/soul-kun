@@ -1094,30 +1094,67 @@ def get_department_members(dept_name):
         dept_external_id = dept_result[2]
 
         # 部署のメンバーを取得（主所属 + 兼務者）
+        # サブクエリを使用してDISTINCTとORDER BYの問題を回避
         members_result = conn.execute(
             sqlalchemy.text("""
-                SELECT DISTINCT e.name,
-                       COALESCE(
-                           (SELECT dept->>'position'
-                            FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                            WHERE dept->>'department_id' = :ext_id
-                            LIMIT 1),
-                           e.position
-                       ) as position,
-                       e.employment_type,
-                       CASE WHEN e.department_id = :dept_id THEN 0 ELSE 1 END as is_concurrent
-                FROM employees e
-                WHERE e.department_id = :dept_id
-                   OR EXISTS (
-                       SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                       WHERE dept->>'department_id' = :ext_id
-                   )
-                ORDER BY
-                    is_concurrent,
-                    CASE WHEN position LIKE '%部長%' OR position LIKE '%マネージャー%' OR position LIKE '%責任者%' THEN 1
-                         WHEN position LIKE '%課長%' OR position LIKE '%リーダー%' THEN 2
-                         ELSE 3 END,
-                    e.name
+                SELECT name, position, employment_type, is_concurrent, position_order
+                FROM (
+                    SELECT e.name,
+                           COALESCE(
+                               (SELECT dept->>'position'
+                                FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                WHERE dept->>'department_id' = :ext_id
+                                LIMIT 1),
+                               e.position
+                           ) as position,
+                           e.employment_type,
+                           CASE WHEN e.department_id = :dept_id THEN 0 ELSE 1 END as is_concurrent,
+                           CASE
+                               WHEN COALESCE(
+                                   (SELECT dept->>'position'
+                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                    WHERE dept->>'department_id' = :ext_id
+                                    LIMIT 1),
+                                   e.position
+                               ) LIKE '%部長%'
+                               OR COALESCE(
+                                   (SELECT dept->>'position'
+                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                    WHERE dept->>'department_id' = :ext_id
+                                    LIMIT 1),
+                                   e.position
+                               ) LIKE '%マネージャー%'
+                               OR COALESCE(
+                                   (SELECT dept->>'position'
+                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                    WHERE dept->>'department_id' = :ext_id
+                                    LIMIT 1),
+                                   e.position
+                               ) LIKE '%責任者%' THEN 1
+                               WHEN COALESCE(
+                                   (SELECT dept->>'position'
+                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                    WHERE dept->>'department_id' = :ext_id
+                                    LIMIT 1),
+                                   e.position
+                               ) LIKE '%課長%'
+                               OR COALESCE(
+                                   (SELECT dept->>'position'
+                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                                    WHERE dept->>'department_id' = :ext_id
+                                    LIMIT 1),
+                                   e.position
+                               ) LIKE '%リーダー%' THEN 2
+                               ELSE 3
+                           END as position_order
+                    FROM employees e
+                    WHERE e.department_id = :dept_id
+                       OR EXISTS (
+                           SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
+                           WHERE dept->>'department_id' = :ext_id
+                       )
+                ) AS sub
+                ORDER BY is_concurrent, position_order, name
             """),
             {"dept_id": dept_id, "ext_id": dept_external_id}
         ).fetchall()

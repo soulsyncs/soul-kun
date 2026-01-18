@@ -65,6 +65,72 @@ _dm_unavailable_buffer = []  # ★★★ v6.8.3: DM不可通知のバッファ�
 JST = timezone(timedelta(hours=9))
 
 # =====================================================
+# ===== ★★★ v10.2.0: テストモード設定 ★★★ =====
+# =====================================================
+import os
+
+# DRY_RUN モード: 実際に送信せず、ログ出力のみ
+DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("true", "1", "yes")
+
+# TEST_ACCOUNT_ID: このユーザー宛のタスクのみ実際に送信（他はスキップ）
+TEST_ACCOUNT_ID = os.environ.get("TEST_ACCOUNT_ID", "")
+
+# TEST_ROOM_ID: グループチャット送信先をこのルームに差し替え
+TEST_ROOM_ID = os.environ.get("TEST_ROOM_ID", "")
+
+# カズさん（菊地雅克）のChatWork account_id（テスト時の参考用）
+ADMIN_ACCOUNT_ID = "1728974"
+
+
+def get_effective_admin_room():
+    """テストモード時はTEST_ROOM_IDを使用、そうでなければADMIN_ROOM_IDを返す"""
+    if TEST_ROOM_ID:
+        return int(TEST_ROOM_ID)
+    return ADMIN_ROOM_ID
+
+
+def is_test_mode_active():
+    """テストモードが有効かどうかを判定"""
+    return DRY_RUN or TEST_ACCOUNT_ID or TEST_ROOM_ID
+
+
+def log_test_mode_status():
+    """起動時にテストモードの状態をログ出力"""
+    if is_test_mode_active():
+        print("=" * 50)
+        print("⚠️ テストモード有効")
+        if DRY_RUN:
+            print(f"  📝 DRY_RUN=true: 送信せずログ出力のみ")
+        if TEST_ACCOUNT_ID:
+            print(f"  👤 TEST_ACCOUNT_ID={TEST_ACCOUNT_ID}: このユーザー宛のみ送信")
+        if TEST_ROOM_ID:
+            print(f"  💬 TEST_ROOM_ID={TEST_ROOM_ID}: グループ送信先を差し替え")
+        print("=" * 50)
+
+
+def should_send_to_account(account_id):
+    """
+    指定されたアカウントに実際に送信すべきかを判定
+
+    - DRY_RUN=true → 常にFalse（送信しない）
+    - TEST_ACCOUNT_ID設定あり → そのアカウントのみTrue
+    - 両方未設定 → 常にTrue（通常モード）
+    """
+    if DRY_RUN:
+        return False
+    if TEST_ACCOUNT_ID:
+        return str(account_id) == str(TEST_ACCOUNT_ID)
+    return True
+
+
+def log_dry_run_message(action_type, recipient, message_preview):
+    """DRY_RUNモード時にログ出力"""
+    print(f"🔸 [DRY_RUN] {action_type}")
+    print(f"   宛先: {recipient}")
+    print(f"   内容: {message_preview[:200]}{'...' if len(message_preview) > 200 else ''}")
+
+
+# =====================================================
 # ===== 機能カタログ（SYSTEM_CAPABILITIES） =====
 # =====================================================
 # 
@@ -2786,11 +2852,83 @@ def mark_as_processed(message_id, room_id):
 # =====================================================
 
 def ensure_overdue_tables():
-    """遅延管理用テーブルが存在しない場合は作成"""
+    """遅延管理用テーブルが存在しない場合は作成
+
+    ★★★ v10.1.4 ★★★
+    - notification_logsテーブルの存在確認を追加
+    - 各テーブル作成を個別トランザクションで実行（エラー耐性向上）
+    """
+    pool = get_pool()
+
+    # =====================================================
+    # ★★★ v10.1.4: notification_logs（汎用通知ログ）★★★
+    # =====================================================
     try:
-        pool = get_pool()
+        with pool.connect() as conn:
+            result = conn.execute(sqlalchemy.text("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables
+                    WHERE table_name = 'notification_logs'
+                )
+            """))
+            notification_logs_exists = result.scalar()
+
+        if notification_logs_exists:
+            print("✅ notification_logsテーブル既存（スキップ）")
+            # v10.1.4: metadataカラムがない場合は追加（スキーマ補完）
+            try:
+                with pool.begin() as conn:
+                    conn.execute(sqlalchemy.text("""
+                        ALTER TABLE notification_logs
+                        ADD COLUMN IF NOT EXISTS metadata JSONB
+                    """))
+                print("✅ metadataカラム確認/追加完了")
+            except Exception as e:
+                print(f"⚠️ metadataカラム追加エラー（無視）: {e}")
+        else:
+            with pool.begin() as conn:
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE notification_logs (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                        notification_type VARCHAR(50) NOT NULL,
+                        target_type VARCHAR(50) NOT NULL,
+                        target_id BIGINT,
+                        notification_date DATE NOT NULL,
+                        sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                        status VARCHAR(20) NOT NULL,
+                        error_message TEXT,
+                        retry_count INTEGER DEFAULT 0,
+                        channel VARCHAR(20),
+                        channel_target VARCHAR(255),
+                        metadata JSONB,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        created_by VARCHAR(100),
+                        UNIQUE(organization_id, target_type, target_id, notification_date, notification_type)
+                    )
+                """))
+                conn.execute(sqlalchemy.text(
+                    "CREATE INDEX idx_notification_logs_org ON notification_logs(organization_id)"
+                ))
+                conn.execute(sqlalchemy.text(
+                    "CREATE INDEX idx_notification_logs_target ON notification_logs(target_type, target_id)"
+                ))
+                conn.execute(sqlalchemy.text(
+                    "CREATE INDEX idx_notification_logs_date ON notification_logs(notification_date)"
+                ))
+                conn.execute(sqlalchemy.text(
+                    "CREATE INDEX idx_notification_logs_status ON notification_logs(status) WHERE status = 'failed'"
+                ))
+            print("✅ notification_logsテーブル新規作成完了（v10.1.4）")
+    except Exception as e:
+        print(f"⚠️ notification_logsテーブル確認/作成エラー（無視して続行）: {e}")
+
+    # =====================================================
+    # 旧テーブル（後方互換性のため残す）
+    # =====================================================
+    try:
         with pool.begin() as conn:
-            # 督促履歴テーブル
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS task_overdue_reminders (
                     id SERIAL PRIMARY KEY,
@@ -2801,14 +2939,17 @@ def ensure_overdue_tables():
                     escalated BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(task_id, reminder_date)
-                );
+                )
             """))
             conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_overdue_reminders_task_id 
-                ON task_overdue_reminders(task_id);
+                CREATE INDEX IF NOT EXISTS idx_overdue_reminders_task_id
+                ON task_overdue_reminders(task_id)
             """))
-            
-            # 期限変更履歴テーブル
+    except Exception as e:
+        print(f"⚠️ task_overdue_remindersテーブル作成エラー（無視）: {e}")
+
+    try:
+        with pool.begin() as conn:
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS task_limit_changes (
                     id SERIAL PRIMARY KEY,
@@ -2820,23 +2961,29 @@ def ensure_overdue_tables():
                     reason_received BOOLEAN DEFAULT FALSE,
                     reason_text TEXT,
                     reported_to_admin BOOLEAN DEFAULT FALSE
-                );
+                )
             """))
             conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_limit_changes_task_id 
-                ON task_limit_changes(task_id);
+                CREATE INDEX IF NOT EXISTS idx_limit_changes_task_id
+                ON task_limit_changes(task_id)
             """))
-            
-            # ★ DMルームキャッシュテーブル（API節約用）
+    except Exception as e:
+        print(f"⚠️ task_limit_changesテーブル作成エラー（無視）: {e}")
+
+    try:
+        with pool.begin() as conn:
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS dm_room_cache (
                     account_id BIGINT PRIMARY KEY,
                     dm_room_id BIGINT NOT NULL,
                     cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
+                )
             """))
-            
-            # ★★★ v6.8.2: エスカレーション専用テーブル（スパム防止）★★★
+    except Exception as e:
+        print(f"⚠️ dm_room_cacheテーブル作成エラー（無視）: {e}")
+
+    try:
+        with pool.begin() as conn:
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS task_escalations (
                     id SERIAL PRIMARY KEY,
@@ -2846,17 +2993,124 @@ def ensure_overdue_tables():
                     escalated_to_admin BOOLEAN DEFAULT FALSE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(task_id, escalated_date)
-                );
+                )
             """))
             conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_task_escalations_task_id 
-                ON task_escalations(task_id);
+                CREATE INDEX IF NOT EXISTS idx_task_escalations_task_id
+                ON task_escalations(task_id)
             """))
-            
-            print("✅ 遅延管理テーブルの確認/作成完了")
     except Exception as e:
-        print(f"⚠️ 遅延管理テーブル作成エラー: {e}")
-        traceback.print_exc()
+        print(f"⚠️ task_escalationsテーブル作成エラー（無視）: {e}")
+
+    # =====================================================
+    # ★★★ v10.1.4: データ移行 ★★★
+    # =====================================================
+    try:
+        with pool.begin() as conn:
+            migrate_legacy_to_notification_logs(conn)
+    except Exception as e:
+        print(f"⚠️ データ移行エラー（無視）: {e}")
+
+    print("✅ 遅延管理テーブルの確認/作成完了")
+
+
+def migrate_legacy_to_notification_logs(conn):
+    """
+    ★★★ v10.1.4: 既存テーブルからnotification_logsへデータ移行 ★★★
+
+    - task_overdue_reminders → notification_logs (notification_type='task_reminder')
+    - task_escalations → notification_logs (notification_type='task_escalation')
+
+    冪等性: UNIQUE制約でON CONFLICT DO NOTHINGなので何度実行してもOK
+    """
+    try:
+        # 移行済みチェック（notification_logsに既にデータがあるかどうか）
+        result = conn.execute(sqlalchemy.text(
+            "SELECT COUNT(*) FROM notification_logs WHERE notification_type = 'task_reminder'"
+        ))
+        existing_count = result.scalar()
+
+        if existing_count > 0:
+            print(f"✅ notification_logsに既存データあり（{existing_count}件）、移行スキップ")
+            return
+
+        # task_overdue_reminders → notification_logs
+        migrated_reminders = conn.execute(sqlalchemy.text("""
+            INSERT INTO notification_logs (
+                organization_id,
+                notification_type,
+                target_type,
+                target_id,
+                notification_date,
+                sent_at,
+                status,
+                channel,
+                channel_target,
+                metadata,
+                created_at
+            )
+            SELECT
+                'org_soulsyncs',
+                'task_reminder',
+                'task',
+                task_id,
+                reminder_date,
+                created_at,
+                'success',
+                'chatwork',
+                account_id::TEXT,
+                jsonb_build_object('overdue_days', overdue_days, 'migrated_from', 'task_overdue_reminders'),
+                created_at
+            FROM task_overdue_reminders
+            ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+            DO NOTHING
+            RETURNING id
+        """))
+        reminder_count = len(migrated_reminders.fetchall())
+
+        # task_escalations → notification_logs
+        migrated_escalations = conn.execute(sqlalchemy.text("""
+            INSERT INTO notification_logs (
+                organization_id,
+                notification_type,
+                target_type,
+                target_id,
+                notification_date,
+                sent_at,
+                status,
+                channel,
+                metadata,
+                created_at
+            )
+            SELECT
+                'org_soulsyncs',
+                'task_escalation',
+                'task',
+                task_id,
+                escalated_date,
+                created_at,
+                'success',
+                'chatwork',
+                jsonb_build_object(
+                    'escalated_to_requester', escalated_to_requester,
+                    'escalated_to_admin', escalated_to_admin,
+                    'migrated_from', 'task_escalations'
+                ),
+                created_at
+            FROM task_escalations
+            ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+            DO NOTHING
+            RETURNING id
+        """))
+        escalation_count = len(migrated_escalations.fetchall())
+
+        if reminder_count > 0 or escalation_count > 0:
+            print(f"✅ データ移行完了: task_reminder={reminder_count}件, task_escalation={escalation_count}件")
+        else:
+            print("✅ 移行対象データなし")
+
+    except Exception as e:
+        print(f"⚠️ データ移行エラー（無視して続行）: {e}")
 
 
 def get_all_contacts():
@@ -3103,62 +3357,79 @@ def notify_dm_not_available(person_name, account_id, tasks, action_type):
 def flush_dm_unavailable_notifications():
     """
     ★★★ v6.8.3: バッファに溜まったDM不可通知をまとめて1通で送信 ★★★
-    
+
     これにより、per-room制限（10秒10回）を回避できる。
     process_overdue_tasks()の最後に呼び出す。
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ROOM_ID: 送信先を差し替え
     """
     global _dm_unavailable_buffer
-    
+
     if not _dm_unavailable_buffer:
         return
-    
+
     print(f"📤 DM不可通知をまとめて送信（{len(_dm_unavailable_buffer)}件）")
-    
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    
+
     # まとめメッセージを作成
     message_lines = ["[info][title]⚠️ DM送信できなかった通知一覧[/title]"]
     message_lines.append(f"以下の{len(_dm_unavailable_buffer)}名にDMを送信できませんでした：\n")
-    
+
     for i, item in enumerate(_dm_unavailable_buffer[:20], 1):  # 最大20件まで
         person_name = item["person_name"]
         account_id = item["account_id"]
         action_type = item["action_type"]
         tasks = item.get("tasks", [])
-        
+
         # タスク情報（1件のみ表示）
         task_hint = ""
         if tasks and len(tasks) > 0:
             body = tasks[0].get("body", "")
             body_short = (body[:15] + "...") if len(body) > 15 else body
             task_hint = f"「{body_short}」"
-        
+
         message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")
-    
+
     if len(_dm_unavailable_buffer) > 20:
         message_lines.append(f"\n...他{len(_dm_unavailable_buffer) - 20}名")
-    
+
     message_lines.append("\n【対応】")
     message_lines.append("ChatWorkで上記の方々がソウルくんをコンタクト追加するか、")
     message_lines.append("管理者がソウルくんアカウントからコンタクト追加してください。[/info]")
-    
+
     message = "\n".join(message_lines)
-    
+
+    # ★★★ v10.2.0: テストモード対応 ★★★
+    target_room_id = get_effective_admin_room()
+
+    if DRY_RUN:
+        log_dry_run_message(
+            action_type="DM不可通知（管理部）",
+            recipient=f"管理部（room_id={target_room_id}）",
+            message_preview=message
+        )
+        print(f"⏭️ [DRY_RUN] 管理部へのDM不可通知をスキップ（{len(_dm_unavailable_buffer)}件）")
+        _dm_unavailable_buffer = []
+        return
+
     try:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         response = httpx.post(
-            f"https://api.chatwork.com/v2/rooms/{ADMIN_ROOM_ID}/messages",
+            f"https://api.chatwork.com/v2/rooms/{target_room_id}/messages",
             headers={"X-ChatWorkToken": api_token},
             data={"body": message},
             timeout=10.0
         )
-        
+
         if response.status_code == 200:
-            print(f"✅ 管理部へのDM不可通知まとめ送信成功（{len(_dm_unavailable_buffer)}件）")
+            room_note = f"（TEST_ROOM_ID）" if TEST_ROOM_ID else ""
+            print(f"✅ 管理部へのDM不可通知まとめ送信成功（{len(_dm_unavailable_buffer)}件）{room_note}")
         else:
             print(f"❌ 管理部へのDM不可通知まとめ送信失敗: {response.status_code}")
     except Exception as e:
         print(f"❌ 管理部通知エラー: {e}")
-    
+
     # バッファをクリア
     _dm_unavailable_buffer = []
 
@@ -3166,40 +3437,56 @@ def flush_dm_unavailable_notifications():
 def report_unassigned_overdue_tasks(tasks):
     """
     担当者未設定の遅延タスクを管理部に報告
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ROOM_ID: 送信先を差し替え
     """
     if not tasks:
         return
-    
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    
-    message_lines = ["[info][title]⚠️ 担当者未設定の遅延タスク[/title]", 
+
+    message_lines = ["[info][title]⚠️ 担当者未設定の遅延タスク[/title]",
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
-    
+
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
         body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
         requester = task.get("assigned_by_name") or "依頼者不明"
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        
+
         message_lines.append(f"{i}. 「{body_short}」")
         message_lines.append(f"   依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過")
-    
+
     if len(tasks) > 10:
         message_lines.append(f"\n...他{len(tasks) - 10}件")
-    
+
     message_lines.append("\n担当者を設定してくださいウル🐺[/info]")
     message = "\n".join(message_lines)
-    
+
+    # ★★★ v10.2.0: テストモード対応 ★★★
+    target_room_id = get_effective_admin_room()
+
+    if DRY_RUN:
+        log_dry_run_message(
+            action_type="担当者未設定タスク報告（管理部）",
+            recipient=f"管理部（room_id={target_room_id}）",
+            message_preview=message
+        )
+        print(f"⏭️ [DRY_RUN] 担当者未設定タスク報告をスキップ（{len(tasks)}件）")
+        return
+
     try:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         response = httpx.post(
-            f"https://api.chatwork.com/v2/rooms/{ADMIN_ROOM_ID}/messages",
+            f"https://api.chatwork.com/v2/rooms/{target_room_id}/messages",
             headers={"X-ChatWorkToken": api_token},
             data={"body": message},
             timeout=10.0
         )
-        
+
         if response.status_code == 200:
-            print(f"✅ 担当者未設定タスク報告送信成功（{len(tasks)}件）")
+            room_note = f"（TEST_ROOM_ID）" if TEST_ROOM_ID else ""
+            print(f"✅ 担当者未設定タスク報告送信成功（{len(tasks)}件）{room_note}")
         else:
             print(f"❌ 担当者未設定タスク報告送信失敗: {response.status_code}")
     except Exception as e:
@@ -3235,13 +3522,21 @@ def process_overdue_tasks():
     """
     遅延タスクを処理：督促送信 + エスカレーション
     毎日8:30に実行（remind_tasksから呼び出し）
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ACCOUNT_ID: 指定ユーザー宛のみ実際に送信
+    - TEST_ROOM_ID: グループ送信先を差し替え
     """
     global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok, _dm_unavailable_buffer
-    
+
     print("=" * 50)
     print("🔔 遅延タスク処理開始")
     print("=" * 50)
-    
+
+    # ★★★ v10.2.0: テストモード状態をログ出力 ★★★
+    log_test_mode_status()
+
     # ★★★ v6.8.4: 実行開始時にメモリキャッシュをリセット ★★★
     _runtime_dm_cache = {}
     _runtime_direct_rooms = None
@@ -3345,15 +3640,28 @@ def process_overdue_tasks():
 def send_overdue_reminder_to_dm(account_id, tasks, today):
     """
     担当者の個人チャットに遅延タスクをまとめて督促送信
-    
+
     ★ v6.8.1変更点:
     - DMが見つからない場合は管理部に通知（フォールバック）
+
+    ★★★ v10.1.4変更点 ★★★
+    - notification_logsテーブルを使用（汎用通知ログ対応）
+    - UPSERT仕様で冪等性確保
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ACCOUNT_ID: 指定ユーザー宛のみ実際に送信
     """
     if not tasks:
         return
-    
+
     assignee_name = tasks[0].get("assigned_to_name", "担当者")
-    
+
+    # ★★★ v10.2.0: テストモードチェック ★★★
+    if TEST_ACCOUNT_ID and str(account_id) != str(TEST_ACCOUNT_ID):
+        print(f"⏭️ [TEST_MODE] {assignee_name}さん（ID:{account_id}）はスキップ（TEST_ACCOUNT_ID={TEST_ACCOUNT_ID}以外）")
+        return
+
     # 個人チャットを取得
     dm_room_id = get_direct_room(account_id)
     if not dm_room_id:
@@ -3361,84 +3669,144 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         print(f"⚠️ {assignee_name}さんの個人チャットが取得できませんでした → 管理部に通知")
         notify_dm_not_available(assignee_name, account_id, tasks, "督促")
         return
-    
-    # 今日既に督促済みか確認
+
+    # ★★★ v10.1.4: notification_logsで今日の督促済みを確認 ★★★
     pool = get_pool()
     with pool.connect() as conn:
-        # 全タスクについて今日の督促履歴をチェック
         task_ids = [t["task_id"] for t in tasks]
-        # ★★★ v6.8.3: expanding INに変更（ANY(:task_ids)は環境依存で落ちる）★★★
         stmt = sqlalchemy.text("""
-            SELECT task_id FROM task_overdue_reminders
-            WHERE task_id IN :task_ids AND reminder_date = :today
+            SELECT target_id FROM notification_logs
+            WHERE target_id IN :task_ids
+              AND notification_date = :today
+              AND notification_type = 'task_reminder'
+              AND target_type = 'task'
+              AND status = 'success'
         """).bindparams(bindparam("task_ids", expanding=True))
         result = conn.execute(stmt, {"task_ids": task_ids, "today": today})
         already_reminded = set(row[0] for row in result.fetchall())
-    
+
     # 未督促のタスクだけ抽出
     tasks_to_remind = [t for t in tasks if t["task_id"] not in already_reminded]
-    
+
     if not tasks_to_remind:
         print(f"✅ {assignee_name}さんへの督促は今日既に送信済み")
         return
-    
+
     # メッセージ作成
     message_lines = [f"{assignee_name}さん\n", "📌 期限超過のタスクがありますウル！\n"]
-    
+
     for i, task in enumerate(tasks_to_remind, 1):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         requester = task.get("assigned_by_name") or "依頼者"
         body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
-        
+
         message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
-    
+
     message_lines.append("\n遅れている理由と、いつ頃完了できそうか教えてほしいウル🐺")
     message = "\n".join(message_lines)
-    
-    # 送信
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    response = httpx.post(
-        f"https://api.chatwork.com/v2/rooms/{dm_room_id}/messages",
-        headers={"X-ChatWorkToken": api_token},
-        data={"body": message},
-        timeout=10.0
-    )
-    
-    if response.status_code == 200:
-        print(f"✅ {assignee_name}さんへの督促送信成功（{len(tasks_to_remind)}件）")
-        
-        # 督促履歴を記録
-        with pool.begin() as conn:
-            for task in tasks_to_remind:
-                overdue_days = get_overdue_days(task["limit_time"])
-                conn.execute(
-                    sqlalchemy.text("""
-                        INSERT INTO task_overdue_reminders (task_id, account_id, reminder_date, overdue_days)
-                        VALUES (:task_id, :account_id, :reminder_date, :overdue_days)
-                        ON CONFLICT (task_id, reminder_date) DO NOTHING
-                    """),
-                    {
-                        "task_id": task["task_id"],
-                        "account_id": account_id,
-                        "reminder_date": today,
-                        "overdue_days": overdue_days
-                    }
-                )
+
+    # ★★★ v10.2.0: DRY_RUNモードチェック ★★★
+    if DRY_RUN:
+        log_dry_run_message(
+            action_type="督促DM送信",
+            recipient=f"{assignee_name}さん（account_id={account_id}, room_id={dm_room_id}）",
+            message_preview=message
+        )
+        # DRY_RUNでもnotification_logsにはskippedとして記録
+        status = "skipped"
+        error_msg = "DRY_RUN mode"
     else:
-        print(f"❌ {assignee_name}さんへの督促送信失敗: {response.status_code}")
+        # 実際に送信
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+        response = httpx.post(
+            f"https://api.chatwork.com/v2/rooms/{dm_room_id}/messages",
+            headers={"X-ChatWorkToken": api_token},
+            data={"body": message},
+            timeout=10.0
+        )
+        status = "success" if response.status_code == 200 else "failed"
+        error_msg = None if response.status_code == 200 else f"HTTP {response.status_code}"
+
+    with pool.begin() as conn:
+        for task in tasks_to_remind:
+            overdue_days = get_overdue_days(task["limit_time"])
+            conn.execute(
+                sqlalchemy.text("""
+                    INSERT INTO notification_logs (
+                        organization_id,
+                        notification_type,
+                        target_type,
+                        target_id,
+                        notification_date,
+                        sent_at,
+                        status,
+                        error_message,
+                        retry_count,
+                        channel,
+                        channel_target,
+                        metadata
+                    )
+                    VALUES (
+                        'org_soulsyncs',
+                        'task_reminder',
+                        'task',
+                        :task_id,
+                        :notification_date,
+                        NOW(),
+                        :status,
+                        :error_message,
+                        0,
+                        'chatwork',
+                        :channel_target,
+                        :metadata
+                    )
+                    ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                    DO UPDATE SET
+                        status = EXCLUDED.status,
+                        sent_at = NOW(),
+                        error_message = EXCLUDED.error_message,
+                        retry_count = notification_logs.retry_count + 1,
+                        updated_at = NOW()
+                """),
+                {
+                    "task_id": task["task_id"],
+                    "notification_date": today,
+                    "status": status,
+                    "error_message": error_msg,
+                    "channel_target": str(dm_room_id),
+                    "metadata": json.dumps({
+                        "overdue_days": overdue_days,
+                        "account_id": account_id,
+                        "assignee_name": assignee_name,
+                        "dry_run": DRY_RUN  # v10.2.0: テストモード記録
+                    })
+                }
+            )
+
+    # ★★★ v10.2.0: テストモード対応ログ ★★★
+    if status == "success":
+        print(f"✅ {assignee_name}さんへの督促送信成功（{len(tasks_to_remind)}件）→ notification_logs記録")
+    elif status == "skipped":
+        print(f"⏭️ [DRY_RUN] {assignee_name}さんへの督促をスキップ（{len(tasks_to_remind)}件）→ notification_logs記録")
+    else:
+        print(f"❌ {assignee_name}さんへの督促送信失敗: {error_msg} → notification_logs記録")
 
 
 def process_escalations(overdue_tasks, today):
     """
     3日以上超過のタスクをエスカレーション（依頼者+管理部に報告）
-    
+
     ★★★ v6.8.2変更点 ★★★
     - task_escalationsテーブルを使用（督促履歴と分離）
     - エスカレーション送信前に必ず記録を作成（スパム防止）
+
+    ★★★ v10.1.4変更点 ★★★
+    - notification_logsテーブルを使用（汎用通知ログ対応）
+    - UPSERT仕様で冪等性確保
     """
     pool = get_pool()
-    
+
     # 3日以上超過のタスクを抽出
     escalation_tasks = []
     for task in overdue_tasks:
@@ -3456,43 +3824,33 @@ def process_escalations(overdue_tasks, today):
         if overdue_days >= ESCALATION_DAYS:
             task_dict["overdue_days"] = overdue_days
             escalation_tasks.append(task_dict)
-    
+
     if not escalation_tasks:
         print("✅ エスカレーション対象タスクはありません")
         return
-    
-    # ★★★ v6.8.2: task_escalationsテーブルで今日のエスカレーション済みを確認 ★★★
+
+    # ★★★ v10.1.4: notification_logsで今日のエスカレーション済みを確認 ★★★
     with pool.connect() as conn:
         task_ids = [t["task_id"] for t in escalation_tasks]
-        # ★★★ v6.8.3: expanding INに変更（ANY(:task_ids)は環境依存で落ちる）★★★
         stmt = sqlalchemy.text("""
-            SELECT task_id FROM task_escalations
-            WHERE task_id IN :task_ids AND escalated_date = :today
+            SELECT target_id FROM notification_logs
+            WHERE target_id IN :task_ids
+              AND notification_date = :today
+              AND notification_type = 'task_escalation'
+              AND target_type = 'task'
+              AND status = 'success'
         """).bindparams(bindparam("task_ids", expanding=True))
         result = conn.execute(stmt, {"task_ids": task_ids, "today": today})
         already_escalated = set(row[0] for row in result.fetchall())
-    
+
     tasks_to_escalate = [t for t in escalation_tasks if t["task_id"] not in already_escalated]
-    
+
     if not tasks_to_escalate:
         print("✅ エスカレーションは今日既に送信済み")
         return
-    
+
     print(f"🚨 エスカレーション対象: {len(tasks_to_escalate)}件")
-    
-    # ★★★ v6.8.2: 送信前に必ずtask_escalationsに記録（スパム防止の要）★★★
-    with pool.begin() as conn:
-        for task in tasks_to_escalate:
-            conn.execute(
-                sqlalchemy.text("""
-                    INSERT INTO task_escalations (task_id, escalated_date)
-                    VALUES (:task_id, :today)
-                    ON CONFLICT (task_id, escalated_date) DO NOTHING
-                """),
-                {"task_id": task["task_id"], "today": today}
-            )
-    print(f"✅ エスカレーション記録を作成（{len(tasks_to_escalate)}件）")
-    
+
     # 依頼者ごとにグループ化して報告
     tasks_by_requester = {}
     for task in tasks_to_escalate:
@@ -3501,76 +3859,131 @@ def process_escalations(overdue_tasks, today):
             tasks_by_requester[requester_id] = []
         if requester_id:
             tasks_by_requester[requester_id].append(task)
-    
-    # ★★★ v6.8.3: 依頼者ごとの送信結果を記録（誤記録防止）★★★
+
+    # 依頼者ごとの送信結果を記録
     requester_success_map = {}  # {requester_id: bool}
     for requester_id, tasks in tasks_by_requester.items():
         requester_success_map[requester_id] = send_escalation_to_requester(requester_id, tasks)
-    
+
     # 管理部への報告（まとめて1通）
     admin_success = send_escalation_to_admin(tasks_to_escalate)
-    
-    # ★★★ v6.8.3: 送信結果をtask_escalationsに更新（依頼者別に正しく記録）★★★
+
+    # ★★★ v10.1.4: notification_logsに記録（UPSERT仕様）★★★
     with pool.begin() as conn:
         for task in tasks_to_escalate:
-            # この タスクの依頼者への送信結果を取得
             task_requester_id = task["assigned_by_account_id"]
             task_requester_success = requester_success_map.get(task_requester_id, False)
-            
+
+            # 成功判定: 依頼者への送信または管理部への送信のいずれかが成功
+            overall_success = task_requester_success or admin_success
+            status = "success" if overall_success else "failed"
+
             conn.execute(
                 sqlalchemy.text("""
-                    UPDATE task_escalations 
-                    SET escalated_to_requester = :requester_success,
-                        escalated_to_admin = :admin_success
-                    WHERE task_id = :task_id AND escalated_date = :today
+                    INSERT INTO notification_logs (
+                        organization_id,
+                        notification_type,
+                        target_type,
+                        target_id,
+                        notification_date,
+                        sent_at,
+                        status,
+                        channel,
+                        metadata
+                    )
+                    VALUES (
+                        'org_soulsyncs',
+                        'task_escalation',
+                        'task',
+                        :task_id,
+                        :notification_date,
+                        NOW(),
+                        :status,
+                        'chatwork',
+                        :metadata
+                    )
+                    ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                    DO UPDATE SET
+                        status = EXCLUDED.status,
+                        sent_at = NOW(),
+                        metadata = EXCLUDED.metadata,
+                        retry_count = notification_logs.retry_count + 1,
+                        updated_at = NOW()
                 """),
                 {
-                    "task_id": task["task_id"], 
-                    "today": today,
-                    "requester_success": task_requester_success,
-                    "admin_success": admin_success
+                    "task_id": task["task_id"],
+                    "notification_date": today,
+                    "status": status,
+                    "metadata": json.dumps({
+                        "overdue_days": task["overdue_days"],
+                        "escalated_to_requester": task_requester_success,
+                        "escalated_to_admin": admin_success,
+                        "requester_id": task_requester_id,
+                        "assignee_name": task.get("assigned_to_name")
+                    })
                 }
             )
+
+    print(f"✅ エスカレーション完了 → notification_logs記録（{len(tasks_to_escalate)}件）")
 
 
 def send_escalation_to_requester(requester_id, tasks):
     """依頼者へのエスカレーション報告
-    
+
     ★ v6.8.1変更点:
     - DMが見つからない場合は管理部に通知（フォールバック）
-    
+
     ★ v6.8.2変更点:
     - 成功/失敗を戻り値で返す
-    
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ACCOUNT_ID: 指定ユーザー宛のみ実際に送信
+
     Returns:
         bool: 送信成功ならTrue
     """
     if not tasks:
         return False
-    
+
     # 依頼者名を取得（tasksから推測）
     requester_name = f"依頼者(ID:{requester_id})"
-    
+
+    # ★★★ v10.2.0: テストモードチェック ★★★
+    if TEST_ACCOUNT_ID and str(requester_id) != str(TEST_ACCOUNT_ID):
+        print(f"⏭️ [TEST_MODE] {requester_name}へのエスカレーションはスキップ（TEST_ACCOUNT_ID={TEST_ACCOUNT_ID}以外）")
+        return False
+
     dm_room_id = get_direct_room(requester_id)
     if not dm_room_id:
         # ★ フォールバック: 管理部に「DMできない」ことを通知
         print(f"⚠️ {requester_name}の個人チャットが取得できませんでした → 管理部に通知")
         notify_dm_not_available(requester_name, requester_id, tasks, "エスカレーション")
         return False
-    
+
     message_lines = ["📋 タスク遅延のお知らせウル\n", "あなたが依頼したタスクが3日以上遅延しています：\n"]
-    
+
     for task in tasks:
         assignee = task.get("assigned_to_name", "担当者")
         body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        
+
         message_lines.append(f"・「{body_short}」")
         message_lines.append(f"  担当者: {assignee} / 期限: {limit_date} / {task['overdue_days']}日超過")
-    
+
     message_lines.append("\nソウルくんから毎日督促していますが、対応が必要かもしれませんウル🐺")
     message = "\n".join(message_lines)
-    
+
+    # ★★★ v10.2.0: DRY_RUNモードチェック ★★★
+    if DRY_RUN:
+        log_dry_run_message(
+            action_type="エスカレーション（依頼者DM）",
+            recipient=f"{requester_name}（room_id={dm_room_id}）",
+            message_preview=message
+        )
+        print(f"⏭️ [DRY_RUN] {requester_name}へのエスカレーションをスキップ")
+        return True  # DRY_RUNでは成功扱い
+
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     response = httpx.post(
         f"https://api.chatwork.com/v2/rooms/{dm_room_id}/messages",
@@ -3578,7 +3991,7 @@ def send_escalation_to_requester(requester_id, tasks):
         data={"body": message},
         timeout=10.0
     )
-    
+
     if response.status_code == 200:
         print(f"✅ 依頼者(ID:{requester_id})へのエスカレーション送信成功")
         return True
@@ -3589,40 +4002,57 @@ def send_escalation_to_requester(requester_id, tasks):
 
 def send_escalation_to_admin(tasks):
     """管理部へのエスカレーション報告
-    
+
     ★ v6.8.2変更点:
     - 成功/失敗を戻り値で返す
-    
+
+    ★★★ v10.2.0: テストモード対応 ★★★
+    - DRY_RUN=true: 送信せずログ出力のみ
+    - TEST_ROOM_ID: 送信先を差し替え
+
     Returns:
         bool: 送信成功ならTrue
     """
     if not tasks:
         return False
-    
+
     message_lines = ["[info][title]📊 長期遅延タスク報告[/title]", "以下のタスクが3日以上遅延しています：\n"]
-    
+
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
         requester = task.get("assigned_by_name", "依頼者")
         body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        
+
         message_lines.append(f"{i}. {assignee}さん「{body_short}」")
         message_lines.append(f"   依頼者: {requester} / 期限: {limit_date} / {task['overdue_days']}日超過")
-    
+
     message_lines.append("\n引き続き督促を継続しますウル🐺[/info]")
     message = "\n".join(message_lines)
-    
+
+    # ★★★ v10.2.0: テストモード対応 ★★★
+    target_room_id = get_effective_admin_room()
+
+    if DRY_RUN:
+        log_dry_run_message(
+            action_type="エスカレーション（管理部）",
+            recipient=f"管理部（room_id={target_room_id}）",
+            message_preview=message
+        )
+        print(f"⏭️ [DRY_RUN] 管理部へのエスカレーションをスキップ（{len(tasks)}件）")
+        return True  # DRY_RUNでは成功扱い
+
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     response = httpx.post(
-        f"https://api.chatwork.com/v2/rooms/{ADMIN_ROOM_ID}/messages",
+        f"https://api.chatwork.com/v2/rooms/{target_room_id}/messages",
         headers={"X-ChatWorkToken": api_token},
         data={"body": message},
         timeout=10.0
     )
-    
+
     if response.status_code == 200:
-        print(f"✅ 管理部へのエスカレーション送信成功（{len(tasks)}件）")
+        room_note = f"（TEST_ROOM_ID）" if TEST_ROOM_ID else ""
+        print(f"✅ 管理部へのエスカレーション送信成功（{len(tasks)}件）{room_note}")
         return True
     else:
         print(f"❌ 管理部へのエスカレーション送信失敗: {response.status_code}")

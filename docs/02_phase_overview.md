@@ -5,7 +5,7 @@
 ### 【社内優先フェーズ】2026年 Q1〜Q3
 
 - Phase 1: タスク管理基盤 ✅完了
-- Phase 1-B: タスク検知・監視 🔄Q1〜Q2
+- Phase 1-B: タスク検知・監視 ✅完了（v10.1.4）
 - Phase 2: AI応答・評価機能 ✅完了
 - Phase 2.5: 目標達成支援 🔄Q1（実装中）
 - Phase 3: ナレッジ系（ソウルくんの脳みそ）📋Q2 Week 1-6 ★最優先
@@ -39,65 +39,73 @@
 
 ## 2.2 各Phaseの概要
 
-### ■ Phase 1-B: タスク検知・監視【v10.1.3追加】📋Q1〜Q2
+### ■ Phase 1-B: タスク検知・監視【v10.1.4更新】✅完了
 
 **目的:** タスクの期限超過を自動検知し、担当者に毎日リマインド通知を送る
 
-**スコープ（v10.1.3）:**
+**スコープ（v10.1.4）:**
 
 | # | 機能 | 詳細 | 実装状況 |
 |---|------|------|---------|
 | 1 | 期限超過タスク検知 | 毎日朝9時に期限切れタスクを検出 | ✅実装 |
-| 2 | ChatWork自動通知 | 担当者のルームに期限超過タスクを通知 | ✅実装 |
-| 3 | 二重送信防止 | reminder_logsで冪等性確保（UPSERT仕様） | ✅実装 |
-| 4 | grace_days考慮 | 期限当日はリマインド対象外（翌日から通知） | ✅実装 |
-| 5 | パフォーマンス最適化 | idx_tasks_org_due_statusで高速検索 | ✅実装 |
+| 2 | ChatWork自動通知 | 担当者のDMに期限超過タスクを通知 | ✅実装 |
+| 3 | 二重送信防止 | notification_logsで冪等性確保（UPSERT仕様） | ✅実装（v10.1.4） |
+| 4 | エスカレーション | 3日超過で依頼者+管理部に報告 | ✅実装 |
+| 5 | 汎用通知ログ | Phase 2.5/Cでも利用可能なnotification_logs | ✅実装（v10.1.4） |
 
-**技術仕様:**
+**技術仕様（v10.1.4）:**
 
 ```yaml
-Scheduler: Cloud Scheduler（毎日朝9時JST）
-API: GET /tasks/overdue（期限超過タスク一覧）
-実装: schedulers/daily_overdue_reminder.py
-DB: tasksテーブル（notification_room_id追加）
-    reminder_logsテーブル（新規作成、UPSERT仕様）
-Index: idx_tasks_org_due_status（パフォーマンス最適化）
+Scheduler: Cloud Scheduler（毎日朝8:30 JST）
+実装: remind-tasks/main.py（Cloud Functions）
+DB: notification_logsテーブル（汎用通知ログ、v10.1.4）
+通知タイプ:
+  - task_reminder: タスク期限超過リマインド
+  - task_escalation: 3日超過エスカレーション
+冪等性: UNIQUE(org_id, target_type, target_id, date, type) + UPSERT
 ```
+
+**notification_logsテーブル（v10.1.4）:**
+
+| カラム | 型 | 説明 |
+|--------|---|------|
+| notification_type | VARCHAR(50) | task_reminder, task_escalation, goal_reminder, meeting_reminder |
+| target_type | VARCHAR(50) | task, goal, meeting, system |
+| target_id | BIGINT | 対象ID（task_id等） |
+| status | VARCHAR(20) | success, failed, skipped |
+| metadata | JSONB | overdue_days等の追加情報 |
 
 **リマインド通知例:**
 
 ```
-【期限超過タスクのリマインド】
+山田さん
 
-以下のタスクの期限が過ぎています：
+📌 期限超過のタスクがありますウル！
 
-📌 Re:nk新規案件ヒアリング資料作成
-   期限: 2026-01-15（2日超過）
-   優先度: high
+1. 「Re:nk新規案件ヒアリング資料作成」（依頼者: 吉澤 / 期限: 01/15 / 2日超過）
 
-タスクの完了または期限の延長をお願いします。
-https://soulsyncs.example.com/tasks/task_12345
+遅れている理由と、いつ頃完了できそうか教えてほしいウル🐺
 ```
 
 **Phase 1-B完了定義（5項目）:**
 
 | # | 要件 | 詳細 | 確認方法 |
 |---|------|------|---------|
-| 1 | 期限超過検知 | 毎日朝9時に前日以前の期限超過タスクを検出 | Cloud Schedulerログ確認 |
-| 2 | ChatWork通知 | 検出したタスクを担当者のルームに通知 | ChatWork受信確認 |
-| 3 | 冪等性保証 | 同じタスクに同じ日に2回送信しない | reminder_logs確認 |
-| 4 | エラーハンドリング | ChatWork API失敗時にログ記録＋リトライ | エラーログ確認 |
-| 5 | パフォーマンス | 1000タスク検索が1秒以内 | 性能テスト |
+| 1 | 期限超過検知 | 毎日朝8:30に期限超過タスクを検出 | ✅Cloud Schedulerログ確認 |
+| 2 | ChatWork通知 | 検出したタスクを担当者のDMに通知 | ✅ChatWork受信確認 |
+| 3 | 冪等性保証 | 同じタスクに同じ日に2回送信しない | ✅notification_logs確認 |
+| 4 | エラーハンドリング | ChatWork API失敗時にログ記録＋リトライ | ✅エラーログ確認 |
+| 5 | エスカレーション | 3日超過で依頼者+管理部に報告 | ✅process_escalations() |
 
-**設計の5つの最適化（v10.1.3）:**
+**v10.1.4での改善:**
 
-| # | 最適化 | 変更内容 | 重要度 |
-|---|--------|---------|--------|
-| 1 | UPSERT仕様 | reminder_logsをDO UPDATEに変更（失敗→成功のリトライで上書き） | CRITICAL |
-| 2 | 環境変数チェック | 必須環境変数の明示的チェック追加 | HIGH |
-| 3 | grace_days境界 | 期限当日は通知対象外を明文化 | MEDIUM |
-| 4 | DB接続使い回し | 同じ接続でSELECT→INSERT実行 | MEDIUM |
-| 5 | 0件報告設定化 | SEND_EMPTY_REPORTSでON/OFF切り替え | LOW |
+| # | 改善 | 変更内容 | 効果 |
+|---|------|---------|------|
+| 1 | 汎用通知ログ | task_overdue_reminders → notification_logs | Phase 2.5/C対応 |
+| 2 | UPSERT仕様 | ON CONFLICT DO UPDATE | 失敗→成功のリトライ対応 |
+| 3 | メタデータ対応 | JSONB metadata カラム | 拡張性向上 |
+| 4 | データ移行 | 既存データを自動移行 | 後方互換性 |
+| 5 | 統合ログ | task_reminder + task_escalation | 一元管理 |
 
 ---
 
@@ -182,9 +190,41 @@ Phase 4A: テナント分離
 | 要素 | 技術 | 理由 |
 |------|------|------|
 | 階層クエリ | PostgreSQL LTREE | 階層検索が高速（O(log n)） |
-| API | FastAPI | 既存のソウル君と統一 |
+| API | FastAPI (Cloud Run) | 新規APIはFastAPIで実装 |
+| 既存API | Flask (Cloud Functions) | 段階的にFastAPIへ移行 |
+| 共通ライブラリ | lib/ | Flask/FastAPI両対応の共通コード |
 | 同期方式 | REST API（Push型） | 組織図システムから変更を通知 |
 | キャッシュ | Redis | アクセス可能部署リストをキャッシュ |
+
+### ■ ハイブリッドアーキテクチャ【v10.1.5追加】
+
+**現状（Phase 3.5開始時点）:**
+- 既存: Flask + Cloud Functions（main.py 2,615行）
+- 新規: FastAPI + Cloud Run（api/ディレクトリ）
+
+**共通ライブラリ（lib/）:**
+```
+lib/
+├── config.py      # 環境変数・設定管理
+├── secrets.py     # GCP Secret Manager
+├── db.py          # DB接続（sync/async両対応）
+├── chatwork.py    # Chatwork APIクライアント
+├── tenant.py      # テナントコンテキスト管理
+└── logging.py     # 構造化ログ
+```
+
+**Phase 4開始前（2026年Q4）までの移行計画:**
+
+| 時期 | マイルストーン | 内容 |
+|------|--------------|------|
+| Phase 3.5 | lib/共通化 | DB接続、Chatwork API、シークレット管理を共通化 |
+| Phase 3.5 | FastAPI基盤 | api/ディレクトリにFastAPIアプリ構築 |
+| Phase 3.6 | 組織図API | FastAPIで組織図同期APIを実装 |
+| Phase C | 会議系API | FastAPIで議事録APIを実装 |
+| **Q3末** | **Flask移行完了** | **既存Cloud FunctionsをFastAPIに完全移行** |
+| Phase 4A | マルチテナント | FastAPIベースでBPaaS対応 |
+
+**重要: Phase 4A開始前にFlask→FastAPI移行を完了すること**
 
 ### ■ Phase 3.5の実装時期
 

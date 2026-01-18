@@ -150,7 +150,7 @@ TEST_ALLOWED_ROOMS = {
 KAZU_ACCOUNT_ID = 1728974
 
 # テストモードフラグ（本番稼働時はFalseに変更）
-REMINDER_TEST_MODE = True  # ★★★ Trueの間は管理部とカズさんDMのみに送信 ★★★
+REMINDER_TEST_MODE = False  # ★★★ v10.10.0: 本番稼働開始 - 全スタッフにリマインド送信 ★★★
 
 
 def is_test_send_allowed(room_id: int = None, account_id: int = None) -> bool:
@@ -5188,7 +5188,7 @@ def remind_tasks(request):
     - メッセージフォーマット改善
     """
     print("=" * 60)
-    print("=== Starting task reminders (v10.6.0 - DM方式) ===")
+    print("=== Starting task reminders (v10.10.0 - 本番稼働) ===")
     print(f"REMINDER_TEST_MODE: {REMINDER_TEST_MODE}")
     if REMINDER_TEST_MODE:
         print("⚠️ テストモード: 管理部チャットとカズさんDMのみに送信")

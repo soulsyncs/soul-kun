@@ -1670,6 +1670,10 @@ def generate_deadline_alert_message(task_name: str, limit_date, days_until: int)
     """
     期限が近いタスクのアラートメッセージを生成する
 
+    v10.3.1: カズさんの意図を反映したメッセージに修正
+    - 依頼する側の配慮を促す文化づくり
+    - 依頼された側が大変にならないように
+
     Args:
         task_name: タスク名
         limit_date: 期限日（date型）
@@ -1683,16 +1687,13 @@ def generate_deadline_alert_message(task_name: str, limit_date, days_until: int)
 
     message = f"""⚠️ 期限が近いタスクだウル！
 
-「{task_name}」の期限が【{formatted_date}（{day_label}）】になってるウル。
+「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
-期限が近すぎると、リマインドが届く前にタスクが期限切れになっちゃうウル...
+期限が当日・明日だと、依頼された側も大変かもしれないウル。
+もし余裕があるなら、期限を少し先に編集してあげてね。
 
-📌 確認してほしいウル：
-・このまま追加して大丈夫？
-・間違えてたらChatWorkでタスクの期限を編集してね
-・期限を編集したら、それに連動して僕がリマインドしていくウル！
-
-このままでOKなら、何もしなくて大丈夫だウル！"""
+※ 明後日以降ならこのアラートは出ないウル
+※ このままでOKなら、何もしなくて大丈夫だウル！"""
 
     return message
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-期限ガードレール機能のテスト
+期限ガードレール機能のテスト（v10.3.1 完全版）
 
 テストケース:
 1. 当日期限 → アラート必要
@@ -9,6 +9,7 @@
 4. 1週間後期限 → アラート不要
 5. 過去日付 → アラート不要
 6. 期限なし → アラート不要
+7. メッセージ内容確認（カズさんの意図反映）
 """
 
 import sys
@@ -56,23 +57,49 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
 
 def generate_deadline_alert_message(task_name: str, limit_date, days_until: int) -> str:
     """
-    期限が近いタスクのアラートメッセージを生成する（main.pyからコピー）
+    期限が近いタスクのアラートメッセージを生成する（v10.3.1 修正版）
+    カズさんの意図を反映：依頼する側の配慮を促す
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
     message = f"""⚠️ 期限が近いタスクだウル！
 
-「{task_name}」の期限が【{formatted_date}（{day_label}）】になってるウル。
+「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
-期限が近すぎると、リマインドが届く前にタスクが期限切れになっちゃうウル...
+期限が当日・明日だと、依頼された側も大変かもしれないウル。
+もし余裕があるなら、期限を少し先に編集してあげてね。
 
-📌 確認してほしいウル：
-・このまま追加して大丈夫？
-・間違えてたらChatWorkでタスクの期限を編集してね
-・期限を編集したら、それに連動して僕がリマインドしていくウル！
+※ 明後日以降ならこのアラートは出ないウル
+※ このままでOKなら、何もしなくて大丈夫だウル！"""
 
-このままでOKなら、何もしなくて大丈夫だウル！"""
+    return message
+
+
+def generate_deadline_alert_message_for_manual_task(
+    task_name: str,
+    limit_date,
+    days_until: int,
+    assigned_to_name: str
+) -> str:
+    """
+    手動追加タスク用のアラートメッセージを生成する（v10.3.1）
+    """
+    day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
+    formatted_date = limit_date.strftime("%m/%d")
+
+    if len(task_name) > 30:
+        task_name = task_name[:30] + "..."
+
+    message = f"""⚠️ 期限が近いタスクを追加したウル！
+
+{assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+
+期限が当日・明日だと、依頼された側も大変かもしれないウル。
+もし余裕があるなら、ChatWorkでタスクの期限を少し先に編集してあげてね。
+
+※ 明後日以降ならこのアラートは出ないウル
+※ このままでOKなら、何もしなくて大丈夫だウル！"""
 
     return message
 
@@ -80,7 +107,7 @@ def generate_deadline_alert_message(task_name: str, limit_date, days_until: int)
 def test_deadline_alert():
     """期限ガードレールのテスト"""
     print("=" * 60)
-    print("期限ガードレール機能テスト")
+    print("期限ガードレール機能テスト（v10.3.1 完全版）")
     print("=" * 60)
 
     now = datetime.now(JST)
@@ -101,8 +128,12 @@ def test_deadline_alert():
     passed = 0
     failed = 0
 
+    print("-" * 60)
+    print("【テスト1】期限チェック機能")
+    print("-" * 60)
+
     for name, date_str, expected_alert, expected_days in test_cases:
-        print(f"テスト: {name}")
+        print(f"\nテスト: {name}")
         print(f"  入力: {date_str}")
 
         needs_alert, days_until, limit_date = check_deadline_proximity(date_str)
@@ -120,16 +151,73 @@ def test_deadline_alert():
             failed += 1
             print("  → FAILED")
 
-        # アラートが必要な場合はメッセージも確認
-        if needs_alert:
-            message = generate_deadline_alert_message("テストタスク", limit_date, days_until)
-            print(f"  生成されるアラートメッセージ:")
-            print("-" * 40)
-            print(message)
-            print("-" * 40)
+    print()
+    print("-" * 60)
+    print("【テスト2】メッセージ内容確認（カズさんの意図反映）")
+    print("-" * 60)
 
-        print()
+    # ソウルくん経由のメッセージ
+    print("\n■ ソウルくん経由タスク作成時のメッセージ:")
+    _, _, limit_date = check_deadline_proximity(today.strftime("%Y-%m-%d"))
+    msg = generate_deadline_alert_message("資料作成", limit_date, 0)
+    print("-" * 40)
+    print(msg)
+    print("-" * 40)
 
+    # 必須フレーズのチェック
+    required_phrases = [
+        "依頼された側も大変かもしれないウル",
+        "期限を少し先に編集してあげてね",
+        "明後日以降ならこのアラートは出ないウル",
+    ]
+
+    all_phrases_found = True
+    for phrase in required_phrases:
+        if phrase in msg:
+            print(f"  ✅ 必須フレーズ含まれる: 「{phrase[:20]}...」")
+        else:
+            print(f"  ❌ 必須フレーズ不足: 「{phrase[:20]}...」")
+            all_phrases_found = False
+
+    if all_phrases_found:
+        passed += 1
+        print("  → ソウルくん経由メッセージ PASSED")
+    else:
+        failed += 1
+        print("  → ソウルくん経由メッセージ FAILED")
+
+    # 手動追加時のメッセージ
+    print("\n■ 手動タスク追加時のメッセージ:")
+    msg_manual = generate_deadline_alert_message_for_manual_task(
+        "レポート提出", limit_date, 0, "田中"
+    )
+    print("-" * 40)
+    print(msg_manual)
+    print("-" * 40)
+
+    # 手動追加用の必須フレーズのチェック
+    required_phrases_manual = [
+        "田中さんへの「レポート提出」",
+        "依頼された側も大変かもしれないウル",
+        "ChatWorkでタスクの期限を少し先に編集してあげてね",
+    ]
+
+    all_phrases_found_manual = True
+    for phrase in required_phrases_manual:
+        if phrase in msg_manual:
+            print(f"  ✅ 必須フレーズ含まれる: 「{phrase[:25]}...」")
+        else:
+            print(f"  ❌ 必須フレーズ不足: 「{phrase[:25]}...」")
+            all_phrases_found_manual = False
+
+    if all_phrases_found_manual:
+        passed += 1
+        print("  → 手動追加メッセージ PASSED")
+    else:
+        failed += 1
+        print("  → 手動追加メッセージ FAILED")
+
+    print()
     print("=" * 60)
     print(f"テスト結果: {passed} passed, {failed} failed")
     print("=" * 60)

@@ -132,6 +132,17 @@ _dm_unavailable_buffer = []  # ★★★ v6.8.3: DM不可通知のバッファ�
 JST = timezone(timedelta(hours=9))
 
 # =====================================================
+# v10.3.1: 期限ガードレール設定
+# =====================================================
+# 手動タスク追加時に期限が近すぎる場合にアラートを表示
+# 当日(0)と明日(1)の場合にアラートを送信
+# =====================================================
+DEADLINE_ALERT_DAYS = {
+    0: "今日",    # 当日
+    1: "明日",    # 翌日
+}
+
+# =====================================================
 # ===== 機能カタログ（SYSTEM_CAPABILITIES） =====
 # =====================================================
 # 
@@ -5522,6 +5533,297 @@ def sync_room_members():
         print(f"Error in sync_room_members: {e}")
         traceback.print_exc()
 
+
+# =====================================================
+# v10.3.1: 期限ガードレール機能（手動タスク追加時）
+# =====================================================
+# タスクが手動追加された際に期限が「当日」または「明日」の場合、
+# 依頼者にアラートを送信する。
+# =====================================================
+
+def check_deadline_proximity_for_sync(limit_timestamp: int) -> tuple:
+    """
+    期限が近すぎるかチェックする（手動タスク同期用）
+
+    Args:
+        limit_timestamp: タスクの期限（UNIXタイムスタンプ）
+
+    Returns:
+        (needs_alert: bool, days_until: int, limit_date: date or None)
+        - needs_alert: アラートが必要か
+        - days_until: 期限までの日数（0=今日, 1=明日, 負=過去）
+        - limit_date: 期限日（date型）
+    """
+    if not limit_timestamp:
+        return False, -1, None
+
+    try:
+        # JSTで現在日付を取得
+        now = datetime.now(JST)
+        today = now.date()
+
+        # タイムスタンプから期限日を取得
+        limit_date = datetime.fromtimestamp(limit_timestamp, tz=JST).date()
+
+        # 期限までの日数を計算
+        days_until = (limit_date - today).days
+
+        # 過去の日付はアラート対象外
+        if days_until < 0:
+            return False, days_until, limit_date
+
+        # 当日(0) または 明日(1) ならアラート
+        if days_until in DEADLINE_ALERT_DAYS:
+            return True, days_until, limit_date
+
+        return False, days_until, limit_date
+    except Exception as e:
+        print(f"⚠️ check_deadline_proximity_for_sync エラー: {e}")
+        return False, -1, None
+
+
+def generate_deadline_alert_message_for_manual_task(
+    task_name: str,
+    limit_date,
+    days_until: int,
+    assigned_to_name: str
+) -> str:
+    """
+    手動追加タスク用のアラートメッセージを生成する
+
+    v10.3.1: カズさんの意図を反映
+    - 依頼する側の配慮を促す文化づくり
+    - 依頼された側が大変にならないように
+
+    Args:
+        task_name: タスク名
+        limit_date: 期限日（date型）
+        days_until: 期限までの日数
+        assigned_to_name: 担当者名
+
+    Returns:
+        アラートメッセージ文字列
+    """
+    day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
+    formatted_date = limit_date.strftime("%m/%d")
+
+    # タスク名が長すぎる場合は省略
+    if len(task_name) > 30:
+        task_name = task_name[:30] + "..."
+
+    message = f"""⚠️ 期限が近いタスクを追加したウル！
+
+{assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+
+期限が当日・明日だと、依頼された側も大変かもしれないウル。
+もし余裕があるなら、ChatWorkでタスクの期限を少し先に編集してあげてね。
+
+※ 明後日以降ならこのアラートは出ないウル
+※ このままでOKなら、何もしなくて大丈夫だウル！"""
+
+    return message
+
+
+def is_deadline_alert_already_sent(task_id: int, conn) -> bool:
+    """
+    既にこのタスクに対してアラートを送信済みかチェック
+
+    Args:
+        task_id: タスクID
+        conn: DBコネクション（pg8000）
+
+    Returns:
+        送信済みならTrue
+    """
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) FROM notification_logs
+            WHERE target_type = 'task'
+              AND target_id = %s
+              AND notification_type = 'deadline_alert'
+              AND organization_id = 'org_soulsyncs'
+        """, (task_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result[0] > 0 if result else False
+    except Exception as e:
+        print(f"⚠️ is_deadline_alert_already_sent エラー: {e}")
+        return False  # エラー時は送信を許可（重複よりも未送信を避ける）
+
+
+def log_deadline_alert_for_manual_task(
+    task_id: int,
+    room_id: str,
+    account_id: str,
+    limit_date,
+    days_until: int,
+    conn
+) -> None:
+    """
+    期限アラートの送信をnotification_logsに記録する（手動タスク用）
+
+    Args:
+        task_id: タスクID
+        room_id: ルームID
+        account_id: 依頼者のアカウントID
+        limit_date: 期限日（date型）
+        days_until: 期限までの日数
+        conn: DBコネクション（pg8000）
+    """
+    try:
+        cursor = conn.cursor()
+
+        # まずテーブルが存在するか確認し、なければ作成
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS notification_logs (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                notification_type VARCHAR(50) NOT NULL,
+                target_type VARCHAR(50) NOT NULL,
+                target_id BIGINT,
+                notification_date DATE NOT NULL,
+                sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+                status VARCHAR(20) NOT NULL,
+                error_message TEXT,
+                retry_count INTEGER DEFAULT 0,
+                channel VARCHAR(20),
+                channel_target VARCHAR(255),
+                metadata JSONB,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                created_by VARCHAR(100),
+                UNIQUE(organization_id, target_type, target_id, notification_date, notification_type)
+            )
+        """)
+
+        # アラートをログに記録
+        cursor.execute("""
+            INSERT INTO notification_logs (
+                organization_id,
+                notification_type,
+                target_type,
+                target_id,
+                notification_date,
+                sent_at,
+                status,
+                channel,
+                channel_target,
+                metadata
+            ) VALUES (
+                'org_soulsyncs',
+                'deadline_alert',
+                'task',
+                %s,
+                %s,
+                NOW(),
+                'sent',
+                'chatwork',
+                %s,
+                %s
+            )
+            ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+            DO UPDATE SET
+                retry_count = notification_logs.retry_count + 1,
+                updated_at = NOW()
+        """, (
+            task_id,
+            datetime.now(JST).date(),
+            str(room_id),
+            json.dumps({
+                "room_id": str(room_id),
+                "account_id": str(account_id),
+                "limit_date": limit_date.isoformat() if limit_date else None,
+                "days_until": days_until,
+                "alert_type": "deadline_proximity",
+                "alert_source": "manual_sync"
+            }, ensure_ascii=False)
+        ))
+
+        cursor.close()
+        print(f"📝 期限アラートをログに記録: task_id={task_id}, days_until={days_until}")
+    except Exception as e:
+        print(f"⚠️ 期限アラートのログ記録に失敗（処理は続行）: {e}")
+
+
+def send_deadline_alert_to_requester(
+    task_id: int,
+    task_name: str,
+    limit_timestamp: int,
+    assigned_by_account_id: str,
+    assigned_to_name: str,
+    room_id: str,
+    conn
+) -> bool:
+    """
+    手動追加されたタスクの期限が近い場合、依頼者にアラートを送信する
+
+    Args:
+        task_id: タスクID
+        task_name: タスク名
+        limit_timestamp: 期限（UNIXタイムスタンプ）
+        assigned_by_account_id: 依頼者のChatWorkアカウントID
+        assigned_to_name: 担当者名
+        room_id: タスクが作成されたルームID
+        conn: DBコネクション
+
+    Returns:
+        送信成功したかどうか
+    """
+    # 依頼者IDがない場合はスキップ
+    if not assigned_by_account_id:
+        print(f"⏭️ 期限アラート: 依頼者IDなし、スキップ task_id={task_id}")
+        return False
+
+    # 期限チェック
+    needs_alert, days_until, limit_date = check_deadline_proximity_for_sync(limit_timestamp)
+
+    if not needs_alert:
+        return False
+
+    print(f"⚠️ 期限ガードレール発動（手動追加）: task_id={task_id}, days_until={days_until}")
+
+    # 既に送信済みかチェック（二重送信防止）
+    if is_deadline_alert_already_sent(task_id, conn):
+        print(f"✅ 期限アラート既に送信済み: task_id={task_id}")
+        return False
+
+    # 依頼者のDMルームを取得
+    dm_room_id = get_direct_room(assigned_by_account_id)
+    if not dm_room_id:
+        print(f"⚠️ DM取得失敗: account_id={assigned_by_account_id}")
+        return False
+
+    # アラートメッセージを生成
+    message = generate_deadline_alert_message_for_manual_task(
+        task_name=task_name,
+        limit_date=limit_date,
+        days_until=days_until,
+        assigned_to_name=assigned_to_name
+    )
+
+    # 送信
+    try:
+        send_chatwork_message(dm_room_id, message)
+
+        # ログ記録
+        log_deadline_alert_for_manual_task(
+            task_id=task_id,
+            room_id=room_id,
+            account_id=assigned_by_account_id,
+            limit_date=limit_date,
+            days_until=days_until,
+            conn=conn
+        )
+
+        print(f"✅ 期限アラート送信成功: task_id={task_id}, to={assigned_by_account_id}")
+        return True
+
+    except Exception as e:
+        print(f"❌ 期限アラート送信失敗: task_id={task_id}, error={e}")
+        return False
+
+
 @functions_framework.http
 def sync_chatwork_tasks(request):
     """
@@ -5669,13 +5971,32 @@ def sync_chatwork_tasks(request):
                 else:
                     # 新規タスクの挿入
                     cursor.execute("""
-                        INSERT INTO chatwork_tasks 
-                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status, 
+                        INSERT INTO chatwork_tasks
+                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
                          skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name)
                         VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
-                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body, 
+                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
                           limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
-            
+
+                    # =====================================================
+                    # v10.3.1: 期限ガードレール（手動追加時）
+                    # =====================================================
+                    # 新規タスクの期限が「今日」または「明日」なら依頼者にアラート送信
+                    # =====================================================
+                    if limit_datetime and assigned_by_id:
+                        try:
+                            send_deadline_alert_to_requester(
+                                task_id=task_id,
+                                task_name=body,
+                                limit_timestamp=limit_datetime,
+                                assigned_by_account_id=str(assigned_by_id),
+                                assigned_to_name=assigned_to_name,
+                                room_id=str(room_id),
+                                conn=conn
+                            )
+                        except Exception as e:
+                            print(f"⚠️ 期限ガードレール処理エラー（同期は続行）: {e}")
+
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
             

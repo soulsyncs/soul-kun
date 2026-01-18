@@ -5656,22 +5656,22 @@ def sync_room_members():
                     for member in members:
                         account_id = member.get("account_id")
                         name = member.get("name", "")
-                        
+
                         if not account_id or not name:
                             continue
-                        
+
                         # UPSERT: 存在すれば更新、なければ挿入
+                        # ★★★ v10.3.4: room_idカラムは存在しないため除外 ★★★
                         conn.execute(
                             sqlalchemy.text("""
-                                INSERT INTO chatwork_users (account_id, name, room_id, updated_at)
-                                VALUES (:account_id, :name, :room_id, CURRENT_TIMESTAMP)
-                                ON CONFLICT (account_id) 
+                                INSERT INTO chatwork_users (account_id, name, updated_at)
+                                VALUES (:account_id, :name, CURRENT_TIMESTAMP)
+                                ON CONFLICT (account_id)
                                 DO UPDATE SET name = :name, updated_at = CURRENT_TIMESTAMP
                             """),
                             {
                                 "account_id": account_id,
-                                "name": name,
-                                "room_id": room_id
+                                "name": name
                             }
                         )
                         synced_count += 1
@@ -6012,14 +6012,22 @@ def send_deadline_alert_to_requester(
 def sync_chatwork_tasks(request):
     """
     Cloud Function: ChatWorkのタスクをDBと同期
-    30分ごとに実行される
 
-    ★★★ v6.8.5: conn/cursor安全化 & キャッシュリセット追加 ★★★
-    ★★★ v10.3.3: APIレート制限対策（リトライ機構＋監視ログ）★★★
+    ★★★ v10.3.4: APIコール最適化 ★★★
+    - openタスク同期: 1時間ごと（デフォルト）
+    - doneタスク同期: 4時間ごと（include_done=true）
+    - メンバー同期: 週1回（別ジョブに分離）
+
+    パラメータ:
+    - include_done: 'true' の場合、doneタスクも同期する
     """
     global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok, _dm_unavailable_buffer, _room_members_api_cache
 
-    print("=== Starting task sync ===")
+    # ★★★ v10.3.4: パラメータ取得 ★★★
+    include_done = request.args.get('include_done', 'false').lower() == 'true'
+
+    sync_mode = "open + done" if include_done else "open only"
+    print(f"=== Starting task sync ({sync_mode}) ===")
 
     # ★★★ v10.3.3: APIカウンターをリセット ★★★
     reset_api_call_counter()
@@ -6033,22 +6041,21 @@ def sync_chatwork_tasks(request):
     # ★★★ v10.3.3: ルームメンバーAPIキャッシュをリセット ★★★
     _room_members_api_cache = {}
     print("✅ メモリキャッシュをリセット")
-    
+
     # ★★★ v6.8.5: conn/cursorを事前にNone初期化（UnboundLocalError防止）★★★
     conn = None
     cursor = None
-    
+
     try:
         # ★ 遅延管理テーブルの確認
         try:
             ensure_overdue_tables()
         except Exception as e:
             print(f"⚠️ 遅延管理テーブル確認エラー（続行）: {e}")
-        
-        # ★★★ ルームメンバー同期（tryの中に移動）★★★
-        print("--- Syncing room members ---")
-        sync_room_members()
-        
+
+        # ★★★ v10.3.4: メンバー同期は週1回の別ジョブに分離 ★★★
+        # sync_room_members() は sync_room_members_handler() で実行
+
         conn = get_db_connection()
         cursor = conn.cursor()
         # Phase1開始日を取得
@@ -6057,13 +6064,14 @@ def sync_chatwork_tasks(request):
         """)
         result = cursor.fetchone()
         phase1_start_date = datetime.strptime(result[0], '%Y-%m-%d').replace(tzinfo=JST) if result else None
-        
+
         # 除外ルーム一覧を取得
         cursor.execute("SELECT room_id FROM excluded_rooms")
         excluded_rooms = set(row[0] for row in cursor.fetchall())
-        
-        # 全ルーム取得
+
+        # ★★★ v10.3.4: 全ルーム取得（1回のみ）★★★
         rooms = get_all_rooms()
+        print(f"📊 対象ルーム数: {len(rooms)}")
         
         for room in rooms:
             room_id = room['room_id']
@@ -6187,46 +6195,47 @@ def sync_chatwork_tasks(request):
                         except Exception as e:
                             print(f"⚠️ 期限ガードレール処理エラー（同期は続行）: {e}")
 
-            # 完了タスクを取得
-            done_tasks = get_room_tasks(room_id, 'done')
-            
-            for task in done_tasks:
-                task_id = task['task_id']
-                
-                # DBに存在するか確認
-                cursor.execute("""
-                    SELECT task_id, status, completion_notified, assigned_by_name 
-                    FROM chatwork_tasks 
-                    WHERE task_id = %s
-                """, (task_id,))
-                existing = cursor.fetchone()
-                
-                if existing:
-                    old_status = existing[1]
-                    completion_notified = existing[2]
-                    assigned_by_name = existing[3]
-                    
-                    # ステータスが変更された場合
-                    if old_status == 'open':
-                        cursor.execute("""
-                            UPDATE chatwork_tasks
-                            SET status = 'done',
-                                completed_at = CURRENT_TIMESTAMP,
-                                last_synced_at = CURRENT_TIMESTAMP
-                            WHERE task_id = %s
-                        """, (task_id,))
-                        
-                        # 完了通知を送信（まだ送信していない場合）
-                        if not completion_notified:
-                            send_completion_notification(room_id, task, assigned_by_name)
+            # ★★★ v10.3.4: 完了タスクの同期は include_done=true の時のみ ★★★
+            if include_done:
+                done_tasks = get_room_tasks(room_id, 'done')
+
+                for task in done_tasks:
+                    task_id = task['task_id']
+
+                    # DBに存在するか確認
+                    cursor.execute("""
+                        SELECT task_id, status, completion_notified, assigned_by_name
+                        FROM chatwork_tasks
+                        WHERE task_id = %s
+                    """, (task_id,))
+                    existing = cursor.fetchone()
+
+                    if existing:
+                        old_status = existing[1]
+                        completion_notified = existing[2]
+                        assigned_by_name = existing[3]
+
+                        # ステータスが変更された場合
+                        if old_status == 'open':
                             cursor.execute("""
                                 UPDATE chatwork_tasks
-                                SET completion_notified = TRUE
+                                SET status = 'done',
+                                    completed_at = CURRENT_TIMESTAMP,
+                                    last_synced_at = CURRENT_TIMESTAMP
                                 WHERE task_id = %s
                             """, (task_id,))
-        
+
+                            # 完了通知を送信（まだ送信していない場合）
+                            if not completion_notified:
+                                send_completion_notification(room_id, task, assigned_by_name)
+                                cursor.execute("""
+                                    UPDATE chatwork_tasks
+                                    SET completion_notified = TRUE
+                                    WHERE task_id = %s
+                                """, (task_id,))
+
         conn.commit()
-        print("=== Task sync completed ===")
+        print(f"=== Task sync completed ({sync_mode}) ===")
         
         # ★★★ v6.8.4: バッファに溜まった通知を送信 ★★★
         flush_dm_unavailable_notifications()
@@ -6255,6 +6264,43 @@ def sync_chatwork_tasks(request):
             pass
         # ★★★ v10.3.3: API使用状況をログ出力 ★★★
         get_api_call_counter().log_summary("sync_chatwork_tasks")
+
+
+# =====================================================
+# v10.3.4: メンバー同期用エントリーポイント（週1回実行）
+# =====================================================
+@functions_framework.http
+def sync_room_members_handler(request):
+    """
+    Cloud Function: ルームメンバーをDBに同期
+    週1回（月曜8:00 JST）に実行される
+
+    ★★★ v10.3.4: タスク同期から分離してAPI呼び出しを最適化 ★★★
+    """
+    global _room_members_api_cache
+
+    print("=== Starting room members sync (weekly job) ===")
+
+    # APIカウンターをリセット
+    reset_api_call_counter()
+
+    # メンバーキャッシュをリセット
+    _room_members_api_cache = {}
+
+    try:
+        # ルームメンバー同期を実行
+        sync_room_members()
+
+        print("=== Room members sync completed ===")
+        get_api_call_counter().log_summary("sync_room_members_handler")
+        return ('Room members sync completed', 200)
+
+    except Exception as e:
+        print(f"Error during room members sync: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        get_api_call_counter().log_summary("sync_room_members_handler")
+        return (f'Error: {str(e)}', 500)
 
 
 @functions_framework.http

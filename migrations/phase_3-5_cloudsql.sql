@@ -40,22 +40,37 @@ COMMENT ON COLUMN roles.external_id IS 'Supabase側のroles.id（同期用）';
 COMMENT ON COLUMN roles.level IS '権限レベル: 1=業務委託, 2=社員, 3=リーダー, 4=幹部/部長, 5=管理部, 6=代表/CFO';
 
 -- ----------------------------------------------------------------
--- STEP 3: chatwork_tasksテーブルの修正
+-- STEP 3: user_departmentsテーブルの修正【重要】
 -- ----------------------------------------------------------------
 
--- 3-1. department_idカラムを追加
+-- 3-1. role_idカラムを追加（権限レベル計算に必須）
+-- このカラムはユーザーの権限レベル（1-6）を取得するためにrolesテーブルとJOINするために使用
+ALTER TABLE user_departments
+ADD COLUMN IF NOT EXISTS role_id UUID REFERENCES roles(id);
+
+-- 3-2. インデックス作成
+CREATE INDEX IF NOT EXISTS idx_user_departments_role ON user_departments(role_id);
+
+-- 3-3. コメント追加
+COMMENT ON COLUMN user_departments.role_id IS '役職ID（rolesテーブルへの外部キー）- 権限レベル計算に使用';
+
+-- ----------------------------------------------------------------
+-- STEP 4: chatwork_tasksテーブルの修正
+-- ----------------------------------------------------------------
+
+-- 4-1. department_idカラムを追加
 -- このカラムはタスクがどの部署に属するかを記録
 ALTER TABLE chatwork_tasks
 ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES departments(id);
 
--- 3-2. インデックス作成
+-- 4-2. インデックス作成
 CREATE INDEX IF NOT EXISTS idx_chatwork_tasks_department ON chatwork_tasks(department_id);
 
--- 3-3. コメント追加
+-- 4-3. コメント追加
 COMMENT ON COLUMN chatwork_tasks.department_id IS 'タスクの所属部署ID（担当者のメイン部署）';
 
 -- ----------------------------------------------------------------
--- STEP 4: 既存タスクへの部署設定（オプション）
+-- STEP 5: 既存タスクへの部署設定（オプション）
 -- ----------------------------------------------------------------
 
 -- 既存タスクに部署を設定する場合、以下のSQLを実行
@@ -81,7 +96,7 @@ COMMENT ON COLUMN chatwork_tasks.department_id IS 'タスクの所属部署ID（
 -- FROM chatwork_tasks;
 
 -- ----------------------------------------------------------------
--- STEP 5: Roleモデルの確認用コメント
+-- STEP 6: Roleモデルの確認用コメント
 -- ----------------------------------------------------------------
 
 -- 以下の変更をapi/app/models/user.pyに適用してください:

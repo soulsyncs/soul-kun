@@ -60,11 +60,11 @@ class AccessControlService:
 
             if role_level >= 4:
                 # Level 4: 自部署＋配下全部署
-                descendants = await self.get_all_descendants(dept_id)
+                descendants = await self.get_all_descendants(dept_id, organization_id)
                 accessible_depts.update(descendants)
             elif role_level >= 3:
                 # Level 3: 自部署＋直下部署のみ
-                direct_children = await self.get_direct_children(dept_id)
+                direct_children = await self.get_direct_children(dept_id, organization_id)
                 accessible_depts.update(direct_children)
             # Level 1-2: 自部署のみ（既に追加済み）
 
@@ -138,12 +138,13 @@ class AccessControlService:
         result = await self.db.execute(query, {"organization_id": organization_id})
         return [row[0] for row in result.fetchall()]
 
-    async def get_all_descendants(self, dept_id: str) -> List[str]:
+    async def get_all_descendants(self, dept_id: str, organization_id: str) -> List[str]:
         """
         部署の全配下部署を取得（LTREEを使用）
 
         Args:
             dept_id: 部署ID
+            organization_id: 組織ID（テナント分離用）
 
         Returns:
             配下部署IDのリスト（自部署は含まない）
@@ -154,23 +155,26 @@ class AccessControlService:
                 SELECT path
                 FROM departments
                 WHERE id = :dept_id
+                  AND organization_id = :organization_id
             )
             SELECT d.id
             FROM departments d, dept_path dp
             WHERE d.path <@ dp.path
               AND d.id != :dept_id
+              AND d.organization_id = :organization_id
               AND d.is_active = TRUE
         """)
 
-        result = await self.db.execute(query, {"dept_id": dept_id})
+        result = await self.db.execute(query, {"dept_id": dept_id, "organization_id": organization_id})
         return [row[0] for row in result.fetchall()]
 
-    async def get_direct_children(self, dept_id: str) -> List[str]:
+    async def get_direct_children(self, dept_id: str, organization_id: str) -> List[str]:
         """
         部署の直下の子部署のみを取得
 
         Args:
             dept_id: 部署ID
+            organization_id: 組織ID（テナント分離用）
 
         Returns:
             直下の子部署IDのリスト
@@ -179,10 +183,11 @@ class AccessControlService:
             SELECT id
             FROM departments
             WHERE parent_id = :dept_id
+              AND organization_id = :organization_id
               AND is_active = TRUE
         """)
 
-        result = await self.db.execute(query, {"dept_id": dept_id})
+        result = await self.db.execute(query, {"dept_id": dept_id, "organization_id": organization_id})
         return [row[0] for row in result.fetchall()]
 
     async def can_access_department(
@@ -304,26 +309,32 @@ def compute_accessible_departments_sync(
         accessible_depts.add(dept_id)
 
         if role_level >= 4:
-            # 配下全部署
+            # 配下全部署（organization_idでフィルタ）
             result = conn.execute(
                 text("""
                     WITH dept_path AS (
-                        SELECT path FROM departments WHERE id = :dept_id
+                        SELECT path FROM departments
+                        WHERE id = :dept_id AND organization_id = :org_id
                     )
                     SELECT d.id FROM departments d, dept_path dp
-                    WHERE d.path <@ dp.path AND d.id != :dept_id AND d.is_active = TRUE
+                    WHERE d.path <@ dp.path
+                      AND d.id != :dept_id
+                      AND d.organization_id = :org_id
+                      AND d.is_active = TRUE
                 """),
-                {"dept_id": dept_id}
+                {"dept_id": dept_id, "org_id": organization_id}
             )
             accessible_depts.update([row[0] for row in result.fetchall()])
         elif role_level >= 3:
-            # 直下部署のみ
+            # 直下部署のみ（organization_idでフィルタ）
             result = conn.execute(
                 text("""
                     SELECT id FROM departments
-                    WHERE parent_id = :dept_id AND is_active = TRUE
+                    WHERE parent_id = :dept_id
+                      AND organization_id = :org_id
+                      AND is_active = TRUE
                 """),
-                {"dept_id": dept_id}
+                {"dept_id": dept_id, "org_id": organization_id}
             )
             accessible_depts.update([row[0] for row in result.fetchall()])
 

@@ -1,0 +1,64 @@
+# ============================================================
+# watch-google-drive Cloud Function 環境変数テンプレート
+# ============================================================
+# このファイルを env-vars.yaml にコピーして使用してください。
+# env-vars.yaml は .gitignore に含まれています。
+#
+# デプロイコマンド:
+#   gcloud functions deploy watch_google_drive \
+#       --runtime python311 \
+#       --trigger-http \
+#       --allow-unauthenticated=false \
+#       --timeout=540 \
+#       --memory=512MB \
+#       --region=asia-northeast1 \
+#       --env-vars-file=env-vars.yaml
+# ============================================================
+
+# GCP プロジェクト
+PROJECT_ID: soulkun-production
+
+# Cloud SQL 接続
+INSTANCE_CONNECTION_NAME: soulkun-production:asia-northeast1:soulkun-db
+DB_NAME: soulkun_tasks
+DB_USER: soulkun_user
+
+# 組織設定
+ORGANIZATION_ID: org_soulsyncs
+
+# Googleドライブ監視対象フォルダID
+# Googleドライブでフォルダを開いたときのURLから取得:
+# https://drive.google.com/drive/folders/XXXXX ← この XXXXX 部分
+ROOT_FOLDER_ID: "YOUR_GOOGLE_DRIVE_FOLDER_ID_HERE"
+
+# チャンク分割設定
+# CHUNK_SIZE: 1チャンクの文字数（推奨: 800-1200）
+# CHUNK_OVERLAP: オーバーラップ文字数（推奨: CHUNK_SIZEの15-25%）
+CHUNK_SIZE: "1000"
+CHUNK_OVERLAP: "200"
+
+# Pinecone設定
+PINECONE_INDEX_NAME: soulkun-knowledge
+
+# 環境設定
+ENVIRONMENT: production
+DEBUG: "false"
+
+# ============================================================
+# シークレット設定（Secret Manager から自動取得）
+# ============================================================
+# 以下のシークレットは GCP Secret Manager に登録してください:
+#
+# 1. OPENAI_API_KEY
+#    OpenAI の API キー（エンベディング生成用）
+#
+# 2. PINECONE_API_KEY
+#    Pinecone の API キー
+#
+# 3. soulkun-db-password
+#    Cloud SQL のパスワード
+#
+# 登録コマンド例:
+#   echo -n "sk-..." | gcloud secrets create OPENAI_API_KEY --data-file=-
+#   echo -n "..." | gcloud secrets create PINECONE_API_KEY --data-file=-
+# ============================================================

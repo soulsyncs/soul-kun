@@ -1,5 +1,5 @@
 # Soul-kun API Requirements (FastAPI)
-# Phase 3.5: 組織階層連携
+# Phase 3: ナレッジ検索 + Phase 3.5: 組織階層連携
 
 # Web Framework
 fastapi>=0.109.0
@@ -23,3 +23,7 @@ httpx>=0.26.0
 
 # Production Server
 gunicorn>=21.0.0
+
+# Phase 3: Embedding & Vector Search
+openai>=1.7.0
+pinecone-client>=3.0.0

@@ -137,6 +137,12 @@ celerybeat.pid
 # Environments
 .env
 .envrc
+env-vars.yaml
+
+# Service account keys (NEVER commit)
+*-credentials.json
+*-service-account.json
+service-account*.json
 .venv
 env/
 venv/

@@ -1,0 +1,58 @@
+# ============================================================
+# FastAPI (Cloud Run) 環境変数テンプレート
+# ============================================================
+# Cloud Run の環境変数設定で使用するテンプレートです。
+# GCP Console または gcloud コマンドで設定してください。
+#
+# デプロイコマンド:
+#   gcloud run deploy soulkun-api \
+#       --source=. \
+#       --region=asia-northeast1 \
+#       --set-env-vars="PROJECT_ID=soulkun-production,..." \
+#       --allow-unauthenticated=false
+# ============================================================
+
+# GCP プロジェクト
+PROJECT_ID: soulkun-production
+
+# Cloud SQL 接続
+INSTANCE_CONNECTION_NAME: soulkun-production:asia-northeast1:soulkun-db
+DB_NAME: soulkun_tasks
+DB_USER: soulkun_user
+
+# コネクションプール設定（Cloud Run 100インスタンス対応）
+DB_POOL_SIZE: "3"
+DB_MAX_OVERFLOW: "2"
+DB_POOL_TIMEOUT: "30"
+DB_POOL_RECYCLE: "1800"
+
+# Pinecone設定
+PINECONE_INDEX_NAME: soulkun-knowledge
+
+# ナレッジ検索設定
+KNOWLEDGE_SEARCH_TOP_K: "5"
+KNOWLEDGE_SEARCH_SCORE_THRESHOLD: "0.7"
+KNOWLEDGE_REFUSE_ON_LOW_SCORE: "true"
+
+# Phase 3.5 組織階層連携（Phase 3 単独運用時は false）
+ENABLE_DEPARTMENT_ACCESS_CONTROL: "false"
+
+# 環境設定
+ENVIRONMENT: production
+DEBUG: "false"
+
+# API設定
+API_VERSION: v1
+
+# CORS設定（本番用）
+CORS_ORIGINS: "https://app.soulsyncs.co.jp"
+
+# ============================================================
+# シークレット設定（Secret Manager から自動取得）
+# ============================================================
+# Cloud Run でシークレットを使用する場合:
+#
+# gcloud run services update soulkun-api \
+#   --update-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
+#   --update-secrets=PINECONE_API_KEY=PINECONE_API_KEY:latest
+# ============================================================

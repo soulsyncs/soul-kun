@@ -1,0 +1,31 @@
+# watch-google-drive Cloud Function requirements
+# Phase 3: Googleドライブ監視ジョブ
+
+# Cloud Functions
+functions-framework==3.5.0
+
+# Google APIs
+google-api-python-client==2.111.0
+google-auth==2.25.2
+google-cloud-secret-manager==2.18.0
+
+# Database
+SQLAlchemy==2.0.25
+pg8000==1.30.4
+cloud-sql-python-connector[pg8000]==1.6.0
+
+# Pinecone
+pinecone-client==3.0.0
+
+# OpenAI
+openai==1.7.0
+
+# Document Processing
+PyMuPDF==1.23.8
+python-docx==1.1.0
+python-pptx==0.6.23
+openpyxl==3.1.2
+beautifulsoup4==4.12.2
+
+# Utilities
+tenacity==8.2.3

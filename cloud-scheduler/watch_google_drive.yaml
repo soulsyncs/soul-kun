@@ -1,0 +1,75 @@
+# Cloud Scheduler: Googleドライブ監視ジョブ
+# 5分ごとにGoogleドライブの変更を監視し、ソウルくんのナレッジDBに反映
+#
+# デプロイ方法:
+#   gcloud scheduler jobs create http watch-google-drive-soulsyncs \
+#     --location=asia-northeast1 \
+#     --schedule="*/5 * * * *" \
+#     --time-zone="Asia/Tokyo" \
+#     --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/watch_google_drive" \
+#     --http-method=POST \
+#     --headers="Content-Type=application/json" \
+#     --message-body='{"organization_id":"org_soulsyncs","root_folder_id":"YOUR_ROOT_FOLDER_ID"}' \
+#     --oidc-service-account-email="scheduler-sa@soulkun-production.iam.gserviceaccount.com" \
+#     --attempt-deadline=540s
+
+name: watch-google-drive-soulsyncs
+description: "Googleドライブの変更を監視してソウルくんのナレッジDBに反映（5分ごと）"
+
+# スケジュール: 5分ごとに実行
+schedule: "*/5 * * * *"
+timeZone: Asia/Tokyo
+
+# ターゲット設定
+target:
+  type: http
+  uri: https://asia-northeast1-soulkun-production.cloudfunctions.net/watch_google_drive
+  httpMethod: POST
+  headers:
+    Content-Type: application/json
+  body: |
+    {
+      "organization_id": "org_soulsyncs",
+      "root_folder_id": "YOUR_ROOT_FOLDER_ID"
+    }
+  oidcToken:
+    serviceAccountEmail: scheduler-sa@soulkun-production.iam.gserviceaccount.com
+
+# リトライ設定
+retryConfig:
+  retryCount: 3
+  minBackoffDuration: 10s
+  maxBackoffDuration: 300s
+  maxDoublings: 3
+
+# 重複実行防止
+# Cloud Functionsの最大タイムアウト（9分）に合わせる
+attemptDeadline: 540s
+
+# ================================================================
+# セットアップ手順
+# ================================================================
+#
+# 1. サービスアカウントの作成
+#    gcloud iam service-accounts create scheduler-sa \
+#      --display-name="Cloud Scheduler Service Account"
+#
+# 2. Cloud Functions呼び出し権限を付与
+#    gcloud projects add-iam-policy-binding soulkun-production \
+#      --member="serviceAccount:scheduler-sa@soulkun-production.iam.gserviceaccount.com" \
+#      --role="roles/cloudfunctions.invoker"
+#
+# 3. Googleドライブのルートフォルダを設定
+#    - Googleドライブで「ソウルくん用フォルダ」を作成
+#    - フォルダIDを取得（URLの末尾: https://drive.google.com/drive/folders/FOLDER_ID）
+#    - このファイルの YOUR_ROOT_FOLDER_ID を置き換え
+#
+# 4. サービスアカウントにGoogleドライブへのアクセス権を付与
+#    - Cloud Functions用のサービスアカウントのメールアドレスを取得
+#    - Googleドライブでルートフォルダを右クリック → 共有
+#    - サービスアカウントのメールアドレスを追加（閲覧者権限）
+#
+# 5. Cloud Schedulerジョブを作成
+#    上記のデプロイコマンドを実行
+#
+# ================================================================

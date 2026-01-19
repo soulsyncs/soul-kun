@@ -35,16 +35,16 @@ HISTORY_EXPIRY_HOURS = 720   # 30日（720時間）に延長
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 # =====================================================
-# v6.9.1: モデル設定（2025年12月更新）
+# v10.12.0: モデル設定（2026年1月更新）
 # =====================================================
-# Claude Sonnet 4.5を採用
-# - ツール使用・エージェント処理に最適化
-# - GPT-4oより新しく、精度向上
-# - コスト: $3/M入力, $15/M出力
+# Gemini 3 Flashに統一（コスト最適化）
+# - 高速・低コスト・高品質のバランス
+# - OpenRouter経由: google/gemini-3-flash-preview
+# - コスト: $0.50/1M入力, $3.00/1M出力
 # =====================================================
 MODELS = {
-    "default": "anthropic/claude-sonnet-4.5",
-    "commander": "anthropic/claude-sonnet-4.5",  # 司令塔AI
+    "default": "google/gemini-3-flash-preview",
+    "commander": "google/gemini-3-flash-preview",  # 司令塔AI
 }
 
 # ボット自身の名前パターン
@@ -439,7 +439,7 @@ def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, ret
 要約（{max_length}文字以内で完結）:"""
 
         response = client.models.generate_content(
-            model="gemini-2.0-flash",
+            model="gemini-3-flash-preview",
             contents=prompt,
             config={
                 "max_output_tokens": 80,
@@ -476,7 +476,7 @@ def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, ret
 要約（20〜35文字の完結した文）:"""
 
             retry_response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3-flash-preview",
                 contents=retry_prompt,
                 config={
                     "max_output_tokens": 80,
@@ -518,7 +518,7 @@ def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, ret
 短縮版:"""
 
             strict_response = client.models.generate_content(
-                model="gemini-2.0-flash",
+                model="gemini-3-flash-preview",
                 contents=strict_prompt,
                 config={
                     "max_output_tokens": 60,

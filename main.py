@@ -24,10 +24,13 @@ HISTORY_EXPIRY_HOURS = 720   # 30日（720時間）に延長
 # OpenRouter設定
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
 
-# 最新モデル設定（2025年12月時点）
+# 最新モデル設定（2026年1月時点）
+# Gemini 3 Flashに統一（コスト最適化）
+# - OpenRouter経由: google/gemini-3-flash-preview
+# - コスト: $0.50/1M入力, $3.00/1M出力
 MODELS = {
-    "default": "openai/gpt-4o",
-    "commander": "openai/gpt-4o",  # 司令塔AI
+    "default": "google/gemini-3-flash-preview",
+    "commander": "google/gemini-3-flash-preview",  # 司令塔AI
 }
 
 # ボット自身の名前パターン

@@ -3765,13 +3765,16 @@ def report_unassigned_overdue_tasks(tasks):
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
 
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
-        requester = task.get("assigned_by_name") or "依頼者不明"
+        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        clean_body = clean_task_body(task["body"])
+        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
+        room_name = task.get("room_name") or "（不明）"
 
         message_lines.append(f"{i}. 「{body_short}」")
-        message_lines.append(f"   依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過")
+        message_lines.append(f"   📍 {room_name} | 期限: {limit_date} | {overdue_days}日超過")
 
     if len(tasks) > 10:
         message_lines.append(f"\n...他{len(tasks) - 10}件")
@@ -4009,17 +4012,30 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         return
 
     # メッセージ作成
-    message_lines = [f"{assignee_name}さん\n", "📌 期限超過のタスクがありますウル！\n"]
+    # ★★★ v10.11.0: 新フォーマットに統一（🐺 タスクリマインド形式）★★★
+    message_lines = [
+        "🐺 タスクリマインド",
+        f"{assignee_name}さん、期限超過のタスクがありますウル！",
+        "",
+        "【⚠️ 期限超過】"
+    ]
 
     for i, task in enumerate(tasks_to_remind, 1):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        requester = task.get("assigned_by_name") or "依頼者"
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
 
-        message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
+        # ★★★ v10.11.0: clean_task_body()を使用してタスク本文をクリーンアップ ★★★
+        clean_body = clean_task_body(task["body"])
+        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
 
-    message_lines.append("\n遅れている理由と、いつ頃完了できそうか教えてほしいウル🐺")
+        # room_nameを取得（なければ「（不明）」）
+        room_name = task.get("room_name") or "（不明）"
+
+        message_lines.append(f"{i}. {body_short}")
+        message_lines.append(f"   📍 {room_name} | 期限: {limit_date} | {overdue_days}日超過")
+
+    message_lines.append("")
+    message_lines.append("確認をお願いしますウル！")
     message = "\n".join(message_lines)
 
     # ★★★ v10.2.0: DRY_RUNモードチェック ★★★
@@ -4277,17 +4293,29 @@ def send_escalation_to_requester(requester_id, tasks):
         notify_dm_not_available(requester_name, requester_id, tasks, "エスカレーション")
         return False
 
-    message_lines = ["📋 タスク遅延のお知らせウル\n", "あなたが依頼したタスクが3日以上遅延しています：\n"]
+    # ★★★ v10.11.0: 新フォーマットに統一 ★★★
+    message_lines = [
+        "🐺 タスク遅延のお知らせ",
+        "あなたが依頼したタスクが3日以上遅延していますウル！",
+        "",
+        "【⚠️ 遅延タスク】"
+    ]
 
-    for task in tasks:
+    for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+
+        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        clean_body = clean_task_body(task["body"])
+        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
+        room_name = task.get("room_name") or "（不明）"
 
-        message_lines.append(f"・「{body_short}」")
-        message_lines.append(f"  担当者: {assignee} / 期限: {limit_date} / {task['overdue_days']}日超過")
+        message_lines.append(f"{i}. {body_short}")
+        message_lines.append(f"   📍 {room_name} | 担当: {assignee} | 期限: {limit_date} | {task['overdue_days']}日超過")
 
-    message_lines.append("\nソウルくんから毎日督促していますが、対応が必要かもしれませんウル🐺")
+    message_lines.append("")
+    message_lines.append("ソウルくんから毎日督促していますが、対応が必要かもしれませんウル🐺")
     message = "\n".join(message_lines)
 
     # ★★★ v10.2.0: DRY_RUNモードチェック ★★★
@@ -4332,16 +4360,21 @@ def send_escalation_to_admin(tasks):
     if not tasks:
         return False
 
+    # ★★★ v10.11.0: 新フォーマットに統一 ★★★
     message_lines = ["[info][title]📊 長期遅延タスク報告[/title]", "以下のタスクが3日以上遅延しています：\n"]
 
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
-        requester = task.get("assigned_by_name", "依頼者")
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+
+        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        clean_body = clean_task_body(task["body"])
+        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
+        room_name = task.get("room_name") or "（不明）"
 
         message_lines.append(f"{i}. {assignee}さん「{body_short}」")
-        message_lines.append(f"   依頼者: {requester} / 期限: {limit_date} / {task['overdue_days']}日超過")
+        message_lines.append(f"   📍 {room_name} | 期限: {limit_date} | {task['overdue_days']}日超過")
 
     message_lines.append("\n引き続き督促を継続しますウル🐺[/info]")
     message = "\n".join(message_lines)
@@ -5188,7 +5221,7 @@ def remind_tasks(request):
     - メッセージフォーマット改善
     """
     print("=" * 60)
-    print("=== Starting task reminders (v10.10.0 - 本番稼働) ===")
+    print("=== Starting task reminders (v10.11.0 - フォーマット統一) ===")
     print(f"REMINDER_TEST_MODE: {REMINDER_TEST_MODE}")
     if REMINDER_TEST_MODE:
         print("⚠️ テストモード: 管理部チャットとカズさんDMのみに送信")

@@ -349,7 +349,7 @@ class KnowledgeSearchService:
             FROM document_chunks dc
             JOIN documents d ON dc.document_id = d.id
             WHERE dc.organization_id = :org_id
-              AND dc.pinecone_id = ANY(:pinecone_ids::TEXT[])
+              AND dc.pinecone_id = ANY(CAST(:pinecone_ids AS TEXT[]))
               AND dc.is_active = TRUE
               AND d.is_active = TRUE
               AND d.is_searchable = TRUE
@@ -430,13 +430,13 @@ class KnowledgeSearchService:
                 embedding_time_ms, search_time_ms,
                 source, source_room_id
             ) VALUES (
-                :id, :org_id, :user_id, :dept_id,
+                CAST(:id AS UUID), :org_id, :user_id, :dept_id,
                 :query, :embed_model,
-                :filters::jsonb,
-                :result_count, :chunk_ids::UUID[], :scores::FLOAT[],
+                CAST(:filters AS jsonb),
+                :result_count, CAST(:chunk_ids AS UUID[]), CAST(:scores AS FLOAT[]),
                 :top_score, :avg_score,
                 :refused, :refused_reason,
-                :classifications::TEXT[], :filtered_count,
+                CAST(:classifications AS TEXT[]), :filtered_count,
                 :embed_time, :search_time,
                 :source, :source_room_id
             )
@@ -483,7 +483,7 @@ class KnowledgeSearchService:
                     UPDATE document_chunks
                     SET search_hit_count = search_hit_count + 1,
                         last_hit_at = NOW()
-                    WHERE id = ANY(:chunk_ids::UUID[])
+                    WHERE id = ANY(CAST(:chunk_ids AS UUID[]))
                 """),
                 {"chunk_ids": chunk_ids_for_update}
             )
@@ -521,7 +521,7 @@ class KnowledgeSearchService:
             ) VALUES (
                 :id, :org_id, :search_log_id, :user_id,
                 :feedback_type, :rating, :comment,
-                :target_chunk_ids::UUID[],
+                CAST(:target_chunk_ids AS UUID[]),
                 :suggested_answer, :suggested_source
             )
         """
@@ -565,7 +565,7 @@ class KnowledgeSearchService:
                         SET feedback_positive_count = feedback_positive_count + 1
                         FROM document_chunks dc
                         WHERE dc.document_id = d.id
-                          AND dc.id = ANY(:chunk_ids::UUID[])
+                          AND dc.id = ANY(CAST(:chunk_ids AS UUID[]))
                     """),
                     {"chunk_ids": target_chunk_ids_pg}
                 )
@@ -576,7 +576,7 @@ class KnowledgeSearchService:
                         SET feedback_negative_count = feedback_negative_count + 1
                         FROM document_chunks dc
                         WHERE dc.document_id = d.id
-                          AND dc.id = ANY(:chunk_ids::UUID[])
+                          AND dc.id = ANY(CAST(:chunk_ids AS UUID[]))
                     """),
                     {"chunk_ids": target_chunk_ids_pg}
                 )

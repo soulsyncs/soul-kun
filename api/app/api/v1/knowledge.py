@@ -214,7 +214,7 @@ async def list_documents(
 
         # 機密区分フィルタ（ユーザーがアクセス可能なもののみ）
         classifications_pg = "{" + ",".join(user.accessible_classifications) + "}"
-        conditions.append("classification = ANY(:classifications::TEXT[])")
+        conditions.append("classification = ANY(CAST(:classifications AS TEXT[]))")
         params["classifications"] = classifications_pg
 
         if category:
@@ -334,7 +334,7 @@ async def get_document(
             FROM documents
             WHERE id = :doc_id
               AND organization_id = :org_id
-              AND classification = ANY(:classifications::TEXT[])
+              AND classification = ANY(CAST(:classifications AS TEXT[]))
               AND deleted_at IS NULL
         """
 

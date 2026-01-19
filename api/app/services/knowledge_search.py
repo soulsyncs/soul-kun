@@ -393,6 +393,63 @@ class KnowledgeSearchService:
 
         return chunk_results
 
+    async def _resolve_organization_uuid(self, organization_id: str) -> Optional[str]:
+        """
+        organization_id (テキスト識別子) から UUID を解決
+
+        Args:
+            organization_id: テキスト識別子 (例: org_soulsyncs) または UUID
+
+        Returns:
+            UUID文字列、見つからない場合はNone
+        """
+        # UUIDかテキスト識別子かを判定
+        try:
+            uuid.UUID(organization_id)
+            return organization_id  # 既にUUID形式
+        except ValueError:
+            pass
+
+        # テキスト識別子からUUIDを取得
+        result = await self.db_conn.execute(
+            text("SELECT id FROM organizations WHERE organization_id = :org_id"),
+            {"org_id": organization_id}
+        )
+        row = result.fetchone()
+        return str(row[0]) if row else None
+
+    async def _resolve_user_uuid(
+        self, user_id: str, organization_uuid: str
+    ) -> Optional[str]:
+        """
+        user_id (external_id等) から UUID を解決
+
+        Args:
+            user_id: external_id または UUID
+            organization_uuid: 組織のUUID
+
+        Returns:
+            UUID文字列、見つからない場合はNone
+        """
+        # UUIDかテキスト識別子かを判定
+        try:
+            uuid.UUID(user_id)
+            return user_id  # 既にUUID形式
+        except ValueError:
+            pass
+
+        # external_idからUUIDを取得
+        result = await self.db_conn.execute(
+            text("""
+                SELECT id FROM users
+                WHERE external_id = :user_id
+                  AND organization_id = :org_id
+            """),
+            {"user_id": user_id, "org_id": organization_uuid}
+        )
+        row = result.fetchone()
+        return str(row[0]) if row else None
+
     async def _log_search(
         self,
         user_context: UserContext,
@@ -409,6 +466,23 @@ class KnowledgeSearchService:
     ) -> str:
         """検索ログを記録"""
         log_id = str(uuid.uuid4())
+
+        # organization_id と user_id をUUIDに解決
+        org_uuid = await self._resolve_organization_uuid(user_context.organization_id)
+        if not org_uuid:
+            logger.warning(
+                f"Organization not found: {user_context.organization_id}",
+                tenant_id=user_context.organization_id
+            )
+            return log_id  # ログ記録をスキップ
+
+        user_uuid = await self._resolve_user_uuid(user_context.user_id, org_uuid)
+        if not user_uuid:
+            logger.warning(
+                f"User not found: {user_context.user_id}",
+                tenant_id=user_context.organization_id
+            )
+            return log_id  # ログ記録をスキップ
 
         # チャンクIDと スコアの配列を作成
         chunk_ids = [str(r.chunk_id) for r in chunk_results]
@@ -430,7 +504,7 @@ class KnowledgeSearchService:
                 embedding_time_ms, search_time_ms,
                 source, source_room_id
             ) VALUES (
-                CAST(:id AS UUID), :org_id, :user_id, :dept_id,
+                CAST(:id AS UUID), CAST(:org_id AS UUID), CAST(:user_id AS UUID), :dept_id,
                 :query, :embed_model,
                 CAST(:filters AS jsonb),
                 :result_count, CAST(:chunk_ids AS UUID[]), CAST(:scores AS FLOAT[]),
@@ -453,9 +527,9 @@ class KnowledgeSearchService:
             text(query),
             {
                 "id": log_id,
-                "org_id": user_context.organization_id,
-                "user_id": user_context.user_id,
-                "dept_id": user_context.department_id,
+                "org_id": org_uuid,
+                "user_id": user_uuid,
+                "dept_id": None,  # TODO: resolve department_id to UUID
                 "query": request.query,
                 "embed_model": self.embedding_client.model,
                 "filters": filters_json,

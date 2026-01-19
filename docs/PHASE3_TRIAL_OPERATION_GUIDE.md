@@ -30,7 +30,7 @@
 │          │                      │                    │          │
 │          ▼                      ▼                    ▼          │
 │  ┌─────────────────┐     ┌──────────────┐     ┌──────────────┐  │
-│  │ OpenAI          │◀────│ Pinecone     │◀────│ FastAPI      │  │
+│  │ Gemini          │◀────│ Pinecone     │◀────│ FastAPI      │  │
 │  │ (Embedding)     │     │ (Vector DB)  │     │ (検索API)    │  │
 │  └─────────────────┘     └──────────────┘     └──────────────┘  │
 │                                                       ▲          │
@@ -58,8 +58,10 @@
 ### 1. GCP Secret Manager にシークレットを登録
 
 ```bash
-# OpenAI API キー
-echo -n "sk-your-openai-key" | gcloud secrets create OPENAI_API_KEY --data-file=-
+# ★ v10.12.0: Gemini APIに統一（OpenAI不要）
+
+# Gemini API キー（LLM応答 + Embedding）
+echo -n "AIza..." | gcloud secrets create GOOGLE_AI_API_KEY --data-file=-
 
 # Pinecone API キー
 echo -n "your-pinecone-key" | gcloud secrets create PINECONE_API_KEY --data-file=-
@@ -75,10 +77,12 @@ Pinecone Console (https://app.pinecone.io) で新規インデックスを作成:
 | 設定項目 | 値 |
 |---------|-----|
 | Index Name | `soulkun-knowledge` |
-| Dimensions | `1536` |
+| Dimensions | `768` |
 | Metric | `cosine` |
 | Cloud | `AWS` |
 | Region | `us-east-1` |
+
+> ★ v10.12.0: 次元数が1536→768に変更（Gemini Embedding使用）
 
 ### 3. Google Drive フォルダの準備
 

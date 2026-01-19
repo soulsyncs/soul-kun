@@ -49,8 +49,10 @@ DEBUG: "false"
 # ============================================================
 # 以下のシークレットは GCP Secret Manager に登録してください:
 #
-# 1. OPENAI_API_KEY
-#    OpenAI の API キー（エンベディング生成用）
+# ★ v10.12.0: OpenAI不要、Gemini APIに統一
+#
+# 1. GOOGLE_AI_API_KEY
+#    Google AI の API キー（LLM応答 + エンベディング生成用）
 #
 # 2. PINECONE_API_KEY
 #    Pinecone の API キー
@@ -59,6 +61,6 @@ DEBUG: "false"
 #    Cloud SQL のパスワード
 #
 # 登録コマンド例:
-#   echo -n "sk-..." | gcloud secrets create OPENAI_API_KEY --data-file=-
+#   echo -n "AIza..." | gcloud secrets create GOOGLE_AI_API_KEY --data-file=-
 #   echo -n "..." | gcloud secrets create PINECONE_API_KEY --data-file=-
 # ============================================================

@@ -64,7 +64,7 @@ class TestPineconeClient:
     async def test_search(self, mock_pinecone):
         """検索のテスト"""
         client = PineconeClient(api_key="test-key")
-        query_vector = [0.1] * 1536
+        query_vector = [0.1] * 768  # Gemini Embedding 768次元
 
         response = await client.search(
             organization_id="org_test",
@@ -82,7 +82,7 @@ class TestPineconeClient:
     async def test_search_with_access_control(self, mock_pinecone):
         """アクセス制御付き検索のテスト"""
         client = PineconeClient(api_key="test-key")
-        query_vector = [0.1] * 1536
+        query_vector = [0.1] * 768  # Gemini Embedding 768次元
 
         response = await client.search_with_access_control(
             organization_id="org_test",
@@ -101,7 +101,7 @@ class TestPineconeClient:
         vectors = [
             {
                 "id": "test_vector_1",
-                "values": [0.1] * 1536,
+                "values": [0.1] * 768,  # Gemini Embedding 768次元
                 "metadata": {"category": "B"}
             }
         ]

@@ -52,7 +52,8 @@ CORS_ORIGINS: "https://app.soulsyncs.co.jp"
 # ============================================================
 # Cloud Run でシークレットを使用する場合:
 #
+# ★ v10.12.0: OpenAI不要、Gemini APIに統一
 # gcloud run services update soulkun-api \
-#   --update-secrets=OPENAI_API_KEY=OPENAI_API_KEY:latest \
+#   --update-secrets=GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest \
 #   --update-secrets=PINECONE_API_KEY=PINECONE_API_KEY:latest
 # ============================================================

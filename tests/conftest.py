@@ -57,32 +57,21 @@ def mock_async_db_conn():
 
 
 # ================================================================
-# OpenAI モック
+# Gemini Embedding モック（v10.12.0: OpenAI → Gemini に変更）
 # ================================================================
 
 @pytest.fixture
 def mock_openai_embedding():
-    """OpenAI Embedding APIのモック"""
-    with patch('lib.embedding.AsyncOpenAI') as mock_async, \
-         patch('lib.embedding.OpenAI') as mock_sync:
-
-        # 非同期クライアントのモック
-        async_instance = AsyncMock()
-        embedding_response = MagicMock()
-        embedding_response.data = [MagicMock(embedding=[0.1] * 1536)]
-        embedding_response.usage = MagicMock(total_tokens=10)
-        async_instance.embeddings.create = AsyncMock(return_value=embedding_response)
-        mock_async.return_value = async_instance
-
-        # 同期クライアントのモック
-        sync_instance = MagicMock()
-        sync_instance.embeddings.create.return_value = embedding_response
-        mock_sync.return_value = sync_instance
+    """Gemini Embedding APIのモック（後方互換のため名前は維持）"""
+    with patch('lib.embedding.genai') as mock_genai:
+        # embed_contentのモック（768次元）
+        mock_genai.embed_content.return_value = {
+            'embedding': [0.1] * 768
+        }
 
         yield {
-            'async': mock_async,
-            'sync': mock_sync,
-            'response': embedding_response,
+            'genai': mock_genai,
+            'response': {'embedding': [0.1] * 768},
         }
 
 

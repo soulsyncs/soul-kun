@@ -124,7 +124,8 @@ DB_POOL_RECYCLE=1800
 環境変数として設定（`.env` ファイル）:
 
 ```bash
-OPENAI_API_KEY=sk-your-key-here
+# ★ v10.12.0: OpenAI不要、Gemini APIに統一
+GOOGLE_AI_API_KEY=your-google-ai-key-here
 PINECONE_API_KEY=your-pinecone-key
 CHATWORK_API_KEY=your-chatwork-key
 SOULKUN_DB_PASSWORD=your-db-password
@@ -136,7 +137,7 @@ SOULKUN_DB_PASSWORD=your-db-password
 
 | Secret Manager 名 | ローカル環境変数名 |
 |-------------------|-------------------|
-| `OPENAI_API_KEY` | `OPENAI_API_KEY` |
+| `GOOGLE_AI_API_KEY` | `GOOGLE_AI_API_KEY` |
 | `PINECONE_API_KEY` | `PINECONE_API_KEY` |
 | `chatwork-api-key` | `CHATWORK_API_KEY` |
 | `soulkun-db-password` | `SOULKUN_DB_PASSWORD` |
@@ -145,8 +146,8 @@ SOULKUN_DB_PASSWORD=your-db-password
 シークレットの登録:
 
 ```bash
-# OpenAI API キー
-echo -n "sk-your-key" | gcloud secrets create OPENAI_API_KEY --data-file=-
+# Gemini API キー（LLM応答 + Embedding）
+echo -n "AIza..." | gcloud secrets create GOOGLE_AI_API_KEY --data-file=-
 
 # Pinecone API キー
 echo -n "your-pinecone-key" | gcloud secrets create PINECONE_API_KEY --data-file=-
@@ -161,19 +162,25 @@ echo -n "your-password" | gcloud secrets create soulkun-db-password --data-file=
 
 ### OpenRouter（AI応答機能）
 
+★ v10.12.0: Gemini 3 Flashに統一
+
 | 変数 | 説明 | デフォルト |
 |------|------|-----------|
 | `OPENROUTER_API_URL` | API エンドポイント | `https://openrouter.ai/api/v1/chat/completions` |
-| `DEFAULT_AI_MODEL` | 標準モデル | `openai/gpt-4o` |
-| `COMMANDER_AI_MODEL` | 高度な判断用モデル | `openai/gpt-4o` |
+| `DEFAULT_AI_MODEL` | 標準モデル | `google/gemini-3-flash-preview` |
+| `COMMANDER_AI_MODEL` | 高度な判断用モデル | `google/gemini-3-flash-preview` |
 
-### OpenAI Embedding
+### Gemini Embedding
+
+★ v10.12.0: OpenAI → Gemini Embeddingに変更
 
 | 変数 | 説明 | デフォルト |
 |------|------|-----------|
-| `OPENAI_API_KEY` | OpenAI API キー | - |
+| `GOOGLE_AI_API_KEY` | Google AI API キー | - |
 
-使用モデル: `text-embedding-3-small`（1536次元）
+使用モデル: `models/text-embedding-004`（768次元）
+
+コスト: **無料**（Free Tier）
 
 ---
 

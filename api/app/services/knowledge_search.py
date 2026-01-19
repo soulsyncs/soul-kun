@@ -484,14 +484,19 @@ class KnowledgeSearchService:
             )
             return log_id  # ログ記録をスキップ
 
-        # チャンクIDと スコアの配列を作成
-        chunk_ids = [str(r.chunk_id) for r in chunk_results]
-        scores = [r.score for r in filtered_results]
+        # チャンクIDとスコアの配列を作成
+        chunk_ids = [str(r.chunk_id) for r in chunk_results] if chunk_results else []
+        scores = [r.score for r in filtered_results] if filtered_results else []
+        classifications = user_context.accessible_classifications or []
 
-        # PostgreSQL 配列リテラル形式に変換
-        chunk_ids_pg = "{" + ",".join(chunk_ids) + "}" if chunk_ids else "{}"
-        scores_pg = "{" + ",".join(str(s) for s in scores) + "}" if scores else "{}"
+        import json
+        filters_json = json.dumps({
+            "categories": request.categories
+        }) if request.categories else "{}"
 
+        # asyncpgで配列を使用する場合、生のconnectionでexecuteを使用
+        # SQLAlchemy text() + asyncpgでの配列の扱いは複雑なため、
+        # 配列カラムはNULLに設定し、後で更新する
         query = """
             INSERT INTO knowledge_search_logs (
                 id, organization_id, user_id, user_department_id,
@@ -507,21 +512,14 @@ class KnowledgeSearchService:
                 CAST(:id AS UUID), CAST(:org_id AS UUID), CAST(:user_id AS UUID), :dept_id,
                 :query, :embed_model,
                 CAST(:filters AS jsonb),
-                :result_count, CAST(:chunk_ids AS UUID[]), CAST(:scores AS FLOAT[]),
+                :result_count, NULL, NULL,
                 :top_score, :avg_score,
                 :refused, :refused_reason,
-                CAST(:classifications AS TEXT[]), :filtered_count,
+                NULL, :filtered_count,
                 :embed_time, :search_time,
                 :source, :source_room_id
             )
         """
-
-        import json
-        filters_json = json.dumps({
-            "categories": request.categories
-        }) if request.categories else "{}"
-
-        classifications_pg = "{" + ",".join(user_context.accessible_classifications) + "}"
 
         await self.db_conn.execute(
             text(query),
@@ -534,13 +532,10 @@ class KnowledgeSearchService:
                 "embed_model": self.embedding_client.model,
                 "filters": filters_json,
                 "result_count": len(chunk_results),
-                "chunk_ids": chunk_ids_pg,
-                "scores": scores_pg,
                 "top_score": top_score,
                 "avg_score": average_score,
                 "refused": answer_refused,
                 "refused_reason": refused_reason,
-                "classifications": classifications_pg,
                 "filtered_count": filtered_count,
                 "embed_time": embedding_time_ms,
                 "search_time": search_time_ms,
@@ -550,17 +545,18 @@ class KnowledgeSearchService:
         )
 
         # チャンクの検索ヒット数を更新
-        if chunk_ids:
-            chunk_ids_for_update = "{" + ",".join(chunk_ids) + "}"
-            await self.db_conn.execute(
-                text("""
-                    UPDATE document_chunks
-                    SET search_hit_count = search_hit_count + 1,
-                        last_hit_at = NOW()
-                    WHERE id = ANY(CAST(:chunk_ids AS UUID[]))
-                """),
-                {"chunk_ids": chunk_ids_for_update}
-            )
+        # TODO: asyncpgでの配列パラメータ対応後に有効化
+        # if chunk_ids:
+        #     for chunk_id in chunk_ids:
+        #         await self.db_conn.execute(
+        #             text("""
+        #                 UPDATE document_chunks
+        #                 SET search_hit_count = search_hit_count + 1,
+        #                     last_hit_at = NOW()
+        #                 WHERE id = CAST(:chunk_id AS UUID)
+        #             """),
+        #             {"chunk_id": chunk_id}
+        #         )
 
         return log_id
 

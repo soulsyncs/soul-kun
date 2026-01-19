@@ -458,25 +458,54 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
         print(f"ChatWork API 例外: {e}")
         return None
 
+def get_user_primary_department(chatwork_account_id):
+    """担当者のメイン部署IDを取得（Phase 3.5対応）"""
+    try:
+        pool = get_pool()
+        with pool.connect() as conn:
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT ud.department_id
+                    FROM user_departments ud
+                    JOIN users u ON ud.user_id = u.id
+                    WHERE u.chatwork_account_id = :chatwork_account_id
+                      AND ud.is_primary = TRUE
+                      AND ud.ended_at IS NULL
+                    LIMIT 1
+                """),
+                {"chatwork_account_id": str(chatwork_account_id)}
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        print(f"部署取得エラー: {e}")
+        return None
+
+
 def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
     """ChatWorkタスクをデータベースに保存"""
     try:
+        # 担当者のメイン部署を取得（Phase 3.5対応）
+        assigned_to_account_id = task_data["account"]["account_id"]
+        department_id = get_user_primary_department(assigned_to_account_id)
+
         pool = get_pool()
         with pool.connect() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id)
                 """),
                 {
                     "task_id": task_data["task_id"],
                     "room_id": room_id,
                     "assigned_by": assigned_by_account_id,
-                    "assigned_to": task_data["account"]["account_id"],
+                    "assigned_to": assigned_to_account_id,
                     "body": task_data["body"],
                     "limit_time": task_data.get("limit_time"),
-                    "status": task_data.get("status", "open")
+                    "status": task_data.get("status", "open"),
+                    "department_id": department_id
                 }
             )
             conn.commit()

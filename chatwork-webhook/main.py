@@ -1513,36 +1513,148 @@ def complete_chatwork_task(room_id, task_id):
     return None
 
 
-def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_account_id=None, status="open"):
-    """DBからタスクを検索"""
+def get_user_id_from_chatwork_account(conn, chatwork_account_id):
+    """ChatWorkアカウントIDからユーザーIDを取得（Phase 3.5対応）"""
+    try:
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT id FROM users
+                WHERE chatwork_account_id = :chatwork_account_id
+                LIMIT 1
+            """),
+            {"chatwork_account_id": str(chatwork_account_id)}
+        )
+        row = result.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"ユーザーID取得エラー: {e}")
+        return None
+
+
+def get_accessible_departments(conn, user_id, organization_id):
+    """ユーザーがアクセス可能な部署IDリストを取得（Phase 3.5対応）"""
+    try:
+        # ユーザーの権限レベルを取得
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT COALESCE(MAX(r.level), 2) as max_level
+                FROM user_departments ud
+                JOIN roles r ON ud.role_id = r.id
+                WHERE ud.user_id = :user_id AND ud.ended_at IS NULL
+            """),
+            {"user_id": user_id}
+        )
+        row = result.fetchone()
+        role_level = row[0] if row and row[0] else 2
+
+        # Level 5-6: 全組織アクセス（フィルタなし）
+        if role_level >= 5:
+            return None  # Noneは「フィルタなし」を意味
+
+        # ユーザーの所属部署を取得
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT department_id FROM user_departments
+                WHERE user_id = :user_id AND ended_at IS NULL
+            """),
+            {"user_id": user_id}
+        )
+        user_depts = [row[0] for row in result.fetchall()]
+
+        if not user_depts:
+            return []
+
+        accessible_depts = set(user_depts)
+
+        for dept_id in user_depts:
+            if role_level >= 4:
+                # 配下全部署
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        WITH dept_path AS (
+                            SELECT path FROM departments WHERE id = :dept_id
+                        )
+                        SELECT d.id FROM departments d, dept_path dp
+                        WHERE d.path <@ dp.path AND d.id != :dept_id AND d.is_active = TRUE
+                    """),
+                    {"dept_id": dept_id}
+                )
+                accessible_depts.update([row[0] for row in result.fetchall()])
+            elif role_level >= 3:
+                # 直下部署のみ
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id FROM departments
+                        WHERE parent_id = :dept_id AND is_active = TRUE
+                    """),
+                    {"dept_id": dept_id}
+                )
+                accessible_depts.update([row[0] for row in result.fetchall()])
+
+        return list(accessible_depts)
+    except Exception as e:
+        print(f"アクセス可能部署取得エラー: {e}")
+        return None  # エラー時はフィルタなし（後方互換性）
+
+
+def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_account_id=None, status="open",
+                          enable_dept_filter=False, organization_id=None):
+    """DBからタスクを検索
+
+    Args:
+        room_id: チャットルームID
+        assigned_to_account_id: 担当者のChatWorkアカウントID
+        assigned_by_account_id: 依頼者のChatWorkアカウントID
+        status: タスクステータス（"open", "done", "all"）
+        enable_dept_filter: True=部署フィルタを有効化（Phase 3.5対応）
+        organization_id: 組織ID（部署フィルタ有効時に必要）
+    """
     try:
         pool = get_pool()
         with pool.connect() as conn:
+            # Phase 3.5: アクセス可能部署の取得（オプション）
+            accessible_dept_ids = None
+            if enable_dept_filter and assigned_to_account_id:
+                user_id = get_user_id_from_chatwork_account(conn, assigned_to_account_id)
+                if user_id and organization_id:
+                    accessible_dept_ids = get_accessible_departments(conn, user_id, organization_id)
+
             # クエリ構築
             query = """
-                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id
+                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id
                 FROM chatwork_tasks
                 WHERE room_id = :room_id
             """
             params = {"room_id": room_id}
-            
+
             if assigned_to_account_id:
                 query += " AND assigned_to_account_id = :assigned_to"
                 params["assigned_to"] = assigned_to_account_id
-            
+
             if assigned_by_account_id:
                 query += " AND assigned_by_account_id = :assigned_by"
                 params["assigned_by"] = assigned_by_account_id
-            
+
             if status and status != "all":
                 query += " AND status = :status"
                 params["status"] = status
-            
+
+            # Phase 3.5: 部署フィルタ（アクセス可能部署またはNULL）
+            if accessible_dept_ids is not None and len(accessible_dept_ids) > 0:
+                # アクセス可能部署 または 部署未設定のタスク
+                placeholders = ", ".join([f":dept_{i}" for i in range(len(accessible_dept_ids))])
+                query += f" AND (department_id IN ({placeholders}) OR department_id IS NULL)"
+                for i, dept_id in enumerate(accessible_dept_ids):
+                    params[f"dept_{i}"] = dept_id
+            elif accessible_dept_ids is not None and len(accessible_dept_ids) == 0:
+                # アクセス可能部署がない場合は部署未設定のタスクのみ
+                query += " AND department_id IS NULL"
+
             query += " ORDER BY limit_time ASC NULLS LAST"
-            
+
             result = conn.execute(sqlalchemy.text(query), params)
             tasks = result.fetchall()
-            
+
             return [
                 {
                     "task_id": row[0],
@@ -1550,7 +1662,8 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                     "limit_time": row[2],
                     "status": row[3],
                     "assigned_to_account_id": row[4],
-                    "assigned_by_account_id": row[5]
+                    "assigned_by_account_id": row[5],
+                    "department_id": row[6]  # Phase 3.5対応
                 }
                 for row in tasks
             ]
@@ -1578,16 +1691,41 @@ def update_task_status_in_db(task_id, status):
         return False
 
 
+def get_user_primary_department(conn, chatwork_account_id):
+    """担当者のメイン部署IDを取得（Phase 3.5対応）"""
+    try:
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT ud.department_id
+                FROM user_departments ud
+                JOIN users u ON ud.user_id = u.id
+                WHERE u.chatwork_account_id = :chatwork_account_id
+                  AND ud.is_primary = TRUE
+                  AND ud.ended_at IS NULL
+                LIMIT 1
+            """),
+            {"chatwork_account_id": str(chatwork_account_id)}
+        )
+        row = result.fetchone()
+        return row[0] if row else None
+    except Exception as e:
+        print(f"部署取得エラー: {e}")
+        return None
+
+
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
     """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）"""
     try:
         pool = get_pool()
         with pool.begin() as conn:
+            # Phase 3.5: 担当者のメイン部署を取得
+            department_id = get_user_primary_department(conn, assigned_to_account_id)
+
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -1597,10 +1735,11 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "assigned_to": assigned_to_account_id,
                     "body": body,
                     "limit_time": limit_time,
-                    "status": "open"
+                    "status": "open",
+                    "department_id": department_id
                 }
             )
-        print(f"✅ タスクをDBに保存: task_id={task_id}")
+        print(f"✅ タスクをDBに保存: task_id={task_id}, department_id={department_id}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")

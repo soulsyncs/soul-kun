@@ -19,7 +19,16 @@ from api.app.models.base import Base, TimestampMixin, generate_uuid
 
 
 class Role(Base, TimestampMixin):
-    """役職マスタ"""
+    """役職マスタ
+
+    権限レベル（level）:
+        1 = 業務委託（自部署のみ、制限あり）
+        2 = 一般社員（自部署のみ）
+        3 = リーダー/課長（自部署＋直下部署）
+        4 = 幹部/部長（自部署＋配下全部署）
+        5 = 管理部（全組織、最高機密除く）
+        6 = 代表/CFO（全組織、全情報）
+    """
 
     __tablename__ = "roles"
 
@@ -29,6 +38,7 @@ class Role(Base, TimestampMixin):
         ForeignKey("organizations.id"),
         nullable=False,
     )
+    external_id = Column(String(100), unique=True, nullable=True)  # Supabase側のroles.id（同期用）
     name = Column(String(100), nullable=False)
     level = Column(Integer, default=1)
     description = Column(Text, nullable=True)

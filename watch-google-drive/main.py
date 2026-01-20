@@ -59,8 +59,13 @@ def to_pg_array(python_list: list) -> str:
             escaped.append(f'"{str_item}"')
     return '{' + ','.join(escaped) + '}'
 
-# プロジェクトルートをパスに追加
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Cloud Functions デプロイ時はlibが同じディレクトリにある
+# ローカル開発時はプロジェクトルートから参照
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if os.path.exists(os.path.join(current_dir, 'lib')):
+    sys.path.insert(0, current_dir)
+else:
+    sys.path.insert(0, os.path.dirname(current_dir))
 
 from lib.google_drive import (
     GoogleDriveClient,

@@ -4178,7 +4178,9 @@ def process_escalations(overdue_tasks, today):
             "body": task[4],
             "limit_time": task[5],
             "assigned_to_name": task[6],
-            "assigned_by_name": task[7]
+            "assigned_by_name": task[7],
+            # ★★★ v10.14.0: room_nameを追加（タプルに9番目の要素がある場合）★★★
+            "room_name": task[8] if len(task) > 8 else None
         }
         overdue_days = get_overdue_days(task_dict["limit_time"])
         if overdue_days >= ESCALATION_DAYS:
@@ -5525,7 +5527,11 @@ def _create_reminder_dm_message(assignee_name: str, overdue_tasks: list, today_t
 
 def process_overdue_tasks_v2():
     """
-    遅延タスクを管理部に報告
+    遅延タスクを管理部に報告 + エスカレーション処理
+
+    ★★★ v10.14.0: エスカレーション機能を追加 ★★★
+    - 3日以上超過のタスクの依頼者にDM通知
+    - 管理部に長期遅延タスク報告
 
     ★★★ v10.12.0: 3段階色分け表示＋管理部メンション ★★★
 
@@ -5536,6 +5542,11 @@ def process_overdue_tasks_v2():
     - [To:xxx]管理部メンション
     - 担当者ごとにグループ化
     - 期限の古い順にソート
+
+    処理フロー:
+    1. 管理部に3段階色分け遅延タスク報告
+    2. 3日以上超過タスクの依頼者にエスカレーションDM
+    3. 管理部に長期遅延タスク報告
 
     フォーマット:
     [To:管理部]
@@ -5568,9 +5579,11 @@ def process_overdue_tasks_v2():
         today = now.date()
 
         # 1日以上遅延しているタスクを全て取得（3段階分類のため）
+        # ★★★ v10.14.0: エスカレーション用にassigned_by情報を追加 ★★★
         cursor.execute("""
-            SELECT task_id, room_id, assigned_to_account_id, body, limit_time,
-                   room_name, assigned_to_name, summary
+            SELECT task_id, room_id, assigned_to_account_id, assigned_by_account_id,
+                   body, limit_time, assigned_to_name, assigned_by_name,
+                   room_name, summary
             FROM chatwork_tasks
             WHERE status = 'open'
               AND skip_tracking = FALSE
@@ -5587,8 +5600,15 @@ def process_overdue_tasks_v2():
         moderate_tasks = []  # 3-6日
         mild_tasks = []      # 1-2日
 
+        # ★★★ v10.14.0: エスカレーション用タプルリスト ★★★
+        # process_escalationsが期待する形式:
+        # (task_id, room_id, assigned_to_account_id, assigned_by_account_id,
+        #  body, limit_time, assigned_to_name, assigned_by_name)
+        escalation_tuples = []
+
         for task in tasks:
-            task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary = task
+            # ★★★ v10.14.0: assigned_by情報を追加 ★★★
+            task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, assigned_to_name, assigned_by_name, room_name, summary = task
 
             if limit_time is None:
                 continue
@@ -5635,6 +5655,23 @@ def process_overdue_tasks_v2():
                 moderate_tasks.append(task_info)
             else:  # 1-2日
                 mild_tasks.append(task_info)
+
+            # ★★★ v10.14.0: 3日以上超過はエスカレーション対象 ★★★
+            # process_escalationsが期待するタプル形式で保存
+            # ESCALATION_DAYS = 3 なので、moderate(3-6日) + severe(7日以上) が対象
+            if overdue_days >= ESCALATION_DAYS:
+                escalation_tuple = (
+                    task_id,                    # [0]
+                    room_id,                    # [1]
+                    assigned_to_account_id,     # [2]
+                    assigned_by_account_id,     # [3]
+                    body,                       # [4] 元のbody（process_escalations内で整形される）
+                    limit_time,                 # [5]
+                    assigned_to_name,           # [6]
+                    assigned_by_name,           # [7]
+                    room_name                   # [8] ★ v10.14.0追加: ルーム名
+                )
+                escalation_tuples.append(escalation_tuple)
 
         # 遅延タスクがなければ終了
         total_overdue = len(severe_tasks) + len(moderate_tasks) + len(mild_tasks)
@@ -5730,6 +5767,19 @@ def process_overdue_tasks_v2():
             print(f"✅ 管理部への遅延タスク報告完了（3段階分類）")
         else:
             print(f"⚠️ 管理部への報告送信失敗またはブロック")
+
+        # ★★★ v10.14.0: エスカレーション処理（3日以上超過のタスクの依頼者に通知）★★★
+        # process_escalationsは独自のDB接続（get_pool()）を使用するため、
+        # cursor/connをcloseした後でも動作可能だが、try-except内で実行
+        if escalation_tuples:
+            print(f"\n=== エスカレーション処理（{len(escalation_tuples)}件対象）===")
+            try:
+                process_escalations(escalation_tuples, today)
+            except Exception as esc_error:
+                print(f"⚠️ エスカレーション処理でエラー（遅延タスク報告は完了）: {esc_error}")
+                traceback.print_exc()
+        else:
+            print("ℹ️ エスカレーション対象タスクなし（3日以上超過のタスクがありません）")
 
     except Exception as e:
         print(f"❌ 遅延タスク報告エラー: {e}")

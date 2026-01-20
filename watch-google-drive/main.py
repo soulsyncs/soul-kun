@@ -109,6 +109,42 @@ class DatabaseOperations:
 
     def __init__(self, pool):
         self.pool = pool
+        self._org_uuid_cache = {}  # organization_id -> UUID キャッシュ
+
+    def resolve_organization_uuid(self, organization_id: str) -> Optional[str]:
+        """
+        organization_id (テキスト識別子) から UUID を解決
+
+        Args:
+            organization_id: テキスト識別子 (例: org_soulsyncs) または UUID
+
+        Returns:
+            UUID文字列、見つからない場合はNone
+        """
+        # キャッシュをチェック
+        if organization_id in self._org_uuid_cache:
+            return self._org_uuid_cache[organization_id]
+
+        # UUIDかテキスト識別子かを判定
+        try:
+            uuid.UUID(organization_id)
+            self._org_uuid_cache[organization_id] = organization_id
+            return organization_id  # 既にUUID形式
+        except ValueError:
+            pass
+
+        # テキスト識別子からUUIDを取得
+        with self.pool.connect() as conn:
+            result = conn.execute(
+                text("SELECT id FROM organizations WHERE organization_id = :org_id"),
+                {"org_id": organization_id}
+            )
+            row = result.fetchone()
+            if row:
+                uuid_str = str(row[0])
+                self._org_uuid_cache[organization_id] = uuid_str
+                return uuid_str
+            return None
 
     def get_sync_state(
         self,
@@ -116,15 +152,21 @@ class DatabaseOperations:
         root_folder_id: str
     ) -> Optional[dict]:
         """同期状態を取得"""
+        # organization_idをUUIDに解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return None
+
         with self.pool.connect() as conn:
             result = conn.execute(
                 text("""
                     SELECT page_token, last_sync_at
                     FROM google_drive_sync_state
-                    WHERE organization_id = :org_id
+                    WHERE organization_id = CAST(:org_id AS UUID)
                       AND root_folder_id = :folder_id
                 """),
-                {"org_id": organization_id, "folder_id": root_folder_id}
+                {"org_id": org_uuid, "folder_id": root_folder_id}
             )
             row = result.fetchone()
             if row:
@@ -142,13 +184,19 @@ class DatabaseOperations:
         sync_log_id: str
     ):
         """同期状態を更新"""
+        # organization_idをUUIDに解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return
+
         with self.pool.connect() as conn:
             conn.execute(
                 text("""
                     INSERT INTO google_drive_sync_state
                         (organization_id, root_folder_id, page_token, last_sync_at, last_sync_id)
                     VALUES
-                        (:org_id, :folder_id, :token, NOW(), :sync_id)
+                        (CAST(:org_id AS UUID), :folder_id, :token, NOW(), CAST(:sync_id AS UUID))
                     ON CONFLICT (organization_id, root_folder_id)
                     DO UPDATE SET
                         page_token = EXCLUDED.page_token,
@@ -157,7 +205,7 @@ class DatabaseOperations:
                         updated_at = NOW()
                 """),
                 {
-                    "org_id": organization_id,
+                    "org_id": org_uuid,
                     "folder_id": root_folder_id,
                     "token": page_token,
                     "sync_id": sync_log_id
@@ -174,6 +222,12 @@ class DatabaseOperations:
         start_page_token: Optional[str]
     ) -> str:
         """同期ログを作成"""
+        # organization_idをUUIDに解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return None
+
         log_id = str(uuid.uuid4())
         with self.pool.connect() as conn:
             conn.execute(
@@ -182,12 +236,12 @@ class DatabaseOperations:
                         (id, organization_id, sync_id, sync_type,
                          root_folder_id, start_page_token, status)
                     VALUES
-                        (:id, :org_id, :sync_id, :sync_type,
+                        (CAST(:id AS UUID), CAST(:org_id AS UUID), :sync_id, :sync_type,
                          :folder_id, :token, 'in_progress')
                 """),
                 {
                     "id": log_id,
-                    "org_id": organization_id,
+                    "org_id": org_uuid,
                     "sync_id": sync_id,
                     "sync_type": sync_type,
                     "folder_id": root_folder_id,
@@ -225,10 +279,10 @@ class DatabaseOperations:
                         files_failed = :failed,
                         new_page_token = :new_token,
                         error_message = :error_msg,
-                        failed_files = :failed_files::jsonb,
+                        failed_files = CAST(:failed_files AS JSONB),
                         completed_at = NOW(),
                         duration_ms = EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000
-                    WHERE id = :id
+                    WHERE id = CAST(:id AS UUID)
                 """),
                 {
                     "id": log_id,
@@ -252,16 +306,22 @@ class DatabaseOperations:
         google_drive_file_id: str
     ) -> Optional[dict]:
         """Googleドライブファイルに対応するドキュメントを取得"""
+        # organization_idをUUIDに解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return None
+
         with self.pool.connect() as conn:
             result = conn.execute(
                 text("""
                     SELECT id, current_version, file_hash, google_drive_last_modified
                     FROM documents
-                    WHERE organization_id = :org_id
+                    WHERE organization_id = CAST(:org_id AS UUID)
                       AND google_drive_file_id = :file_id
                       AND deleted_at IS NULL
                 """),
-                {"org_id": organization_id, "file_id": google_drive_file_id}
+                {"org_id": org_uuid, "file_id": google_drive_file_id}
             )
             row = result.fetchone()
             if row:
@@ -290,6 +350,12 @@ class DatabaseOperations:
         google_drive_last_modified: Optional[datetime]
     ) -> str:
         """ドキュメントを作成"""
+        # organization_idをUUIDに解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return None
+
         doc_id = str(uuid.uuid4())
         with self.pool.connect() as conn:
             # PostgreSQL配列リテラル形式に変換
@@ -304,15 +370,15 @@ class DatabaseOperations:
                          google_drive_web_view_link, google_drive_last_modified,
                          processing_status)
                     VALUES
-                        (:id, :org_id, :title, :file_name, :file_type,
+                        (CAST(:id AS UUID), CAST(:org_id AS UUID), :title, :file_name, :file_type,
                          :file_size, :file_hash, :category, :classification,
-                         :dept_id, :drive_id, :folder_path::TEXT[],
+                         :dept_id, :drive_id, CAST(:folder_path AS TEXT[]),
                          :web_link, :last_modified,
                          'processing')
                 """),
                 {
                     "id": doc_id,
-                    "org_id": organization_id,
+                    "org_id": org_uuid,
                     "title": title,
                     "file_name": file_name,
                     "file_type": file_type,
@@ -341,6 +407,11 @@ class DatabaseOperations:
         pinecone_namespace: str
     ) -> str:
         """ドキュメントバージョンを作成"""
+        # organization_id を UUID に解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            raise ValueError(f"Organization not found: {organization_id}")
+
         version_id = str(uuid.uuid4())
         with self.pool.connect() as conn:
             conn.execute(
@@ -350,13 +421,13 @@ class DatabaseOperations:
                          file_name, file_hash, file_size_bytes,
                          pinecone_namespace, is_latest, processing_status)
                     VALUES
-                        (:id, :org_id, :doc_id, :version,
+                        (:id, CAST(:org_id AS UUID), :doc_id, :version,
                          :file_name, :file_hash, :file_size,
                          :namespace, TRUE, 'processing')
                 """),
                 {
                     "id": version_id,
-                    "org_id": organization_id,
+                    "org_id": org_uuid,
                     "doc_id": document_id,
                     "version": version_number,
                     "file_name": file_name,
@@ -387,6 +458,11 @@ class DatabaseOperations:
         embedding_model: str
     ) -> str:
         """ドキュメントチャンクを作成"""
+        # organization_id を UUID に解決
+        org_uuid = self.resolve_organization_uuid(organization_id)
+        if not org_uuid:
+            raise ValueError(f"Organization not found: {organization_id}")
+
         chunk_id = str(uuid.uuid4())
         with self.pool.connect() as conn:
             # PostgreSQL配列リテラル形式に変換
@@ -403,16 +479,16 @@ class DatabaseOperations:
                          start_position, end_position, embedding_model,
                          is_indexed)
                     VALUES
-                        (:id, :org_id, :doc_id, :version_id,
+                        (:id, CAST(:org_id AS UUID), :doc_id, :version_id,
                          :chunk_index, :pinecone_id, :namespace,
                          :content, :content_hash, :char_count,
-                         :page_number, :section_title, :section_hierarchy::TEXT[],
+                         :page_number, :section_title, CAST(:section_hierarchy AS TEXT[]),
                          :start_pos, :end_pos, :embedding_model,
                          FALSE)
                 """),
                 {
                     "id": chunk_id,
-                    "org_id": organization_id,
+                    "org_id": org_uuid,
                     "doc_id": document_id,
                     "version_id": document_version_id,
                     "chunk_index": chunk_index,

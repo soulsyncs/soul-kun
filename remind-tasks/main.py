@@ -3319,6 +3319,34 @@ def ensure_overdue_tables():
         print(f"⚠️ task_escalationsテーブル作成エラー（無視）: {e}")
 
     # =====================================================
+    # ★★★ v10.12.0: chatwork_tasks にorganization_id追加（Phase 3.5）★★★
+    # =====================================================
+    try:
+        with pool.begin() as conn:
+            # organization_idカラムを追加（既存テーブルへの追加）
+            conn.execute(sqlalchemy.text("""
+                ALTER TABLE chatwork_tasks
+                ADD COLUMN IF NOT EXISTS organization_id VARCHAR(100) DEFAULT 'org_soulsyncs'
+            """))
+            # department_idカラムも追加（既に存在する場合もあるがIF NOT EXISTSで安全）
+            conn.execute(sqlalchemy.text("""
+                ALTER TABLE chatwork_tasks
+                ADD COLUMN IF NOT EXISTS department_id UUID
+            """))
+            # インデックス作成
+            conn.execute(sqlalchemy.text("""
+                CREATE INDEX IF NOT EXISTS idx_chatwork_tasks_org_id
+                ON chatwork_tasks(organization_id)
+            """))
+            conn.execute(sqlalchemy.text("""
+                CREATE INDEX IF NOT EXISTS idx_chatwork_tasks_dept_id
+                ON chatwork_tasks(department_id)
+            """))
+        print("✅ chatwork_tasksテーブルにorganization_id/department_id追加完了（Phase 3.5）")
+    except Exception as e:
+        print(f"⚠️ chatwork_tasksカラム追加エラー（無視）: {e}")
+
+    # =====================================================
     # ★★★ v10.1.4: データ移行 ★★★
     # =====================================================
     try:
@@ -5498,29 +5526,38 @@ def process_overdue_tasks_v2():
     """
     遅延タスクを管理部に報告
 
-    ★★★ v10.8.0: フォーマット大幅改善 ★★★
+    ★★★ v10.12.0: 3段階色分け表示＋管理部メンション ★★★
 
-    v10.7.0からの変更点:
-    - 15文字AI要約を使用
-    - 📍 チャットグループ名を追加（3行目）
-    - タスク間に1行空ける
-    - 人の切り替わりで2行空ける
+    Phase 1-B完全実装:
+    - 🟡 1-2日超過: 軽度遅延
+    - 🟠 3-6日超過: 中度遅延
+    - 🔴 7日以上超過: 重度遅延
+    - [To:xxx]管理部メンション
+    - 担当者ごとにグループ化
+    - 期限の古い順にソート
 
     フォーマット:
-    ━━━━━━━━━━━━━━━━━━━━
-    【担当者名】N件
-    ━━━━━━━━━━━━━━━━━━━━
-    ① タスク要約（15文字）
-    📅 MM/DD（N日超過）
+    [To:管理部]
+    📊 遅延タスク日次報告
+
+    ━━ 🔴 重度遅延（7日以上）N件 ━━
+    【担当者名】
+    ① タスク（N日超過）
     📍 チャットグループ名
 
-    ② 次のタスク...
+    ━━ 🟠 中度遅延（3-6日）N件 ━━
+    ...
+
+    ━━ 🟡 軽度遅延（1-2日）N件 ━━
+    ...
     """
-    print("\n=== 遅延タスク報告（管理部向け） ===")
+    print("\n=== 遅延タスク報告（管理部向け）v10.12.0 ===")
 
     # 丸数字（①〜⑩）
     CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
-    DIVIDER = "━━━━━━━━━━━━━━━━━━━━"
+
+    # 管理部メンション対象（カズさん）
+    ADMIN_MENTION_ACCOUNT_ID = ADMIN_ACCOUNT_ID  # 1728974
 
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -5528,9 +5565,8 @@ def process_overdue_tasks_v2():
     try:
         now = datetime.now(JST)
         today = now.date()
-        three_days_ago = today - timedelta(days=3)
 
-        # 3日以上遅延しているタスクを取得
+        # 1日以上遅延しているタスクを全て取得（3段階分類のため）
         cursor.execute("""
             SELECT task_id, room_id, assigned_to_account_id, body, limit_time,
                    room_name, assigned_to_name, summary
@@ -5542,8 +5578,13 @@ def process_overdue_tasks_v2():
 
         tasks = cursor.fetchall()
 
-        # 担当者ごとにグループ化（3日以上遅延のみ）
-        overdue_by_assignee = {}
+        # 3段階に分類
+        # 🔴 severe: 7日以上
+        # 🟠 moderate: 3-6日
+        # 🟡 mild: 1-2日
+        severe_tasks = []    # 7日以上
+        moderate_tasks = []  # 3-6日
+        mild_tasks = []      # 1-2日
 
         for task in tasks:
             task_id, room_id, assigned_to_account_id, body, limit_time, room_name, assigned_to_name, summary = task
@@ -5561,86 +5602,131 @@ def process_overdue_tasks_v2():
             except:
                 continue
 
-            # 3日以上遅延しているか
-            if limit_date > three_days_ago:
+            overdue_days = (today - limit_date).days
+
+            # 1日未満（0日以下）はスキップ
+            if overdue_days < 1:
                 continue
 
-            overdue_days = (today - limit_date).days
-            assignee_id = assigned_to_account_id
-
-            if assignee_id not in overdue_by_assignee:
-                overdue_by_assignee[assignee_id] = {
-                    'name': assigned_to_name or f"ID:{assignee_id}",
-                    'tasks': []
-                }
-
-            # タスク内容を15文字以内に整形（v10.8.0: AI要約対応）
-            # summary優先、なければbodyをクリーニング後に整形
+            # タスク内容を整形
             source_text = summary if summary else clean_task_body(body)
             task_display = prepare_task_display_text(source_text, max_length=40)
 
-            # ルーム名を整形（長い場合は切り詰め）
+            # ルーム名を整形
             room_display = room_name if room_name else "不明"
             if len(room_display) > 15:
                 room_display = room_display[:14] + "…"
 
-            overdue_by_assignee[assignee_id]['tasks'].append({
+            task_info = {
                 'task_id': task_id,
                 'body': task_display,
                 'room_name': room_display,
                 'limit_date': limit_date,
-                'overdue_days': overdue_days
-            })
+                'overdue_days': overdue_days,
+                'assignee_id': assigned_to_account_id,
+                'assignee_name': assigned_to_name or f"ID:{assigned_to_account_id}"
+            }
 
-        if not overdue_by_assignee:
-            print("✅ 3日以上遅延しているタスクはありません")
+            # 3段階に分類
+            if overdue_days >= 7:
+                severe_tasks.append(task_info)
+            elif overdue_days >= 3:
+                moderate_tasks.append(task_info)
+            else:  # 1-2日
+                mild_tasks.append(task_info)
+
+        # 遅延タスクがなければ終了
+        total_overdue = len(severe_tasks) + len(moderate_tasks) + len(mild_tasks)
+        if total_overdue == 0:
+            print("✅ 遅延しているタスクはありません")
             return
 
-        # 管理部への報告メッセージを作成
-        total_overdue = sum(len(data['tasks']) for data in overdue_by_assignee.values())
-        print(f"📊 3日以上遅延タスク: {total_overdue}件（{len(overdue_by_assignee)}人）")
+        print(f"📊 遅延タスク: 計{total_overdue}件（🔴{len(severe_tasks)}件, 🟠{len(moderate_tasks)}件, 🟡{len(mild_tasks)}件）")
 
+        # メッセージ作成
         lines = []
-        lines.append(f"📊 長期遅延タスク報告（計{total_overdue}件）")
 
-        first_person = True
-        for assignee_id, data in overdue_by_assignee.items():
-            assignee_name = data['name']
-            # 「さん」が既についている場合は追加しない
-            if not assignee_name.endswith('さん'):
-                display_name = f"{assignee_name}さん"
-            else:
-                display_name = assignee_name
-            tasks_list = data['tasks']
+        # 管理部へのメンション（本番モードのみ）
+        if not REMINDER_TEST_MODE:
+            lines.append(f"[To:{ADMIN_MENTION_ACCOUNT_ID}]")
 
-            # 人の切り替わりで2行空ける（最初の人以外）
-            if not first_person:
-                lines.append("")  # 2行目の空行（1行目は前のタスクの後の空行）
-            first_person = False
+        lines.append(f"📊 遅延タスク日次報告（計{total_overdue}件）")
+        lines.append("")
 
-            lines.append(DIVIDER)
-            lines.append(f"【{display_name}】{len(tasks_list)}件")
-            lines.append(DIVIDER)
+        # 3段階サマリー
+        lines.append(f"🔴 重度遅延（7日以上）: {len(severe_tasks)}件")
+        lines.append(f"🟠 中度遅延（3-6日）: {len(moderate_tasks)}件")
+        lines.append(f"🟡 軽度遅延（1-2日）: {len(mild_tasks)}件")
 
-            for i, task in enumerate(tasks_list[:10]):  # 最大10件表示
-                num = CIRCLED_NUMBERS[i] if i < len(CIRCLED_NUMBERS) else f"({i+1})"
-                lines.append(f"{num} {task['body']}")
-                lines.append(f"📅 {task['limit_date'].strftime('%m/%d')}（{task['overdue_days']}日超過）")
-                lines.append(f"📍 {task['room_name']}")
+        def format_category_tasks(category_tasks, emoji, category_name, max_display=15):
+            """カテゴリ別にタスクをフォーマット"""
+            if not category_tasks:
+                return []
 
-                # タスク間に1行空ける（最後のタスク以外）
-                if i < min(len(tasks_list), 10) - 1:
-                    lines.append("")
+            result = []
+            result.append("")
+            result.append(f"━━ {emoji} {category_name} {len(category_tasks)}件 ━━")
 
-            if len(tasks_list) > 10:
-                lines.append("")
-                lines.append(f"…他{len(tasks_list) - 10}件")
+            # 担当者ごとにグループ化
+            by_assignee = {}
+            for t in category_tasks:
+                aid = t['assignee_id']
+                if aid not in by_assignee:
+                    by_assignee[aid] = {
+                        'name': t['assignee_name'],
+                        'tasks': []
+                    }
+                by_assignee[aid]['tasks'].append(t)
+
+            # 担当者ごとにタスクを超過日数でソート（古い順）
+            for aid in by_assignee:
+                by_assignee[aid]['tasks'].sort(key=lambda x: -x['overdue_days'])
+
+            # 担当者ごとに表示
+            displayed_count = 0
+            for aid, data in by_assignee.items():
+                if displayed_count >= max_display:
+                    remaining = sum(len(d['tasks']) for d in list(by_assignee.values())[list(by_assignee.keys()).index(aid):])
+                    result.append(f"…他{remaining}件")
+                    break
+
+                assignee_name = data['name']
+                if not assignee_name.endswith('さん'):
+                    display_name = f"{assignee_name}さん"
+                else:
+                    display_name = assignee_name
+
+                result.append("")
+                result.append(f"【{display_name}】{len(data['tasks'])}件")
+
+                for i, task in enumerate(data['tasks']):
+                    if displayed_count >= max_display:
+                        remaining = len(data['tasks']) - i
+                        if remaining > 0:
+                            result.append(f"…他{remaining}件")
+                        break
+
+                    num = CIRCLED_NUMBERS[i] if i < len(CIRCLED_NUMBERS) else f"({i+1})"
+                    result.append(f"{num} {task['body']}（{task['overdue_days']}日超過）")
+                    result.append(f"📍 {task['room_name']}")
+                    displayed_count += 1
+
+            return result
+
+        # 各カテゴリのタスクを追加（重度→中度→軽度の順）
+        lines.extend(format_category_tasks(severe_tasks, "🔴", "重度遅延（7日以上）", max_display=10))
+        lines.extend(format_category_tasks(moderate_tasks, "🟠", "中度遅延（3-6日）", max_display=10))
+        lines.extend(format_category_tasks(mild_tasks, "🟡", "軽度遅延（1-2日）", max_display=5))
+
+        # フッター
+        lines.append("")
+        lines.append("引き続き督促を継続しますウル🐺")
 
         message = "\n".join(lines)
 
         # 管理部に送信
         if send_reminder_with_test_guard(ADMIN_ROOM_ID, message):
-            print(f"✅ 管理部への遅延タスク報告完了")
+            print(f"✅ 管理部への遅延タスク報告完了（3段階分類）")
         else:
             print(f"⚠️ 管理部への報告送信失敗またはブロック")
 

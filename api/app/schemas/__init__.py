@@ -1,6 +1,7 @@
 """
 Pydantic Schemas for Soul-kun API
 
+Phase 1-B: タスク自動検知用スキーマ
 Phase 3.5: 組織階層連携用スキーマ
 """
 
@@ -16,7 +17,17 @@ from api.app.schemas.organization import (
     DepartmentListResponse,
 )
 
+from api.app.schemas.task import (
+    OverdueTaskResponse,
+    OverdueTaskListResponse,
+    OverdueSummary,
+    TaskAssigneeInfo,
+    TaskRequesterInfo,
+    TaskErrorResponse,
+)
+
 __all__ = [
+    # Organization schemas
     "DepartmentInput",
     "RoleInput",
     "EmployeeInput",
@@ -26,4 +37,11 @@ __all__ = [
     "SyncSummary",
     "DepartmentResponse",
     "DepartmentListResponse",
+    # Task schemas
+    "OverdueTaskResponse",
+    "OverdueTaskListResponse",
+    "OverdueSummary",
+    "TaskAssigneeInfo",
+    "TaskRequesterInfo",
+    "TaskErrorResponse",
 ]

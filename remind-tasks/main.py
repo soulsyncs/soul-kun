@@ -5446,13 +5446,14 @@ def remind_tasks(request):
 
         # =====================================================
         # ステップ5: 完了タスク日次報告（管理部への報告）
-        # ★★★ v10.7.0: 新機能 ★★★
+        # ★★★ v10.13.0: 無効化（レポートが長くなるため）★★★
         # =====================================================
-        try:
-            process_completed_tasks_summary()
-        except Exception as e:
-            print(f"⚠️ 完了タスク報告でエラー（リマインドは完了）: {e}")
-            traceback.print_exc()
+        # try:
+        #     process_completed_tasks_summary()
+        # except Exception as e:
+        #     print(f"⚠️ 完了タスク報告でエラー（リマインドは完了）: {e}")
+        #     traceback.print_exc()
+        print("ℹ️ 完了タスク報告はスキップ（v10.13.0で無効化）")
 
         return ('Task reminders and overdue processing completed', 200)
 
@@ -5556,8 +5557,8 @@ def process_overdue_tasks_v2():
     # 丸数字（①〜⑩）
     CIRCLED_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']
 
-    # 管理部メンション対象（カズさん）
-    ADMIN_MENTION_ACCOUNT_ID = ADMIN_ACCOUNT_ID  # 1728974
+    # 管理部メンション対象（【SS】管理部アカウント）
+    ADMIN_MENTION_ACCOUNT_ID = "10385716"  # 【SS】管理部
 
     conn = get_db_connection()
     cursor = conn.cursor()

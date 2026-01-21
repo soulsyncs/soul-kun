@@ -177,9 +177,14 @@ def is_test_send_allowed(room_id: int = None, account_id: int = None) -> bool:
 
 def send_reminder_with_test_guard(room_id: int, message: str, account_id: int = None) -> bool:
     """
-    テストガード付きでメッセージを送信
+    テストガード付きでメッセージを送信（リトライ対応）
+
+    ★★★ v10.13.2: リトライ・レート制限対応追加 ★★★
 
     許可されていない宛先には送信せず、ログ出力のみ行う
+    - 最大3回リトライ（指数バックオフ: 1秒、2秒、4秒）
+    - 429（レート制限）時は60秒待機してリトライ
+    - 送信後200ms待機（レート制限予防）
     """
     if not is_test_send_allowed(room_id, account_id):
         print(f"🚫 [TEST_GUARD] 送信をブロック: room_id={room_id}, account_id={account_id}")
@@ -187,22 +192,52 @@ def send_reminder_with_test_guard(room_id: int, message: str, account_id: int = 
         print(f"   メッセージ（先頭100文字）: {message[:100]}...")
         return False
 
-    # 送信実行
-    try:
-        url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-        headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
-        data = {'body': message}
-        response = httpx.post(url, headers=headers, data=data, timeout=10.0)
+    # リトライ設定
+    max_retries = 3
+    base_delay = 1.0  # 秒
 
-        if response.status_code == 200:
-            print(f"✅ メッセージ送信成功: room_id={room_id}")
-            return True
-        else:
-            print(f"❌ メッセージ送信失敗: room_id={room_id}, status={response.status_code}")
-            return False
-    except Exception as e:
-        print(f"❌ メッセージ送信エラー: room_id={room_id}, error={e}")
-        return False
+    for attempt in range(max_retries):
+        try:
+            url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
+            headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
+            data = {'body': message}
+            response = httpx.post(url, headers=headers, data=data, timeout=10.0)
+
+            if response.status_code == 200:
+                print(f"✅ メッセージ送信成功: room_id={room_id}")
+                # レート制限予防のため200ms待機
+                time.sleep(0.2)
+                return True
+            elif response.status_code == 429:
+                # レート制限 - 60秒待機してリトライ
+                print(f"⚠️ レート制限（429）: room_id={room_id}, 60秒待機後リトライ...")
+                time.sleep(60)
+                continue
+            elif response.status_code >= 500:
+                # サーバーエラー - リトライ
+                delay = base_delay * (2 ** attempt)
+                print(f"⚠️ サーバーエラー（{response.status_code}）: room_id={room_id}, {delay}秒後リトライ ({attempt + 1}/{max_retries})")
+                time.sleep(delay)
+                continue
+            else:
+                # その他のエラー（4xx系）はリトライしない
+                print(f"❌ メッセージ送信失敗: room_id={room_id}, status={response.status_code}")
+                return False
+
+        except httpx.TimeoutException:
+            delay = base_delay * (2 ** attempt)
+            print(f"⚠️ タイムアウト: room_id={room_id}, {delay}秒後リトライ ({attempt + 1}/{max_retries})")
+            time.sleep(delay)
+            continue
+        except Exception as e:
+            delay = base_delay * (2 ** attempt)
+            print(f"⚠️ 送信エラー: room_id={room_id}, error={e}, {delay}秒後リトライ ({attempt + 1}/{max_retries})")
+            time.sleep(delay)
+            continue
+
+    # 全リトライ失敗
+    print(f"❌ メッセージ送信失敗（リトライ上限）: room_id={room_id}")
+    return False
 
 
 # =====================================================
@@ -5375,69 +5410,104 @@ def remind_tasks(request):
 
         # =====================================================
         # ステップ3: 各担当者にDMで送信
+        # ★★★ v10.13.2: エラー耐性強化 ★★★
+        # - 各ユーザー処理をtry-exceptで独立化
+        # - 1人の失敗が他に影響しない
+        # - エラー集計と最終サマリー通知
         # =====================================================
         sent_count = 0
         blocked_count = 0
+        error_count = 0
+        dm_unavailable_count = 0
+        error_details = []  # エラー詳細を記録
 
         for assignee_id, assignee_data in tasks_by_assignee.items():
-            assignee_name = assignee_data['name']
-            overdue_tasks = assignee_data['overdue']
-            today_tasks = assignee_data['today']
-            tomorrow_tasks = assignee_data['tomorrow']
-            three_days_tasks = assignee_data['three_days']
+            try:
+                assignee_name = assignee_data['name']
+                overdue_tasks = assignee_data['overdue']
+                today_tasks = assignee_data['today']
+                tomorrow_tasks = assignee_data['tomorrow']
+                three_days_tasks = assignee_data['three_days']
 
-            # タスクが1件もなければスキップ
-            total_tasks = len(overdue_tasks) + len(today_tasks) + len(tomorrow_tasks) + len(three_days_tasks)
-            if total_tasks == 0:
+                # タスクが1件もなければスキップ
+                total_tasks = len(overdue_tasks) + len(today_tasks) + len(tomorrow_tasks) + len(three_days_tasks)
+                if total_tasks == 0:
+                    continue
+
+                print(f"\n📨 {assignee_name}さん（ID:{assignee_id}）へのリマインド準備...")
+                print(f"   期限超過: {len(overdue_tasks)}件, 今日: {len(today_tasks)}件, 明日: {len(tomorrow_tasks)}件, 3日後: {len(three_days_tasks)}件")
+
+                # テストガードチェック
+                if not is_test_send_allowed(account_id=assignee_id):
+                    print(f"🚫 [TEST_GUARD] {assignee_name}さん（ID:{assignee_id}）への送信をブロック")
+                    blocked_count += 1
+                    continue
+
+                # DMルームを取得
+                dm_room_id = get_direct_room(assignee_id)
+                if not dm_room_id:
+                    print(f"⚠️ {assignee_name}さんのDMルームが見つかりません")
+                    dm_unavailable_count += 1
+                    # DM不可の場合は管理部に通知（バッファに追加）
+                    global _dm_unavailable_buffer
+                    _dm_unavailable_buffer.append({
+                        'account_id': assignee_id,
+                        'name': assignee_name,
+                        'reason': 'リマインド送信',
+                        'task_count': total_tasks
+                    })
+                    continue
+
+                # メッセージを作成
+                message = _create_reminder_dm_message(assignee_name, overdue_tasks, today_tasks, tomorrow_tasks, three_days_tasks)
+
+                # 送信
+                if send_reminder_with_test_guard(dm_room_id, message, account_id=assignee_id):
+                    sent_count += 1
+
+                    # リマインド履歴を記録（重複は無視）
+                    all_tasks = overdue_tasks + today_tasks + tomorrow_tasks + three_days_tasks
+                    for task_info in all_tasks:
+                        try:
+                            cursor.execute("""
+                                INSERT INTO task_reminders (task_id, room_id, reminder_type)
+                                VALUES (%s, %s, %s)
+                                ON CONFLICT (task_id, reminder_type, sent_date) DO NOTHING
+                            """, (task_info['task_id'], dm_room_id, task_info['reminder_type']))
+                        except Exception as e:
+                            print(f"⚠️ リマインド履歴記録エラー（続行）: {e}")
+                            conn.rollback()  # トランザクションをリセットして続行
+
+                    conn.commit()
+                    print(f"✅ {assignee_name}さんへDM送信完了 ({total_tasks}件のタスク)")
+                else:
+                    # 送信失敗（リトライ後も失敗）
+                    error_count += 1
+                    error_details.append(f"・{assignee_name}さん（ID:{assignee_id}）: 送信失敗")
+
+            except Exception as e:
+                # このユーザーの処理で予期せぬエラー - 記録して次のユーザーへ
+                error_count += 1
+                error_msg = f"・{assignee_data.get('name', f'ID:{assignee_id}')}さん: {str(e)[:50]}"
+                error_details.append(error_msg)
+                print(f"❌ 予期せぬエラー（続行）: assignee_id={assignee_id}, error={e}")
+                traceback.print_exc()
+                try:
+                    conn.rollback()
+                except:
+                    pass
                 continue
 
-            print(f"\n📨 {assignee_name}さん（ID:{assignee_id}）へのリマインド準備...")
-            print(f"   期限超過: {len(overdue_tasks)}件, 今日: {len(today_tasks)}件, 明日: {len(tomorrow_tasks)}件, 3日後: {len(three_days_tasks)}件")
-
-            # テストガードチェック
-            if not is_test_send_allowed(account_id=assignee_id):
-                print(f"🚫 [TEST_GUARD] {assignee_name}さん（ID:{assignee_id}）への送信をブロック")
-                blocked_count += 1
-                continue
-
-            # DMルームを取得
-            dm_room_id = get_direct_room(assignee_id)
-            if not dm_room_id:
-                print(f"⚠️ {assignee_name}さんのDMルームが見つかりません")
-                # DM不可の場合は管理部に通知（バッファに追加）
-                global _dm_unavailable_buffer
-                _dm_unavailable_buffer.append({
-                    'account_id': assignee_id,
-                    'name': assignee_name,
-                    'reason': 'リマインド送信',
-                    'task_count': total_tasks
-                })
-                continue
-
-            # メッセージを作成
-            message = _create_reminder_dm_message(assignee_name, overdue_tasks, today_tasks, tomorrow_tasks, three_days_tasks)
-
-            # 送信
-            if send_reminder_with_test_guard(dm_room_id, message, account_id=assignee_id):
-                sent_count += 1
-
-                # リマインド履歴を記録（重複は無視）
-                all_tasks = overdue_tasks + today_tasks + tomorrow_tasks + three_days_tasks
-                for task_info in all_tasks:
-                    try:
-                        cursor.execute("""
-                            INSERT INTO task_reminders (task_id, room_id, reminder_type)
-                            VALUES (%s, %s, %s)
-                            ON CONFLICT (task_id, reminder_type, sent_date) DO NOTHING
-                        """, (task_info['task_id'], dm_room_id, task_info['reminder_type']))
-                    except Exception as e:
-                        print(f"⚠️ リマインド履歴記録エラー（続行）: {e}")
-                        conn.rollback()  # トランザクションをリセットして続行
-
-                conn.commit()
-                print(f"✅ {assignee_name}さんへDM送信完了 ({total_tasks}件のタスク)")
-
-        print(f"\n=== リマインド送信完了: {sent_count}人に送信, {blocked_count}人をブロック ===")
+        # =====================================================
+        # サマリー出力
+        # =====================================================
+        print(f"\n{'=' * 60}")
+        print(f"=== リマインド送信完了 (v10.13.2) ===")
+        print(f"  ✅ 送信成功: {sent_count}人")
+        print(f"  🚫 テストガードでブロック: {blocked_count}人")
+        print(f"  ⚠️ DM不可: {dm_unavailable_count}人")
+        print(f"  ❌ エラー: {error_count}人")
+        print(f"{'=' * 60}")
 
         # =====================================================
         # ステップ4: 遅延タスク処理（管理部への報告）
@@ -5458,6 +5528,34 @@ def remind_tasks(request):
         #     print(f"⚠️ 完了タスク報告でエラー（リマインドは完了）: {e}")
         #     traceback.print_exc()
         print("ℹ️ 完了タスク報告はスキップ（v10.13.0で無効化）")
+
+        # =====================================================
+        # ステップ6: エラーサマリー通知（管理部へ）
+        # ★★★ v10.13.2: エラー発生時のみ管理部へ通知 ★★★
+        # =====================================================
+        if error_count > 0 and error_details:
+            try:
+                error_message_lines = [
+                    "⚠️ リマインド送信でエラーが発生しました",
+                    "",
+                    f"📊 サマリー:",
+                    f"  ✅ 送信成功: {sent_count}人",
+                    f"  ❌ エラー: {error_count}人",
+                    "",
+                    "📋 エラー詳細:",
+                ]
+                error_message_lines.extend(error_details[:10])  # 最大10件
+                if len(error_details) > 10:
+                    error_message_lines.append(f"  ...他{len(error_details) - 10}件")
+
+                error_message = "\n".join(error_message_lines)
+
+                # 管理部チャットに送信
+                kanribu_room_id = 371498498
+                send_reminder_with_test_guard(kanribu_room_id, error_message)
+                print("📨 管理部へエラーサマリーを送信しました")
+            except Exception as e:
+                print(f"⚠️ エラーサマリー送信失敗（処理は完了）: {e}")
 
         return ('Task reminders and overdue processing completed', 200)
 

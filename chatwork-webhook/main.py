@@ -3833,13 +3833,22 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
 5. 人物について質問していれば（〇〇さんについて/〇〇さんのこと）→ query_memory
    ★ ただし「〇〇のタスク」の場合は2の chatwork_task_search を優先
 6. 忘れてほしいと言われていれば → delete_memory
-7. それ以外 → general_chat
+7. ★★★ 会社のルール・規則・制度に関する質問 → query_company_knowledge ★★★
+   - 有給休暇、年休、休暇に関する質問
+   - 就業規則、社内ルールに関する質問
+   - 経費精算、各種手続きに関する質問
+   - 会社の制度、福利厚生に関する質問
+   - 「何日？」「どうやって？」「ルールは？」のような制度への質問
+8. それ以外 → general_chat
 
 【具体例】
 - 「崇樹のタスク教えて」→ chatwork_task_search（タスク検索）
 - 「崇樹について教えて」→ query_memory（人物情報検索）
 - 「1のタスク完了にして」→ chatwork_task_complete（タスク完了）
-- 「崇樹にタスク追加して」→ chatwork_task_create（タスク作成）"""
+- 「崇樹にタスク追加して」→ chatwork_task_create（タスク作成）
+- 「有給休暇は何日？」→ query_company_knowledge（会社知識検索）
+- 「経費精算のルールは？」→ query_company_knowledge（会社知識検索）
+- 「就業規則を教えて」→ query_company_knowledge（会社知識検索）"""
 
     try:
         response = httpx.post(

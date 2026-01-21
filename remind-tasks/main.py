@@ -194,7 +194,9 @@ def send_reminder_with_test_guard(room_id: int, message: str, account_id: int = 
 
     # リトライ設定
     max_retries = 3
-    base_delay = 1.0  # 秒
+    base_delay = 1.0  # 秒（指数バックオフの基準）
+    rate_limit_retries = 0  # 429専用カウンター
+    max_rate_limit_retries = 3  # 429も最大3回まで
 
     for attempt in range(max_retries):
         try:
@@ -209,8 +211,12 @@ def send_reminder_with_test_guard(room_id: int, message: str, account_id: int = 
                 time.sleep(0.2)
                 return True
             elif response.status_code == 429:
-                # レート制限 - 60秒待機してリトライ
-                print(f"⚠️ レート制限（429）: room_id={room_id}, 60秒待機後リトライ...")
+                # レート制限 - 60秒待機してリトライ（最大3回）
+                rate_limit_retries += 1
+                if rate_limit_retries >= max_rate_limit_retries:
+                    print(f"❌ レート制限（429）が{max_rate_limit_retries}回連続: room_id={room_id}, 諦めます")
+                    return False
+                print(f"⚠️ レート制限（429）: room_id={room_id}, 60秒待機後リトライ ({rate_limit_retries}/{max_rate_limit_retries})")
                 time.sleep(60)
                 continue
             elif response.status_code >= 500:

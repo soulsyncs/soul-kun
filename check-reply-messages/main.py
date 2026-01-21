@@ -2842,10 +2842,11 @@ def remind_tasks(request):
                     response = httpx.post(url, headers=headers, data=data )
                     
                     if response.status_code == 200:
-                        # リマインド履歴を記録
+                        # リマインド履歴を記録（重複は無視）
                         cursor.execute("""
                             INSERT INTO task_reminders (task_id, room_id, reminder_type, sent_date)
                             VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (task_id, reminder_type, sent_date) DO NOTHING
                         """, (task_id, room_id, reminder_type, today))
                         print(f"Reminder sent: task_id={task_id}, type={reminder_type}")
                     else:

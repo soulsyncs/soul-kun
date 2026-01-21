@@ -5421,16 +5421,18 @@ def remind_tasks(request):
             if send_reminder_with_test_guard(dm_room_id, message, account_id=assignee_id):
                 sent_count += 1
 
-                # リマインド履歴を記録
+                # リマインド履歴を記録（重複は無視）
                 all_tasks = overdue_tasks + today_tasks + tomorrow_tasks + three_days_tasks
                 for task_info in all_tasks:
                     try:
                         cursor.execute("""
                             INSERT INTO task_reminders (task_id, room_id, reminder_type)
                             VALUES (%s, %s, %s)
+                            ON CONFLICT (task_id, reminder_type, sent_date) DO NOTHING
                         """, (task_info['task_id'], dm_room_id, task_info['reminder_type']))
                     except Exception as e:
                         print(f"⚠️ リマインド履歴記録エラー（続行）: {e}")
+                        conn.rollback()  # トランザクションをリセットして続行
 
                 conn.commit()
                 print(f"✅ {assignee_name}さんへDM送信完了 ({total_tasks}件のタスク)")

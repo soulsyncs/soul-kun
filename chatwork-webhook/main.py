@@ -58,137 +58,10 @@ PHASE3_KNOWLEDGE_CONFIG = {
         "https://soulkun-api-898513057014.asia-northeast1.run.app/api/v1/knowledge/search"
     ),
     "enabled": os.getenv("ENABLE_PHASE3_KNOWLEDGE", "true").lower() == "true",
-    "timeout": float(os.getenv("PHASE3_TIMEOUT", "30")),  # v10.13.3: 30秒に延長
-    "similarity_threshold": float(os.getenv("PHASE3_SIMILARITY_THRESHOLD", "0.5")),  # v10.13.3: 0.5に下げる（ハイブリッド用）
+    "timeout": float(os.getenv("PHASE3_TIMEOUT", "10")),
+    "similarity_threshold": float(os.getenv("PHASE3_SIMILARITY_THRESHOLD", "0.7")),
     "organization_id": os.getenv("PHASE3_ORGANIZATION_ID", "org_soulsyncs"),
-    # v10.13.3: ハイブリッド検索の重み設定
-    "keyword_weight": float(os.getenv("PHASE3_KEYWORD_WEIGHT", "0.4")),
-    "vector_weight": float(os.getenv("PHASE3_VECTOR_WEIGHT", "0.6")),
 }
-
-# =====================================================
-# v10.13.3: ハイブリッド検索用キーワード抽出
-# =====================================================
-
-# 業務関連キーワード辞書
-KNOWLEDGE_KEYWORDS = [
-    # 休暇関連
-    "有給休暇", "有給", "年休", "年次有給休暇", "休暇", "休み",
-    "特別休暇", "慶弔休暇", "産休", "育休", "介護休暇",
-    # 賃金関連
-    "賞与", "ボーナス", "給与", "賃金", "手当", "基本給",
-    "残業代", "時間外手当", "深夜手当", "休日手当",
-    # 勤務関連
-    "残業", "時間外労働", "勤務時間", "休日", "労働時間",
-    "始業", "終業", "休憩", "フレックス",
-    # 福利厚生
-    "経費", "精算", "交通費", "出張",
-    # 人事関連
-    "退職", "休職", "異動", "昇給", "昇格", "評価",
-    # 規則関連
-    "就業規則", "服務規律", "懲戒", "解雇",
-]
-
-def extract_keywords(query: str) -> list:
-    """
-    クエリからキーワードを抽出
-
-    Args:
-        query: 検索クエリ
-
-    Returns:
-        キーワードのリスト
-    """
-    keywords = []
-
-    # クエリに含まれるキーワードを抽出
-    for keyword in KNOWLEDGE_KEYWORDS:
-        if keyword in query:
-            keywords.append(keyword)
-
-    # 短縮形の展開（例：「有給」があれば「有給休暇」も追加）
-    expansions = {
-        "有給": ["有給休暇", "年次有給休暇"],
-        "年休": ["年次有給休暇"],
-        "残業": ["時間外労働"],
-        "ボーナス": ["賞与"],
-    }
-
-    for short_form, long_forms in expansions.items():
-        if short_form in keywords:
-            for long_form in long_forms:
-                if long_form not in keywords:
-                    keywords.append(long_form)
-
-    return keywords
-
-
-# v10.13.3: クエリ拡張辞書
-# エンベディングモデルが理解しやすい具体的なフレーズに展開
-QUERY_EXPANSION_MAP = {
-    # 有給休暇関連
-    "有給休暇": "年次有給休暇 付与日数 入社6か月後 10日 勤続年数",
-    "有給": "年次有給休暇 付与日数 入社6か月後 10日 勤続年数",
-    "年休": "年次有給休暇 付与日数 入社6か月後 10日 勤続年数",
-    # 賞与関連
-    "賞与": "賞与 ボーナス 支給 算定期間 支給日",
-    "ボーナス": "賞与 ボーナス 支給 算定期間 支給日",
-    # 残業関連
-    "残業": "時間外労働 残業 割増賃金 36協定 上限",
-    # 退職関連
-    "退職": "退職 退職届 退職金 予告期間 14日前",
-}
-
-
-def expand_query(query: str, keywords: list) -> str:
-    """
-    クエリを拡張して検索精度を向上
-
-    Args:
-        query: 元のクエリ
-        keywords: 抽出されたキーワード
-
-    Returns:
-        拡張されたクエリ
-    """
-    if not keywords:
-        return query
-
-    # 最初に見つかったキーワードで拡張
-    for keyword in keywords:
-        if keyword in QUERY_EXPANSION_MAP:
-            expansion = QUERY_EXPANSION_MAP[keyword]
-            expanded = f"{query} {expansion}"
-            print(f"🔧 クエリ拡張: '{query}' → '{expanded}'")
-            return expanded
-
-    return query
-
-
-def calculate_keyword_score(content: str, keywords: list) -> float:
-    """
-    コンテンツに対するキーワードスコアを計算
-
-    Args:
-        content: チャンクのコンテンツ
-        keywords: キーワードのリスト
-
-    Returns:
-        キーワードスコア（0.0 - 1.0）
-    """
-    if not keywords or not content:
-        return 0.0
-
-    score = 0.0
-
-    for keyword in keywords:
-        if keyword in content:
-            # 出現回数でスコア加算（最大3回まで）
-            count = min(content.count(keyword), 3)
-            score += 0.25 * count
-
-    # 最大1.0に正規化
-    return min(score, 1.0)
 
 # ボット自身の名前パターン
 BOT_NAME_PATTERNS = [
@@ -5160,7 +5033,7 @@ KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
 
 def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: int = 5):
     """
-    Phase 3 ナレッジ検索APIを呼び出し（v10.13.3: ハイブリッド検索対応）
+    Phase 3 ナレッジ検索APIを呼び出し
 
     Args:
         query: 検索クエリ
@@ -5185,21 +5058,16 @@ def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: in
         timeout = PHASE3_KNOWLEDGE_CONFIG["timeout"]
         organization_id = PHASE3_KNOWLEDGE_CONFIG["organization_id"]
         threshold = PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]
-        keyword_weight = PHASE3_KNOWLEDGE_CONFIG["keyword_weight"]
-        vector_weight = PHASE3_KNOWLEDGE_CONFIG["vector_weight"]
 
-        # v10.13.3: キーワード抽出とクエリ拡張
-        keywords = extract_keywords(query)
-        expanded_query = expand_query(query, keywords)
-        print(f"📚 Phase 3 ハイブリッド検索開始: query='{query}', keywords={keywords}")
+        print(f"📚 Phase 3 ナレッジ検索開始: query='{query}', org={organization_id}")
 
-        # 同期的にAPIを呼び出し（多めに取得してリランキング）
+        # 同期的にAPIを呼び出し（Cloud FunctionsはFlaskベースなので）
         with httpx.Client(timeout=timeout) as client:
             response = client.post(
                 api_url,
                 json={
-                    "query": expanded_query,  # v10.13.3: 拡張クエリを使用
-                    "top_k": 20  # v10.13.3: 多めに取得
+                    "query": query,
+                    "top_k": top_k
                 },
                 headers={
                     "Content-Type": "application/json",
@@ -5222,50 +5090,23 @@ def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: in
                 return None
 
             results = data.get("results", [])
+            top_score = data.get("top_score", 0)
 
-            if not results:
-                print(f"📚 Phase 3: 結果なし")
-                return None
-
-            # v10.13.3: ハイブリッドスコア計算
-            for result in results:
-                content = result.get("content", "")
-                vector_score = result.get("score", 0)
-
-                # キーワードスコアを計算
-                kw_score = calculate_keyword_score(content, keywords) if keywords else 0
-
-                # ハイブリッドスコア（加重平均）
-                hybrid_score = (keyword_weight * kw_score) + (vector_weight * vector_score)
-
-                result["keyword_score"] = kw_score
-                result["hybrid_score"] = hybrid_score
-
-            # ハイブリッドスコアでソート
-            results.sort(key=lambda x: x.get("hybrid_score", 0), reverse=True)
-
-            # しきい値でフィルタリング
+            # 類似度でフィルタリング
             filtered_results = [
                 r for r in results
-                if r.get("hybrid_score", 0) >= threshold
+                if r.get("score", 0) >= threshold
             ]
 
             if not filtered_results:
                 print(f"📚 Phase 3: しきい値 {threshold} を超える結果なし")
                 return None
 
-            # トップN件を取得
-            final_results = filtered_results[:top_k]
-            top_hybrid = final_results[0].get("hybrid_score", 0)
-
-            # ログ出力
-            print(f"✅ Phase 3 ハイブリッド検索: {len(final_results)} 件 (top_hybrid: {top_hybrid:.3f})")
-            for i, r in enumerate(final_results[:3]):
-                print(f"   [{i+1}] hybrid={r.get('hybrid_score', 0):.3f}, kw={r.get('keyword_score', 0):.2f}, vec={r.get('score', 0):.3f}")
+            print(f"✅ Phase 3: {len(filtered_results)} 件の結果 (top_score: {top_score:.3f})")
 
             return {
-                "results": final_results,
-                "top_score": top_hybrid,
+                "results": filtered_results,
+                "top_score": top_score,
                 "source": "phase3",
                 "search_log_id": data.get("search_log_id")
             }
@@ -5356,8 +5197,8 @@ def integrated_knowledge_search(query: str, user_id: str = "user_default"):
         print(f"📖 旧システム高信頼度結果を使用 (confidence: {legacy_result['confidence']:.2f})")
         return legacy_result
 
-    # ステップ2: Phase 3で検索（top_k=10で多めに取得し、AIに判断させる）
-    phase3_result = search_phase3_knowledge(query, user_id, top_k=10)
+    # ステップ2: Phase 3で検索
+    phase3_result = search_phase3_knowledge(query, user_id, top_k=5)
 
     if phase3_result and phase3_result["top_score"] >= PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]:
         formatted = format_phase3_results(phase3_result["results"])

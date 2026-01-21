@@ -44,6 +44,25 @@ MODELS = {
     "commander": "google/gemini-3-flash-preview",  # 司令塔AI
 }
 
+# =====================================================
+# v10.13.0: Phase 3 ナレッジ検索API設定
+# =====================================================
+# Pineconeベクトル検索APIとの統合設定
+# 旧システム（soulkun_knowledge）と併用
+# =====================================================
+import os
+
+PHASE3_KNOWLEDGE_CONFIG = {
+    "api_url": os.getenv(
+        "KNOWLEDGE_SEARCH_API_URL",
+        "https://soulkun-api-898513057014.asia-northeast1.run.app/api/v1/knowledge/search"
+    ),
+    "enabled": os.getenv("ENABLE_PHASE3_KNOWLEDGE", "true").lower() == "true",
+    "timeout": float(os.getenv("PHASE3_TIMEOUT", "10")),
+    "similarity_threshold": float(os.getenv("PHASE3_SIMILARITY_THRESHOLD", "0.7")),
+    "organization_id": os.getenv("PHASE3_ORGANIZATION_ID", "org_soulsyncs"),
+}
+
 # ボット自身の名前パターン
 BOT_NAME_PATTERNS = [
     "ソウルくん", "ソウル君", "ソウル", "そうるくん", "そうる",
@@ -529,20 +548,27 @@ SYSTEM_CAPABILITIES = {
     
     "query_company_knowledge": {
         "name": "会社知識の参照",
-        "description": "会社の理念、マニュアル、ルールを参照して回答する",
+        "description": "就業規則、マニュアル、社内ルールなど会社の知識ベースを参照して回答する。有給休暇、経費精算、各種手続きなどの質問に対応。",
         "category": "knowledge",
-        "enabled": False,  # 将来実装
+        "enabled": True,  # v10.13.0: Phase 3統合で有効化
         "trigger_examples": [
+            "有給休暇は何日？",
+            "有休って何日もらえる？",
+            "就業規則を教えて",
+            "経費精算のルールは？",
+            "残業の申請方法は？",
             "うちの会社の理念って何？",
-            "経費精算のルールを教えて",
-            "〇〇のマニュアルを教えて",
         ],
         "params_schema": {
-            "query": {"type": "string", "description": "検索したい内容"},
+            "query": {
+                "type": "string",
+                "description": "検索したい内容（質問文そのまま）",
+                "required": True
+            },
         },
         "handler": "handle_query_company_knowledge",
         "requires_confirmation": False,
-        "required_data": ["company_knowledge_base"]
+        "required_data": []  # Phase 3 APIを使用するため外部データ不要
     },
     
     "generate_image": {
@@ -3417,7 +3443,7 @@ ChatWorkアプリで直接操作してほしいウル！
 # =====================================================
 # ===== ハンドラーマッピング =====
 # =====================================================
-# 
+#
 # 【使い方】
 # 新機能を追加する際は：
 # 1. SYSTEM_CAPABILITIESにエントリを追加
@@ -3425,6 +3451,151 @@ ChatWorkアプリで直接操作してほしいウル！
 # 3. このHANDLERSに登録
 # =====================================================
 
+
+# =====================================================
+# v10.13.0: Phase 3 ナレッジ検索ハンドラー
+# =====================================================
+def handle_query_company_knowledge(params, room_id, account_id, sender_name, context=None):
+    """
+    会社知識の参照ハンドラー（Phase 3統合版）
+
+    統合ナレッジ検索を使用して、就業規則・マニュアル等から回答を生成する。
+    旧システム（soulkun_knowledge）とPhase 3（Pinecone）を自動的に切り替え。
+
+    Args:
+        params: {"query": "検索したい内容"}
+        room_id: ChatWorkルームID
+        account_id: ユーザーのアカウントID
+        sender_name: 送信者名
+        context: コンテキスト情報
+
+    Returns:
+        回答テキスト
+    """
+    query = params.get("query", "")
+
+    if not query:
+        return "🐺 何を調べればいいか教えてほしいウル！\n例：「有給休暇は何日？」「経費精算のルールは？」"
+
+    print(f"📚 会社知識クエリ: '{query}' (sender: {sender_name})")
+
+    try:
+        # 統合ナレッジ検索を実行
+        user_id = f"chatwork_{account_id}"
+        search_result = integrated_knowledge_search(query, user_id)
+
+        source = search_result.get("source", "none")
+        confidence = search_result.get("confidence", 0)
+        formatted_context = search_result.get("formatted_context", "")
+
+        # 結果なしの場合
+        if source == "none":
+            return f"""🐺 ごめんウル！「{query}」については、まだ勉強中ウル…
+
+【ヒント】
+📁 Google Driveの「ソウルくんナレッジベース」フォルダに資料をアップロードすると、自動で学習するウル！
+📝 または、管理者に「設定: {query} = 回答内容」と教えてもらえると覚えるウル！"""
+
+        # LLMで回答を生成
+        system_prompt = f"""あなたは「ソウルくん」です。会社の知識ベースから情報を参照して回答します。
+
+【重要なルール】
+1. 提供された参考情報に基づいて回答してください
+2. 情報源を明示してください（例：「就業規則によると...」「社内マニュアルでは...」）
+3. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
+4. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
+5. 簡潔に、わかりやすく回答してください
+
+【参考情報の出典】
+検索方法: {source}（{"旧システム" if source == "legacy" else "Phase 3 Pinecone検索"}）
+信頼度: {confidence:.2f}
+
+【参考情報】
+{formatted_context}
+"""
+
+        user_message = f"質問: {query}"
+
+        # OpenRouter APIで回答を生成
+        response = call_openrouter_api(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            model=MODELS["default"]
+        )
+
+        if response:
+            # 出典情報を追加
+            source_note = ""
+            if source == "phase3":
+                results = search_result.get("results", [])
+                if results:
+                    doc = results[0].get("document", {})
+                    doc_title = doc.get("title", "")
+                    if doc_title:
+                        source_note = f"\n\n📄 参考: {doc_title}"
+
+            return response + source_note
+        else:
+            return f"🐺 ごめんウル、回答の生成に失敗したウル…\nもう一度試してみてほしいウル！"
+
+    except Exception as e:
+        print(f"❌ 会社知識クエリエラー: {e}")
+        traceback.print_exc()
+        return "🐺 システムエラーが発生したウル…しばらく待ってから再度お試しくださいウル！"
+
+
+def call_openrouter_api(system_prompt: str, user_message: str, model: str = None):
+    """
+    OpenRouter APIを呼び出してLLM応答を取得
+
+    Args:
+        system_prompt: システムプロンプト
+        user_message: ユーザーメッセージ
+        model: 使用するモデル
+
+    Returns:
+        LLMの応答テキスト（エラー時はNone）
+    """
+    try:
+        api_key = get_secret("openrouter-api-key")
+        if not api_key:
+            print("❌ OpenRouter APIキーが見つかりません")
+            return None
+
+        model = model or MODELS["default"]
+
+        with httpx.Client(timeout=30.0) as client:
+            response = client.post(
+                OPENROUTER_API_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://soulkun.soulsyncs.co.jp",
+                    "X-Title": "Soul-kun ChatWork Bot"
+                },
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_message}
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 1000
+                }
+            )
+
+            if response.status_code != 200:
+                print(f"❌ OpenRouter API エラー: {response.status_code} - {response.text}")
+                return None
+
+            data = response.json()
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return content.strip() if content else None
+
+    except Exception as e:
+        print(f"❌ OpenRouter API 呼び出しエラー: {e}")
+        traceback.print_exc()
+        return None
 
 
 # =====  =====
@@ -3489,6 +3660,8 @@ HANDLERS = {
     "handle_forget_knowledge": handle_forget_knowledge,
     "handle_list_knowledge": handle_list_knowledge,
     "handle_proposal_decision": handle_proposal_decision,
+    # v10.13.0: Phase 3 ナレッジ検索
+    "handle_query_company_knowledge": handle_query_company_knowledge,
 }
 
 
@@ -4740,6 +4913,297 @@ def delete_knowledge(category: str = None, key: str = None):
 # v6.9.1: 知識の上限設定（トークン制限対策）
 KNOWLEDGE_LIMIT = 50  # プロンプトに含める知識の最大件数
 KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
+
+
+# =====================================================
+# v10.13.0: Phase 3 ナレッジ検索API クライアント
+# =====================================================
+# Pineconeベクトル検索APIを呼び出すクライアント
+# 旧システム（soulkun_knowledge）と併用して統合ナレッジ検索を実現
+# =====================================================
+
+def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: int = 5):
+    """
+    Phase 3 ナレッジ検索APIを呼び出し
+
+    Args:
+        query: 検索クエリ
+        user_id: ユーザーID
+        top_k: 取得する結果数
+
+    Returns:
+        検索結果のリスト（見つからない場合やエラー時はNone）
+        {
+            "results": [...],
+            "top_score": 0.85,
+            "source": "phase3"
+        }
+    """
+    # Phase 3が無効化されている場合
+    if not PHASE3_KNOWLEDGE_CONFIG["enabled"]:
+        print("📚 Phase 3 ナレッジ検索は無効化されています")
+        return None
+
+    try:
+        api_url = PHASE3_KNOWLEDGE_CONFIG["api_url"]
+        timeout = PHASE3_KNOWLEDGE_CONFIG["timeout"]
+        organization_id = PHASE3_KNOWLEDGE_CONFIG["organization_id"]
+        threshold = PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]
+
+        print(f"📚 Phase 3 ナレッジ検索開始: query='{query}', org={organization_id}")
+
+        # 同期的にAPIを呼び出し（Cloud FunctionsはFlaskベースなので）
+        with httpx.Client(timeout=timeout) as client:
+            response = client.post(
+                api_url,
+                json={
+                    "query": query,
+                    "top_k": top_k
+                },
+                headers={
+                    "Content-Type": "application/json",
+                    "x-user-id": user_id,
+                    "X-Tenant-ID": organization_id
+                }
+            )
+
+            # ステータスコードの確認
+            if response.status_code != 200:
+                print(f"❌ Phase 3 API エラー: status={response.status_code}")
+                return None
+
+            # レスポンスのパース
+            data = response.json()
+
+            # 回答拒否の場合
+            if data.get("answer_refused", False):
+                print(f"📚 Phase 3: 回答拒否 - {data.get('refused_reason')}")
+                return None
+
+            results = data.get("results", [])
+            top_score = data.get("top_score", 0)
+
+            # 類似度でフィルタリング
+            filtered_results = [
+                r for r in results
+                if r.get("score", 0) >= threshold
+            ]
+
+            if not filtered_results:
+                print(f"📚 Phase 3: しきい値 {threshold} を超える結果なし")
+                return None
+
+            print(f"✅ Phase 3: {len(filtered_results)} 件の結果 (top_score: {top_score:.3f})")
+
+            return {
+                "results": filtered_results,
+                "top_score": top_score,
+                "source": "phase3",
+                "search_log_id": data.get("search_log_id")
+            }
+
+    except httpx.TimeoutException:
+        print(f"⏱️ Phase 3 API タイムアウト ({PHASE3_KNOWLEDGE_CONFIG['timeout']}秒)")
+        return None
+
+    except httpx.RequestError as e:
+        print(f"❌ Phase 3 API リクエストエラー: {e}")
+        return None
+
+    except Exception as e:
+        print(f"❌ Phase 3 API 予期しないエラー: {e}")
+        traceback.print_exc()
+        return None
+
+
+def format_phase3_results(results: list) -> str:
+    """
+    Phase 3検索結果をLLMに渡す形式に整形
+
+    Args:
+        results: Phase 3検索結果のリスト
+
+    Returns:
+        整形されたテキスト
+    """
+    if not results:
+        return ""
+
+    formatted_parts = []
+
+    for i, result in enumerate(results, 1):
+        content = result.get("content", "")
+        score = result.get("score", 0)
+
+        # ドキュメント情報を取得
+        doc = result.get("document", {})
+        doc_title = doc.get("title", "不明な文書")
+        doc_file_name = doc.get("file_name", "")
+        page_number = result.get("page_number")
+
+        # 整形
+        part = f"【参考情報 {i}】（類似度: {score:.2f}）\n"
+        part += f"出典: {doc_title}"
+        if doc_file_name:
+            part += f" ({doc_file_name})"
+        if page_number:
+            part += f" - p.{page_number}"
+        part += f"\n---\n{content}\n---"
+
+        formatted_parts.append(part)
+
+    return "\n\n".join(formatted_parts)
+
+
+def integrated_knowledge_search(query: str, user_id: str = "user_default"):
+    """
+    統合ナレッジ検索（旧システム + Phase 3）
+
+    フォールバック戦略:
+    1. 旧システム（soulkun_knowledge）で検索
+    2. 高信頼度（80%以上）の結果があれば使用
+    3. なければPhase 3（Pinecone）で検索
+    4. 類似度70%以上の結果があれば使用
+    5. なければ旧システムの低信頼度結果を使用
+    6. それでもなければ「学習していない」と返答
+
+    Args:
+        query: 検索クエリ
+        user_id: ユーザーID
+
+    Returns:
+        {
+            "source": "legacy" | "phase3" | "none",
+            "formatted_context": "...",
+            "confidence": 0.0 - 1.0,
+            "results": [...]
+        }
+    """
+    print(f"🔍 統合ナレッジ検索開始: '{query}'")
+
+    # ステップ1: 旧システムで検索
+    legacy_result = search_legacy_knowledge(query)
+
+    if legacy_result and legacy_result["confidence"] >= 0.8:
+        print(f"📖 旧システム高信頼度結果を使用 (confidence: {legacy_result['confidence']:.2f})")
+        return legacy_result
+
+    # ステップ2: Phase 3で検索
+    phase3_result = search_phase3_knowledge(query, user_id, top_k=5)
+
+    if phase3_result and phase3_result["top_score"] >= PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]:
+        formatted = format_phase3_results(phase3_result["results"])
+        print(f"🚀 Phase 3結果を使用 (top_score: {phase3_result['top_score']:.3f})")
+        return {
+            "source": "phase3",
+            "formatted_context": formatted,
+            "confidence": phase3_result["top_score"],
+            "results": phase3_result["results"],
+            "search_log_id": phase3_result.get("search_log_id")
+        }
+
+    # ステップ3: 旧システムの低信頼度結果を使用
+    if legacy_result:
+        print(f"📖 旧システム低信頼度結果をフォールバック使用 (confidence: {legacy_result['confidence']:.2f})")
+        return legacy_result
+
+    # ステップ4: 結果なし
+    print("❌ 統合ナレッジ検索: 関連情報なし")
+    return {
+        "source": "none",
+        "formatted_context": "",
+        "confidence": 0.0,
+        "results": []
+    }
+
+
+def search_legacy_knowledge(query: str):
+    """
+    旧システム（soulkun_knowledge）でナレッジ検索
+
+    Args:
+        query: 検索クエリ
+
+    Returns:
+        {
+            "source": "legacy",
+            "formatted_context": "...",
+            "confidence": 0.0 - 1.0,
+            "results": [...]
+        }
+    """
+    try:
+        pool = get_pool()
+        with pool.connect() as conn:
+            # LIKE検索でキーまたは値にマッチするものを取得
+            sql = """
+                SELECT category, key, value
+                FROM soulkun_knowledge
+                WHERE key ILIKE :pattern OR value ILIKE :pattern
+                ORDER BY
+                    CASE
+                        WHEN key ILIKE :exact THEN 1
+                        WHEN key ILIKE :pattern THEN 2
+                        ELSE 3
+                    END
+                LIMIT 5
+            """
+
+            pattern = f"%{query}%"
+            exact = query
+
+            result = conn.execute(
+                sqlalchemy.text(sql),
+                {"pattern": pattern, "exact": exact}
+            )
+            rows = result.fetchall()
+
+            if not rows:
+                return None
+
+            # 信頼度の計算
+            first_row = rows[0]
+            key_lower = first_row[1].lower()
+            query_lower = query.lower()
+
+            if query_lower == key_lower:
+                confidence = 1.0  # 完全一致
+            elif query_lower in key_lower:
+                confidence = 0.9  # 部分一致（キーに含まれる）
+            elif key_lower in query_lower:
+                confidence = 0.8  # 部分一致（クエリに含まれる）
+            else:
+                confidence = 0.6  # それ以外
+
+            # 整形
+            formatted_parts = []
+            results = []
+
+            for i, row in enumerate(rows, 1):
+                category, key, value = row[0], row[1], row[2]
+                formatted_parts.append(
+                    f"【参考情報 {i}】\n"
+                    f"項目: {key}\n"
+                    f"内容: {value}\n"
+                )
+                results.append({
+                    "category": category,
+                    "key": key,
+                    "value": value
+                })
+
+            return {
+                "source": "legacy",
+                "formatted_context": "\n".join(formatted_parts),
+                "confidence": confidence,
+                "results": results
+            }
+
+    except Exception as e:
+        print(f"❌ 旧ナレッジ検索エラー: {e}")
+        traceback.print_exc()
+        return None
+
 
 def get_all_knowledge(limit: int = None):
     """全ての知識を取得"""

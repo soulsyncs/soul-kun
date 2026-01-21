@@ -29,6 +29,338 @@ logger = logging.getLogger(__name__)
 
 
 # ================================================================
+# チャンク品質フィルタリング（v10.13.2）
+# ================================================================
+
+# 目次を示すキーワード
+TABLE_OF_CONTENTS_KEYWORDS = [
+    "目　　次", "目　次", "目次",
+    "もくじ", "CONTENTS", "Contents", "contents",
+    "INDEX", "Index", "index",
+    "TABLE OF CONTENTS", "Table of Contents",
+]
+
+# 目次ページの特徴的なパターン
+TABLE_OF_CONTENTS_PATTERNS = [
+    r"^第[一二三四五六七八九十\d]+章.*\d+$",  # 第一章　○○ 1
+    r"^第[一二三四五六七八九十\d]+条.*\d+$",  # 第一条　○○ 1
+    r"^[\d]+[\.\s]+.+[\s\.]+\d+$",              # 1. 概要 ... 3
+    r"^[一二三四五六七八九十]+[\.\s、]+.+\d+$",  # 一、はじめに 5
+    r"^【.+】.*\d+$",                           # 【総則】 1
+    r"^（.+）.*\d+$",                           # （総則） 1
+    r"^\d+[-\.\s].+[-\.\s]+\d+$",               # 1-1 概要...3
+]
+
+# ヘッダー/フッターの特徴的なパターン
+HEADER_FOOTER_PATTERNS = [
+    r"^[\d]+\s*/\s*[\d]+$",           # ページ番号: 1 / 10
+    r"^-\s*\d+\s*-$",                  # ページ番号: - 1 -
+    r"^page\s*\d+",                    # Page 1
+    r"^\d+\s*ページ$",                 # 1ページ
+    r"^©.*\d{4}",                      # © 2024
+    r"^株式会社.*$",                   # 株式会社○○
+    r"^confidential$",                 # CONFIDENTIAL
+    r"^社外秘$",                       # 社外秘
+    r"^取扱注意$",                     # 取扱注意
+]
+
+# 低品質コンテンツのパターン
+LOW_QUALITY_PATTERNS = [
+    r"^[\s\-_=\.]+$",                  # 区切り線のみ
+    r"^[\d\.\s]+$",                     # 数字とスペースのみ
+    r"^\s*$",                           # 空白のみ
+]
+
+
+def is_table_of_contents(text: str) -> bool:
+    """
+    目次ページかどうかを判定
+
+    Args:
+        text: チャンクのテキスト
+
+    Returns:
+        目次ページの場合True
+    """
+    if not text or len(text.strip()) == 0:
+        return False
+
+    # 1. 目次キーワードを含むか
+    for keyword in TABLE_OF_CONTENTS_KEYWORDS:
+        if keyword in text:
+            # 目次キーワードを含む場合、目次パターンも多く含むか確認
+            pattern_match_count = 0
+            lines = text.split("\n")
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                for pattern in TABLE_OF_CONTENTS_PATTERNS:
+                    if re.match(pattern, line):
+                        pattern_match_count += 1
+                        break
+
+            # 全行の20%以上が目次パターンにマッチすれば目次と判定
+            non_empty_lines = [l for l in lines if l.strip()]
+            if non_empty_lines and pattern_match_count / len(non_empty_lines) > 0.2:
+                return True
+
+            # 目次キーワードが冒頭にある場合は目次と判定
+            first_lines = "\n".join(lines[:5])
+            if keyword in first_lines:
+                return True
+
+    # 2. 大部分が目次パターンにマッチするか（キーワードなしでも）
+    lines = text.split("\n")
+    pattern_match_count = 0
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        for pattern in TABLE_OF_CONTENTS_PATTERNS:
+            if re.match(pattern, line):
+                pattern_match_count += 1
+                break
+
+    non_empty_lines = [l for l in lines if l.strip()]
+    if non_empty_lines and len(non_empty_lines) >= 5:
+        # 50%以上が目次パターンにマッチすれば目次と判定
+        if pattern_match_count / len(non_empty_lines) > 0.5:
+            return True
+
+    return False
+
+
+def is_header_or_footer(text: str) -> bool:
+    """
+    ヘッダー/フッターかどうかを判定
+
+    Args:
+        text: テキスト
+
+    Returns:
+        ヘッダー/フッターの場合True
+    """
+    if not text:
+        return False
+
+    text = text.strip()
+
+    # 短すぎるテキストはヘッダー/フッターの可能性が高い
+    if len(text) < 10:
+        for pattern in HEADER_FOOTER_PATTERNS:
+            if re.match(pattern, text, re.IGNORECASE):
+                return True
+
+    return False
+
+
+def is_low_quality_content(text: str) -> bool:
+    """
+    低品質コンテンツかどうかを判定
+
+    Args:
+        text: テキスト
+
+    Returns:
+        低品質コンテンツの場合True
+    """
+    if not text:
+        return True
+
+    text = text.strip()
+
+    # 空または短すぎる
+    if len(text) < 20:
+        return True
+
+    # 低品質パターンにマッチ
+    for pattern in LOW_QUALITY_PATTERNS:
+        if re.match(pattern, text):
+            return True
+
+    # 実質的な文字が少ない（記号や数字ばかり）
+    japanese_chars = len(re.findall(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]', text))
+    alphabetic_chars = len(re.findall(r'[a-zA-Z]', text))
+    meaningful_chars = japanese_chars + alphabetic_chars
+
+    if len(text) > 0 and meaningful_chars / len(text) < 0.3:
+        return True
+
+    return False
+
+
+def should_exclude_chunk(chunk_text: str) -> tuple[bool, str]:
+    """
+    チャンクを除外すべきかどうかを判定
+
+    Args:
+        chunk_text: チャンクのテキスト
+
+    Returns:
+        (除外すべきか, 理由)
+    """
+    # 1. 低品質コンテンツ
+    if is_low_quality_content(chunk_text):
+        return True, "low_quality_content"
+
+    # 2. 目次ページ
+    if is_table_of_contents(chunk_text):
+        return True, "table_of_contents"
+
+    # 3. 全体がヘッダー/フッターのみ
+    lines = chunk_text.strip().split("\n")
+    header_footer_lines = 0
+    for line in lines:
+        if is_header_or_footer(line):
+            header_footer_lines += 1
+
+    if lines and header_footer_lines / len(lines) > 0.8:
+        return True, "header_footer_only"
+
+    return False, ""
+
+
+def calculate_chunk_quality_score(chunk_text: str) -> float:
+    """
+    チャンクの品質スコアを計算（0.0-1.0）
+
+    スコアの基準:
+    - 1.0: 高品質（本文、具体的な情報を含む）
+    - 0.7-0.9: 中品質（見出し付きセクション）
+    - 0.4-0.6: 低品質（断片的な情報）
+    - 0.0-0.3: 除外対象（目次、ヘッダー等）
+
+    Args:
+        chunk_text: チャンクのテキスト
+
+    Returns:
+        品質スコア（0.0-1.0）
+    """
+    if not chunk_text:
+        return 0.0
+
+    score = 0.5  # ベーススコア
+
+    # 1. 文字数による調整
+    char_count = len(chunk_text.strip())
+    if char_count < 50:
+        score -= 0.3
+    elif char_count < 100:
+        score -= 0.1
+    elif char_count > 500:
+        score += 0.1
+
+    # 2. 日本語/英語の意味のある文字の割合
+    japanese_chars = len(re.findall(r'[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF]', chunk_text))
+    alphabetic_chars = len(re.findall(r'[a-zA-Z]', chunk_text))
+    meaningful_ratio = (japanese_chars + alphabetic_chars) / len(chunk_text) if chunk_text else 0
+
+    if meaningful_ratio > 0.7:
+        score += 0.2
+    elif meaningful_ratio > 0.5:
+        score += 0.1
+    elif meaningful_ratio < 0.3:
+        score -= 0.2
+
+    # 3. 文の完結性（句点の存在）
+    sentence_endings = len(re.findall(r'[。．.!?！？]', chunk_text))
+    if sentence_endings >= 2:
+        score += 0.1
+    elif sentence_endings == 0:
+        score -= 0.1
+
+    # 4. 具体的な数値情報の存在
+    has_specific_numbers = bool(re.search(r'\d+[日月年時分秒個件万円%]', chunk_text))
+    if has_specific_numbers:
+        score += 0.15
+
+    # 5. 目次パターンのペナルティ
+    toc_pattern_count = 0
+    lines = chunk_text.split("\n")
+    for line in lines:
+        for pattern in TABLE_OF_CONTENTS_PATTERNS:
+            if re.match(pattern, line.strip()):
+                toc_pattern_count += 1
+                break
+
+    non_empty_lines = [l for l in lines if l.strip()]
+    if non_empty_lines and toc_pattern_count / len(non_empty_lines) > 0.3:
+        score -= 0.3
+
+    # 6. 目次キーワードのペナルティ
+    for keyword in TABLE_OF_CONTENTS_KEYWORDS:
+        if keyword in chunk_text:
+            score -= 0.2
+            break
+
+    # スコアを0.0-1.0の範囲にクランプ
+    return max(0.0, min(1.0, score))
+
+
+def extract_chunk_metadata(chunk_text: str) -> dict:
+    """
+    チャンクからメタデータを抽出
+
+    Args:
+        chunk_text: チャンクのテキスト
+
+    Returns:
+        メタデータ辞書
+    """
+    metadata = {}
+
+    # 1. 条項番号の抽出
+    article_match = re.search(r'第([一二三四五六七八九十\d]+)[条章節]', chunk_text)
+    if article_match:
+        metadata['article_number'] = article_match.group(0)
+
+    # 2. カテゴリキーワードの抽出
+    category_keywords = {
+        '有給休暇': ['有給', '年休', '年次有給休暇', '休暇'],
+        '給与': ['給与', '賃金', '給料', '報酬', '手当'],
+        '勤務時間': ['勤務時間', '労働時間', '就業時間', '所定労働時間'],
+        '休日': ['休日', '祝日', '週休'],
+        '退職': ['退職', '退社', '解雇'],
+        '懲戒': ['懲戒', '処分', '戒告'],
+        '服務': ['服務', '規律'],
+        '採用': ['採用', '入社', '雇用'],
+        '福利厚生': ['福利厚生', '社会保険', '健康保険'],
+        '経費': ['経費', '精算', '交通費'],
+    }
+
+    detected_categories = []
+    for category, keywords in category_keywords.items():
+        for keyword in keywords:
+            if keyword in chunk_text:
+                detected_categories.append(category)
+                break
+
+    if detected_categories:
+        metadata['categories'] = detected_categories
+
+    # 3. 数値情報の抽出
+    # 日数
+    days_match = re.search(r'(\d+)\s*日', chunk_text)
+    if days_match:
+        metadata['days_mentioned'] = int(days_match.group(1))
+
+    # 金額
+    amount_match = re.search(r'(\d+(?:,\d{3})*)\s*円', chunk_text)
+    if amount_match:
+        metadata['amount_mentioned'] = amount_match.group(1)
+
+    # 4. 重要度のヒント
+    importance_keywords = ['ただし', '注意', '重要', '禁止', '必ず', '厳禁']
+    for keyword in importance_keywords:
+        if keyword in chunk_text:
+            metadata['has_important_note'] = True
+            break
+
+    return metadata
+
+
+# ================================================================
 # データクラス定義
 # ================================================================
 
@@ -63,11 +395,20 @@ class Chunk:
     page_number: Optional[int] = None   # ページ番号（PDFの場合）
     section_title: Optional[str] = None # セクションタイトル
     section_hierarchy: list[str] = field(default_factory=list)  # セクション階層
+    quality_score: float = 1.0          # 品質スコア（0.0-1.0）（v10.13.2）
+    chunk_metadata: dict = field(default_factory=dict)  # 追加メタデータ（v10.13.2）
+    excluded: bool = False              # 除外フラグ（v10.13.2）
+    exclusion_reason: str = ""          # 除外理由（v10.13.2）
 
     @property
     def content_hash(self) -> str:
         """チャンクのSHA-256ハッシュ"""
         return hashlib.sha256(self.content.encode('utf-8')).hexdigest()
+
+    @property
+    def is_high_quality(self) -> bool:
+        """高品質チャンクかどうか（v10.13.2）"""
+        return self.quality_score >= 0.5 and not self.excluded
 
 
 # ================================================================
@@ -749,6 +1090,11 @@ class TextChunker:
                     current_heading = heading["text"]
                     current_hierarchy = heading["hierarchy"]
 
+            # 品質評価（v10.13.2）
+            excluded, exclusion_reason = should_exclude_chunk(chunk_text)
+            quality_score = calculate_chunk_quality_score(chunk_text)
+            chunk_metadata = extract_chunk_metadata(chunk_text)
+
             chunk = Chunk(
                 index=i,
                 content=chunk_text,
@@ -756,7 +1102,11 @@ class TextChunker:
                 start_position=chunk_start,
                 end_position=chunk_end,
                 section_title=current_heading,
-                section_hierarchy=current_hierarchy.copy() if current_hierarchy else []
+                section_hierarchy=current_hierarchy.copy() if current_hierarchy else [],
+                quality_score=quality_score,
+                chunk_metadata=chunk_metadata,
+                excluded=excluded,
+                exclusion_reason=exclusion_reason,
             )
             chunks.append(chunk)
 
@@ -794,13 +1144,22 @@ class TextChunker:
                     chunk_start = current_position
                 chunk_end = chunk_start + len(chunk_text)
 
+                # 品質評価（v10.13.2）
+                excluded, exclusion_reason = should_exclude_chunk(chunk_text)
+                quality_score = calculate_chunk_quality_score(chunk_text)
+                chunk_metadata = extract_chunk_metadata(chunk_text)
+
                 chunk = Chunk(
                     index=chunk_index,
                     content=chunk_text,
                     char_count=len(chunk_text),
                     start_position=chunk_start,
                     end_position=chunk_end,
-                    page_number=page_number
+                    page_number=page_number,
+                    quality_score=quality_score,
+                    chunk_metadata=chunk_metadata,
+                    excluded=excluded,
+                    exclusion_reason=exclusion_reason,
                 )
                 chunks.append(chunk)
 
@@ -916,6 +1275,14 @@ class DocumentProcessor:
     使用例:
         processor = DocumentProcessor(chunk_size=1000, chunk_overlap=200)
         result = processor.process(file_content, 'pdf')
+
+    品質フィルタリング（v10.13.2）:
+        processor = DocumentProcessor(
+            chunk_size=1000,
+            chunk_overlap=200,
+            filter_low_quality=True,  # 低品質チャンクを除外
+            min_quality_score=0.4      # 品質スコアの閾値
+        )
     """
 
     def __init__(
@@ -923,12 +1290,16 @@ class DocumentProcessor:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         min_chunk_size: int = 100,
+        filter_low_quality: bool = True,   # 低品質チャンクを除外（v10.13.2）
+        min_quality_score: float = 0.4,    # 品質スコアの閾値（v10.13.2）
     ):
         self.chunker = TextChunker(
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
             min_chunk_size=min_chunk_size,
         )
+        self.filter_low_quality = filter_low_quality
+        self.min_quality_score = min_quality_score
 
     def process(
         self,
@@ -960,6 +1331,104 @@ class DocumentProcessor:
 
         return doc, chunks
 
+    def process_with_quality_filter(
+        self,
+        content: bytes,
+        file_type: str,
+    ) -> tuple[ExtractedDocument, list[Chunk], list[Chunk]]:
+        """
+        ドキュメントを処理し、品質フィルタリングを適用（v10.13.2）
+
+        Args:
+            content: ファイルのバイナリデータ
+            file_type: ファイル拡張子
+
+        Returns:
+            (ExtractedDocument, 高品質チャンクのリスト, 除外されたチャンクのリスト)
+
+        Raises:
+            ValueError: サポートされていないファイル形式
+        """
+        doc, all_chunks = self.process(content, file_type)
+
+        if not self.filter_low_quality:
+            return doc, all_chunks, []
+
+        # 品質フィルタリング
+        high_quality_chunks = []
+        excluded_chunks = []
+
+        for chunk in all_chunks:
+            if chunk.excluded:
+                excluded_chunks.append(chunk)
+                logger.debug(
+                    f"チャンク除外 [index={chunk.index}]: {chunk.exclusion_reason}"
+                )
+            elif chunk.quality_score < self.min_quality_score:
+                chunk.excluded = True
+                chunk.exclusion_reason = f"low_quality_score_{chunk.quality_score:.2f}"
+                excluded_chunks.append(chunk)
+                logger.debug(
+                    f"チャンク除外 [index={chunk.index}]: 品質スコア {chunk.quality_score:.2f} < {self.min_quality_score}"
+                )
+            else:
+                high_quality_chunks.append(chunk)
+
+        # インデックスを再割り当て
+        for i, chunk in enumerate(high_quality_chunks):
+            chunk.index = i
+
+        logger.info(
+            f"品質フィルタリング完了: "
+            f"全{len(all_chunks)}チャンク → "
+            f"高品質{len(high_quality_chunks)}チャンク "
+            f"(除外{len(excluded_chunks)}チャンク)"
+        )
+
+        return doc, high_quality_chunks, excluded_chunks
+
+    def get_quality_report(self, chunks: list[Chunk]) -> dict:
+        """
+        チャンクの品質レポートを生成（v10.13.2）
+
+        Args:
+            chunks: チャンクのリスト
+
+        Returns:
+            品質レポート辞書
+        """
+        if not chunks:
+            return {
+                "total_chunks": 0,
+                "high_quality_chunks": 0,
+                "excluded_chunks": 0,
+                "average_quality_score": 0.0,
+                "exclusion_reasons": {},
+            }
+
+        high_quality = [c for c in chunks if c.is_high_quality]
+        excluded = [c for c in chunks if c.excluded]
+
+        exclusion_reasons: dict[str, int] = {}
+        for chunk in excluded:
+            reason = chunk.exclusion_reason or "unknown"
+            exclusion_reasons[reason] = exclusion_reasons.get(reason, 0) + 1
+
+        return {
+            "total_chunks": len(chunks),
+            "high_quality_chunks": len(high_quality),
+            "excluded_chunks": len(excluded),
+            "average_quality_score": sum(c.quality_score for c in chunks) / len(chunks),
+            "exclusion_reasons": exclusion_reasons,
+            "quality_score_distribution": {
+                "0.0-0.2": len([c for c in chunks if c.quality_score < 0.2]),
+                "0.2-0.4": len([c for c in chunks if 0.2 <= c.quality_score < 0.4]),
+                "0.4-0.6": len([c for c in chunks if 0.4 <= c.quality_score < 0.6]),
+                "0.6-0.8": len([c for c in chunks if 0.6 <= c.quality_score < 0.8]),
+                "0.8-1.0": len([c for c in chunks if c.quality_score >= 0.8]),
+            },
+        }
+
     def compute_file_hash(self, content: bytes) -> str:
         """ファイルのSHA-256ハッシュを計算"""
         return hashlib.sha256(content).hexdigest()
@@ -990,4 +1459,13 @@ __all__ = [
     'TextChunker',
     # 統合クラス
     'DocumentProcessor',
+    # 品質フィルタリング（v10.13.2）
+    'is_table_of_contents',
+    'is_header_or_footer',
+    'is_low_quality_content',
+    'should_exclude_chunk',
+    'calculate_chunk_quality_score',
+    'extract_chunk_metadata',
+    'TABLE_OF_CONTENTS_KEYWORDS',
+    'TABLE_OF_CONTENTS_PATTERNS',
 ]

@@ -664,11 +664,29 @@ async def process_file(
             logger.info(f"変更なし: {file.name}")
             return {"status": "skipped", "reason": "ファイル内容に変更なし"}
 
-        # テキスト抽出とチャンク分割
-        extracted_doc, chunks = doc_processor.process(
+        # テキスト抽出とチャンク分割（品質フィルタリング適用 v10.13.2）
+        extracted_doc, chunks, excluded_chunks = doc_processor.process_with_quality_filter(
             file_content,
             file.file_extension
         )
+
+        # 品質レポートをログ出力
+        if excluded_chunks:
+            logger.info(
+                f"品質フィルタリング: {file.name} - "
+                f"全{len(chunks) + len(excluded_chunks)}チャンク → "
+                f"高品質{len(chunks)}チャンク（除外{len(excluded_chunks)}チャンク）"
+            )
+            for exc in excluded_chunks[:5]:  # 最初の5件だけログ
+                logger.debug(
+                    f"  除外チャンク: index={exc.index}, "
+                    f"reason={exc.exclusion_reason}, "
+                    f"score={exc.quality_score:.2f}"
+                )
+
+        if not chunks:
+            logger.warning(f"有効なチャンクがありません: {file.name}")
+            return {"status": "skipped", "reason": "有効なチャンクなし（全て低品質）"}
 
         # エンベディング生成（この段階でエラーが発生してもDB変更なし）
         chunk_texts = [chunk.content for chunk in chunks]
@@ -758,7 +776,8 @@ async def process_file(
                 embedding_model=embedding_client.model
             )
 
-            # Pineconeベクターを準備
+            # Pineconeベクターを準備（v10.13.2: 品質スコアとカテゴリ追加）
+            chunk_categories = chunk.chunk_metadata.get("categories", [])
             pinecone_vectors.append({
                 "id": pinecone_id,
                 "values": embedding_result.vector,
@@ -772,6 +791,11 @@ async def process_file(
                     "department_id": permissions["department_id"] or "",
                     "page_number": chunk.page_number or 0,
                     "section_title": chunk.section_title or "",
+                    # v10.13.2: 品質関連メタデータ
+                    "quality_score": chunk.quality_score,
+                    "content_categories": chunk_categories[:5] if chunk_categories else [],  # カテゴリ（最大5個）
+                    "has_specific_numbers": chunk.chunk_metadata.get("days_mentioned") is not None,
+                    "article_number": chunk.chunk_metadata.get("article_number", ""),
                 }
             })
 

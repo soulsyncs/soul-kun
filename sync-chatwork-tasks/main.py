@@ -6493,10 +6493,7 @@ def generate_deadline_alert_message_for_manual_task(
     elif len(clean_task_name) > 30:
         clean_task_name = clean_task_name[:30] + "..."
 
-    # 依頼者名（不明な場合はデフォルト）
-    requester_display = requester_name if requester_name else "誰か"
-
-    # メンション部分を生成
+    # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
     if requester_account_id:
         if requester_name:
@@ -6504,7 +6501,7 @@ def generate_deadline_alert_message_for_manual_task(
         else:
             mention_line = f"[To:{requester_account_id}]\n\n"
 
-    message = f"""{mention_line}⚠️ {requester_display}さんが期限が近いタスクを追加したウル！
+    message = f"""{mention_line}⚠️ あなたが期限が近いタスクを追加したウル！
 
 {assigned_to_name}さんへの「{clean_task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 

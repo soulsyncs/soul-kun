@@ -1988,6 +1988,96 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         return False, -1, None
 
 
+# =====================================================
+# v10.13.4: タスク本文クリーニング関数
+# =====================================================
+def clean_task_body_for_summary(body: str) -> str:
+    """
+    タスク本文からChatWorkのタグや記号を完全に除去（要約用）
+
+    ★★★ v10.13.4: chatwork-webhookにも追加 ★★★
+    TODO: Phase 3.5でlib/に共通化予定
+    """
+    if not body:
+        return ""
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return ""
+
+    try:
+        # 1. 引用ブロックの処理
+        non_quote_text = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        non_quote_text = non_quote_text.strip()
+
+        if non_quote_text and len(non_quote_text) > 10:
+            body = non_quote_text
+        else:
+            quote_matches = re.findall(
+                r'\[qt\]\[qtmeta[^\]]*\](.*?)\[/qt\]',
+                body,
+                flags=re.DOTALL
+            )
+            if quote_matches:
+                extracted_text = ' '.join(quote_matches)
+                if extracted_text.strip():
+                    body = extracted_text
+
+        # 2. [qtmeta ...] タグを除去
+        body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
+
+        # 3. [qt] [/qt] の単独タグを除去
+        body = re.sub(r'\[/?qt\]', '', body)
+
+        # 4. [To:xxx] タグを除去
+        body = re.sub(r'\[To:\d+\]\s*[^\n\[]*(?:さん|くん|ちゃん|様|氏)?', '', body)
+        body = re.sub(r'\[To:\d+\]', '', body)
+
+        # 5. [piconname:xxx] タグを除去
+        body = re.sub(r'\[piconname:\d+\]', '', body)
+
+        # 6. [info]...[/info] タグを除去（内容は残す）
+        body = re.sub(r'\[/?info\]', '', body)
+        body = re.sub(r'\[/?title\]', '', body)
+
+        # 7. [rp aid=xxx to=xxx-xxx] タグを除去
+        body = re.sub(r'\[rp aid=\d+[^\]]*\]', '', body)
+        body = re.sub(r'\[/rp\]', '', body)
+
+        # 8. [dtext:xxx] タグを除去
+        body = re.sub(r'\[dtext:[^\]]*\]', '', body)
+
+        # 9. [preview ...] タグを除去
+        body = re.sub(r'\[preview[^\]]*\]', '', body)
+        body = re.sub(r'\[/preview\]', '', body)
+
+        # 10. [code]...[/code] タグを除去（内容は残す）
+        body = re.sub(r'\[/?code\]', '', body)
+
+        # 11. [hr] タグを除去
+        body = re.sub(r'\[hr\]', '', body)
+
+        # 12. その他の [...] 形式のタグを除去
+        body = re.sub(r'\[/?[a-z]+(?::[^\]]+)?\]', '', body, flags=re.IGNORECASE)
+
+        # 13. 連続する改行を整理
+        body = re.sub(r'\n{3,}', '\n\n', body)
+
+        # 14. 連続するスペースを整理
+        body = re.sub(r' {2,}', ' ', body)
+
+        # 15. 前後の空白を除去
+        body = body.strip()
+
+        return body
+
+    except Exception as e:
+        print(f"⚠️ clean_task_body_for_summary エラー: {e}")
+        return body
+
+
 def generate_deadline_alert_message(
     task_name: str,
     limit_date,
@@ -2014,11 +2104,21 @@ def generate_deadline_alert_message(
 
     Returns:
         アラートメッセージ文字列
+    v10.13.4: 改善
+    - タスク名からChatWorkタグを除去
+    - 「あなたが依頼した」を明記
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    # メンション部分を生成
+    # タスク名からChatWorkタグを除去（v10.13.4）
+    clean_task_name = clean_task_body_for_summary(task_name)
+    if not clean_task_name:
+        clean_task_name = "（タスク内容なし）"
+    elif len(clean_task_name) > 30:
+        clean_task_name = clean_task_name[:30] + "..."
+
+    # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
     if requester_account_id:
         if requester_name:
@@ -2026,9 +2126,9 @@ def generate_deadline_alert_message(
         else:
             mention_line = f"[To:{requester_account_id}]\n\n"
 
-    message = f"""{mention_line}⚠️ 期限が近いタスクだウル！
+    message = f"""{mention_line}⚠️ あなたが依頼した期限が近いタスクだウル！
 
-「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+「{clean_task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
 期限が当日・明日だと、依頼された側も大変かもしれないウル。
 もし余裕があるなら、期限を少し先に編集してあげてね。

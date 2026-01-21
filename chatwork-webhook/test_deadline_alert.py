@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-期限ガードレール機能のテスト（v10.3.2 メンション対応版）
+期限ガードレール機能のテスト（v10.13.4 メンション対応版）
 
 テストケース:
 1. 当日期限 → アラート必要
@@ -11,10 +11,13 @@
 6. 期限なし → アラート不要
 7. メッセージ内容確認（カズさんの意図反映）
 8. メンション機能確認（v10.3.2）
+9. タスク名クリーニング（v10.13.4）
+10. 「あなたが」表記統一（v10.13.4）
 """
 
 import sys
 import os
+import re
 
 # 親ディレクトリをパスに追加
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -56,6 +59,31 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         return False, -1, None
 
 
+def clean_task_body_for_summary(body: str) -> str:
+    """
+    タスク本文からChatWorkのタグを除去（テスト用簡易版）
+    v10.13.4: テストファイルにも追加
+    """
+    if not body:
+        return ""
+    try:
+        # 引用ブロック処理
+        body = re.sub(r'\[qt\].*?\[/qt\]', '', body, flags=re.DOTALL)
+        # 各種タグを除去
+        body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
+        body = re.sub(r'\[/?qt\]', '', body)
+        body = re.sub(r'\[To:\d+\][^\n\[]*', '', body)
+        body = re.sub(r'\[piconname:\d+\]', '', body)
+        body = re.sub(r'\[/?info\]', '', body)
+        body = re.sub(r'\[/?title\]', '', body)
+        body = re.sub(r'\[/?[a-z]+(?::[^\]]+)?\]', '', body, flags=re.IGNORECASE)
+        body = re.sub(r'\n{3,}', '\n\n', body)
+        body = re.sub(r' {2,}', ' ', body)
+        return body.strip()
+    except:
+        return body
+
+
 def generate_deadline_alert_message(
     task_name: str,
     limit_date,
@@ -64,12 +92,19 @@ def generate_deadline_alert_message(
     requester_name: str = None
 ) -> str:
     """
-    期限が近いタスクのアラートメッセージを生成する（v10.3.2 メンション対応版）
+    期限が近いタスクのアラートメッセージを生成する（v10.13.4 メンション対応版）
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    # メンション部分を生成
+    # タスク名からChatWorkタグを除去（v10.13.4）
+    clean_task_name = clean_task_body_for_summary(task_name)
+    if not clean_task_name:
+        clean_task_name = "（タスク内容なし）"
+    elif len(clean_task_name) > 30:
+        clean_task_name = clean_task_name[:30] + "..."
+
+    # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
     if requester_account_id:
         if requester_name:
@@ -77,9 +112,9 @@ def generate_deadline_alert_message(
         else:
             mention_line = f"[To:{requester_account_id}]\n\n"
 
-    message = f"""{mention_line}⚠️ 期限が近いタスクだウル！
+    message = f"""{mention_line}⚠️ あなたが依頼した期限が近いタスクだウル！
 
-「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+「{clean_task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
 期限が当日・明日だと、依頼された側も大変かもしれないウル。
 もし余裕があるなら、期限を少し先に編集してあげてね。
@@ -99,15 +134,19 @@ def generate_deadline_alert_message_for_manual_task(
     requester_name: str = None
 ) -> str:
     """
-    手動追加タスク用のアラートメッセージを生成する（v10.3.2 メンション対応版）
+    手動追加タスク用のアラートメッセージを生成する（v10.13.4 メンション対応版）
     """
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    if len(task_name) > 30:
-        task_name = task_name[:30] + "..."
+    # タスク名からChatWorkタグを除去（v10.13.4）
+    clean_task_name = clean_task_body_for_summary(task_name)
+    if not clean_task_name:
+        clean_task_name = "（タスク内容なし）"
+    elif len(clean_task_name) > 30:
+        clean_task_name = clean_task_name[:30] + "..."
 
-    # メンション部分を生成
+    # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
     if requester_account_id:
         if requester_name:
@@ -115,9 +154,9 @@ def generate_deadline_alert_message_for_manual_task(
         else:
             mention_line = f"[To:{requester_account_id}]\n\n"
 
-    message = f"""{mention_line}⚠️ 期限が近いタスクを追加したウル！
+    message = f"""{mention_line}⚠️ あなたが期限が近いタスクを追加したウル！
 
-{assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+{assigned_to_name}さんへの「{clean_task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
 期限が当日・明日だと、依頼された側も大変かもしれないウル。
 もし余裕があるなら、ChatWorkでタスクの期限を少し先に編集してあげてね。

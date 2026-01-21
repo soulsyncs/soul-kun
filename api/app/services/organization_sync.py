@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from lib.logging import get_logger
-from api.app.schemas.organization import (
+from app.schemas.organization import (
     OrgChartSyncRequest,
     OrgChartSyncResponse,
     SyncSummary,

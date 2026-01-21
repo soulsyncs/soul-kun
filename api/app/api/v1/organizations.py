@@ -14,14 +14,14 @@ from lib.db import get_db_pool
 from lib.logging import get_logger, log_audit_event
 from lib.tenant import get_current_or_default_tenant
 from lib.config import get_settings
-from api.app.schemas.organization import (
+from app.schemas.organization import (
     OrgChartSyncRequest,
     OrgChartSyncResponse,
     SyncErrorResponse,
     DepartmentListResponse,
     DepartmentResponse,
 )
-from api.app.services.organization_sync import (
+from app.services.organization_sync import (
     OrganizationSyncService,
     OrganizationSyncError,
 )

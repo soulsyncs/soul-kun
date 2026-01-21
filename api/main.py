@@ -19,7 +19,7 @@ import time
 from lib.config import get_settings
 from lib.logging import get_logger
 from lib.tenant import TenantContext, get_current_or_default_tenant
-from api.app.api.v1 import router as v1_router
+from app.api.v1 import router as v1_router
 
 logger = get_logger(__name__)
 settings = get_settings()

@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header
 from lib.config import get_settings
 from lib.logging import get_logger
 from lib.db import get_async_db_pool
-from api.app.schemas.knowledge import (
+from app.schemas.knowledge import (
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
     KnowledgeFeedbackRequest,
@@ -27,7 +27,7 @@ from api.app.schemas.knowledge import (
     DocumentInfo,
     DocumentListResponse,
 )
-from api.app.services.knowledge_search import (
+from app.services.knowledge_search import (
     KnowledgeSearchService,
     UserContext,
 )

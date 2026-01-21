@@ -26,7 +26,7 @@ from lib.config import get_settings
 from lib.logging import get_logger
 from lib.embedding import EmbeddingClient
 from lib.pinecone_client import PineconeClient, SearchResult
-from api.app.schemas.knowledge import (
+from app.schemas.knowledge import (
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
     ChunkResult,
@@ -120,7 +120,24 @@ class KnowledgeSearchService:
         embedding_time_ms = 0
         search_time_ms = 0
 
+        # organization_id をUUIDに解決（テキスト識別子の場合）
         organization_id = user_context.organization_id
+        organization_uuid = await self._resolve_organization_uuid(organization_id)
+        if not organization_uuid:
+            logger.warning(f"Organization not found: {organization_id}")
+            return KnowledgeSearchResponse(
+                query=request.query,
+                results=[],
+                total_results=0,
+                search_log_id=None,
+                top_score=None,
+                average_score=None,
+                answer=None,
+                answer_refused=True,
+                refused_reason="organization_not_found",
+                search_time_ms=0,
+                total_time_ms=0,
+            )
 
         # 1. クエリのエンベディング生成
         embed_start = time.time()
@@ -155,9 +172,9 @@ class KnowledgeSearchService:
             max_results=request.top_k or settings.KNOWLEDGE_SEARCH_TOP_K,
         )
 
-        # 4. チャンク情報をDBから取得
+        # 4. チャンク情報をDBから取得（UUID形式のorg_idを使用）
         chunk_results = await self._enrich_with_db_data(
-            organization_id=organization_id,
+            organization_id=organization_uuid,
             search_results=filtered_results,
             include_content=request.include_content or True,
         )
@@ -349,18 +366,19 @@ class KnowledgeSearchService:
             FROM document_chunks dc
             JOIN documents d ON dc.document_id = d.id
             WHERE dc.organization_id = :org_id
-              AND dc.pinecone_id = ANY(CAST(:pinecone_ids AS TEXT[]))
+              AND dc.pinecone_id = ANY(:pinecone_ids)
               AND dc.is_active = TRUE
               AND d.is_active = TRUE
               AND d.is_searchable = TRUE
               AND d.deleted_at IS NULL
         """
 
+        # asyncpg互換: 配列リテラルではなくPythonリストを渡す
         result = await self.db_conn.execute(
             text(query),
             {
                 "org_id": organization_id,
-                "pinecone_ids": "{" + ",".join(pinecone_ids) + "}"
+                "pinecone_ids": pinecone_ids  # Python list directly
             }
         )
         rows = result.fetchall()

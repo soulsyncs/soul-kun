@@ -14,7 +14,7 @@ from sqlalchemy import text
 from lib.db import get_db_pool, get_async_db_pool
 from lib.logging import get_logger, log_audit_event
 from lib.tenant import get_current_or_default_tenant, DEFAULT_TENANT_ID
-from api.app.schemas.task import (
+from app.schemas.task import (
     OverdueTaskResponse,
     OverdueTaskListResponse,
     OverdueSummary,
@@ -22,7 +22,7 @@ from api.app.schemas.task import (
     TaskRequesterInfo,
     TaskErrorResponse,
 )
-from api.app.services.access_control import (
+from app.services.access_control import (
     AccessControlService,
     compute_accessible_departments_sync,
     get_user_role_level_sync,

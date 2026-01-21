@@ -18,7 +18,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
-from api.app.models.base import Base, TimestampMixin, generate_uuid
+from app.models.base import Base, TimestampMixin, generate_uuid
 
 
 class Organization(Base, TimestampMixin):

@@ -5,7 +5,7 @@ Phase 1-B: タスク自動検知用スキーマ
 Phase 3.5: 組織階層連携用スキーマ
 """
 
-from api.app.schemas.organization import (
+from app.schemas.organization import (
     DepartmentInput,
     RoleInput,
     EmployeeInput,
@@ -17,7 +17,7 @@ from api.app.schemas.organization import (
     DepartmentListResponse,
 )
 
-from api.app.schemas.task import (
+from app.schemas.task import (
     OverdueTaskResponse,
     OverdueTaskListResponse,
     OverdueSummary,

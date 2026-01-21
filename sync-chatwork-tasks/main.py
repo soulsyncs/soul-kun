@@ -6486,9 +6486,15 @@ def generate_deadline_alert_message_for_manual_task(
     day_label = DEADLINE_ALERT_DAYS.get(days_until, f"{days_until}日後")
     formatted_date = limit_date.strftime("%m/%d")
 
-    # タスク名が長すぎる場合は省略
-    if len(task_name) > 30:
-        task_name = task_name[:30] + "..."
+    # タスク名からChatWorkタグを除去（v10.13.3）
+    clean_task_name = clean_task_body_for_summary(task_name)
+    if not clean_task_name:
+        clean_task_name = "（タスク内容なし）"
+    elif len(clean_task_name) > 30:
+        clean_task_name = clean_task_name[:30] + "..."
+
+    # 依頼者名（不明な場合はデフォルト）
+    requester_display = requester_name if requester_name else "誰か"
 
     # メンション部分を生成
     mention_line = ""
@@ -6498,9 +6504,9 @@ def generate_deadline_alert_message_for_manual_task(
         else:
             mention_line = f"[To:{requester_account_id}]\n\n"
 
-    message = f"""{mention_line}⚠️ 期限が近いタスクを追加したウル！
+    message = f"""{mention_line}⚠️ {requester_display}さんが期限が近いタスクを追加したウル！
 
-{assigned_to_name}さんへの「{task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
+{assigned_to_name}さんへの「{clean_task_name}」の期限が【{formatted_date}（{day_label}）】だウル。
 
 期限が当日・明日だと、依頼された側も大変かもしれないウル。
 もし余裕があるなら、ChatWorkでタスクの期限を少し先に編集してあげてね。

@@ -6240,3 +6240,245 @@ def cleanup_old_data(request):
         "status": "ok" if not results["errors"] else "partial",
         "results": results
     })
+
+
+# =====================================================
+# ★★★ v10.15.0: Phase 2.5 目標達成支援 ★★★
+# =====================================================
+#
+# 以下の Cloud Functions は Cloud Scheduler から呼び出される:
+#   - goal_daily_check:    17:00 JST 毎日
+#   - goal_daily_reminder: 18:00 JST 毎日
+#   - goal_morning_feedback: 08:00 JST 毎日
+#
+# Cloud Scheduler 設定例:
+#   gcloud scheduler jobs create http goal-daily-check \
+#     --schedule="0 17 * * *" \
+#     --time-zone="Asia/Tokyo" \
+#     --uri="https://REGION-PROJECT.cloudfunctions.net/goal_daily_check" \
+#     --http-method=POST
+# =====================================================
+
+# 目標通知サービスをインポート（遅延インポートで循環参照回避）
+def _get_goal_notification_module():
+    """目標通知モジュールの遅延インポート"""
+    import sys
+    import os
+
+    # lib/ パスを追加
+    lib_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib')
+    if lib_path not in sys.path:
+        sys.path.insert(0, lib_path)
+
+    from lib.goal_notification import (
+        scheduled_daily_check,
+        scheduled_daily_reminder,
+        scheduled_morning_feedback,
+    )
+    return scheduled_daily_check, scheduled_daily_reminder, scheduled_morning_feedback
+
+
+# デフォルトの組織ID（ソウルシンクス）
+DEFAULT_ORG_ID = "org_soulsyncs"
+
+
+def _send_chatwork_message_wrapper(room_id, message):
+    """
+    ChatWorkメッセージ送信のラッパー関数
+
+    既存の send_reminder_with_test_guard を使用して
+    テストモード対応・レート制限対応を行う
+    """
+    return send_reminder_with_test_guard(int(room_id), message)
+
+
+@functions_framework.http
+def goal_daily_check(request):
+    """
+    Cloud Function: 17:00 目標進捗確認
+
+    全スタッフにその日の振り返りを問いかけるDMを送信。
+    1ユーザーが複数目標を持っていても、1通にまとめて送信。
+
+    Cloud Scheduler から毎日17:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== 🎯 Phase 2.5: 17時進捗確認 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        scheduled_daily_check, _, _ = _get_goal_notification_module()
+
+        # DB接続を取得
+        pool = get_pool()
+        with pool.begin() as conn:
+            results = scheduled_daily_check(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== 🎯 17時進捗確認 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_daily_check",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_daily_check",
+            "error": str(e),
+        }), 500
+
+
+@functions_framework.http
+def goal_daily_reminder(request):
+    """
+    Cloud Function: 18:00 未回答リマインド
+
+    17時の進捗確認に未回答のスタッフにリマインドDMを送信。
+
+    Cloud Scheduler から毎日18:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== 🔔 Phase 2.5: 18時未回答リマインド 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        _, scheduled_daily_reminder, _ = _get_goal_notification_module()
+
+        # DB接続を取得
+        pool = get_pool()
+        with pool.begin() as conn:
+            results = scheduled_daily_reminder(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== 🔔 18時未回答リマインド 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_daily_reminder",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_daily_reminder",
+            "error": str(e),
+        }), 500
+
+
+@functions_framework.http
+def goal_morning_feedback(request):
+    """
+    Cloud Function: 08:00 朝フィードバック
+
+    以下を送信:
+    1. 個人フィードバック: 昨日進捗報告したスタッフへのフィードバックDM
+    2. チームサマリー: チームリーダー・部長へのチーム進捗サマリーDM
+
+    Cloud Scheduler から毎日08:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== ☀️ Phase 2.5: 8時朝フィードバック 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        _, _, scheduled_morning_feedback = _get_goal_notification_module()
+
+        # DB接続を取得
+        pool = get_pool()
+        with pool.begin() as conn:
+            results = scheduled_morning_feedback(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== ☀️ 8時朝フィードバック 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_morning_feedback",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_morning_feedback",
+            "error": str(e),
+        }), 500

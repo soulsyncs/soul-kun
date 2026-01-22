@@ -1,0 +1,1246 @@
+"""
+Phase 2.5: 目標達成支援 - 通知サービス
+
+このモジュールは以下の通知機能を提供します:
+- 17:00 進捗確認 (goal_daily_check)
+- 18:00 未回答リマインド (goal_daily_reminder)
+- 08:00 個人フィードバック (goal_morning_feedback)
+- 08:00 チームサマリー (goal_team_summary)
+
+使用例:
+    from lib.goal_notification import (
+        send_daily_check_to_user,
+        send_daily_reminder_to_user,
+        send_morning_feedback_to_user,
+        send_team_summary_to_leader,
+        scheduled_daily_check,
+        scheduled_daily_reminder,
+        scheduled_morning_feedback,
+    )
+"""
+
+import re
+import logging
+from datetime import date, datetime, timedelta
+from decimal import Decimal
+from typing import Optional, List, Dict, Any, Tuple
+from dataclasses import dataclass
+from enum import Enum
+import pytz
+
+# 日本時間
+JST = pytz.timezone('Asia/Tokyo')
+
+logger = logging.getLogger(__name__)
+
+
+# =====================================================
+# 通知タイプ定義
+# =====================================================
+
+class GoalNotificationType(str, Enum):
+    """目標関連の通知タイプ"""
+    DAILY_CHECK = "goal_daily_check"          # 17:00 進捗確認
+    DAILY_REMINDER = "goal_daily_reminder"    # 18:00 未回答リマインド
+    MORNING_FEEDBACK = "goal_morning_feedback"  # 08:00 個人フィードバック
+    TEAM_SUMMARY = "goal_team_summary"        # 08:00 チームサマリー
+
+
+# =====================================================
+# エラーサニタイズ
+# =====================================================
+
+def sanitize_error(e: Exception) -> str:
+    """
+    エラーメッセージから機密情報を除去
+
+    除去対象:
+    - ファイルパス（/Users/xxx, /home/xxx など）
+    - API キー・トークン
+    - ユーザーID（UUID）
+    - メールアドレス
+    - 内部ホスト名・IP
+    """
+    error_str = str(e)
+
+    # 1. ファイルパスを除去
+    error_str = re.sub(r'/[^\s]+', '[PATH]', error_str)
+
+    # 2. UUIDを除去
+    error_str = re.sub(
+        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        '[UUID]',
+        error_str,
+        flags=re.IGNORECASE
+    )
+
+    # 3. メールアドレスを除去
+    error_str = re.sub(r'[\w.+-]+@[\w.-]+\.\w+', '[EMAIL]', error_str)
+
+    # 4. APIキー・トークン風の文字列を除去
+    error_str = re.sub(
+        r'(key|token|secret|password)[\s]*[=:][\s]*[^\s]+',
+        r'\1=[REDACTED]',
+        error_str,
+        flags=re.IGNORECASE
+    )
+
+    # 5. IPアドレスを除去
+    error_str = re.sub(
+        r'\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b',
+        '[IP]',
+        error_str
+    )
+
+    # 6. ポート番号を除去 (IPの後の:port)
+    error_str = re.sub(r'\[IP\]:(\d+)', '[IP]:[PORT]', error_str)
+
+    # 7. 長すぎる場合は切り詰め
+    if len(error_str) > 500:
+        error_str = error_str[:500] + '...[TRUNCATED]'
+
+    return error_str
+
+
+# =====================================================
+# メッセージビルダー
+# =====================================================
+
+def build_daily_check_message(user_name: str, goals: List[Dict]) -> str:
+    """
+    17:00 進捗確認メッセージを生成
+
+    Args:
+        user_name: ユーザー表示名
+        goals: アクティブな目標リスト
+
+    Returns:
+        ChatWork送信用メッセージ
+    """
+    message = f"{user_name}さん、お疲れ様ウル🐺\n\n"
+    message += "今日の振り返りをしようウル！\n\n"
+
+    for i, goal in enumerate(goals, 1):
+        title = goal.get('title', '目標')
+        target_value = goal.get('target_value')
+        current_value = goal.get('current_value', 0)
+        unit = goal.get('unit', '')
+        goal_type = goal.get('goal_type', 'numeric')
+
+        if goal_type == 'numeric' and target_value:
+            # 達成率を計算
+            if target_value > 0:
+                achievement_rate = (current_value / target_value) * 100
+            else:
+                achievement_rate = 0
+
+            # 数値のフォーマット
+            if unit == '円':
+                target_display = _format_currency(target_value)
+                current_display = _format_currency(current_value)
+            else:
+                target_display = f"{target_value:,.0f}"
+                current_display = f"{current_value:,.0f}"
+
+            message += f"【{title}】\n"
+            message += f"├ 目標: {target_display}{unit}\n"
+            message += f"├ 現在: {current_display}{unit}（達成率{achievement_rate:.0f}%）\n"
+            message += f"└ 今日の実績は？（数字を入力してね）\n\n"
+
+        elif goal_type == 'deadline':
+            deadline = goal.get('deadline')
+            if deadline:
+                deadline_str = deadline.strftime('%m/%d') if hasattr(deadline, 'strftime') else str(deadline)
+                message += f"【{title}】期限: {deadline_str}\n"
+                message += f"└ 今日の進捗は？\n\n"
+
+        elif goal_type == 'action':
+            message += f"【{title}】\n"
+            message += f"└ 今日はできたウル？\n\n"
+
+    message += "【今日の選択】\n"
+    message += "目標に向けて、今日どんな行動を選んだウル？\n\n"
+    message += "返信で教えてほしいウル✨"
+
+    return message
+
+
+def build_daily_reminder_message(user_name: str) -> str:
+    """
+    18:00 未回答リマインドメッセージを生成
+
+    Args:
+        user_name: ユーザー表示名
+
+    Returns:
+        ChatWork送信用メッセージ
+    """
+    return f"""{user_name}さん、まだ今日の振り返りができてないウル🐺
+
+17時に送った進捗確認、見てくれたウル？
+
+忙しい1日だったかもしれないけど、
+1分だけ時間をもらえると嬉しいウル✨
+
+【今日の振り返り】
+・目標に向けて、今日どんな行動を選んだウル？
+・数字があれば、今日の実績も教えてほしいウル！
+
+返信で教えてくれると、明日の朝フィードバックするウル💪"""
+
+
+def build_morning_feedback_message(
+    user_name: str,
+    goals: List[Dict],
+    progress_data: Dict[str, Dict],
+    ai_feedback: Optional[str] = None
+) -> str:
+    """
+    08:00 個人フィードバックメッセージを生成
+
+    Args:
+        user_name: ユーザー表示名
+        goals: 目標リスト
+        progress_data: 目標IDをキーとした進捗データ
+        ai_feedback: AIが生成したフィードバック（オプション）
+
+    Returns:
+        ChatWork送信用メッセージ
+    """
+    message = f"{user_name}さん、おはようウル🐺\n\n"
+    message += "【昨日の振り返り】\n"
+
+    for goal in goals:
+        goal_id = str(goal.get('id', ''))
+        title = goal.get('title', '目標')
+        target_value = goal.get('target_value')
+        current_value = goal.get('current_value', 0)
+        unit = goal.get('unit', '')
+        goal_type = goal.get('goal_type', 'numeric')
+
+        # 昨日の進捗を取得
+        yesterday_progress = progress_data.get(goal_id, {})
+        yesterday_value = yesterday_progress.get('value', 0) or 0
+
+        if goal_type == 'numeric' and target_value:
+            # 達成率を計算
+            if target_value > 0:
+                achievement_rate = (current_value / target_value) * 100
+                # 前日比を計算
+                prev_value = current_value - yesterday_value
+                if prev_value > 0 and target_value > 0:
+                    prev_rate = (prev_value / target_value) * 100
+                    rate_diff = achievement_rate - prev_rate
+                else:
+                    rate_diff = 0
+            else:
+                achievement_rate = 0
+                rate_diff = 0
+
+            # 数値のフォーマット
+            if unit == '円':
+                yesterday_display = _format_currency(yesterday_value)
+                current_display = _format_currency(current_value)
+                target_display = _format_currency(target_value)
+                remaining = target_value - current_value
+                remaining_display = _format_currency(remaining) if remaining > 0 else "0"
+            else:
+                yesterday_display = f"{yesterday_value:,.0f}"
+                current_display = f"{current_value:,.0f}"
+                target_display = f"{target_value:,.0f}"
+                remaining = target_value - current_value
+                remaining_display = f"{remaining:,.0f}" if remaining > 0 else "0"
+
+            message += f"{title}：+{yesterday_display}{unit}\n"
+            message += f"月累計：{current_display}{unit} / {target_display}{unit}（達成率{achievement_rate:.0f}%）\n"
+
+            if rate_diff > 0:
+                message += f"前日比：+{rate_diff:.0f}%アップ！いい感じウル✨\n"
+            elif rate_diff < 0:
+                message += f"前日比：{rate_diff:.0f}%...でも大丈夫ウル💪\n"
+
+            message += "\n"
+
+        elif goal_type == 'deadline':
+            daily_note = yesterday_progress.get('daily_note', '')
+            if daily_note:
+                message += f"{title}：{daily_note}\n\n"
+
+        elif goal_type == 'action':
+            daily_note = yesterday_progress.get('daily_note', '')
+            if daily_note:
+                message += f"{title}：{daily_note}\n\n"
+
+    # 今日への問い
+    message += "【今日への問い】\n"
+
+    # メイン目標（最初の数値目標）から残りを計算
+    main_goal = None
+    for goal in goals:
+        if goal.get('goal_type') == 'numeric' and goal.get('target_value'):
+            main_goal = goal
+            break
+
+    if main_goal:
+        target_value = main_goal.get('target_value', 0)
+        current_value = main_goal.get('current_value', 0)
+        unit = main_goal.get('unit', '')
+        remaining = target_value - current_value
+
+        if remaining > 0:
+            if unit == '円':
+                remaining_display = _format_currency(remaining)
+            else:
+                remaining_display = f"{remaining:,.0f}"
+            message += f"あと{remaining_display}{unit}、今月中に何があれば達成できそうウル？\n\n"
+        else:
+            message += "目標達成おめでとうウル！次の挑戦は何にするウル？🎉\n\n"
+    else:
+        message += "今日はどんな1日にしたいウル？\n\n"
+
+    # ソウルシンクスの行動指針をランダムに選択（将来的にはローテーション）
+    action_principles = [
+        "「理想の未来のために何をすべきか考え、行動する」",
+        "「挑戦を楽しみ、その楽しさを伝える」",
+        "「自分が源。自ら考え、自ら動く」",
+        "「目の前の人の"その先"まで想う」",
+        "「相手以上に相手の未来を信じる」",
+        "「価値を生み出し、プロとして期待を超える」",
+        "「事実と向き合い、未来を創る」",
+        "「目の前のことに魂を込める」",
+    ]
+
+    # 日付をシードにして行動指針を選択（1日同じ指針が表示される）
+    today = date.today()
+    principle_index = (today.year * 366 + today.timetuple().tm_yday) % len(action_principles)
+    message += f"ソウルシンクスの行動指針\n{action_principles[principle_index]}\n\n"
+
+    message += f"{user_name}さんなら絶対できるって、ソウルくんは信じてるウル💪🐺"
+
+    return message
+
+
+def build_team_summary_message(
+    leader_name: str,
+    department_name: str,
+    team_members: List[Dict],
+    summary_date: date
+) -> str:
+    """
+    08:00 チームサマリーメッセージを生成
+
+    Args:
+        leader_name: リーダー表示名
+        department_name: 部署名
+        team_members: チームメンバーの進捗データリスト
+        summary_date: サマリー対象日
+
+    Returns:
+        ChatWork送信用メッセージ
+    """
+    message = f"{leader_name}さん、おはようウル🐺\n\n"
+    message += f"【チーム進捗サマリー】{summary_date.strftime('%m/%d')}時点\n\n"
+
+    # 目標タイプごとにグループ化
+    goals_by_type = {}
+    total_target = Decimal(0)
+    total_current = Decimal(0)
+
+    for member in team_members:
+        member_name = member.get('user_name', '不明')
+        goals = member.get('goals', [])
+
+        for goal in goals:
+            goal_title = goal.get('title', '目標')
+            goal_type = goal.get('goal_type', 'numeric')
+            target_value = Decimal(str(goal.get('target_value', 0) or 0))
+            current_value = Decimal(str(goal.get('current_value', 0) or 0))
+            unit = goal.get('unit', '')
+
+            # 達成率を計算
+            if target_value > 0:
+                achievement_rate = float(current_value / target_value * 100)
+            else:
+                achievement_rate = 0
+
+            # ステータスアイコン
+            if achievement_rate >= 70:
+                status_icon = "📈 順調"
+            elif achievement_rate >= 50:
+                status_icon = "➡️ 進行中"
+            else:
+                status_icon = "⚠️ 要フォロー"
+
+            # 目標タイプでグループ化
+            type_key = goal_title if goal_type == 'numeric' else goal_type
+            if type_key not in goals_by_type:
+                goals_by_type[type_key] = {
+                    'members': [],
+                    'total_target': Decimal(0),
+                    'total_current': Decimal(0),
+                    'unit': unit,
+                }
+
+            goals_by_type[type_key]['members'].append({
+                'name': member_name,
+                'target': target_value,
+                'current': current_value,
+                'rate': achievement_rate,
+                'status': status_icon,
+            })
+
+            if goal_type == 'numeric':
+                goals_by_type[type_key]['total_target'] += target_value
+                goals_by_type[type_key]['total_current'] += current_value
+                total_target += target_value
+                total_current += current_value
+
+    # 各目標タイプごとに出力
+    for goal_title, data in goals_by_type.items():
+        message += f"■ {goal_title}\n"
+        unit = data.get('unit', '')
+
+        for m in data['members']:
+            if unit == '円':
+                current_display = _format_currency(m['current'])
+                target_display = _format_currency(m['target'])
+            else:
+                current_display = f"{m['current']:,.0f}"
+                target_display = f"{m['target']:,.0f}"
+
+            message += f"・{m['name']}：{current_display}/{target_display}{unit}（{m['rate']:.0f}%）{m['status']}\n"
+
+        # チーム合計
+        type_total_target = data.get('total_target', Decimal(0))
+        type_total_current = data.get('total_current', Decimal(0))
+        if type_total_target > 0:
+            type_total_rate = float(type_total_current / type_total_target * 100)
+            if unit == '円':
+                total_current_display = _format_currency(type_total_current)
+                total_target_display = _format_currency(type_total_target)
+            else:
+                total_current_display = f"{type_total_current:,.0f}"
+                total_target_display = f"{type_total_target:,.0f}"
+
+            message += f"\n■ チーム合計\n"
+            message += f"{total_current_display} / {total_target_display}{unit}（{type_total_rate:.0f}%）\n"
+
+        message += "\n"
+
+    # 気になるポイント（要フォローの人を抽出）
+    needs_followup = []
+    for goal_title, data in goals_by_type.items():
+        for m in data['members']:
+            if m['rate'] < 50:
+                needs_followup.append(m['name'])
+
+    if needs_followup:
+        unique_names = list(set(needs_followup))
+        message += "【気になるポイント】\n"
+        for name in unique_names[:3]:  # 最大3人まで表示
+            message += f"{name}さんの進捗が少し遅れ気味ウル。\n"
+        message += "声かけを検討してみてほしいウル🐺\n\n"
+
+    message += "今日もチームで頑張ろうウル💪"
+
+    return message
+
+
+def _format_currency(value: Any) -> str:
+    """金額を「万円」形式でフォーマット"""
+    try:
+        num = float(value)
+        if num >= 10000:
+            return f"{num / 10000:.0f}万"
+        else:
+            return f"{num:,.0f}"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+# =====================================================
+# 通知送信関数
+# =====================================================
+
+def send_daily_check_to_user(
+    conn,
+    user_id: str,
+    org_id: str,
+    user_name: str,
+    chatwork_room_id: str,
+    goals: List[Dict],
+    send_message_func,
+    dry_run: bool = False
+) -> Tuple[str, Optional[str]]:
+    """
+    17:00 進捗確認を送信（ユーザー単位で集約、冪等性保証）
+
+    Args:
+        conn: データベース接続
+        user_id: ユーザーID (UUID)
+        org_id: 組織ID (UUID)
+        user_name: ユーザー表示名
+        chatwork_room_id: ChatWork ルームID
+        goals: アクティブな目標リスト
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        Tuple[status, error_message]
+    """
+    import sqlalchemy
+
+    today = date.today()
+    notification_type = GoalNotificationType.DAILY_CHECK.value
+
+    # 1. 既に送信済みか確認（ユーザー単位）
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
+    """), {
+        'org_id': org_id,
+        'user_id': user_id,
+        'today': today,
+        'notification_type': notification_type,
+    })
+    existing = result.fetchone()
+
+    if existing and existing[1] == 'success':
+        logger.info(f"既に送信済み: user={user_id} / {notification_type}")
+        return ('skipped', 'already_sent')
+
+    # 2. メッセージを生成
+    message = build_daily_check_message(user_name, goals)
+
+    # 3. ChatWork送信
+    status = 'pending'
+    error_message = None
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] 17時進捗確認: {user_name}さん")
+        status = 'skipped'
+        error_message = 'dry_run'
+    else:
+        try:
+            send_message_func(chatwork_room_id, message)
+            status = 'success'
+        except Exception as e:
+            status = 'failed'
+            error_message = sanitize_error(e)
+            logger.error(f"17時進捗確認送信エラー: user={user_id}, error={error_message}")
+
+    # 4. 送信ログを記録（UPSERT）
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'status': status,
+        'error_message': error_message,
+        'room_id': chatwork_room_id,
+    })
+
+    return (status, error_message)
+
+
+def send_daily_reminder_to_user(
+    conn,
+    user_id: str,
+    org_id: str,
+    user_name: str,
+    chatwork_room_id: str,
+    send_message_func,
+    dry_run: bool = False
+) -> Tuple[str, Optional[str]]:
+    """
+    18:00 未回答リマインドを送信（受信者単位で冪等性保証）
+
+    17時の進捗確認に未回答の人に対してのみ送信。
+
+    Args:
+        conn: データベース接続
+        user_id: ユーザーID (UUID)
+        org_id: 組織ID (UUID)
+        user_name: ユーザー表示名
+        chatwork_room_id: ChatWork ルームID
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        Tuple[status, error_message]
+    """
+    import sqlalchemy
+
+    today = date.today()
+    notification_type = GoalNotificationType.DAILY_REMINDER.value
+
+    # 1. 既に18時リマインド送信済みか確認
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
+    """), {
+        'org_id': org_id,
+        'user_id': user_id,
+        'today': today,
+        'notification_type': notification_type,
+    })
+    existing = result.fetchone()
+
+    if existing and existing[1] == 'success':
+        logger.info(f"既に18時リマインド送信済み: user={user_id}")
+        return ('skipped', 'already_sent')
+
+    # 2. 17時の進捗確認に回答済みか確認（goal_progressに当日のレコードがあるか）
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id FROM goal_progress gp
+        JOIN goals g ON gp.goal_id = g.id
+        WHERE g.user_id = :user_id
+          AND g.organization_id = :org_id
+          AND gp.progress_date = :today
+    """), {
+        'user_id': user_id,
+        'org_id': org_id,
+        'today': today,
+    })
+    progress_today = result.fetchone()
+
+    if progress_today:
+        logger.info(f"既に回答済み: user={user_id}")
+        return ('skipped', 'already_answered')
+
+    # 3. 未回答なのでリマインド送信
+    message = build_daily_reminder_message(user_name)
+
+    status = 'pending'
+    error_message = None
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] 18時リマインド: {user_name}さん")
+        status = 'skipped'
+        error_message = 'dry_run'
+    else:
+        try:
+            send_message_func(chatwork_room_id, message)
+            status = 'success'
+        except Exception as e:
+            status = 'failed'
+            error_message = sanitize_error(e)
+            logger.error(f"18時リマインド送信エラー: user={user_id}, error={error_message}")
+
+    # 4. 送信ログを記録（UPSERT）
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'status': status,
+        'error_message': error_message,
+        'room_id': chatwork_room_id,
+    })
+
+    return (status, error_message)
+
+
+def send_morning_feedback_to_user(
+    conn,
+    user_id: str,
+    org_id: str,
+    user_name: str,
+    chatwork_room_id: str,
+    goals: List[Dict],
+    progress_data: Dict[str, Dict],
+    send_message_func,
+    dry_run: bool = False
+) -> Tuple[str, Optional[str]]:
+    """
+    08:00 個人フィードバックを送信
+
+    Args:
+        conn: データベース接続
+        user_id: ユーザーID (UUID)
+        org_id: 組織ID (UUID)
+        user_name: ユーザー表示名
+        chatwork_room_id: ChatWork ルームID
+        goals: 目標リスト
+        progress_data: 昨日の進捗データ
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        Tuple[status, error_message]
+    """
+    import sqlalchemy
+
+    today = date.today()
+    notification_type = GoalNotificationType.MORNING_FEEDBACK.value
+
+    # 1. 既に送信済みか確認
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
+    """), {
+        'org_id': org_id,
+        'user_id': user_id,
+        'today': today,
+        'notification_type': notification_type,
+    })
+    existing = result.fetchone()
+
+    if existing and existing[1] == 'success':
+        logger.info(f"既に8時フィードバック送信済み: user={user_id}")
+        return ('skipped', 'already_sent')
+
+    # 2. メッセージを生成
+    message = build_morning_feedback_message(user_name, goals, progress_data)
+
+    # 3. ChatWork送信
+    status = 'pending'
+    error_message = None
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] 8時フィードバック: {user_name}さん")
+        status = 'skipped'
+        error_message = 'dry_run'
+    else:
+        try:
+            send_message_func(chatwork_room_id, message)
+            status = 'success'
+        except Exception as e:
+            status = 'failed'
+            error_message = sanitize_error(e)
+            logger.error(f"8時フィードバック送信エラー: user={user_id}, error={error_message}")
+
+    # 4. 送信ログを記録（UPSERT）
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'status': status,
+        'error_message': error_message,
+        'room_id': chatwork_room_id,
+    })
+
+    return (status, error_message)
+
+
+def send_team_summary_to_leader(
+    conn,
+    recipient_id: str,
+    org_id: str,
+    leader_name: str,
+    department_id: str,
+    department_name: str,
+    chatwork_room_id: str,
+    team_members: List[Dict],
+    send_message_func,
+    dry_run: bool = False
+) -> Tuple[str, Optional[str]]:
+    """
+    08:00 チームサマリーを送信（受信者単位で冪等性保証）
+
+    Args:
+        conn: データベース接続
+        recipient_id: 受信者ユーザーID (UUID)
+        org_id: 組織ID (UUID)
+        leader_name: リーダー表示名
+        department_id: 部署ID (UUID)
+        department_name: 部署名
+        chatwork_room_id: ChatWork ルームID
+        team_members: チームメンバーの進捗データリスト
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        Tuple[status, error_message]
+    """
+    import sqlalchemy
+
+    today = date.today()
+    yesterday = today - timedelta(days=1)
+    notification_type = GoalNotificationType.TEAM_SUMMARY.value
+
+    # 1. 既に送信済みか確認（受信者単位）
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :recipient_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
+    """), {
+        'org_id': org_id,
+        'recipient_id': recipient_id,
+        'today': today,
+        'notification_type': notification_type,
+    })
+    existing = result.fetchone()
+
+    if existing and existing[1] == 'success':
+        logger.info(f"既にチームサマリー送信済み: recipient={recipient_id}")
+        return ('skipped', 'already_sent')
+
+    # 2. メッセージを生成
+    message = build_team_summary_message(leader_name, department_name, team_members, yesterday)
+
+    # 3. ChatWork送信
+    status = 'pending'
+    error_message = None
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] チームサマリー: {leader_name}さん（{department_name}）")
+        status = 'skipped'
+        error_message = 'dry_run'
+    else:
+        try:
+            send_message_func(chatwork_room_id, message)
+            status = 'success'
+        except Exception as e:
+            status = 'failed'
+            error_message = sanitize_error(e)
+            logger.error(f"チームサマリー送信エラー: recipient={recipient_id}, error={error_message}")
+
+    # 4. 送信ログを記録（UPSERT）
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target,
+            metadata
+        )
+        VALUES (:org_id, :notification_type, 'user', :recipient_id, :today, :status, :error_message, 'chatwork', :room_id,
+                :metadata::jsonb)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'recipient_id': recipient_id,
+        'today': today,
+        'status': status,
+        'error_message': error_message,
+        'room_id': chatwork_room_id,
+        'metadata': f'{{"department_id": "{department_id}", "department_name": "{department_name}"}}',
+    })
+
+    return (status, error_message)
+
+
+# =====================================================
+# スケジュール関数（Cloud Scheduler から呼び出し）
+# =====================================================
+
+def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = False) -> Dict[str, int]:
+    """
+    17:00 進捗確認の一括送信
+
+    Args:
+        conn: データベース接続
+        org_id: 組織ID (UUID)
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        送信結果のサマリー
+    """
+    import sqlalchemy
+
+    logger.info(f"=== 17時進捗確認 開始 (org={org_id}) ===")
+
+    results = {'success': 0, 'skipped': 0, 'failed': 0}
+
+    # アクティブな目標を持つユーザーを取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT DISTINCT
+            u.id AS user_id,
+            u.display_name AS user_name,
+            u.chatwork_room_id
+        FROM users u
+        JOIN goals g ON g.user_id = u.id
+        WHERE g.organization_id = :org_id
+          AND g.status = 'active'
+          AND u.chatwork_room_id IS NOT NULL
+    """), {'org_id': org_id})
+
+    users = result.fetchall()
+    logger.info(f"対象ユーザー: {len(users)}名")
+
+    for user in users:
+        user_id = str(user[0])
+        user_name = user[1]
+        chatwork_room_id = user[2]
+
+        # ユーザーのアクティブな目標を取得
+        goals_result = conn.execute(sqlalchemy.text("""
+            SELECT id, title, goal_type, target_value, current_value, unit, deadline
+            FROM goals
+            WHERE user_id = :user_id
+              AND organization_id = :org_id
+              AND status = 'active'
+            ORDER BY created_at
+        """), {'user_id': user_id, 'org_id': org_id})
+
+        goals = []
+        for g in goals_result.fetchall():
+            goals.append({
+                'id': str(g[0]),
+                'title': g[1],
+                'goal_type': g[2],
+                'target_value': float(g[3]) if g[3] else None,
+                'current_value': float(g[4]) if g[4] else 0,
+                'unit': g[5],
+                'deadline': g[6],
+            })
+
+        if not goals:
+            logger.info(f"目標なし: {user_name}さん")
+            continue
+
+        # 送信
+        status, error = send_daily_check_to_user(
+            conn=conn,
+            user_id=user_id,
+            org_id=org_id,
+            user_name=user_name,
+            chatwork_room_id=chatwork_room_id,
+            goals=goals,
+            send_message_func=send_message_func,
+            dry_run=dry_run,
+        )
+
+        results[status] = results.get(status, 0) + 1
+
+    logger.info(f"=== 17時進捗確認 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    return results
+
+
+def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool = False) -> Dict[str, int]:
+    """
+    18:00 未回答リマインドの一括送信
+
+    Args:
+        conn: データベース接続
+        org_id: 組織ID (UUID)
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        送信結果のサマリー
+    """
+    import sqlalchemy
+
+    logger.info(f"=== 18時未回答リマインド 開始 (org={org_id}) ===")
+
+    results = {'success': 0, 'skipped': 0, 'failed': 0}
+
+    # アクティブな目標を持つユーザーを取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT DISTINCT
+            u.id AS user_id,
+            u.display_name AS user_name,
+            u.chatwork_room_id
+        FROM users u
+        JOIN goals g ON g.user_id = u.id
+        WHERE g.organization_id = :org_id
+          AND g.status = 'active'
+          AND u.chatwork_room_id IS NOT NULL
+    """), {'org_id': org_id})
+
+    users = result.fetchall()
+    logger.info(f"対象ユーザー: {len(users)}名")
+
+    for user in users:
+        user_id = str(user[0])
+        user_name = user[1]
+        chatwork_room_id = user[2]
+
+        # 送信
+        status, error = send_daily_reminder_to_user(
+            conn=conn,
+            user_id=user_id,
+            org_id=org_id,
+            user_name=user_name,
+            chatwork_room_id=chatwork_room_id,
+            send_message_func=send_message_func,
+            dry_run=dry_run,
+        )
+
+        results[status] = results.get(status, 0) + 1
+
+    logger.info(f"=== 18時未回答リマインド 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    return results
+
+
+def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bool = False) -> Dict[str, int]:
+    """
+    08:00 朝フィードバックの一括送信（個人フィードバック + チームサマリー）
+
+    Args:
+        conn: データベース接続
+        org_id: 組織ID (UUID)
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        送信結果のサマリー
+    """
+    import sqlalchemy
+
+    logger.info(f"=== 8時朝フィードバック 開始 (org={org_id}) ===")
+
+    results = {'success': 0, 'skipped': 0, 'failed': 0}
+    yesterday = date.today() - timedelta(days=1)
+
+    # =====================================================
+    # 1. 個人フィードバック
+    # =====================================================
+
+    # 昨日進捗報告をしたユーザーを取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT DISTINCT
+            u.id AS user_id,
+            u.display_name AS user_name,
+            u.chatwork_room_id
+        FROM users u
+        JOIN goal_progress gp ON gp.organization_id = u.organization_id
+        JOIN goals g ON gp.goal_id = g.id AND g.user_id = u.id
+        WHERE g.organization_id = :org_id
+          AND gp.progress_date = :yesterday
+          AND u.chatwork_room_id IS NOT NULL
+    """), {'org_id': org_id, 'yesterday': yesterday})
+
+    users = result.fetchall()
+    logger.info(f"個人フィードバック対象: {len(users)}名")
+
+    for user in users:
+        user_id = str(user[0])
+        user_name = user[1]
+        chatwork_room_id = user[2]
+
+        # ユーザーの目標を取得
+        goals_result = conn.execute(sqlalchemy.text("""
+            SELECT id, title, goal_type, target_value, current_value, unit, deadline
+            FROM goals
+            WHERE user_id = :user_id
+              AND organization_id = :org_id
+              AND status = 'active'
+            ORDER BY created_at
+        """), {'user_id': user_id, 'org_id': org_id})
+
+        goals = []
+        for g in goals_result.fetchall():
+            goals.append({
+                'id': str(g[0]),
+                'title': g[1],
+                'goal_type': g[2],
+                'target_value': float(g[3]) if g[3] else None,
+                'current_value': float(g[4]) if g[4] else 0,
+                'unit': g[5],
+                'deadline': g[6],
+            })
+
+        # 昨日の進捗データを取得
+        progress_result = conn.execute(sqlalchemy.text("""
+            SELECT gp.goal_id, gp.value, gp.cumulative_value, gp.daily_note, gp.daily_choice
+            FROM goal_progress gp
+            JOIN goals g ON gp.goal_id = g.id
+            WHERE g.user_id = :user_id
+              AND g.organization_id = :org_id
+              AND gp.progress_date = :yesterday
+        """), {'user_id': user_id, 'org_id': org_id, 'yesterday': yesterday})
+
+        progress_data = {}
+        for p in progress_result.fetchall():
+            progress_data[str(p[0])] = {
+                'value': float(p[1]) if p[1] else 0,
+                'cumulative_value': float(p[2]) if p[2] else 0,
+                'daily_note': p[3],
+                'daily_choice': p[4],
+            }
+
+        # 送信
+        status, error = send_morning_feedback_to_user(
+            conn=conn,
+            user_id=user_id,
+            org_id=org_id,
+            user_name=user_name,
+            chatwork_room_id=chatwork_room_id,
+            goals=goals,
+            progress_data=progress_data,
+            send_message_func=send_message_func,
+            dry_run=dry_run,
+        )
+
+        results[status] = results.get(status, 0) + 1
+
+    # =====================================================
+    # 2. チームサマリー（チームリーダー・部長向け）
+    # =====================================================
+
+    # サマリー受信者（チームリーダー・部長）を取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT DISTINCT
+            u.id AS user_id,
+            u.display_name AS user_name,
+            u.chatwork_room_id,
+            d.id AS department_id,
+            d.name AS department_name
+        FROM users u
+        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN departments d ON ud.department_id = d.id
+        JOIN roles r ON ud.role_id = r.id
+        WHERE u.organization_id = :org_id
+          AND r.name IN ('チームリーダー', '部長', '経営', '代表')
+          AND u.chatwork_room_id IS NOT NULL
+    """), {'org_id': org_id})
+
+    leaders = result.fetchall()
+    logger.info(f"チームサマリー対象リーダー: {len(leaders)}名")
+
+    for leader in leaders:
+        leader_id = str(leader[0])
+        leader_name = leader[1]
+        chatwork_room_id = leader[2]
+        department_id = str(leader[3])
+        department_name = leader[4]
+
+        # 部署メンバーの進捗を取得
+        members_result = conn.execute(sqlalchemy.text("""
+            SELECT
+                u.id AS user_id,
+                u.display_name AS user_name,
+                g.id AS goal_id,
+                g.title,
+                g.goal_type,
+                g.target_value,
+                g.current_value,
+                g.unit
+            FROM users u
+            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN goals g ON g.user_id = u.id
+            WHERE ud.department_id = :department_id
+              AND g.organization_id = :org_id
+              AND g.status = 'active'
+            ORDER BY u.display_name, g.created_at
+        """), {'department_id': department_id, 'org_id': org_id})
+
+        # メンバーデータを整形
+        team_members = {}
+        for m in members_result.fetchall():
+            member_id = str(m[0])
+            if member_id not in team_members:
+                team_members[member_id] = {
+                    'user_id': member_id,
+                    'user_name': m[1],
+                    'goals': [],
+                }
+            team_members[member_id]['goals'].append({
+                'id': str(m[2]),
+                'title': m[3],
+                'goal_type': m[4],
+                'target_value': float(m[5]) if m[5] else None,
+                'current_value': float(m[6]) if m[6] else 0,
+                'unit': m[7],
+            })
+
+        team_members_list = list(team_members.values())
+
+        if not team_members_list:
+            logger.info(f"チームメンバーなし: {leader_name}さん（{department_name}）")
+            continue
+
+        # 送信
+        status, error = send_team_summary_to_leader(
+            conn=conn,
+            recipient_id=leader_id,
+            org_id=org_id,
+            leader_name=leader_name,
+            department_id=department_id,
+            department_name=department_name,
+            chatwork_room_id=chatwork_room_id,
+            team_members=team_members_list,
+            send_message_func=send_message_func,
+            dry_run=dry_run,
+        )
+
+        results[status] = results.get(status, 0) + 1
+
+    logger.info(f"=== 8時朝フィードバック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    return results
+
+
+# =====================================================
+# エクスポート
+# =====================================================
+
+__all__ = [
+    # 通知タイプ
+    'GoalNotificationType',
+    # エラーサニタイズ
+    'sanitize_error',
+    # メッセージビルダー
+    'build_daily_check_message',
+    'build_daily_reminder_message',
+    'build_morning_feedback_message',
+    'build_team_summary_message',
+    # 通知送信関数
+    'send_daily_check_to_user',
+    'send_daily_reminder_to_user',
+    'send_morning_feedback_to_user',
+    'send_team_summary_to_leader',
+    # スケジュール関数
+    'scheduled_daily_check',
+    'scheduled_daily_reminder',
+    'scheduled_morning_feedback',
+]

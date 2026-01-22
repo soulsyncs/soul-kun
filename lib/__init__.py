@@ -28,7 +28,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.3.0"  # v10.15.0: Phase 2.5 goal service追加
+__version__ = "1.4.0"  # v10.15.0: Phase 2.5 goal notification追加
 
 # 設定
 from lib.config import (
@@ -148,6 +148,28 @@ from lib.goal import (
     calculate_period_from_type,
 )
 
+# v10.15.0: Phase 2.5 目標通知サービス
+from lib.goal_notification import (
+    # 通知タイプ
+    GoalNotificationType,
+    # エラーサニタイズ
+    sanitize_error,
+    # メッセージビルダー
+    build_daily_check_message,
+    build_daily_reminder_message,
+    build_morning_feedback_message,
+    build_team_summary_message,
+    # 通知送信関数
+    send_daily_check_to_user,
+    send_daily_reminder_to_user,
+    send_morning_feedback_to_user,
+    send_team_summary_to_leader,
+    # スケジュール関数
+    scheduled_daily_check,
+    scheduled_daily_reminder,
+    scheduled_morning_feedback,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -221,4 +243,18 @@ __all__ = [
     "get_goal_service",
     "parse_goal_type_from_text",
     "calculate_period_from_type",
+    # v10.15.0: Phase 2.5 Goal Notification
+    "GoalNotificationType",
+    "sanitize_error",
+    "build_daily_check_message",
+    "build_daily_reminder_message",
+    "build_morning_feedback_message",
+    "build_team_summary_message",
+    "send_daily_check_to_user",
+    "send_daily_reminder_to_user",
+    "send_morning_feedback_to_user",
+    "send_team_summary_to_leader",
+    "scheduled_daily_check",
+    "scheduled_daily_reminder",
+    "scheduled_morning_feedback",
 ]

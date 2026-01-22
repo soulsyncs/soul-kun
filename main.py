@@ -2261,31 +2261,42 @@ def get_room_tasks(room_id, status='open'):
 
 def send_completion_notification(room_id, task, assigned_by_name):
     """
-    タスク完了通知を送信
-    
+    タスク完了通知を送信（個別通知）
+
+    ★★★ v10.15.0: 無効化 ★★★
+    個別グループへの完了通知を廃止。
+    代わりに remind-tasks の process_completed_tasks_summary() で
+    管理部チャットに1日1回まとめて報告する方式に変更。
+
     Args:
         room_id: ルームID
         task: タスク情報の辞書
         assigned_by_name: 依頼者名
     """
-    assigned_to_name = task.get('account', {}).get('name', '担当者')
-    task_body = task.get('body', 'タスク')
-    
-    message = f"[info][title]{assigned_to_name}さんがタスクを完了しましたウル！[/title]"
-    message += f"タスク: {task_body}\n"
-    message += f"依頼者: {assigned_by_name}さん\n"
-    message += f"お疲れ様でしたウル！[/info]"
-    
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-    data = {'body': message}
-    
-    headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
-    response = httpx.post(url, headers=headers, data=data )
-    
-    if response.status_code == 200:
-        print(f"Completion notification sent for task {task['task_id']} in room {room_id}")
-    else:
-        print(f"Failed to send completion notification: {response.status_code}")
+    # v10.15.0: 個別通知を無効化（管理部への日次報告に集約）
+    task_id = task.get('task_id', 'unknown')
+    print(f"📝 [v10.15.0] 完了通知スキップ: task_id={task_id} (管理部への日次報告に集約)")
+    return
+
+    # --- 以下は無効化（v10.15.0以前のコード） ---
+    # assigned_to_name = task.get('account', {}).get('name', '担当者')
+    # task_body = task.get('body', 'タスク')
+    #
+    # message = f"[info][title]{assigned_to_name}さんがタスクを完了しましたウル！[/title]"
+    # message += f"タスク: {task_body}\n"
+    # message += f"依頼者: {assigned_by_name}さん\n"
+    # message += f"お疲れ様でしたウル！[/info]"
+    #
+    # url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
+    # data = {'body': message}
+    #
+    # headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
+    # response = httpx.post(url, headers=headers, data=data )
+    #
+    # if response.status_code == 200:
+    #     print(f"Completion notification sent for task {task['task_id']} in room {room_id}")
+    # else:
+    #     print(f"Failed to send completion notification: {response.status_code}")
 
 def sync_room_members():
     """全ルームのメンバーをchatwork_usersテーブルに同期"""

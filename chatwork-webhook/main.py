@@ -4025,15 +4025,53 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
             ).fetchone()
 
             if not user_result:
-                # ユーザーが見つからない場合はデフォルトのorganization_idを使用
-                org_id = "org_soulsyncs"  # デフォルト
-                user_id = str(uuid4())  # 仮のuser_id
-                user_name = sender_name or "ユーザー"
-                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}, 仮のuser_idを使用")
-            else:
-                user_id = str(user_result[0])
-                org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
-                user_name = user_result[2] or sender_name or "ユーザー"
+                # ユーザーが見つからない場合はエラーを返す
+                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 ユーザー情報が見つからないウル...\n管理者に連絡してユーザー登録をお願いしてほしいウル🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = user_result[1]
+            if not org_id:
+                # organization_idが設定されていない場合はエラーを返す
+                print(f"⚠️ organization_idが未設定: user_id={user_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないウル...\n管理者に連絡して組織の設定をお願いしてほしいウル🐺"
+                }
+            org_id = str(org_id)
+            user_name = user_result[2] or sender_name or "ユーザー"
+
+            # 冪等性ガード: 同じユーザー・タイトル・期間の目標が既に存在するかチェック
+            existing_goal = conn.execute(
+                text("""
+                    SELECT id, title FROM goals
+                    WHERE organization_id = :organization_id
+                      AND user_id = :user_id
+                      AND title = :title
+                      AND period_type = :period_type
+                      AND period_start = :period_start
+                      AND status = 'active'
+                    LIMIT 1
+                """),
+                {
+                    "organization_id": org_id,
+                    "user_id": user_id,
+                    "title": goal_title,
+                    "period_type": period_type,
+                    "period_start": period_start
+                }
+            ).fetchone()
+
+            if existing_goal:
+                # 既に同じ目標が存在する場合は登録済みとして返す
+                print(f"⚠️ 目標が既に存在: goal_id={existing_goal[0]}, title={existing_goal[1]}")
+                return {
+                    "success": True,
+                    "message": f"📌 その目標は既に登録済みウル！\n\n目標: {existing_goal[1]}\n\n進捗を報告したい場合は「今日の進捗を報告したい」と言ってほしいウル🐺"
+                }
 
             # 目標を登録
             goal_id = str(uuid4())
@@ -4143,7 +4181,15 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
                 }
 
             user_id = str(user_result[0])
-            org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
+            org_id = user_result[1]
+            if not org_id:
+                # organization_idが設定されていない場合はエラーを返す
+                print(f"⚠️ handle_goal_progress_report: organization_idが未設定 user_id={user_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないウル...\n管理者に連絡して組織の設定をお願いしてほしいウル🐺"
+                }
+            org_id = str(org_id)
             user_name = user_result[2] or sender_name or "ユーザー"
 
             # アクティブな目標を取得
@@ -4235,10 +4281,17 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
                 conn.execute(
                     text("""
                         UPDATE goals
-                        SET current_value = :cumulative_value, updated_at = CURRENT_TIMESTAMP
+                        SET current_value = :cumulative_value,
+                            updated_by = :user_id,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE id = :goal_id AND organization_id = :organization_id
                     """),
-                    {"goal_id": goal_id, "organization_id": org_id, "cumulative_value": float(cumulative_value)}
+                    {
+                        "goal_id": goal_id,
+                        "organization_id": org_id,
+                        "cumulative_value": float(cumulative_value),
+                        "user_id": user_id
+                    }
                 )
 
             conn.commit()
@@ -4326,7 +4379,15 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
                 }
 
             user_id = str(user_result[0])
-            org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
+            org_id = user_result[1]
+            if not org_id:
+                # organization_idが設定されていない場合はエラーを返す
+                print(f"⚠️ handle_goal_status_check: organization_idが未設定 user_id={user_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないウル...\n管理者に連絡して組織の設定をお願いしてほしいウル🐺"
+                }
+            org_id = str(org_id)
             user_name = user_result[2] or sender_name or "ユーザー"
 
             # アクティブな目標を全て取得

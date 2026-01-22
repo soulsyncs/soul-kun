@@ -1438,7 +1438,7 @@ Claude Codeで以下のようにお伝えください：
 #### 実装詳細
 
 ```sql
--- 回答フィードバック
+-- 回答フィードバック【v1.2修正: updated_at/updated_by追加】
 CREATE TABLE response_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
@@ -1450,7 +1450,10 @@ CREATE TABLE response_feedback (
     user_id UUID REFERENCES users(id),
     learning_applied BOOLEAN DEFAULT false,
     learning_note TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -2362,7 +2365,7 @@ COMMENT ON TABLE soulkun_weekly_reports IS 'Phase 2進化版: 週次レポート
 ### 5.2.18 response_feedback
 
 ```sql
--- 回答フィードバック
+-- 回答フィードバック【v1.2修正: updated_at/updated_by追加】
 CREATE TABLE response_feedback (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
@@ -2374,7 +2377,10 @@ CREATE TABLE response_feedback (
     user_id UUID REFERENCES users(id),
     learning_applied BOOLEAN DEFAULT false,
     learning_note TEXT,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_response_feedback_conversation
@@ -3641,40 +3647,85 @@ CREATE TABLE user_referral_settings (
 **実装（データベース修正）:**
 
 ```sql
--- 会社ルールテーブル（承認制に修正）【v1.2修正: ON DELETE, updated_by追加】
-DROP TABLE IF EXISTS company_rules;
+-- 会社ルールテーブル（承認制に修正）【v1.2修正: DROP TABLE廃止、ALTER TABLE方式に変更】
+-- ★重要: データ破壊を防ぐため、DROP TABLEではなくALTER TABLEを使用
 
-CREATE TABLE company_rules (
+-- Step 1: 新しいカラムを追加（既存データを保持）
+ALTER TABLE company_rules
+ADD COLUMN IF NOT EXISTS department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
+ADD COLUMN IF NOT EXISTS submitted_for_approval_at TIMESTAMPTZ,
+ADD COLUMN IF NOT EXISTS rejection_reason TEXT,
+ADD COLUMN IF NOT EXISTS source_type VARCHAR(50),
+ADD COLUMN IF NOT EXISTS source_reference TEXT,
+ADD COLUMN IF NOT EXISTS confidence_level VARCHAR(20),
+ADD COLUMN IF NOT EXISTS original_speaker_id UUID REFERENCES users(id) ON DELETE SET NULL,
+ADD COLUMN IF NOT EXISTS review_required_at DATE,
+ADD COLUMN IF NOT EXISTS last_reviewed_at TIMESTAMPTZ;
+
+-- Step 2: 既存データにデフォルト値を設定
+UPDATE company_rules
+SET source_type = 'official_document',
+    confidence_level = 'high'
+WHERE source_type IS NULL;
+
+-- Step 3: NOT NULL制約を追加（デフォルト値設定後）
+ALTER TABLE company_rules
+ALTER COLUMN source_type SET NOT NULL,
+ALTER COLUMN confidence_level SET NOT NULL;
+
+-- Step 4: status列の値を変更（'active' → 'approved' にマッピング）
+UPDATE company_rules
+SET status = 'approved'
+WHERE status = 'active';
+
+-- Step 5: インデックス追加
+CREATE INDEX IF NOT EXISTS idx_company_rules_status
+ON company_rules(organization_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_company_rules_review
+ON company_rules(organization_id, review_required_at)
+WHERE status = 'approved';
+
+-- コメント
+COMMENT ON TABLE company_rules IS 'Phase 2進化版: 会社ルール（承認制、v1.1で追加）';
+COMMENT ON COLUMN company_rules.status IS 'draft=暫定, pending_approval=承認待ち, approved=確定, rejected=却下';
+COMMENT ON COLUMN company_rules.confidence_level IS '信頼度: high=公式文書, medium=管理者発言, low=一般会話';
+```
+
+**最終テーブル定義（参考：新規環境向け）:**
+```sql
+CREATE TABLE IF NOT EXISTS company_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
 
     -- 基本情報
-    category VARCHAR(50) NOT NULL,            -- business, communication, culture, prohibition
+    category VARCHAR(50) NOT NULL,
     title VARCHAR(200) NOT NULL,
     description TEXT NOT NULL,
 
-    -- ★承認管理（追加）
-    status VARCHAR(20) DEFAULT 'draft',       -- draft（暫定）, pending_approval（承認待ち）, approved（確定）, rejected（却下）
-    submitted_for_approval_at TIMESTAMPTZ,    -- 承認申請日時
-    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,    -- 承認者
-    approved_at TIMESTAMPTZ,                    -- 承認日時
-    rejection_reason TEXT,                    -- 却下理由
+    -- ★承認管理
+    status VARCHAR(20) DEFAULT 'draft',
+    submitted_for_approval_at TIMESTAMPTZ,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_at TIMESTAMPTZ,
+    rejection_reason TEXT,
 
-    -- ★出典と信頼度（追加）
-    source_type VARCHAR(50) NOT NULL,         -- official_document（公式文書）, admin_statement（管理者発言）, conversation（会話）
-    source_reference TEXT,                    -- 出典の詳細（文書名、会話日時等）
-    confidence_level VARCHAR(20) NOT NULL,    -- high, medium, low
-    original_speaker_id UUID REFERENCES users(id) ON DELETE SET NULL,  -- 発言者
+    -- ★出典と信頼度
+    source_type VARCHAR(50) NOT NULL,
+    source_reference TEXT,
+    confidence_level VARCHAR(20) NOT NULL,
+    original_speaker_id UUID REFERENCES users(id) ON DELETE SET NULL,
 
-    -- ★有効期限（追加）
+    -- ★有効期限
     effective_from DATE DEFAULT CURRENT_DATE,
-    effective_until DATE,                     -- NULL = 無期限
-    review_required_at DATE,                  -- 次回レビュー必要日
-    last_reviewed_at TIMESTAMPTZ,             -- 最終レビュー日
+    effective_until DATE,
+    review_required_at DATE,
+    last_reviewed_at TIMESTAMPTZ,
 
     -- 適用範囲
-    importance VARCHAR(20) NOT NULL,          -- critical, high, medium, low
-    applies_to VARCHAR(50) DEFAULT 'all',     -- all, department, role
+    importance VARCHAR(20) NOT NULL,
+    applies_to VARCHAR(50) DEFAULT 'all',
     applies_to_ids UUID[] DEFAULT '{}',
 
     -- 監査
@@ -3683,19 +3734,6 @@ CREATE TABLE company_rules (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
-
--- インデックス
-CREATE INDEX idx_company_rules_status
-ON company_rules(organization_id, status);
-
-CREATE INDEX idx_company_rules_review
-ON company_rules(organization_id, review_required_at)
-WHERE status = 'approved';
-
--- コメント
-COMMENT ON TABLE company_rules IS 'Phase 2進化版: 会社ルール（承認制、v1.1で追加）';
-COMMENT ON COLUMN company_rules.status IS 'draft=暫定, pending_approval=承認待ち, approved=確定, rejected=却下';
-COMMENT ON COLUMN company_rules.confidence_level IS '信頼度: high=公式文書, medium=管理者発言, low=一般会話';
 ```
 
 **ソウルくんの動作（会話からルール検出時）:**

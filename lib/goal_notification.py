@@ -311,7 +311,7 @@ def build_morning_feedback_message(
     ]
 
     # 日付をシードにして行動指針を選択（1日同じ指針が表示される）
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     principle_index = (today.year * 366 + today.timetuple().tm_yday) % len(action_principles)
     message += f"ソウルシンクスの行動指針\n{action_principles[principle_index]}\n\n"
 
@@ -490,10 +490,17 @@ def send_daily_check_to_user(
     """
     import sqlalchemy
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.DAILY_CHECK.value
 
-    # 1. 既に送信済みか確認（ユーザー単位）
+    # =====================================================
+    # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
+    # Phase 1: 送信済み確認 + pending挿入 + commit
+    # Phase 2: API呼び出し（DB接続不要）
+    # Phase 3: ステータス更新 + commit
+    # =====================================================
+
+    # Phase 1: 既に送信済みか確認 + pending挿入
     result = conn.execute(sqlalchemy.text("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = :org_id
@@ -513,10 +520,30 @@ def send_daily_check_to_user(
         logger.info(f"既に送信済み: user={user_id} / {notification_type}")
         return ('skipped', 'already_sent')
 
-    # 2. メッセージを生成
+    # pending状態のログを先に挿入（または既存レコードをpendingに更新）
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, 'pending', 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = 'pending',
+            updated_at = NOW()
+        WHERE notification_logs.status != 'success'
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'room_id': chatwork_room_id,
+    })
+    conn.commit()  # DBロック解放
+
+    # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_daily_check_message(user_name, goals)
 
-    # 3. ChatWork送信
     status = 'pending'
     error_message = None
 
@@ -533,19 +560,18 @@ def send_daily_check_to_user(
             error_message = sanitize_error(e)
             logger.error(f"17時進捗確認送信エラー: user={user_id}, error={error_message}")
 
-    # 4. 送信ログを記録（UPSERT）
+    # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
-        INSERT INTO notification_logs (
-            organization_id, notification_type, target_type, target_id,
-            notification_date, status, error_message, channel, channel_target
-        )
-        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
-        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            retry_count = notification_logs.retry_count + 1,
+        UPDATE notification_logs
+        SET status = :status,
+            error_message = :error_message,
+            retry_count = retry_count + 1,
             updated_at = NOW()
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
     """), {
         'org_id': org_id,
         'notification_type': notification_type,
@@ -553,7 +579,6 @@ def send_daily_check_to_user(
         'today': today,
         'status': status,
         'error_message': error_message,
-        'room_id': chatwork_room_id,
     })
     conn.commit()
 
@@ -588,10 +613,17 @@ def send_daily_reminder_to_user(
     """
     import sqlalchemy
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.DAILY_REMINDER.value
 
-    # 1. 既に18時リマインド送信済みか確認
+    # =====================================================
+    # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
+    # Phase 1: 送信済み確認 + 回答済み確認 + pending挿入 + commit
+    # Phase 2: API呼び出し（DB接続不要）
+    # Phase 3: ステータス更新 + commit
+    # =====================================================
+
+    # Phase 1a: 既に18時リマインド送信済みか確認
     result = conn.execute(sqlalchemy.text("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = :org_id
@@ -611,12 +643,13 @@ def send_daily_reminder_to_user(
         logger.info(f"既に18時リマインド送信済み: user={user_id}")
         return ('skipped', 'already_sent')
 
-    # 2. 17時の進捗確認に回答済みか確認（goal_progressに当日のレコードがあるか）
+    # Phase 1b: 17時の進捗確認に回答済みか確認
     result = conn.execute(sqlalchemy.text("""
         SELECT id FROM goal_progress gp
-        JOIN goals g ON gp.goal_id = g.id
+        JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
         WHERE g.user_id = :user_id
           AND g.organization_id = :org_id
+          AND gp.organization_id = :org_id
           AND gp.progress_date = :today
     """), {
         'user_id': user_id,
@@ -629,7 +662,28 @@ def send_daily_reminder_to_user(
         logger.info(f"既に回答済み: user={user_id}")
         return ('skipped', 'already_answered')
 
-    # 3. 未回答なのでリマインド送信
+    # Phase 1c: pending状態のログを先に挿入
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, 'pending', 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = 'pending',
+            updated_at = NOW()
+        WHERE notification_logs.status != 'success'
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'room_id': chatwork_room_id,
+    })
+    conn.commit()  # DBロック解放
+
+    # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_daily_reminder_message(user_name)
 
     status = 'pending'
@@ -648,19 +702,18 @@ def send_daily_reminder_to_user(
             error_message = sanitize_error(e)
             logger.error(f"18時リマインド送信エラー: user={user_id}, error={error_message}")
 
-    # 4. 送信ログを記録（UPSERT）
+    # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
-        INSERT INTO notification_logs (
-            organization_id, notification_type, target_type, target_id,
-            notification_date, status, error_message, channel, channel_target
-        )
-        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
-        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            retry_count = notification_logs.retry_count + 1,
+        UPDATE notification_logs
+        SET status = :status,
+            error_message = :error_message,
+            retry_count = retry_count + 1,
             updated_at = NOW()
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
     """), {
         'org_id': org_id,
         'notification_type': notification_type,
@@ -668,7 +721,6 @@ def send_daily_reminder_to_user(
         'today': today,
         'status': status,
         'error_message': error_message,
-        'room_id': chatwork_room_id,
     })
     conn.commit()
 
@@ -705,10 +757,17 @@ def send_morning_feedback_to_user(
     """
     import sqlalchemy
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.MORNING_FEEDBACK.value
 
-    # 1. 既に送信済みか確認
+    # =====================================================
+    # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
+    # Phase 1: 送信済み確認 + pending挿入 + commit
+    # Phase 2: API呼び出し（DB接続不要）
+    # Phase 3: ステータス更新 + commit
+    # =====================================================
+
+    # Phase 1a: 既に送信済みか確認
     result = conn.execute(sqlalchemy.text("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = :org_id
@@ -728,10 +787,30 @@ def send_morning_feedback_to_user(
         logger.info(f"既に8時フィードバック送信済み: user={user_id}")
         return ('skipped', 'already_sent')
 
-    # 2. メッセージを生成
+    # Phase 1b: pending状態のログを先に挿入
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, channel, channel_target
+        )
+        VALUES (:org_id, :notification_type, 'user', :user_id, :today, 'pending', 'chatwork', :room_id)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = 'pending',
+            updated_at = NOW()
+        WHERE notification_logs.status != 'success'
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'user_id': user_id,
+        'today': today,
+        'room_id': chatwork_room_id,
+    })
+    conn.commit()  # DBロック解放
+
+    # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_morning_feedback_message(user_name, goals, progress_data)
 
-    # 3. ChatWork送信
     status = 'pending'
     error_message = None
 
@@ -748,19 +827,18 @@ def send_morning_feedback_to_user(
             error_message = sanitize_error(e)
             logger.error(f"8時フィードバック送信エラー: user={user_id}, error={error_message}")
 
-    # 4. 送信ログを記録（UPSERT）
+    # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
-        INSERT INTO notification_logs (
-            organization_id, notification_type, target_type, target_id,
-            notification_date, status, error_message, channel, channel_target
-        )
-        VALUES (:org_id, :notification_type, 'user', :user_id, :today, :status, :error_message, 'chatwork', :room_id)
-        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            retry_count = notification_logs.retry_count + 1,
+        UPDATE notification_logs
+        SET status = :status,
+            error_message = :error_message,
+            retry_count = retry_count + 1,
             updated_at = NOW()
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :user_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
     """), {
         'org_id': org_id,
         'notification_type': notification_type,
@@ -768,7 +846,6 @@ def send_morning_feedback_to_user(
         'today': today,
         'status': status,
         'error_message': error_message,
-        'room_id': chatwork_room_id,
     })
     conn.commit()
 
@@ -806,12 +883,20 @@ def send_team_summary_to_leader(
         Tuple[status, error_message]
     """
     import sqlalchemy
+    import json
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     yesterday = today - timedelta(days=1)
     notification_type = GoalNotificationType.TEAM_SUMMARY.value
 
-    # 1. 既に送信済みか確認（受信者単位）
+    # =====================================================
+    # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
+    # Phase 1: 送信済み確認 + pending挿入 + commit
+    # Phase 2: API呼び出し（DB接続不要）
+    # Phase 3: ステータス更新 + commit
+    # =====================================================
+
+    # Phase 1a: 既に送信済みか確認（受信者単位）
     result = conn.execute(sqlalchemy.text("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = :org_id
@@ -831,10 +916,32 @@ def send_team_summary_to_leader(
         logger.info(f"既にチームサマリー送信済み: recipient={recipient_id}")
         return ('skipped', 'already_sent')
 
-    # 2. メッセージを生成
+    # Phase 1b: pending状態のログを先に挿入
+    metadata_json = json.dumps({"department_id": department_id, "department_name": department_name})
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, channel, channel_target, metadata
+        )
+        VALUES (:org_id, :notification_type, 'user', :recipient_id, :today, 'pending', 'chatwork', :room_id, :metadata::jsonb)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = 'pending',
+            updated_at = NOW()
+        WHERE notification_logs.status != 'success'
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'recipient_id': recipient_id,
+        'today': today,
+        'room_id': chatwork_room_id,
+        'metadata': metadata_json,
+    })
+    conn.commit()  # DBロック解放
+
+    # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_team_summary_message(leader_name, department_name, team_members, yesterday)
 
-    # 3. ChatWork送信
     status = 'pending'
     error_message = None
 
@@ -851,21 +958,18 @@ def send_team_summary_to_leader(
             error_message = sanitize_error(e)
             logger.error(f"チームサマリー送信エラー: recipient={recipient_id}, error={error_message}")
 
-    # 4. 送信ログを記録（UPSERT）
+    # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
-        INSERT INTO notification_logs (
-            organization_id, notification_type, target_type, target_id,
-            notification_date, status, error_message, channel, channel_target,
-            metadata
-        )
-        VALUES (:org_id, :notification_type, 'user', :recipient_id, :today, :status, :error_message, 'chatwork', :room_id,
-                :metadata::jsonb)
-        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            retry_count = notification_logs.retry_count + 1,
+        UPDATE notification_logs
+        SET status = :status,
+            error_message = :error_message,
+            retry_count = retry_count + 1,
             updated_at = NOW()
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :recipient_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
     """), {
         'org_id': org_id,
         'notification_type': notification_type,
@@ -873,8 +977,6 @@ def send_team_summary_to_leader(
         'today': today,
         'status': status,
         'error_message': error_message,
-        'room_id': chatwork_room_id,
-        'metadata': f'{{"department_id": "{department_id}", "department_name": "{department_name}"}}',
     })
     conn.commit()
 
@@ -1046,13 +1148,15 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     logger.info(f"=== 8時朝フィードバック 開始 (org={org_id}) ===")
 
     results = {'success': 0, 'skipped': 0, 'failed': 0}
-    yesterday = date.today() - timedelta(days=1)
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
+    yesterday = today - timedelta(days=1)
 
     # =====================================================
     # 1. 個人フィードバック
     # =====================================================
 
     # 昨日進捗報告をしたユーザーを取得
+    # テナント分離: users, goals, goal_progressの全てでorg_idフィルタ
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
@@ -1060,8 +1164,10 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             u.chatwork_room_id
         FROM users u
         JOIN goal_progress gp ON gp.organization_id = u.organization_id
-        JOIN goals g ON gp.goal_id = g.id AND g.user_id = u.id
-        WHERE g.organization_id = :org_id
+        JOIN goals g ON gp.goal_id = g.id AND g.user_id = u.id AND g.organization_id = u.organization_id
+        WHERE u.organization_id = :org_id
+          AND g.organization_id = :org_id
+          AND gp.organization_id = :org_id
           AND gp.progress_date = :yesterday
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id, 'yesterday': yesterday})
@@ -1097,12 +1203,14 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             })
 
         # 昨日の進捗データを取得
+        # テナント分離: goals, goal_progressの両方でorg_idフィルタ
         progress_result = conn.execute(sqlalchemy.text("""
             SELECT gp.goal_id, gp.value, gp.cumulative_value, gp.daily_note, gp.daily_choice
             FROM goal_progress gp
-            JOIN goals g ON gp.goal_id = g.id
+            JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
             WHERE g.user_id = :user_id
               AND g.organization_id = :org_id
+              AND gp.organization_id = :org_id
               AND gp.progress_date = :yesterday
         """), {'user_id': user_id, 'org_id': org_id, 'yesterday': yesterday})
 
@@ -1292,7 +1400,7 @@ def check_consecutive_unanswered_users(
     """
     import sqlalchemy
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     check_start_date = today - timedelta(days=consecutive_days)
 
     # アクティブな目標を持つユーザーで、指定日数以内に進捗報告がないユーザーを取得
@@ -1381,11 +1489,19 @@ def send_consecutive_unanswered_alert_to_leader(
         Tuple[status, error_message]
     """
     import sqlalchemy
+    import json
 
-    today = date.today()
+    today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = "goal_consecutive_unanswered"
 
-    # 既に送信済みか確認（1日1回のみ）
+    # =====================================================
+    # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
+    # Phase 1: 送信済み確認 + pending挿入 + commit
+    # Phase 2: API呼び出し（DB接続不要）
+    # Phase 3: ステータス更新 + commit
+    # =====================================================
+
+    # Phase 1a: 既に送信済みか確認（1日1回のみ）
     result = conn.execute(sqlalchemy.text("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = :org_id
@@ -1405,7 +1521,35 @@ def send_consecutive_unanswered_alert_to_leader(
         logger.info(f"既に連続未回答アラート送信済み: leader={leader_id}")
         return ('skipped', 'already_sent')
 
-    # メッセージ生成
+    # Phase 1b: pending状態のログを先に挿入
+    member_ids = [m['user_id'] for m in unanswered_members]
+    metadata_json = json.dumps({
+        "consecutive_days": consecutive_days,
+        "member_count": len(unanswered_members),
+        "member_ids": member_ids
+    })
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, channel, channel_target, metadata
+        )
+        VALUES (:org_id, :notification_type, 'user', :leader_id, :today, 'pending', 'chatwork', :room_id, :metadata::jsonb)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = 'pending',
+            updated_at = NOW()
+        WHERE notification_logs.status != 'success'
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'leader_id': leader_id,
+        'today': today,
+        'room_id': chatwork_room_id,
+        'metadata': metadata_json,
+    })
+    conn.commit()  # DBロック解放
+
+    # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_consecutive_unanswered_alert_message(
         leader_name, unanswered_members, consecutive_days
     )
@@ -1426,22 +1570,18 @@ def send_consecutive_unanswered_alert_to_leader(
             error_message = sanitize_error(e)
             logger.error(f"連続未回答アラート送信エラー: leader={leader_id}, error={error_message}")
 
-    # 送信ログを記録
-    member_ids = [m['user_id'] for m in unanswered_members]
+    # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
-        INSERT INTO notification_logs (
-            organization_id, notification_type, target_type, target_id,
-            notification_date, status, error_message, channel, channel_target,
-            metadata
-        )
-        VALUES (:org_id, :notification_type, 'user', :leader_id, :today, :status, :error_message, 'chatwork', :room_id,
-                :metadata::jsonb)
-        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO UPDATE SET
-            status = EXCLUDED.status,
-            error_message = EXCLUDED.error_message,
-            retry_count = notification_logs.retry_count + 1,
+        UPDATE notification_logs
+        SET status = :status,
+            error_message = :error_message,
+            retry_count = retry_count + 1,
             updated_at = NOW()
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :leader_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
     """), {
         'org_id': org_id,
         'notification_type': notification_type,
@@ -1449,8 +1589,6 @@ def send_consecutive_unanswered_alert_to_leader(
         'today': today,
         'status': status,
         'error_message': error_message,
-        'room_id': chatwork_room_id,
-        'metadata': f'{{"consecutive_days": {consecutive_days}, "member_count": {len(unanswered_members)}, "member_ids": {member_ids}}}',
     })
     conn.commit()
 

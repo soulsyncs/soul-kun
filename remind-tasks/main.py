@@ -6278,8 +6278,29 @@ def _get_goal_notification_module():
     return scheduled_daily_check, scheduled_daily_reminder, scheduled_morning_feedback
 
 
-# デフォルトの組織ID（ソウルシンクス）
-DEFAULT_ORG_ID = "org_soulsyncs"
+# デフォルトの組織ID（ソウルシンクス - 本番UUID）
+# 環境変数DEFAULT_ORG_IDから取得、未設定の場合はNone
+DEFAULT_ORG_ID = os.getenv("DEFAULT_ORG_ID")
+
+
+def _validate_org_id(org_id):
+    """
+    組織IDがUUID形式かどうかを検証する
+
+    Args:
+        org_id: 検証する組織ID
+
+    Returns:
+        bool: UUIDとして有効ならTrue
+    """
+    import uuid
+    if not org_id:
+        return False
+    try:
+        uuid.UUID(str(org_id))
+        return True
+    except (ValueError, AttributeError):
+        return False
 
 
 def _send_chatwork_message_wrapper(room_id, message):
@@ -6318,6 +6339,14 @@ def goal_daily_check(request):
         request_json = request.get_json(silent=True) or {}
         org_id = request_json.get("org_id", DEFAULT_ORG_ID)
         dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_check",
+                "error": "Invalid or missing org_id. Must be a valid UUID.",
+            }), 400
 
         print(f"組織ID: {org_id}")
         print(f"ドライランモード: {dry_run}")
@@ -6383,6 +6412,14 @@ def goal_daily_reminder(request):
         request_json = request.get_json(silent=True) or {}
         org_id = request_json.get("org_id", DEFAULT_ORG_ID)
         dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_reminder",
+                "error": "Invalid or missing org_id. Must be a valid UUID.",
+            }), 400
 
         print(f"組織ID: {org_id}")
         print(f"ドライランモード: {dry_run}")
@@ -6450,6 +6487,14 @@ def goal_morning_feedback(request):
         request_json = request.get_json(silent=True) or {}
         org_id = request_json.get("org_id", DEFAULT_ORG_ID)
         dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_morning_feedback",
+                "error": "Invalid or missing org_id. Must be a valid UUID.",
+            }), 400
 
         print(f"組織ID: {org_id}")
         print(f"ドライランモード: {dry_run}")
@@ -6519,6 +6564,14 @@ def goal_consecutive_unanswered_check(request):
         org_id = request_json.get("org_id", DEFAULT_ORG_ID)
         consecutive_days = request_json.get("consecutive_days", 3)
         dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_consecutive_unanswered",
+                "error": "Invalid or missing org_id. Must be a valid UUID.",
+            }), 400
 
         print(f"組織ID: {org_id}")
         print(f"連続未回答日数: {consecutive_days}日")

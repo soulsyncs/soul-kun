@@ -183,6 +183,215 @@ def get_google_ai_api_key() -> str:
         return None
 
 
+# =====================================================
+# v10.14.0: 挨拶除去・件名抽出機能
+# =====================================================
+# 問題: リマインドメッセージに「お疲れ様です！」等の挨拶が表示される
+# 原因: 挨拶が除去されず、短いテキストはAI要約をバイパス
+# 解決: 挨拶を除去し、件名を優先抽出
+# =====================================================
+
+# 挨拶パターン（除去対象）
+GREETING_PATTERNS = [
+    # 開始の挨拶
+    r'^お疲れ様です[。！!]?\s*',
+    r'^お疲れさまです[。！!]?\s*',
+    r'^おつかれさまです[。！!]?\s*',
+    r'^お疲れ様でした[。！!]?\s*',
+    r'^いつもお世話になっております[。！!]?\s*',
+    r'^いつもお世話になります[。！!]?\s*',
+    r'^お世話になっております[。！!]?\s*',
+    r'^お世話になります[。！!]?\s*',
+    r'^こんにちは[。！!]?\s*',
+    r'^おはようございます[。！!]?\s*',
+    r'^こんばんは[。！!]?\s*',
+    # お詫び・断り
+    r'^夜分に申し訳ございません[。！!]?\s*',
+    r'^夜分遅くに失礼いたします[。！!]?\s*',
+    r'^夜分遅くに失礼します[。！!]?\s*',
+    r'^お忙しいところ恐れ入りますが[、,]?\s*',
+    r'^お忙しいところ申し訳ございませんが[、,]?\s*',
+    r'^お忙しいところ恐縮ですが[、,]?\s*',
+    r'^突然のご連絡失礼いたします[。！!]?\s*',
+    r'^突然のご連絡失礼します[。！!]?\s*',
+    r'^ご連絡が遅くなり申し訳ございません[。！!]?\s*',
+    r'^ご連絡遅くなりまして申し訳ございません[。！!]?\s*',
+    r'^大変遅くなってしまい申し訳[ございませんありません。！!]*\s*',
+    # メール形式
+    r'^[Rr][Ee]:\s*',
+    r'^[Ff][Ww][Dd]?:\s*',
+    r'^[Cc][Cc]:\s*',
+]
+
+# 終了の挨拶パターン（除去対象）
+CLOSING_PATTERNS = [
+    r'よろしくお願い(いた)?します[。！!]?\s*$',
+    r'よろしくお願い(いた)?致します[。！!]?\s*$',
+    r'お願い(いた)?します[。！!]?\s*$',
+    r'ご確認(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
+    r'ご対応(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
+    r'ご検討(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
+    r'何卒よろしくお願い(いた)?します[。！!]?\s*$',
+    r'以上、?よろしくお願い(いた)?します[。！!]?\s*$',
+    r'以上です[。！!]?\s*$',
+    r'以上となります[。！!]?\s*$',
+    r'引き続きよろしくお願い(いた)?します[。！!]?\s*$',
+]
+
+
+def remove_greetings(text: str) -> str:
+    """
+    テキストから日本語の挨拶・定型文を除去する
+
+    ★★★ v10.14.0: 新規追加 ★★★
+
+    除去対象:
+    - 開始の挨拶: お疲れ様です、いつもお世話になっております、等
+    - お詫び・断り: 夜分に申し訳ございません、お忙しいところ恐れ入りますが、等
+    - メール形式: Re:, Fw:, CC:
+    - 終了の挨拶: よろしくお願いします、以上です、等
+
+    Args:
+        text: 元のテキスト
+
+    Returns:
+        挨拶を除去したテキスト
+    """
+    if not text:
+        return ""
+
+    result = text
+
+    # 開始の挨拶を除去（複数回試行 - ネストした挨拶対応）
+    for _ in range(3):
+        original = result
+        for pattern in GREETING_PATTERNS:
+            result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
+        if result == original:
+            break
+
+    # 終了の挨拶を除去
+    for pattern in CLOSING_PATTERNS:
+        result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
+
+    # 行頭の空白・改行を整理
+    result = result.strip()
+
+    return result
+
+
+def extract_task_subject(text: str) -> str:
+    """
+    テキストからタスクの件名/タイトルを抽出する
+
+    ★★★ v10.14.0: 新規追加 ★★★
+
+    優先順位:
+    1. 【...】 形式の件名（日本語ビジネス標準）
+    2. ■/●/◆ で始まる見出し
+    3. 1行目が短くて件名っぽい場合
+
+    Args:
+        text: 元のテキスト
+
+    Returns:
+        件名（見つからない場合は空文字列）
+    """
+    if not text:
+        return ""
+
+    # 1. 【...】 形式の件名を抽出
+    subject_match = re.search(r'【([^】]+)】', text)
+    if subject_match:
+        subject = subject_match.group(1).strip()
+        if len(subject) >= 3:  # 意味のある長さ
+            return f"【{subject}】"
+
+    # 2. ■/●/◆/▼/★ で始まる見出しを抽出
+    headline_match = re.search(r'^[■●◆▼★☆□○◇]\s*(.+?)(?:\n|$)', text, re.MULTILINE)
+    if headline_match:
+        headline = headline_match.group(1).strip()
+        if 3 <= len(headline) <= 50:  # 適切な長さ
+            return headline
+
+    # 3. 1行目が短い場合は件名として扱う
+    first_line = text.split('\n')[0].strip()
+    # 挨拶で始まらず、40文字以下で、句点やクエスチョンで終わらない
+    if (first_line and
+        len(first_line) <= 40 and
+        not re.match(r'^(お疲れ|いつも|こんにち|おはよう|こんばん)', first_line) and
+        not first_line.endswith(('。', '？', '?'))):
+        return first_line
+
+    return ""
+
+
+def is_greeting_only(text: str) -> bool:
+    """
+    テキストが挨拶のみかどうかを判定する
+
+    ★★★ v10.14.0: 新規追加 ★★★
+
+    判定基準:
+    - 挨拶を除去した後に実質的なコンテンツがない
+    - または残りが非常に短い（5文字以下）
+
+    Args:
+        text: チェックするテキスト
+
+    Returns:
+        True: 挨拶のみ、False: 実質的なコンテンツあり
+    """
+    if not text:
+        return True
+
+    cleaned = remove_greetings(text)
+    # 空か、非常に短い場合は挨拶のみと判定
+    return len(cleaned.strip()) <= 5
+
+
+def validate_summary(summary: str, original_body: str) -> bool:
+    """
+    要約の品質を検証する
+
+    ★★★ v10.14.0: 新規追加 ★★★
+
+    検証項目:
+    1. 挨拶だけではないか
+    2. 途中で途切れていないか
+    3. 最小限の情報量があるか
+
+    Args:
+        summary: 生成された要約
+        original_body: 元の本文
+
+    Returns:
+        True: 有効な要約、False: 無効（再生成が必要）
+    """
+    if not summary:
+        return False
+
+    # 1. 挨拶だけの場合はNG
+    if is_greeting_only(summary):
+        return False
+
+    # 2. 非常に短い場合はNG（ただし元の本文も短い場合はOK）
+    if len(summary) < 8 and len(original_body) > 50:
+        return False
+
+    # 3. 明らかに途切れている場合はNG
+    truncation_indicators = ['…', '...', '。。', '、、']
+    if any(summary.endswith(ind) for ind in truncation_indicators):
+        return False
+
+    # 4. 挨拶で始まる場合はNG
+    greeting_starts = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
+    if any(summary.startswith(g) for g in greeting_starts):
+        return False
+
+    return True
+
+
 def clean_task_body_for_summary(body: str) -> str:
     """
     タスク本文からChatWorkのタグや記号を完全に除去（要約用）
@@ -280,6 +489,12 @@ def clean_task_body_for_summary(body: str) -> str:
 
         # 15. 前後の空白を除去
         body = body.strip()
+
+        # =====================================================
+        # v10.14.0: 挨拶除去を追加
+        # =====================================================
+        # 16. 挨拶・定型文を除去
+        body = remove_greetings(body)
 
         return body
 
@@ -413,6 +628,7 @@ def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, ret
 
         # ============================================
         # 第1段階: 通常のプロンプトで要約生成
+        # ★★★ v10.14.0: プロンプト改善 ★★★
         # ============================================
         prompt = f"""あなたはタスク管理アシスタントです。
 以下のタスク本文を読んで、「何をすべきか」を{max_length}文字以内の日本語で要約してください。
@@ -420,23 +636,34 @@ def generate_task_summary_with_gemini(clean_body: str, max_length: int = 40, ret
 【絶対に守るルール】
 1. {max_length}文字以内で必ず文を完結させる
 2. 途中で途切れる表現は絶対にNG（例: 「～を確認し…」はダメ）
-3. 「確認」「依頼」「対応」「作成」など動作で終わる
-4. 挨拶（お疲れ様です、cc、Re: など）は完全に無視
+3. 「確認」「依頼」「対応」「作成」「報告」「共有」など動作で終わる
+4. 挨拶や定型文は完全に無視する:
+   - 「お疲れ様です」「いつもお世話になっております」→ 無視
+   - 「よろしくお願いします」「ご確認ください」→ 無視
+   - 「夜分に申し訳ございません」「お忙しいところ」→ 無視
 5. 要約のみを出力（説明や補足は不要）
+6. 【...】形式の件名があればそれを優先使用
+
+【重要】タスクの「具体的な依頼内容」を抽出してください:
+- 何を確認/作成/報告/共有するのか
+- 誰に何をお願いしているのか
+- 期限付きの作業は何か
 
 【良い例】
-- 「ICT補助金の対象可否を確認」（21文字・完結）
-- 「給与明細を作成して提出」（11文字・完結）
-- 「カレンダー共有設定を再設定」（13文字・完結）
+- 「ETCカード利用管理の対応依頼」（16文字・具体的）
+- 「1月分経費精算書の提出」（12文字・具体的）
+- 「新入社員の初期設定作業」（11文字・具体的）
+- 「管理部マニュアルの確認」（11文字・具体的）
 
-【悪い例】
-- 「ICT補助金にソウルシンクスが…」（途切れている）
-- 「給与明細を作成し、提出を…」（途切れている）
+【悪い例 - 挨拶をそのまま返すのはNG】
+- 「お疲れ様です。夜分に…」（挨拶をそのまま返している）
+- 「いつもお世話になっております」（挨拶のみ）
+- 「ご確認よろしくお願いします」（依頼内容がない）
 
 タスク本文:
 {clean_body[:500]}
 
-要約（{max_length}文字以内で完結）:"""
+要約（{max_length}文字以内、具体的な依頼内容で完結）:"""
 
         response = client.models.generate_content(
             model="gemini-3-flash-preview",
@@ -627,12 +854,14 @@ def generate_task_summary(task_body: str) -> str:
     """
     タスクの本文をAIで要約する
 
+    ★★★ v10.14.0: 件名優先抽出 + バリデーション追加 ★★★
     ★★★ v10.9.0: Gemini 3 Flash + 40文字 + 途切れ防止 ★★★
 
     優先順位:
-    1. Gemini 3 Flash（メイン）
-    2. Anthropic Claude Haiku（フォールバック）
-    3. ルールベース切り詰め（最終手段）
+    1. 【...】形式の件名（最優先）
+    2. Gemini 3 Flash（メイン）
+    3. Anthropic Claude Haiku（フォールバック）
+    4. ルールベース切り詰め（最終手段）
 
     Args:
         task_body: タスクの本文
@@ -642,31 +871,59 @@ def generate_task_summary(task_body: str) -> str:
     """
     max_length = TASK_SUMMARY_MAX_LENGTH
 
-    # まずタグを完全に除去
+    # まずタグを完全に除去（挨拶も除去される - v10.14.0）
     clean_body = clean_task_body_for_summary(task_body)
 
     # 本文が空の場合
     if not clean_body:
         return "（タスク内容なし）"
 
-    # 本文が非常に短い場合はそのまま返す
+    # =====================================================
+    # v10.14.0: 件名を優先抽出
+    # =====================================================
+    # 【...】形式の件名があれば優先使用
+    subject = extract_task_subject(task_body)  # 元の本文から抽出（タグ除去前）
+    if subject and len(subject) <= max_length:
+        print(f"📝 件名を抽出: {subject}")
+        return subject
+
+    # =====================================================
+    # v10.14.0: 短いテキストでも挨拶チェック
+    # =====================================================
+    # 本文が短くても、挨拶が残っている可能性があるのでチェック
     if len(clean_body) <= max_length:
-        return clean_body
+        # 有効なコンテンツがあればそのまま返す
+        if validate_summary(clean_body, task_body):
+            return clean_body
+        # 挨拶のみの場合はAIで要約を試みる
+        print(f"⚠️ 短いテキストだが挨拶のみの可能性、AI要約を実行")
 
     # 1. Gemini で要約を試みる（メイン）
     summary = generate_task_summary_with_gemini(clean_body, max_length)
-    if summary:
+    if summary and validate_summary(summary, task_body):
         return summary
+    elif summary:
+        print(f"⚠️ Gemini要約が検証失敗: {summary[:30]}...")
 
     # 2. Anthropic でフォールバック
-    print("⚠️ Gemini失敗、Anthropicにフォールバック")
+    print("⚠️ Gemini失敗/検証失敗、Anthropicにフォールバック")
     summary = generate_task_summary_with_anthropic(clean_body, max_length)
-    if summary:
+    if summary and validate_summary(summary, task_body):
         return summary
+    elif summary:
+        print(f"⚠️ Anthropic要約が検証失敗: {summary[:30]}...")
 
     # 3. 最終フォールバック: 賢い切り詰め（途切れ防止）
-    print("⚠️ 全AIモデル失敗、賢い切り詰め使用")
-    return _ensure_complete_summary(clean_body, max_length)
+    print("⚠️ 全AIモデル失敗/検証失敗、賢い切り詰め使用")
+    fallback = _ensure_complete_summary(clean_body, max_length)
+
+    # フォールバックも検証
+    if validate_summary(fallback, task_body):
+        return fallback
+
+    # 本当に何も抽出できない場合
+    print("⚠️ 全ての要約方法が失敗、デフォルト文言を返却")
+    return "（タスク内容を確認してください）"
 
 
 def _truncate_text_safely(text: str, max_length: int) -> str:
@@ -835,6 +1092,186 @@ def regenerate_all_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
     print(f"📊 再生成バッチ完了: 成功={result['success']}, 失敗={result['failed']}, next_offset={result['next_offset']}")
 
     return result
+
+
+def regenerate_bad_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> dict:
+    """
+    低品質の要約のみを再生成する
+
+    ★★★ v10.14.0: 新規追加 ★★★
+
+    低品質の判定基準（validate_summary関数）:
+    - 挨拶のみ（お疲れ様です、等）
+    - 途中で途切れている
+    - 挨拶で始まる
+
+    Args:
+        conn: DB接続
+        cursor: DBカーソル
+        offset: 開始位置（バッチ処理の再開に使用）
+        limit: 一度に処理する件数
+
+    Returns:
+        処理結果の辞書
+    """
+    # 全件数を取得
+    cursor.execute("""
+        SELECT COUNT(*) FROM chatwork_tasks
+        WHERE status = 'open' AND summary IS NOT NULL
+    """)
+    total_count = cursor.fetchone()[0]
+
+    # offsetベースでバッチ取得
+    cursor.execute("""
+        SELECT task_id, body, summary FROM chatwork_tasks
+        WHERE status = 'open' AND summary IS NOT NULL
+        ORDER BY task_id DESC
+        LIMIT %s OFFSET %s
+    """, (limit, offset))
+    tasks = cursor.fetchall()
+
+    result = {
+        "total_checked": len(tasks),
+        "bad_found": 0,
+        "regenerated": 0,
+        "failed": 0,
+        "offset": offset,
+        "next_offset": offset + len(tasks) if offset + len(tasks) < total_count else None
+    }
+
+    print(f"📊 低品質要約チェック開始: offset={offset}, limit={limit}, チェック件数={len(tasks)}")
+
+    for task_id, body, current_summary in tasks:
+        try:
+            # 現在の要約が有効かチェック
+            if validate_summary(current_summary, body):
+                continue  # 有効な要約はスキップ
+
+            # 低品質要約を発見
+            result["bad_found"] += 1
+            print(f"🔍 低品質要約発見: task_id={task_id}, summary='{current_summary[:30]}...'")
+
+            # 再生成
+            new_summary = generate_task_summary(body)
+            if new_summary and validate_summary(new_summary, body):
+                cursor.execute("""
+                    UPDATE chatwork_tasks
+                    SET summary = %s
+                    WHERE task_id = %s
+                """, (new_summary, task_id))
+                conn.commit()
+                result["regenerated"] += 1
+                print(f"✅ 再生成成功: task_id={task_id}, new_summary='{new_summary}'")
+            else:
+                result["failed"] += 1
+                print(f"⚠️ 再生成でも低品質: task_id={task_id}")
+
+            # レート制限対策
+            time.sleep(3)
+
+        except Exception as e:
+            print(f"❌ 処理エラー: task_id={task_id}, error={e}")
+            result["failed"] += 1
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+    print(f"📊 低品質要約チェック完了: チェック={result['total_checked']}, 低品質={result['bad_found']}, 再生成成功={result['regenerated']}, 失敗={result['failed']}")
+
+    return result
+
+
+def report_summary_quality(conn, cursor) -> dict:
+    """
+    要約品質のレポートを生成する
+
+    ★★★ v10.14.0: 再発防止策 - 品質モニタリング ★★★
+
+    このレポートは定期的に呼び出して、低品質要約の発生を監視する。
+    問題があれば早期に検知できる。
+
+    Returns:
+        品質レポートの辞書
+    """
+    print("=" * 60)
+    print("📊 要約品質レポート (v10.14.0)")
+    print("=" * 60)
+
+    # 1. 全体統計
+    cursor.execute("""
+        SELECT
+            COUNT(*) AS total_open,
+            COUNT(summary) AS with_summary,
+            COUNT(*) - COUNT(summary) AS without_summary
+        FROM chatwork_tasks
+        WHERE status = 'open'
+    """)
+    stats = cursor.fetchone()
+    total_open = stats[0]
+    with_summary = stats[1]
+    without_summary = stats[2]
+
+    print(f"📋 オープンタスク統計:")
+    print(f"   総数: {total_open}")
+    print(f"   要約あり: {with_summary}")
+    print(f"   要約なし: {without_summary}")
+
+    # 2. 低品質要約をサンプリングチェック（最新50件）
+    cursor.execute("""
+        SELECT task_id, body, summary
+        FROM chatwork_tasks
+        WHERE status = 'open' AND summary IS NOT NULL
+        ORDER BY task_id DESC
+        LIMIT 50
+    """)
+    sample_tasks = cursor.fetchall()
+
+    bad_count = 0
+    bad_examples = []
+
+    for task_id, body, summary in sample_tasks:
+        if not validate_summary(summary, body):
+            bad_count += 1
+            if len(bad_examples) < 5:  # 最大5件の例を記録
+                bad_examples.append({
+                    'task_id': task_id,
+                    'summary': summary[:50] if summary else None
+                })
+
+    quality_rate = ((50 - bad_count) / 50 * 100) if sample_tasks else 0
+
+    print(f"\n🔍 品質サンプルチェック（最新50件）:")
+    print(f"   品質OK: {50 - bad_count}/50 ({quality_rate:.1f}%)")
+    print(f"   品質NG: {bad_count}/50")
+
+    if bad_examples:
+        print(f"\n⚠️ 低品質要約の例:")
+        for ex in bad_examples:
+            print(f"   task_id={ex['task_id']}: '{ex['summary']}...'")
+
+    # 3. 品質基準
+    QUALITY_THRESHOLD = 90.0  # 90%以上で合格
+    is_healthy = quality_rate >= QUALITY_THRESHOLD
+
+    print(f"\n{'=' * 60}")
+    if is_healthy:
+        print(f"✅ 品質ステータス: HEALTHY（{quality_rate:.1f}% >= {QUALITY_THRESHOLD}%）")
+    else:
+        print(f"⚠️ 品質ステータス: NEEDS ATTENTION（{quality_rate:.1f}% < {QUALITY_THRESHOLD}%）")
+        print(f"   推奨アクション: fix_bad_summaries=true でSyncを実行")
+    print("=" * 60)
+
+    return {
+        "total_open": total_open,
+        "with_summary": with_summary,
+        "without_summary": without_summary,
+        "sample_size": len(sample_tasks),
+        "bad_count": bad_count,
+        "quality_rate": quality_rate,
+        "is_healthy": is_healthy,
+        "bad_examples": bad_examples
+    }
 
 
 # =====================================================
@@ -6764,11 +7201,17 @@ def sync_chatwork_tasks(request):
     backfill_summaries = request.args.get('backfill_summaries', 'false').lower() == 'true'
     # ★★★ v10.6.0: 要約再生成パラメータ（既存の要約も上書き）★★★
     regenerate_summaries = request.args.get('regenerate_summaries', 'false').lower() == 'true'
+    # ★★★ v10.14.0: 低品質要約修正パラメータ ★★★
+    fix_bad_summaries = request.args.get('fix_bad_summaries', 'false').lower() == 'true'
+    # ★★★ v10.14.0: 品質レポートパラメータ ★★★
+    quality_report = request.args.get('quality_report', 'false').lower() == 'true'
 
     sync_mode = "open + done" if include_done else "open only"
     print(f"=== Starting task sync ({sync_mode}) ===")
     if regenerate_summaries:
         print("⚠️ regenerate_summaries=true: 全タスクの要約を再生成します")
+    if fix_bad_summaries:
+        print("⚠️ fix_bad_summaries=true: 低品質要約のみ再生成します")
 
     # ★★★ v10.3.3: APIカウンターをリセット ★★★
     reset_api_call_counter()
@@ -7041,6 +7484,52 @@ def sync_chatwork_tasks(request):
                 print(f"⚠️ 要約再生成エラー: {e}")
                 import traceback
                 traceback.print_exc()
+        elif fix_bad_summaries:
+            # ★★★ v10.14.0: 低品質要約のみ再生成 ★★★
+            print("=== Starting BAD summary regeneration (v10.14.0) ===")
+            try:
+                total_checked = 0
+                total_bad = 0
+                total_regenerated = 0
+                total_failed = 0
+                offset = 0
+                batch_num = 1
+
+                while True:
+                    print(f"--- バッチ {batch_num} 開始 (offset={offset}) ---")
+                    batch_result = regenerate_bad_summaries(conn, cursor, offset=offset, limit=50)
+
+                    total_checked += batch_result["total_checked"]
+                    total_bad += batch_result["bad_found"]
+                    total_regenerated += batch_result["regenerated"]
+                    total_failed += batch_result["failed"]
+
+                    print(f"--- バッチ {batch_num} 完了: チェック={batch_result['total_checked']}, 低品質={batch_result['bad_found']}, 再生成={batch_result['regenerated']} ---")
+
+                    # 次のバッチがあるかチェック
+                    if batch_result["next_offset"] is None:
+                        print("=== 全バッチ処理完了 ===")
+                        break
+
+                    offset = batch_result["next_offset"]
+                    batch_num += 1
+
+                    # 各バッチ間で少し待つ（API負荷軽減）
+                    time.sleep(1)
+
+                backfill_result = {
+                    "total_checked": total_checked,
+                    "bad_found": total_bad,
+                    "success": total_regenerated,
+                    "failed": total_failed,
+                    "batches": batch_num
+                }
+                print(f"✅ 低品質要約修正完了: {backfill_result}")
+
+            except Exception as e:
+                print(f"⚠️ 低品質要約修正エラー: {e}")
+                import traceback
+                traceback.print_exc()
         elif backfill_summaries:
             # v10.5.0: NULLの要約のみ生成
             print("=== Starting task summary backfill (NULL only) ===")
@@ -7049,6 +7538,16 @@ def sync_chatwork_tasks(request):
                 print(f"✅ 要約バックフィル完了: {backfill_result}")
             except Exception as e:
                 print(f"⚠️ 要約バックフィルエラー: {e}")
+                import traceback
+                traceback.print_exc()
+
+        # ★★★ v10.14.0: 品質レポート ★★★
+        quality_result = None
+        if quality_report:
+            try:
+                quality_result = report_summary_quality(conn, cursor)
+            except Exception as e:
+                print(f"⚠️ 品質レポートエラー: {e}")
                 import traceback
                 traceback.print_exc()
 

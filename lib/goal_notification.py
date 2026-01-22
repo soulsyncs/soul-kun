@@ -502,11 +502,12 @@ def send_daily_check_to_user(
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
     # - 新規: INSERT pending
-    # - 既存でfailed/pending: UPDATE to pending（リトライ許可）
+    # - 既存でfailed: UPDATE to pending（リトライ許可）
+    # - 既存でpending: 10分以上古い場合のみリトライ許可（クラッシュ対策）
     # - 既存でsuccess: RETURNING なし（スキップ）
     # =====================================================
 
-    # Phase 1: pending挿入またはfailed/pendingの再試行
+    # Phase 1: pending挿入またはfailed/stale-pendingの再試行
     result = conn.execute(sqlalchemy.text("""
         INSERT INTO notification_logs (
             organization_id, notification_type, target_type, target_id,
@@ -518,7 +519,8 @@ def send_daily_check_to_user(
             status = 'pending',
             error_message = NULL,
             updated_at = NOW()
-        WHERE notification_logs.status IN ('failed', 'pending')
+        WHERE notification_logs.status = 'failed'
+           OR (notification_logs.status = 'pending' AND notification_logs.updated_at < NOW() - INTERVAL '10 minutes')
         RETURNING id
     """), {
         'org_id': org_id,
@@ -530,10 +532,10 @@ def send_daily_check_to_user(
     inserted = result.fetchone()
     conn.commit()  # DBロック解放
 
-    # RETURNINGがない = 既にsuccessで送信済み
+    # RETURNINGがない = 既にsuccessで送信済み、またはpendingで処理中
     if not inserted:
-        logger.info(f"既に送信済み: user={user_id} / {notification_type}")
-        return ('skipped', 'already_sent')
+        logger.info(f"既に送信済みまたは処理中: user={user_id} / {notification_type}")
+        return ('skipped', 'already_sent_or_processing')
 
     # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_daily_check_message(user_name, goals)
@@ -634,7 +636,7 @@ def send_daily_reminder_to_user(
         logger.info(f"既に回答済み: user={user_id}")
         return ('skipped', 'already_answered')
 
-    # Phase 1b: pending挿入またはfailed/pendingの再試行
+    # Phase 1b: pending挿入またはfailed/stale-pendingの再試行
     result = conn.execute(sqlalchemy.text("""
         INSERT INTO notification_logs (
             organization_id, notification_type, target_type, target_id,
@@ -646,7 +648,8 @@ def send_daily_reminder_to_user(
             status = 'pending',
             error_message = NULL,
             updated_at = NOW()
-        WHERE notification_logs.status IN ('failed', 'pending')
+        WHERE notification_logs.status = 'failed'
+           OR (notification_logs.status = 'pending' AND notification_logs.updated_at < NOW() - INTERVAL '10 minutes')
         RETURNING id
     """), {
         'org_id': org_id,
@@ -658,10 +661,10 @@ def send_daily_reminder_to_user(
     inserted = result.fetchone()
     conn.commit()  # DBロック解放
 
-    # RETURNINGがない = 既にsuccessで送信済み
+    # RETURNINGがない = 既にsuccessで送信済み、またはpendingで処理中
     if not inserted:
-        logger.info(f"既に送信済み: user={user_id} / {notification_type}")
-        return ('skipped', 'already_sent')
+        logger.info(f"既に送信済みまたは処理中: user={user_id} / {notification_type}")
+        return ('skipped', 'already_sent_or_processing')
 
     # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_daily_reminder_message(user_name)
@@ -745,7 +748,7 @@ def send_morning_feedback_to_user(
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
     # =====================================================
 
-    # Phase 1: pending挿入またはfailed/pendingの再試行
+    # Phase 1: pending挿入またはfailed/stale-pendingの再試行
     result = conn.execute(sqlalchemy.text("""
         INSERT INTO notification_logs (
             organization_id, notification_type, target_type, target_id,
@@ -757,7 +760,8 @@ def send_morning_feedback_to_user(
             status = 'pending',
             error_message = NULL,
             updated_at = NOW()
-        WHERE notification_logs.status IN ('failed', 'pending')
+        WHERE notification_logs.status = 'failed'
+           OR (notification_logs.status = 'pending' AND notification_logs.updated_at < NOW() - INTERVAL '10 minutes')
         RETURNING id
     """), {
         'org_id': org_id,
@@ -769,10 +773,10 @@ def send_morning_feedback_to_user(
     inserted = result.fetchone()
     conn.commit()  # DBロック解放
 
-    # RETURNINGがない = 既にsuccessで送信済み
+    # RETURNINGがない = 既にsuccessで送信済み、またはpendingで処理中
     if not inserted:
-        logger.info(f"既に送信済み: user={user_id} / {notification_type}")
-        return ('skipped', 'already_sent')
+        logger.info(f"既に送信済みまたは処理中: user={user_id} / {notification_type}")
+        return ('skipped', 'already_sent_or_processing')
 
     # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_morning_feedback_message(user_name, goals, progress_data)
@@ -860,7 +864,7 @@ def send_team_summary_to_leader(
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
     # =====================================================
 
-    # Phase 1: pending挿入またはfailed/pendingの再試行
+    # Phase 1: pending挿入またはfailed/stale-pendingの再試行
     metadata_json = json.dumps({"department_id": department_id, "department_name": department_name})
     result = conn.execute(sqlalchemy.text("""
         INSERT INTO notification_logs (
@@ -873,7 +877,8 @@ def send_team_summary_to_leader(
             status = 'pending',
             error_message = NULL,
             updated_at = NOW()
-        WHERE notification_logs.status IN ('failed', 'pending')
+        WHERE notification_logs.status = 'failed'
+           OR (notification_logs.status = 'pending' AND notification_logs.updated_at < NOW() - INTERVAL '10 minutes')
         RETURNING id
     """), {
         'org_id': org_id,
@@ -886,10 +891,10 @@ def send_team_summary_to_leader(
     inserted = result.fetchone()
     conn.commit()  # DBロック解放
 
-    # RETURNINGがない = 既にsuccessで送信済み
+    # RETURNINGがない = 既にsuccessで送信済み、またはpendingで処理中
     if not inserted:
-        logger.info(f"既に送信済み: recipient={recipient_id} / {notification_type}")
-        return ('skipped', 'already_sent')
+        logger.info(f"既に送信済みまたは処理中: recipient={recipient_id} / {notification_type}")
+        return ('skipped', 'already_sent_or_processing')
 
     # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_team_summary_message(leader_name, department_name, team_members, yesterday)
@@ -1391,7 +1396,7 @@ def check_consecutive_unanswered_users(
         FROM users_with_goals uwg
         LEFT JOIN last_progress lp ON lp.user_id = uwg.user_id
         WHERE lp.last_response_date IS NULL
-           OR lp.last_response_date < :check_start_date
+           OR lp.last_response_date <= :check_start_date
         ORDER BY uwg.department_name, uwg.user_name
     """), {
         'org_id': org_id,
@@ -1456,7 +1461,7 @@ def send_consecutive_unanswered_alert_to_leader(
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
     # =====================================================
 
-    # Phase 1: pending挿入またはfailed/pendingの再試行
+    # Phase 1: pending挿入またはfailed/stale-pendingの再試行
     member_ids = [m['user_id'] for m in unanswered_members]
     metadata_json = json.dumps({
         "consecutive_days": consecutive_days,
@@ -1474,7 +1479,8 @@ def send_consecutive_unanswered_alert_to_leader(
             status = 'pending',
             error_message = NULL,
             updated_at = NOW()
-        WHERE notification_logs.status IN ('failed', 'pending')
+        WHERE notification_logs.status = 'failed'
+           OR (notification_logs.status = 'pending' AND notification_logs.updated_at < NOW() - INTERVAL '10 minutes')
         RETURNING id
     """), {
         'org_id': org_id,
@@ -1487,10 +1493,10 @@ def send_consecutive_unanswered_alert_to_leader(
     inserted = result.fetchone()
     conn.commit()  # DBロック解放
 
-    # RETURNINGがない = 既にsuccessで送信済み
+    # RETURNINGがない = 既にsuccessで送信済み、またはpendingで処理中
     if not inserted:
-        logger.info(f"既に送信済み: leader={leader_id} / {notification_type}")
-        return ('skipped', 'already_sent')
+        logger.info(f"既に送信済みまたは処理中: leader={leader_id} / {notification_type}")
+        return ('skipped', 'already_sent_or_processing')
 
     # Phase 2: メッセージ生成 + API呼び出し（DB接続を保持しない）
     message = build_consecutive_unanswered_alert_message(

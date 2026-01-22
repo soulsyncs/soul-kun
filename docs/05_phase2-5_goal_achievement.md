@@ -1,9 +1,14 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.2
+**バージョン:** v1.3
 **作成日:** 2026-01-22
 **更新日:** 2026-01-22
 **ステータス:** 設計中
+
+**v1.3 変更点:**
+- notification_logs との整合性を確認・明記（target_idはUUID型、Phase 1-Bと互換）
+- notification_type/target_type のenum拡張を明記（既存値と新規値の対応表追加）
+- goal_reminders.reminder_type に `team_summary` を追加
 
 **v1.2 変更点:**
 - 機密区分を4段階（public/internal/confidential/restricted）に修正
@@ -548,7 +553,7 @@ CREATE TABLE goal_reminders (
     goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
 
     -- リマインド設定
-    reminder_type VARCHAR(50) NOT NULL,  -- 'daily_check', 'morning_feedback', 'weekly_summary'
+    reminder_type VARCHAR(50) NOT NULL,  -- 'daily_check', 'morning_feedback', 'team_summary'
     reminder_time TIME NOT NULL,  -- 17:00, 08:00
     is_enabled BOOLEAN DEFAULT TRUE,
 
@@ -575,23 +580,51 @@ COMMENT ON TABLE goal_reminders IS '目標リマインド設定（Phase 2.5）';
 
 **Phase 1-Bで構築済みの `notification_logs` テーブルを活用し、二重送信を防止する。**
 
+#### Phase 1-B との互換性
+
+**✅ notification_logs.target_id は UUID 型（Phase 1-B v10.1.4 設計書 75行目）**
+
+```python
+# Phase 1-B設計（docs/05_phase_1b_task_detection.md）より
+sa.Column('target_id', postgresql.UUID(as_uuid=True), nullable=True,
+          comment='対象ID（systemの場合はNULL）'),
+```
+
+→ マイグレーション不要。user_id (UUID) や department_id (UUID) をそのまま保存可能。
+
+#### enum値の拡張（notification_type / target_type）
+
+| 項目 | Phase 1-B 既存値 | Phase 2.5 追加値 |
+|------|----------------|-----------------|
+| notification_type | `task_reminder`, `goal_reminder`, `meeting_reminder`, `system_notification` | `goal_daily_check`, `goal_morning_feedback`, `goal_team_summary` |
+| target_type | `task`, `goal`, `meeting`, `system` | `user`, `department` |
+
+**設計方針:** 既存のenum値を壊さず、Phase 2.5用の値を追加する。
+既存のPhase 1-B通知（`task_reminder` + `target_type=task`）には影響なし。
+
 **⚠️ 重要: 通知はユーザー単位/部署単位で集約する（目標単位ではない）**
 
 複数の目標を持つユーザーに対して、1日1通にまとめることでスパムを防止。
 
 ```sql
--- 目標関連の通知タイプ（notification_logsに追加）
--- notification_type: 'goal_daily_check', 'goal_morning_feedback', 'goal_team_summary'
+-- Phase 2.5で使用する通知パターン
 
--- 冪等性キー（ユーザー単位の通知）:
---   target_type = 'user'
---   target_id = user_id
---   → organization_id + 'user' + user_id + notification_date + notification_type
+-- 1. 17時の進捗確認（ユーザー単位で1通）
+--    notification_type = 'goal_daily_check'
+--    target_type = 'user'
+--    target_id = user_id (UUID)
 
--- 冪等性キー（部署サマリー通知）:
---   target_type = 'department'
---   target_id = department_id
---   → organization_id + 'department' + department_id + notification_date + notification_type
+-- 2. 8時の個人フィードバック（ユーザー単位で1通）
+--    notification_type = 'goal_morning_feedback'
+--    target_type = 'user'
+--    target_id = user_id (UUID)
+
+-- 3. 8時のチーム/部署サマリー（部署単位で1通）
+--    notification_type = 'goal_team_summary'
+--    target_type = 'department'
+--    target_id = department_id (UUID)
+
+-- 冪等性キー: organization_id + target_type + target_id + notification_date + notification_type
 ```
 
 **通知送信フロー:**

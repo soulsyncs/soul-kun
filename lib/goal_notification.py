@@ -1404,6 +1404,7 @@ def check_consecutive_unanswered_users(
     check_start_date = today - timedelta(days=consecutive_days)
 
     # アクティブな目標を持つユーザーで、指定日数以内に進捗報告がないユーザーを取得
+    # テナント分離: users, goals, user_departments, departments, goal_progressの全てでorg_idフィルタ
     result = conn.execute(sqlalchemy.text("""
         WITH users_with_goals AS (
             SELECT DISTINCT
@@ -1413,10 +1414,11 @@ def check_consecutive_unanswered_users(
                 ud.department_id,
                 d.name AS department_name
             FROM users u
-            JOIN goals g ON g.user_id = u.id
-            LEFT JOIN user_departments ud ON ud.user_id = u.id
-            LEFT JOIN departments d ON ud.department_id = d.id
-            WHERE g.organization_id = :org_id
+            JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
+            LEFT JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
+            LEFT JOIN departments d ON ud.department_id = d.id AND d.organization_id = ud.organization_id
+            WHERE u.organization_id = :org_id
+              AND g.organization_id = :org_id
               AND g.status = 'active'
               AND u.chatwork_room_id IS NOT NULL
         ),
@@ -1425,8 +1427,9 @@ def check_consecutive_unanswered_users(
                 g.user_id,
                 MAX(gp.progress_date) AS last_response_date
             FROM goal_progress gp
-            JOIN goals g ON gp.goal_id = g.id
+            JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
             WHERE g.organization_id = :org_id
+              AND gp.organization_id = :org_id
             GROUP BY g.user_id
         )
         SELECT
@@ -1648,16 +1651,18 @@ def scheduled_consecutive_unanswered_check(
             continue
 
         # 部署のリーダーを取得
+        # テナント分離: users, user_departmentsの両方でorg_idフィルタ
         leaders_result = conn.execute(sqlalchemy.text("""
             SELECT
                 u.id AS user_id,
                 u.display_name AS user_name,
                 u.chatwork_room_id
             FROM users u
-            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
             JOIN roles r ON ud.role_id = r.id
             WHERE ud.department_id = :department_id
               AND u.organization_id = :org_id
+              AND ud.organization_id = :org_id
               AND r.name IN ('チームリーダー', '部長', '経営', '代表')
               AND u.chatwork_room_id IS NOT NULL
         """), {'department_id': dept_id, 'org_id': org_id})

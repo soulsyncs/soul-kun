@@ -1,9 +1,15 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.1
+**バージョン:** v1.2
 **作成日:** 2026-01-22
 **更新日:** 2026-01-22
 **ステータス:** 設計中
+
+**v1.2 変更点:**
+- 機密区分を4段階（public/internal/confidential/restricted）に修正
+- CHECK制約を追加してDB側でも4段階を強制
+- 通知の冪等性キーを「ユーザー単位」「部署単位」に変更（スパム対策）
+- エラーメッセージのサニタイズ方針を追加（機密情報除去）
 
 **v1.1 変更点:**
 - goal_reminders に organization_id 追加（鉄則遵守）
@@ -419,8 +425,11 @@ CREATE TABLE goals (
     -- ステータス
     status VARCHAR(20) NOT NULL DEFAULT 'active',  -- 'active', 'completed', 'cancelled'
 
-    -- 機密区分（目標は人事評価に関わるためinternal以上）
-    classification VARCHAR(20) NOT NULL DEFAULT 'internal',  -- 'internal', 'confidential'
+    -- 機密区分（4段階: public/internal/confidential/restricted）
+    -- 目標は人事評価に関わるため、基本は internal 以上を使用
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',
+    CONSTRAINT check_goal_classification
+        CHECK (classification IN ('public', 'internal', 'confidential', 'restricted')),
 
     -- メタデータ
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -441,7 +450,7 @@ CREATE INDEX idx_goals_status ON goals(status) WHERE status = 'active';
 COMMENT ON TABLE goals IS '目標管理テーブル（Phase 2.5）';
 COMMENT ON COLUMN goals.goal_level IS '目標レベル: company=会社, department=部署, individual=個人';
 COMMENT ON COLUMN goals.goal_type IS '目標タイプ: numeric=数値, deadline=期限, action=行動';
-COMMENT ON COLUMN goals.classification IS '機密区分: internal=社内限定, confidential=機密（評価に関わる場合）';
+COMMENT ON COLUMN goals.classification IS '機密区分（4段階）: public=公開, internal=社内限定, confidential=機密, restricted=極秘';
 ```
 
 ### 7.2 goal_progress テーブル（進捗記録）
@@ -468,8 +477,11 @@ CREATE TABLE goal_progress (
     ai_feedback TEXT,  -- ソウルくんからのフィードバック
     ai_feedback_sent_at TIMESTAMPTZ,  -- フィードバック送信日時
 
-    -- 機密区分（目標・進捗は人事評価に関わるためinternal以上）
-    classification VARCHAR(20) NOT NULL DEFAULT 'internal',  -- 'internal', 'confidential'
+    -- 機密区分（4段階: public/internal/confidential/restricted）
+    -- 目標・進捗は人事評価に関わるため、基本は internal 以上を使用
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',
+    CONSTRAINT check_goal_progress_classification
+        CHECK (classification IN ('public', 'internal', 'confidential', 'restricted')),
 
     -- メタデータ
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -490,7 +502,7 @@ CREATE INDEX idx_goal_progress_date ON goal_progress(progress_date);
 COMMENT ON TABLE goal_progress IS '目標の日次進捗記録（Phase 2.5）';
 COMMENT ON COLUMN goal_progress.daily_note IS '17時の「今日何やった？」への回答';
 COMMENT ON COLUMN goal_progress.daily_choice IS '「今日何を選んだ？」への回答';
-COMMENT ON COLUMN goal_progress.classification IS '機密区分: internal=社内限定, confidential=機密（評価に関わる場合）';
+COMMENT ON COLUMN goal_progress.classification IS '機密区分（4段階）: public=公開, internal=社内限定, confidential=機密, restricted=極秘';
 COMMENT ON CONSTRAINT unique_goal_progress ON goal_progress IS
 '冪等性保証: 同日に複数回返信があった場合は最新で上書き（UPSERT）';
 ```
@@ -563,41 +575,58 @@ COMMENT ON TABLE goal_reminders IS '目標リマインド設定（Phase 2.5）';
 
 **Phase 1-Bで構築済みの `notification_logs` テーブルを活用し、二重送信を防止する。**
 
+**⚠️ 重要: 通知はユーザー単位/部署単位で集約する（目標単位ではない）**
+
+複数の目標を持つユーザーに対して、1日1通にまとめることでスパムを防止。
+
 ```sql
 -- 目標関連の通知タイプ（notification_logsに追加）
 -- notification_type: 'goal_daily_check', 'goal_morning_feedback', 'goal_team_summary'
--- target_type: 'goal'
--- target_id: goal_id
 
--- 冪等性キー: organization_id + target_type + target_id + notification_date + notification_type
+-- 冪等性キー（ユーザー単位の通知）:
+--   target_type = 'user'
+--   target_id = user_id
+--   → organization_id + 'user' + user_id + notification_date + notification_type
+
+-- 冪等性キー（部署サマリー通知）:
+--   target_type = 'department'
+--   target_id = department_id
+--   → organization_id + 'department' + department_id + notification_date + notification_type
 ```
 
 **通知送信フロー:**
 
 ```python
-async def send_goal_reminder(goal_id: UUID, org_id: UUID, reminder_type: str):
+async def send_daily_check_to_user(user_id: UUID, org_id: UUID):
     """
-    目標リマインド送信（冪等性保証）
+    17時の進捗確認送信（ユーザー単位で集約、冪等性保証）
+
+    1ユーザーが複数目標を持っていても、1通のDMにまとめる
     """
     today = date.today()
+    notification_type = 'goal_daily_check'
 
-    # 1. 既に送信済みか確認
+    # 1. 既に送信済みか確認（ユーザー単位）
     existing = await conn.fetchrow("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = $1
-          AND target_type = 'goal'
+          AND target_type = 'user'
           AND target_id = $2
           AND notification_date = $3
           AND notification_type = $4
-    """, org_id, goal_id, today, reminder_type)
+    """, org_id, user_id, today, notification_type)
 
     if existing and existing['status'] == 'success':
-        logger.info(f"既に送信済み: {goal_id} / {reminder_type}")
-        return  # スキップ
+        logger.info(f"既に送信済み: user={user_id} / {notification_type}")
+        return  # スキップ（二重送信防止）
 
-    # 2. ChatWork送信
+    # 2. ユーザーの全目標を取得して1通にまとめる
+    goals = await get_active_goals_for_user(user_id, org_id)
+    message = build_daily_check_message(user_id, goals)
+
+    # 3. ChatWork送信
     try:
-        await send_chatwork_message(...)
+        await send_chatwork_message(user.chatwork_room_id, message)
         status = 'success'
         error_message = None
     except ChatWorkRateLimitError:
@@ -605,23 +634,107 @@ async def send_goal_reminder(goal_id: UUID, org_id: UUID, reminder_type: str):
         error_message = 'rate_limit'
     except Exception as e:
         status = 'failed'
-        error_message = str(e)
+        error_message = sanitize_error(e)  # 機密情報を除去
 
-    # 3. 送信ログを記録（UPSERT）
+    # 4. 送信ログを記録（UPSERT）
     await conn.execute("""
         INSERT INTO notification_logs (
             organization_id, notification_type, target_type, target_id,
             notification_date, status, error_message, channel, channel_target
         )
-        VALUES ($1, $2, 'goal', $3, $4, $5, $6, 'chatwork', $7)
+        VALUES ($1, $2, 'user', $3, $4, $5, $6, 'chatwork', $7)
         ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
         DO UPDATE SET
             status = EXCLUDED.status,
             error_message = EXCLUDED.error_message,
             retry_count = notification_logs.retry_count + 1,
             updated_at = NOW()
-    """, org_id, reminder_type, goal_id, today, status, error_message, room_id)
+    """, org_id, notification_type, user_id, today, status, error_message, room_id)
+
+
+async def send_team_summary_to_leader(leader_id: UUID, department_id: UUID, org_id: UUID):
+    """
+    8時のチームサマリー送信（部署単位で冪等性保証）
+    """
+    today = date.today()
+    notification_type = 'goal_team_summary'
+
+    # 既に送信済みか確認（部署単位）
+    existing = await conn.fetchrow("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = $1
+          AND target_type = 'department'
+          AND target_id = $2
+          AND notification_date = $3
+          AND notification_type = $4
+    """, org_id, department_id, today, notification_type)
+
+    if existing and existing['status'] == 'success':
+        return  # スキップ（二重送信防止）
+
+    # ... 以下同様
 ```
+
+### 7.5 エラーメッセージのサニタイズ
+
+**鉄則: エラーメッセージに機密情報を含めない**
+
+`notification_logs.error_message` に `str(e)` をそのまま保存すると、
+例外内容に機密情報や内部パスが含まれる可能性がある。
+
+```python
+def sanitize_error(e: Exception) -> str:
+    """
+    エラーメッセージから機密情報を除去
+
+    除去対象:
+    - ファイルパス（/Users/xxx, /home/xxx など）
+    - API キー・トークン
+    - ユーザーID（UUID）
+    - メールアドレス
+    - 内部ホスト名・IP
+    """
+    error_str = str(e)
+
+    # 1. ファイルパスを除去
+    error_str = re.sub(r'/[^\s]+', '[PATH]', error_str)
+
+    # 2. UUIDを除去
+    error_str = re.sub(
+        r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        '[UUID]',
+        error_str,
+        flags=re.IGNORECASE
+    )
+
+    # 3. メールアドレスを除去
+    error_str = re.sub(r'[\w.+-]+@[\w.-]+\.\w+', '[EMAIL]', error_str)
+
+    # 4. APIキー・トークン風の文字列を除去
+    error_str = re.sub(r'(key|token|secret|password)[\s]*[=:][\s]*[^\s]+', r'\1=[REDACTED]', error_str, flags=re.IGNORECASE)
+
+    # 5. 長すぎる場合は切り詰め
+    if len(error_str) > 500:
+        error_str = error_str[:500] + '...[TRUNCATED]'
+
+    return error_str
+
+
+# 使用例
+except Exception as e:
+    status = 'failed'
+    error_message = sanitize_error(e)  # ✅ サニタイズ済み
+    # error_message = str(e)  # ❌ 機密情報漏洩リスク
+```
+
+**許可されるエラーメッセージ例:**
+
+| OK | NG |
+|----|-----|
+| `rate_limit` | `User abc123@example.com exceeded rate limit` |
+| `timeout` | `/Users/kaz/soul-kun/lib/chatwork.py:123 timeout` |
+| `connection_error` | `Connection to 192.168.1.100:5432 failed` |
+| `[PATH] line 123: [UUID] not found` | `/home/deploy/app.py line 123: 550e8400-e29b-41d4-a716-446655440000 not found` |
 
 **Scheduler再実行時の挙動:**
 
@@ -842,6 +955,19 @@ async def send_chatwork_with_retry(room_id: str, message: str):
 ## 12. 監査ログ・機密区分
 
 ### 12.1 機密区分の設計
+
+**コーディング規約に従い、4段階の機密区分を使用。**
+
+```
+public < internal < confidential < restricted
+```
+
+| 区分 | 説明 | Phase 2.5での用途 |
+|------|------|-----------------|
+| public | 公開情報 | 使用しない |
+| internal | 社内限定 | 通常の目標・進捗 |
+| confidential | 機密 | 評価に直結するフィードバック |
+| restricted | 極秘 | 使用しない（人事評価確定前の情報など、将来用） |
 
 **目標・進捗データは人事評価に関わるため、`internal`（社内限定）以上の機密区分を設定。**
 

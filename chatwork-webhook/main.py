@@ -5154,6 +5154,11 @@ def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: in
         keywords = extract_keywords(query)
         expanded_query = expand_query(query, keywords) if keywords else query
 
+        # v10.14.2: keywordsが空の場合はベクトルスコアのみで評価（回帰防止）
+        if not keywords:
+            keyword_weight = 0.0
+            vector_weight = 1.0
+
         print(f"📚 Phase 3 ハイブリッド検索開始: query='{query}', keywords={keywords}")
 
         # 多めに取得してリランキング

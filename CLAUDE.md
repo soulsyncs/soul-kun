@@ -293,9 +293,33 @@ await client.send_message(room_id=12345, message="Hello!")
 
 ---
 
-# ⚠️ 実装完了後の自動コミット＆プッシュ（必須）
+# ⚠️ 実装完了後の自動フロー（必須）
 
-あなた（Claude Code）は、実装が完了したら**自動的にgit commit & pushしてください**。
+あなた（Claude Code）は、実装が完了したら**以下のフローを自動的に最後まで実行してください**。
+
+## 🔄 実装完了後の必須フロー
+
+```
+1. コード実装完了
+    ↓
+2. git commit
+    ↓
+3. feature ブランチ作成 & push
+    ↓
+4. PR作成
+    ↓
+5. Codexレビューを待つ（gh pr checks で確認）
+    ↓
+6. Codexレビュー結果を確認（gh pr view --comments）
+    ↓
+7. レビュー結果をユーザーに報告
+    ↓
+8. 「マージしていいですか？」とユーザーに最終確認
+    ↓
+9. ユーザーの承認後、マージ実行
+```
+
+**重要**: ステップ8まで自動で進めること。ユーザーへの最終確認なしにマージしないこと。
 
 ## 📝 コミットが必要な場合
 
@@ -311,6 +335,22 @@ await client.send_message(room_id=12345, message="Hello!")
 - 2行目: 空行
 - 3行目以降: 詳細な変更内容（日本語OK）
 - 最終行: `Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>`
+
+## 🤖 Codexレビュー確認方法
+
+```bash
+# PRのチェック状態を確認（passになるまで待つ）
+gh pr checks <PR番号>
+
+# Codexのレビューコメントを取得
+gh pr view <PR番号> --comments --json comments
+
+# レビュー結果をユーザーに報告する形式:
+# - 判定: GO / NO-GO
+# - CRITICAL/HIGH/MEDIUM/LOW の指摘件数
+# - 修正案があれば内容
+# - 最後に「マージしていいですか？」と確認
+```
 
 ## ⚠️ コミットしない場合
 

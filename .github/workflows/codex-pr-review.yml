@@ -23,13 +23,43 @@ jobs:
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
 
+      - name: Build Codex prompt (PR context + diff)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          {
+            echo "PR_URL: ${PR_URL}"
+            echo "PR_TITLE: ${PR_TITLE}"
+            echo "PR_NUMBER: ${PR_NUMBER}"
+            echo "BASE: ${BASE_REF}"
+            echo "HEAD: ${HEAD_REF}"
+            echo ""
+            echo "PR_BODY:"
+            echo "${PR_BODY}"
+            echo ""
+            echo "---"
+            echo "INSTRUCTIONS:"
+            cat scripts/pr_review_prompt.txt
+            echo ""
+            echo "---"
+            echo "DIFF:"
+            # FETCH_HEAD は直前の `git fetch ... +refs/pull/.../head` で入る
+            git diff --no-color --unified=3 "origin/${BASE_REF}...FETCH_HEAD" || true
+          } > /tmp/codex_prompt.txt
+
       - name: Run Codex
         id: run_codex
         uses: openai/codex-action@v1
         with:
-          # あなたが登録した Secret 名に合わせる（CODEX_API_KEY）
           openai-api-key: ${{ secrets.CODEX_API_KEY }}
-          prompt-file: scripts/pr_review_prompt.txt
+          prompt-file: /tmp/codex_prompt.txt
           output-file: codex-output.md
           safety-strategy: drop-sudo
           sandbox: workspace-write

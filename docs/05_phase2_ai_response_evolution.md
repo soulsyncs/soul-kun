@@ -292,15 +292,15 @@ CREATE TABLE question_patterns (
     question_category VARCHAR(100) NOT NULL,  -- 質問のカテゴリ（正規化後）
     question_hash VARCHAR(64) NOT NULL,       -- 質問の類似性判定用ハッシュ
     occurrence_count INT DEFAULT 1,
-    first_asked_at TIMESTAMP NOT NULL,
-    last_asked_at TIMESTAMP NOT NULL,
+    first_asked_at TIMESTAMPTZ NOT NULL,
+    last_asked_at TIMESTAMPTZ NOT NULL,
     asked_by_user_ids UUID[] DEFAULT '{}',    -- 質問した人のリスト
     sample_questions TEXT[] DEFAULT '{}',      -- サンプル質問（最大5件）
     status VARCHAR(20) DEFAULT 'active',       -- active, addressed, dismissed
-    addressed_at TIMESTAMP,
+    addressed_at TIMESTAMPTZ,
     addressed_action TEXT,                     -- 対応内容
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, question_hash)
 );
 
@@ -403,10 +403,10 @@ CREATE TABLE personalization_risks (
     evidence JSONB DEFAULT '{}',              -- 根拠となるデータ
     status VARCHAR(20) DEFAULT 'detected',    -- detected, acknowledged, mitigated, resolved
     mitigation_plan TEXT,                     -- 対策計画
-    detected_at TIMESTAMP DEFAULT NOW(),
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- キーパーソン別インデックス
@@ -486,10 +486,10 @@ CREATE TABLE bottleneck_detections (
     avg_wait_hours FLOAT,                     -- 平均待機時間
     status VARCHAR(20) DEFAULT 'detected',
     resolution_note TEXT,
-    detected_at TIMESTAMP DEFAULT NOW(),
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -548,12 +548,12 @@ CREATE TABLE emotion_change_detections (
     confidence_score FLOAT NOT NULL,          -- 0.0-1.0
     indicators JSONB NOT NULL,                -- 検出根拠（匿名化）
     notified_to UUID REFERENCES users(id),    -- 通知先（管理者）
-    notified_at TIMESTAMP,
+    notified_at TIMESTAMPTZ,
     classification VARCHAR(20) DEFAULT 'restricted',  -- 常にrestricted
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     -- 自動削除（90日後）
-    expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '90 days'
+    expires_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP + INTERVAL '90 days'
 );
 
 -- アクセス制限：管理者ロールのみ
@@ -635,9 +635,9 @@ CREATE TABLE long_term_memories (
     status VARCHAR(20) DEFAULT 'active',      -- active, archived, deleted
     classification VARCHAR(20) DEFAULT 'internal',
     created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP                      -- 自動削除日時
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ                    -- 自動削除日時
 );
 
 -- 検索用インデックス
@@ -733,8 +733,8 @@ CREATE TABLE person_relations (
     valid_from DATE DEFAULT CURRENT_DATE,
     valid_until DATE,
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     -- 同じ関係の重複を防ぐ
     UNIQUE(organization_id, person_a_id, person_b_id, relation_type)
@@ -751,8 +751,8 @@ CREATE TABLE task_dependencies (
     dependency_type VARCHAR(50) NOT NULL,     -- finish_to_start, start_to_start, etc.
     lag_days INT DEFAULT 0,                   -- 待機日数
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -794,8 +794,8 @@ CREATE TABLE company_rules (
     status VARCHAR(20) DEFAULT 'active',
     created_by UUID REFERENCES users(id),
     approved_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- カテゴリ別検索インデックス
@@ -835,8 +835,8 @@ CREATE TABLE user_preferences (
     learned_from VARCHAR(50),                 -- explicit, implicit, inferred
     confidence FLOAT DEFAULT 0.5,             -- 推定の確信度
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE(organization_id, user_id, preference_type)
 );
@@ -890,8 +890,8 @@ CREATE TABLE recurring_patterns (
     related_templates UUID[] DEFAULT '{}',    -- 関連するテンプレート
     status VARCHAR(20) DEFAULT 'active',
     created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 次回実行予定
@@ -900,8 +900,8 @@ CREATE TABLE recurring_schedules (
     pattern_id UUID NOT NULL REFERENCES recurring_patterns(id),
     next_occurrence DATE NOT NULL,
     reminder_sent BOOLEAN DEFAULT false,
-    reminder_sent_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    reminder_sent_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- インデックス
@@ -965,10 +965,10 @@ CREATE TABLE risk_detections (
     projected_impact TEXT,                    -- 予測される影響
     recommended_actions TEXT[],               -- 推奨アクション
     status VARCHAR(20) DEFAULT 'detected',    -- detected, acknowledged, mitigated, resolved
-    detected_at TIMESTAMP DEFAULT NOW(),
-    acknowledged_at TIMESTAMP,
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    acknowledged_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -1106,8 +1106,8 @@ CREATE TABLE onboarding_programs (
     target_department_id UUID REFERENCES departments(id),
     steps JSONB NOT NULL,                     -- ステップ定義
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 個人の進捗
@@ -1117,8 +1117,8 @@ CREATE TABLE onboarding_progress (
     user_id UUID NOT NULL REFERENCES users(id),
     current_step INT DEFAULT 0,
     completed_steps INT[] DEFAULT '{}',
-    started_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP,
+    started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
     status VARCHAR(20) DEFAULT 'in_progress',
     UNIQUE(program_id, user_id)
 );
@@ -1198,8 +1198,8 @@ CREATE TABLE recurring_task_templates (
     room_id VARCHAR(50),                      -- ChatWorkルームID
     status VARCHAR(20) DEFAULT 'active',
     created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -1301,13 +1301,13 @@ CREATE TABLE soulkun_insights (
     proposed_solution TEXT,                   -- 提案する解決策
     priority VARCHAR(20) DEFAULT 'medium',    -- high, medium, low
     status VARCHAR(20) DEFAULT 'pending',     -- pending, proposed, approved, implemented, dismissed
-    proposed_at TIMESTAMP,                    -- 提案日時
-    approved_at TIMESTAMP,                    -- 承認日時
-    implemented_at TIMESTAMP,                 -- 実装日時
-    dismissed_at TIMESTAMP,                   -- 却下日時
+    proposed_at TIMESTAMPTZ,                    -- 提案日時
+    approved_at TIMESTAMPTZ,                    -- 承認日時
+    implemented_at TIMESTAMPTZ,                 -- 実装日時
+    dismissed_at TIMESTAMPTZ,                   -- 却下日時
     dismissed_reason TEXT,                    -- 却下理由
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 週次レポート
@@ -1318,9 +1318,9 @@ CREATE TABLE soulkun_weekly_reports (
     week_end DATE NOT NULL,
     report_content TEXT NOT NULL,
     insights_included UUID[] DEFAULT '{}',    -- 含まれる気づきのID
-    sent_at TIMESTAMP,
+    sent_at TIMESTAMPTZ,
     sent_to UUID[] DEFAULT '{}',              -- 送信先
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, week_start)
 );
 ```
@@ -1432,7 +1432,7 @@ CREATE TABLE response_feedback (
     user_id UUID REFERENCES users(id),
     learning_applied BOOLEAN DEFAULT false,
     learning_note TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
@@ -1870,15 +1870,15 @@ CREATE TABLE question_patterns (
     question_category VARCHAR(100) NOT NULL,
     question_hash VARCHAR(64) NOT NULL,
     occurrence_count INT DEFAULT 1,
-    first_asked_at TIMESTAMP NOT NULL,
-    last_asked_at TIMESTAMP NOT NULL,
+    first_asked_at TIMESTAMPTZ NOT NULL,
+    last_asked_at TIMESTAMPTZ NOT NULL,
     asked_by_user_ids UUID[] DEFAULT '{}',
     sample_questions TEXT[] DEFAULT '{}',
     status VARCHAR(20) DEFAULT 'active',
-    addressed_at TIMESTAMP,
+    addressed_at TIMESTAMPTZ,
     addressed_action TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, question_hash)
 );
 
@@ -1906,10 +1906,10 @@ CREATE TABLE personalization_risks (
     evidence JSONB DEFAULT '{}',
     status VARCHAR(20) DEFAULT 'detected',
     mitigation_plan TEXT,
-    detected_at TIMESTAMP DEFAULT NOW(),
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_personalization_risks_key_person
@@ -1936,10 +1936,10 @@ CREATE TABLE bottleneck_detections (
     avg_wait_hours FLOAT,
     status VARCHAR(20) DEFAULT 'detected',
     resolution_note TEXT,
-    detected_at TIMESTAMP DEFAULT NOW(),
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_bottleneck_detections_severity
@@ -1960,10 +1960,10 @@ CREATE TABLE emotion_change_detections (
     confidence_score FLOAT NOT NULL,
     indicators JSONB NOT NULL,
     notified_to UUID REFERENCES users(id),
-    notified_at TIMESTAMP,
+    notified_at TIMESTAMPTZ,
     classification VARCHAR(20) DEFAULT 'restricted',
-    created_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '90 days'
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP + INTERVAL '90 days'
 );
 
 -- 自動削除用インデックス
@@ -1994,10 +1994,11 @@ CREATE TABLE long_term_memories (
     valid_until DATE,
     status VARCHAR(20) DEFAULT 'active',
     classification VARCHAR(20) DEFAULT 'internal',
-    created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
-    expires_at TIMESTAMP
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMPTZ
 );
 
 CREATE INDEX idx_long_term_memories_keywords
@@ -2029,8 +2030,8 @@ CREATE TABLE person_relations (
     valid_from DATE DEFAULT CURRENT_DATE,
     valid_until DATE,
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, person_a_id, person_b_id, relation_type)
 );
 
@@ -2057,8 +2058,8 @@ CREATE TABLE task_dependencies (
     dependency_type VARCHAR(50) NOT NULL,
     lag_days INT DEFAULT 0,
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_task_dependencies_predecessor
@@ -2087,10 +2088,11 @@ CREATE TABLE company_rules (
     effective_until DATE,
     source VARCHAR(100),
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
-    approved_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_company_rules_category
@@ -2112,8 +2114,8 @@ CREATE TABLE user_preferences (
     learned_from VARCHAR(50),
     confidence FLOAT DEFAULT 0.5,
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, user_id, preference_type)
 );
 
@@ -2139,9 +2141,10 @@ CREATE TABLE recurring_patterns (
     reminder_message TEXT,
     related_templates UUID[] DEFAULT '{}',
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_recurring_patterns_org
@@ -2153,18 +2156,25 @@ COMMENT ON TABLE recurring_patterns IS 'Phase 2進化版: 定期業務パター�
 ### 5.2.11 recurring_schedules
 
 ```sql
--- 次回実行予定
+-- 次回実行予定【v1.2修正: organization_id, created_by, updated_by追加】
 CREATE TABLE recurring_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pattern_id UUID NOT NULL REFERENCES recurring_patterns(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    pattern_id UUID NOT NULL REFERENCES recurring_patterns(id) ON DELETE CASCADE,
     next_occurrence DATE NOT NULL,
     reminder_sent BOOLEAN DEFAULT false,
-    reminder_sent_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    reminder_sent_at TIMESTAMPTZ,
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_recurring_schedules_next
 ON recurring_schedules(next_occurrence, reminder_sent);
+
+CREATE INDEX idx_recurring_schedules_org
+ON recurring_schedules(organization_id);
 
 COMMENT ON TABLE recurring_schedules IS 'Phase 2進化版: 次回実行予定（カテゴリC1）';
 ```
@@ -2184,10 +2194,10 @@ CREATE TABLE risk_detections (
     projected_impact TEXT,
     recommended_actions TEXT[],
     status VARCHAR(20) DEFAULT 'detected',
-    detected_at TIMESTAMP DEFAULT NOW(),
-    acknowledged_at TIMESTAMP,
-    resolved_at TIMESTAMP,
-    created_at TIMESTAMP DEFAULT NOW()
+    detected_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    acknowledged_at TIMESTAMPTZ,
+    resolved_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_risk_detections_level
@@ -2199,17 +2209,19 @@ COMMENT ON TABLE risk_detections IS 'Phase 2進化版: リスク検出ログ（�
 ### 5.2.13 onboarding_programs
 
 ```sql
--- オンボーディングプログラム
+-- オンボーディングプログラム【v1.2修正: ON DELETE, created_by, updated_by追加】
 CREATE TABLE onboarding_programs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     program_name VARCHAR(200) NOT NULL,
     target_role VARCHAR(100),
-    target_department_id UUID REFERENCES departments(id),
+    target_department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
     steps JSONB NOT NULL,
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_onboarding_programs_org
@@ -2221,21 +2233,29 @@ COMMENT ON TABLE onboarding_programs IS 'Phase 2進化版: オンボーディン
 ### 5.2.14 onboarding_progress
 
 ```sql
--- 個人の進捗
+-- 個人の進捗【v1.2修正: organization_id, ON DELETE, created_by, updated_by追加】
 CREATE TABLE onboarding_progress (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    program_id UUID NOT NULL REFERENCES onboarding_programs(id),
-    user_id UUID NOT NULL REFERENCES users(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    program_id UUID NOT NULL REFERENCES onboarding_programs(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     current_step INT DEFAULT 0,
     completed_steps INT[] DEFAULT '{}',
-    started_at TIMESTAMP DEFAULT NOW(),
-    completed_at TIMESTAMP,
+    started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
     status VARCHAR(20) DEFAULT 'in_progress',
-    UNIQUE(program_id, user_id)
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, program_id, user_id)
 );
 
 CREATE INDEX idx_onboarding_progress_user
 ON onboarding_progress(user_id);
+
+CREATE INDEX idx_onboarding_progress_org
+ON onboarding_progress(organization_id);
 
 COMMENT ON TABLE onboarding_progress IS 'Phase 2進化版: 個人の進捗（カテゴリE1）';
 ```
@@ -2243,21 +2263,22 @@ COMMENT ON TABLE onboarding_progress IS 'Phase 2進化版: 個人の進捗（カ
 ### 5.2.15 recurring_task_templates
 
 ```sql
--- 定期タスクテンプレート
+-- 定期タスクテンプレート【v1.2修正: ON DELETE, updated_by追加】
 CREATE TABLE recurring_task_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     template_name VARCHAR(200) NOT NULL,
     task_title VARCHAR(200) NOT NULL,
     task_description TEXT,
-    default_assignee_id UUID REFERENCES users(id),
+    default_assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
     recurrence_rule JSONB NOT NULL,
     auto_create BOOLEAN DEFAULT false,
     room_id VARCHAR(50),
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_recurring_task_templates_org
@@ -2282,13 +2303,13 @@ CREATE TABLE soulkun_insights (
     proposed_solution TEXT,
     priority VARCHAR(20) DEFAULT 'medium',
     status VARCHAR(20) DEFAULT 'pending',
-    proposed_at TIMESTAMP,
-    approved_at TIMESTAMP,
-    implemented_at TIMESTAMP,
-    dismissed_at TIMESTAMP,
+    proposed_at TIMESTAMPTZ,
+    approved_at TIMESTAMPTZ,
+    implemented_at TIMESTAMPTZ,
+    dismissed_at TIMESTAMPTZ,
     dismissed_reason TEXT,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_soulkun_insights_status
@@ -2308,9 +2329,9 @@ CREATE TABLE soulkun_weekly_reports (
     week_end DATE NOT NULL,
     report_content TEXT NOT NULL,
     insights_included UUID[] DEFAULT '{}',
-    sent_at TIMESTAMP,
+    sent_at TIMESTAMPTZ,
     sent_to UUID[] DEFAULT '{}',
-    created_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, week_start)
 );
 
@@ -2335,7 +2356,7 @@ CREATE TABLE response_feedback (
     user_id UUID REFERENCES users(id),
     learning_applied BOOLEAN DEFAULT false,
     learning_note TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_response_feedback_conversation
@@ -2359,8 +2380,8 @@ COMMENT ON TABLE response_feedback IS 'Phase 2進化版: 回答フィードバ�
 
 ```sql
 -- ❌ 修正前（Phase 2進化版 v1.0）
-created_at TIMESTAMP DEFAULT NOW()
-updated_at TIMESTAMP DEFAULT NOW()
+created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 
 -- ✅ 修正後（v1.2）
 created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -2447,7 +2468,7 @@ ADD COLUMN department_id UUID REFERENCES departments(id) ON DELETE SET NULL;
 
 ```sql
 -- ❌ 修正前（SQL構文の互換性問題）
-expires_at TIMESTAMP DEFAULT NOW() + INTERVAL '90 days'
+expires_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP + INTERVAL '90 days'
 
 -- ✅ 修正後（アプリ側で計算）
 expires_at TIMESTAMPTZ  -- デフォルト値なし
@@ -2589,7 +2610,7 @@ COMMENT ON TABLE emotion_change_detections IS
 {
   "insights": [
     {
-      "id": "insight_001",
+      "id": "550e8400-e29b-41d4-a716-446655440001",
       "insight_type": "pattern_detected",
       "importance": "high",
       "title": "「週報の出し方」の質問が頻出しています",
@@ -2620,21 +2641,21 @@ COMMENT ON TABLE emotion_change_detections IS
 
 ```json
 {
-  "id": "report_001",
-  "organization_id": "org_soulsyncs",
+  "id": "550e8400-e29b-41d4-a716-446655440002",
+  "organization_id": "123e4567-e89b-12d3-a456-426614174000",
   "week_start": "2026-01-20",
   "week_end": "2026-01-26",
   "report_content": "【今週のサマリー】...",
   "insights_count": 5,
   "insights": [
     {
-      "id": "insight_001",
+      "id": "550e8400-e29b-41d4-a716-446655440001",
       "importance": "high",
       "title": "パターン検出..."
     }
   ],
   "sent_at": "2026-01-27T09:00:00Z",
-  "sent_to": ["user_kazu"]
+  "sent_to": ["123e4567-e89b-12d3-a456-426614174001"]
 }
 ```
 
@@ -2650,7 +2671,7 @@ COMMENT ON TABLE emotion_change_detections IS
 
 ```json
 {
-  "conversation_id": "conv_001",
+  "conversation_id": "550e8400-e29b-41d4-a716-446655440005",
   "message_id": "msg_001",
   "feedback_type": "helpful",
   "feedback_signal": "thumbs_up",
@@ -2663,7 +2684,7 @@ COMMENT ON TABLE emotion_change_detections IS
 ```json
 {
   "status": "success",
-  "feedback_id": "feedback_001",
+  "feedback_id": "550e8400-e29b-41d4-a716-446655440003",
   "message": "フィードバックありがとうございますウル！"
 }
 ```
@@ -2692,7 +2713,7 @@ COMMENT ON TABLE emotion_change_detections IS
 {
   "patterns": [
     {
-      "id": "pattern_001",
+      "id": "550e8400-e29b-41d4-a716-446655440004",
       "question_category": "業務手順",
       "occurrence_count": 10,
       "unique_askers": 5,
@@ -2732,7 +2753,7 @@ COMMENT ON TABLE emotion_change_detections IS
 {
   "risks": [
     {
-      "id": "risk_001",
+      "id": "550e8400-e29b-41d4-a716-446655440006",
       "risk_type": "personalization",
       "risk_level": "medium",
       "description": "経理業務の知識が特定メンバーに集中しています",
@@ -3085,8 +3106,8 @@ CREATE TABLE user_expertise_areas (
     expertise_area VARCHAR(100) NOT NULL,     -- 専門領域（例: 経理、IT、人事）
     backup_user_id UUID REFERENCES users(id), -- 代替者
     status VARCHAR(20) DEFAULT 'active',
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, user_id, expertise_area)
 );
 
@@ -3139,11 +3160,11 @@ CREATE TABLE risk_notification_controls (
     organization_id UUID NOT NULL REFERENCES organizations(id),
     risk_type VARCHAR(50) NOT NULL,
     risk_level VARCHAR(20) NOT NULL,
-    last_notified_at TIMESTAMP,
+    last_notified_at TIMESTAMPTZ,
     notification_count_today INT DEFAULT 0,
     notification_count_week INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, risk_type, risk_level)
 );
 
@@ -3244,7 +3265,7 @@ Bさん: 紹介されたくなかった、忙しい
 -- 個人の好み設定に「開示可否」を追加
 ALTER TABLE user_preferences
 ADD COLUMN disclosed_to_user BOOLEAN DEFAULT false,
-ADD COLUMN user_confirmed_at TIMESTAMP;
+ADD COLUMN user_confirmed_at TIMESTAMPTZ;
 
 -- 本人確認済みフラグ
 -- disclosed_to_user = true: 本人が確認済み
@@ -3287,9 +3308,9 @@ CREATE TABLE user_referral_settings (
     -- 'always_ok': 積極的に紹介OK
     -- 'confirm_first': 事前に確認してから紹介（デフォルト）
     -- 'never': 紹介しないでほしい
-    busy_until TIMESTAMP,                     -- この時刻まで忙しい（紹介しない）
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    busy_until TIMESTAMPTZ,                   -- この時刻まで忙しい（紹介しない）
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, user_id)
 );
 ```
@@ -3377,9 +3398,9 @@ CREATE TABLE company_rules (
 
     -- ★承認管理（追加）
     status VARCHAR(20) DEFAULT 'draft',       -- draft（暫定）, pending_approval（承認待ち）, approved（確定）, rejected（却下）
-    submitted_for_approval_at TIMESTAMP,      -- 承認申請日時
+    submitted_for_approval_at TIMESTAMPTZ,    -- 承認申請日時
     approved_by UUID REFERENCES users(id),    -- 承認者
-    approved_at TIMESTAMP,                    -- 承認日時
+    approved_at TIMESTAMPTZ,                    -- 承認日時
     rejection_reason TEXT,                    -- 却下理由
 
     -- ★出典と信頼度（追加）
@@ -3392,7 +3413,7 @@ CREATE TABLE company_rules (
     effective_from DATE DEFAULT CURRENT_DATE,
     effective_until DATE,                     -- NULL = 無期限
     review_required_at DATE,                  -- 次回レビュー必要日
-    last_reviewed_at TIMESTAMP,               -- 最終レビュー日
+    last_reviewed_at TIMESTAMPTZ,             -- 最終レビュー日
 
     -- 適用範囲
     importance VARCHAR(20) NOT NULL,          -- critical, high, medium, low
@@ -3401,8 +3422,8 @@ CREATE TABLE company_rules (
 
     -- 監査
     created_by UUID REFERENCES users(id),
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- インデックス
@@ -3542,7 +3563,7 @@ ADD COLUMN approval_status VARCHAR(20) DEFAULT 'auto_approved',
 -- rejected: 却下
 
 ADD COLUMN approved_by UUID REFERENCES users(id),
-ADD COLUMN approved_at TIMESTAMP,
+ADD COLUMN approved_at TIMESTAMPTZ,
 ADD COLUMN confidence_level VARCHAR(20) DEFAULT 'medium';
 -- high: 公式文書から
 -- medium: 管理者発言から
@@ -3646,8 +3667,8 @@ CREATE TABLE usage_frequency (
     decision_query_count INT DEFAULT 0,      -- 「どうすればいい？」系
     repeated_query_count INT DEFAULT 0,      -- 同じ質問の繰り返し
     dependency_score FLOAT DEFAULT 0.0,       -- 依存度スコア（0.0-1.0）
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, user_id, date)
 );
 
@@ -3814,8 +3835,8 @@ CREATE TABLE user_notification_settings (
     quiet_hours_end TIME DEFAULT '09:00',
     quiet_hours_enabled BOOLEAN DEFAULT true,
 
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW(),
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(organization_id, user_id)
 );
 ```

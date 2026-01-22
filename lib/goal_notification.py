@@ -493,6 +493,11 @@ def send_daily_check_to_user(
     today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.DAILY_CHECK.value
 
+    # dry_run: DBに記録せず早期リターン（同日の本番実行をブロックしない）
+    if dry_run:
+        logger.info(f"[DRY_RUN] 17時進捗確認: {user_name}さん")
+        return ('skipped', 'dry_run')
+
     # =====================================================
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
@@ -536,18 +541,13 @@ def send_daily_check_to_user(
     status = 'pending'
     error_message = None
 
-    if dry_run:
-        logger.info(f"[DRY_RUN] 17時進捗確認: {user_name}さん")
-        status = 'skipped'
-        error_message = 'dry_run'
-    else:
-        try:
-            send_message_func(chatwork_room_id, message)
-            status = 'success'
-        except Exception as e:
-            status = 'failed'
-            error_message = sanitize_error(e)
-            logger.error(f"17時進捗確認送信エラー: user={user_id}, error={error_message}")
+    try:
+        send_message_func(chatwork_room_id, message)
+        status = 'success'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+        logger.error(f"17時進捗確認送信エラー: user={user_id}, error={error_message}")
 
     # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
@@ -604,6 +604,11 @@ def send_daily_reminder_to_user(
 
     today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.DAILY_REMINDER.value
+
+    # dry_run: DBに記録せず早期リターン（同日の本番実行をブロックしない）
+    if dry_run:
+        logger.info(f"[DRY_RUN] 18時未回答リマインド: {user_name}さん")
+        return ('skipped', 'dry_run')
 
     # =====================================================
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
@@ -664,18 +669,13 @@ def send_daily_reminder_to_user(
     status = 'pending'
     error_message = None
 
-    if dry_run:
-        logger.info(f"[DRY_RUN] 18時リマインド: {user_name}さん")
-        status = 'skipped'
-        error_message = 'dry_run'
-    else:
-        try:
-            send_message_func(chatwork_room_id, message)
-            status = 'success'
-        except Exception as e:
-            status = 'failed'
-            error_message = sanitize_error(e)
-            logger.error(f"18時リマインド送信エラー: user={user_id}, error={error_message}")
+    try:
+        send_message_func(chatwork_room_id, message)
+        status = 'success'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+        logger.error(f"18時リマインド送信エラー: user={user_id}, error={error_message}")
 
     # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
@@ -735,6 +735,11 @@ def send_morning_feedback_to_user(
     today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = GoalNotificationType.MORNING_FEEDBACK.value
 
+    # dry_run: DBに記録せず早期リターン（同日の本番実行をブロックしない）
+    if dry_run:
+        logger.info(f"[DRY_RUN] 8時フィードバック: {user_name}さん")
+        return ('skipped', 'dry_run')
+
     # =====================================================
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
@@ -775,18 +780,13 @@ def send_morning_feedback_to_user(
     status = 'pending'
     error_message = None
 
-    if dry_run:
-        logger.info(f"[DRY_RUN] 8時フィードバック: {user_name}さん")
-        status = 'skipped'
-        error_message = 'dry_run'
-    else:
-        try:
-            send_message_func(chatwork_room_id, message)
-            status = 'success'
-        except Exception as e:
-            status = 'failed'
-            error_message = sanitize_error(e)
-            logger.error(f"8時フィードバック送信エラー: user={user_id}, error={error_message}")
+    try:
+        send_message_func(chatwork_room_id, message)
+        status = 'success'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+        logger.error(f"8時フィードバック送信エラー: user={user_id}, error={error_message}")
 
     # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
@@ -850,6 +850,11 @@ def send_team_summary_to_leader(
     yesterday = today - timedelta(days=1)
     notification_type = GoalNotificationType.TEAM_SUMMARY.value
 
+    # dry_run: DBに記録せず早期リターン（同日の本番実行をブロックしない）
+    if dry_run:
+        logger.info(f"[DRY_RUN] チームサマリー: {leader_name}さん（{department_name}）")
+        return ('skipped', 'dry_run')
+
     # =====================================================
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
@@ -892,18 +897,13 @@ def send_team_summary_to_leader(
     status = 'pending'
     error_message = None
 
-    if dry_run:
-        logger.info(f"[DRY_RUN] チームサマリー: {leader_name}さん（{department_name}）")
-        status = 'skipped'
-        error_message = 'dry_run'
-    else:
-        try:
-            send_message_func(chatwork_room_id, message)
-            status = 'success'
-        except Exception as e:
-            status = 'failed'
-            error_message = sanitize_error(e)
-            logger.error(f"チームサマリー送信エラー: recipient={recipient_id}, error={error_message}")
+    try:
+        send_message_func(chatwork_room_id, message)
+        status = 'success'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+        logger.error(f"チームサマリー送信エラー: recipient={recipient_id}, error={error_message}")
 
     # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
@@ -957,7 +957,7 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
-            u.display_name AS user_name,
+            COALESCE(u.display_name, u.name) AS user_name,
             u.chatwork_room_id
         FROM users u
         JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
@@ -1042,7 +1042,7 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
-            u.display_name AS user_name,
+            COALESCE(u.display_name, u.name) AS user_name,
             u.chatwork_room_id
         FROM users u
         JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
@@ -1107,7 +1107,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
-            u.display_name AS user_name,
+            COALESCE(u.display_name, u.name) AS user_name,
             u.chatwork_room_id
         FROM users u
         JOIN goal_progress gp ON gp.organization_id = u.organization_id
@@ -1195,7 +1195,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
-            u.display_name AS user_name,
+            COALESCE(u.display_name, u.name) AS user_name,
             u.chatwork_room_id,
             d.id AS department_id,
             d.name AS department_name
@@ -1224,7 +1224,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         members_result = conn.execute(sqlalchemy.text("""
             SELECT
                 u.id AS user_id,
-                u.display_name AS user_name,
+                COALESCE(u.display_name, u.name) AS user_name,
                 g.id AS goal_id,
                 g.title,
                 g.goal_type,
@@ -1239,7 +1239,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
               AND ud.department_id = :department_id
               AND g.organization_id = :org_id
               AND g.status = 'active'
-            ORDER BY u.display_name, g.created_at
+            ORDER BY COALESCE(u.display_name, u.name), g.created_at
         """), {'department_id': department_id, 'org_id': org_id})
 
         # メンバーデータを整形
@@ -1358,7 +1358,7 @@ def check_consecutive_unanswered_users(
         WITH users_with_goals AS (
             SELECT DISTINCT
                 u.id AS user_id,
-                u.display_name AS user_name,
+                COALESCE(u.display_name, u.name) AS user_name,
                 u.chatwork_room_id,
                 ud.department_id,
                 d.name AS department_name
@@ -1446,6 +1446,11 @@ def send_consecutive_unanswered_alert_to_leader(
     today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     notification_type = "goal_consecutive_unanswered"
 
+    # dry_run: DBに記録せず早期リターン（同日の本番実行をブロックしない）
+    if dry_run:
+        logger.info(f"[DRY_RUN] 連続未回答アラート: {leader_name}さん（{len(unanswered_members)}名）")
+        return ('skipped', 'dry_run')
+
     # =====================================================
     # CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしない
     # 競合対策: INSERT ... ON CONFLICT DO UPDATE で排他制御
@@ -1495,18 +1500,13 @@ def send_consecutive_unanswered_alert_to_leader(
     status = 'pending'
     error_message = None
 
-    if dry_run:
-        logger.info(f"[DRY_RUN] 連続未回答アラート: {leader_name}さん（{len(unanswered_members)}名）")
-        status = 'skipped'
-        error_message = 'dry_run'
-    else:
-        try:
-            send_message_func(chatwork_room_id, message)
-            status = 'success'
-        except Exception as e:
-            status = 'failed'
-            error_message = sanitize_error(e)
-            logger.error(f"連続未回答アラート送信エラー: leader={leader_id}, error={error_message}")
+    try:
+        send_message_func(chatwork_room_id, message)
+        status = 'success'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+        logger.error(f"連続未回答アラート送信エラー: leader={leader_id}, error={error_message}")
 
     # Phase 3: 最終ステータス更新
     conn.execute(sqlalchemy.text("""
@@ -1591,7 +1591,7 @@ def scheduled_consecutive_unanswered_check(
         leaders_result = conn.execute(sqlalchemy.text("""
             SELECT
                 u.id AS user_id,
-                u.display_name AS user_name,
+                COALESCE(u.display_name, u.name) AS user_name,
                 u.chatwork_room_id
             FROM users u
             JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id

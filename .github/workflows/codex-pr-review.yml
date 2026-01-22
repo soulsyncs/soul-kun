@@ -1,0 +1,91 @@
+name: Codex pull request review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  codex:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
+
+      - name: Pre-fetch base and head refs
+        run: |
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      - name: Build Codex prompt (PR context + diff)
+        shell: bash
+        run: |
+          set -euo pipefail
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          HEAD_REF="${{ github.event.pull_request.head.ref }}"
+
+          # PR本文は here-doc で一時ファイルに書き出す（", $, 改行に強くする）
+          cat <<'PRBODY_EOF' > /tmp/pr_body.txt
+          ${{ github.event.pull_request.body }}
+          PRBODY_EOF
+
+          {
+            echo "PR_URL: ${PR_URL}"
+            echo "PR_TITLE: ${PR_TITLE}"
+            echo "PR_NUMBER: ${PR_NUMBER}"
+            echo "BASE: ${BASE_REF}"
+            echo "HEAD: ${HEAD_REF}"
+            echo ""
+            echo "PR_BODY:"
+            cat /tmp/pr_body.txt
+            echo ""
+            echo "---"
+            echo "INSTRUCTIONS:"
+            cat scripts/pr_review_prompt.txt
+            echo ""
+            echo "---"
+            echo "DIFF:"
+            # FETCH_HEAD は直前の `git fetch ... +refs/pull/.../head` で入る
+            git diff --no-color --unified=3 "origin/${BASE_REF}...FETCH_HEAD"
+          } > /tmp/codex_prompt.txt
+
+      - name: Run Codex
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.CODEX_API_KEY }}
+          prompt-file: /tmp/codex_prompt.txt
+          output-file: codex-output.md
+          safety-strategy: drop-sudo
+          sandbox: workspace-write
+
+  post_feedback:
+    runs-on: ubuntu-latest
+    needs: codex
+    if: needs.codex.outputs.final_message != ''
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post Codex feedback
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: process.env.CODEX_FINAL_MESSAGE,
+            });
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}

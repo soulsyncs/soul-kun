@@ -183,6 +183,34 @@ After  (v10.13.3): 「入社日から6か月間...8割以上出勤した場合�
 | v10.14.0 | 2026-01-22 | タスク要約品質改善（挨拶除去・件名抽出・バリデーション） |
 | v10.14.1 | 2026-01-22 | 設計書準拠・コード品質改善、lib/text_utils.py・lib/audit.py共通化 |
 | v10.14.2 | 2026-01-22 | organization_id NULLのレガシーデータ対応（品質レポート・要約再生成）|
+| v10.14.3 | 2026-01-22 | organization_idフィルタ削除（chatwork_tasksにカラム未設定のため）|
+
+## ■ v10.14.3 追加内容
+
+| 機能 | 説明 | 影響箇所 |
+|------|------|---------|
+| `report_summary_quality()` | organization_idフィルタを完全に削除 | sync-chatwork-tasks/main.py |
+| `regenerate_bad_summaries()` | organization_idフィルタを完全に削除 | sync-chatwork-tasks/main.py |
+
+### 背景
+v10.14.2でorganization_id IS NULL対応を追加したが、それでも品質レポートが0件を返していた。
+調査の結果、`chatwork_tasks`テーブルに`organization_id`カラムが存在しないか、
+または期待される値が設定されていないことが判明。
+
+### 修正内容
+```sql
+-- Before (v10.14.2)
+WHERE status = 'open' AND (organization_id = %s OR organization_id IS NULL)
+
+-- After (v10.14.3)
+WHERE status = 'open'
+```
+
+### 今後の対応
+Phase 4（テナント分離）実装時に以下を行う必要がある：
+1. `chatwork_tasks`テーブルに`organization_id`カラムを追加（ALTER TABLE）
+2. 既存データへのバックフィル（UPDATE SET organization_id = 'org_soulsyncs'）
+3. organization_idフィルタの再有効化
 
 ## ■ v10.14.2 追加内容
 
@@ -195,12 +223,12 @@ After  (v10.13.3): 「入社日から6か月間...8割以上出勤した場合�
 v10.14.1でorganization_idフィルタを追加したが、既存タスクはorganization_idがNULLのため除外されていた。
 これにより品質レポートが「オープンタスク0件」と表示されるバグが発生。
 
-### 修正内容
+### 修正内容（v10.14.3で無効化）
 ```sql
 -- Before (v10.14.1)
 WHERE status = 'open' AND organization_id = %s
 
--- After (v10.14.2)
+-- After (v10.14.2) - v10.14.3で削除
 WHERE status = 'open' AND (organization_id = %s OR organization_id IS NULL)
 ```
 

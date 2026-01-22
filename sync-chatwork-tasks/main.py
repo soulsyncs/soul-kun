@@ -1156,6 +1156,7 @@ def regenerate_bad_summaries(
     ★★★ v10.14.0: 新規追加 ★★★
     ★★★ v10.14.1: organization_idフィルタ + 監査ログ追加 ★★★
     ★★★ v10.14.2: organization_id NULLのレガシーデータ対応 ★★★
+    ★★★ v10.14.3: organization_idフィルタ削除（カラム未設定のため）★★★
 
     低品質の判定基準（validate_summary関数）:
     - 挨拶のみ（お疲れ様です、等）
@@ -1172,22 +1173,20 @@ def regenerate_bad_summaries(
     Returns:
         処理結果の辞書
     """
-    # v10.14.1: 全件数を取得（organization_idでフィルタ、v10.14.2: NULL対応）
+    # v10.14.1: 全件数を取得（v10.14.3: organization_idフィルタ削除）
     cursor.execute("""
         SELECT COUNT(*) FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
-          AND (organization_id = %s OR organization_id IS NULL)
-    """, (organization_id,))
+    """)
     total_count = cursor.fetchone()[0]
 
-    # v10.14.1: offsetベースでバッチ取得（organization_idでフィルタ、v10.14.2: NULL対応）
+    # v10.14.1: offsetベースでバッチ取得（v10.14.3: organization_idフィルタ削除）
     cursor.execute("""
         SELECT task_id, body, summary FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
-          AND (organization_id = %s OR organization_id IS NULL)
         ORDER BY task_id DESC
         LIMIT %s OFFSET %s
-    """, (organization_id, limit, offset))
+    """, (limit, offset))
     tasks = cursor.fetchall()
 
     result = {
@@ -1226,13 +1225,12 @@ def regenerate_bad_summaries(
                     print(f"⏭️ 冪等性スキップ: task_id={task_id}（新旧要約同一）")
                     continue
 
-                # v10.14.2: NULL対応（レガシーデータも更新可能に）
+                # v10.14.3: organization_idフィルタ削除
                 cursor.execute("""
                     UPDATE chatwork_tasks
                     SET summary = %s
                     WHERE task_id = %s
-                      AND (organization_id = %s OR organization_id IS NULL)
-                """, (new_summary, task_id, organization_id))
+                """, (new_summary, task_id))
                 conn.commit()
                 result["regenerated"] += 1
                 print(f"✅ 再生成成功: task_id={task_id}, new_summary='{new_summary}'")
@@ -1294,6 +1292,7 @@ def report_summary_quality(
     ★★★ v10.14.0: 再発防止策 - 品質モニタリング ★★★
     ★★★ v10.14.1: organization_idフィルタ追加 ★★★
     ★★★ v10.14.2: organization_id NULLのレガシーデータ対応 ★★★
+    ★★★ v10.14.3: organization_idフィルタ削除（カラム未設定のため）★★★
 
     このレポートは定期的に呼び出して、低品質要約の発生を監視する。
     問題があれば早期に検知できる。
@@ -1310,7 +1309,8 @@ def report_summary_quality(
     print(f"📊 要約品質レポート (v10.14.1) org={organization_id}")
     print("=" * 60)
 
-    # 1. 全体統計（v10.14.1: organization_idでフィルタ、v10.14.2: NULL対応）
+    # 1. 全体統計（v10.14.1: organization_idでフィルタ、v10.14.2: NULL対応、v10.14.3: フィルタ削除）
+    # ★★★ v10.14.3: organization_idカラムが存在しない可能性があるため、フィルタを一時削除 ★★★
     cursor.execute("""
         SELECT
             COUNT(*) AS total_open,
@@ -1318,8 +1318,7 @@ def report_summary_quality(
             COUNT(*) - COUNT(summary) AS without_summary
         FROM chatwork_tasks
         WHERE status = 'open'
-          AND (organization_id = %s OR organization_id IS NULL)
-    """, (organization_id,))
+    """)
     stats = cursor.fetchone()
     total_open = stats[0]
     with_summary = stats[1]
@@ -1330,15 +1329,14 @@ def report_summary_quality(
     print(f"   要約あり: {with_summary}")
     print(f"   要約なし: {without_summary}")
 
-    # 2. 低品質要約をサンプリングチェック（最新50件）（v10.14.1: organization_idでフィルタ、v10.14.2: NULL対応）
+    # 2. 低品質要約をサンプリングチェック（最新50件）（v10.14.1: organization_idでフィルタ、v10.14.3: フィルタ削除）
     cursor.execute("""
         SELECT task_id, body, summary
         FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
-          AND (organization_id = %s OR organization_id IS NULL)
         ORDER BY task_id DESC
         LIMIT 50
-    """, (organization_id,))
+    """)
     sample_tasks = cursor.fetchall()
 
     bad_count = 0

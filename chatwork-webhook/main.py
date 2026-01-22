@@ -2361,7 +2361,7 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
                     organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
                     notification_type VARCHAR(50) NOT NULL,
                     target_type VARCHAR(50) NOT NULL,
-                    target_id BIGINT,
+                    target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
                     notification_date DATE NOT NULL,
                     sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                     status VARCHAR(20) NOT NULL,
@@ -4025,15 +4025,25 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
             ).fetchone()
 
             if not user_result:
-                # ユーザーが見つからない場合はデフォルトのorganization_idを使用
-                org_id = "org_soulsyncs"  # デフォルト
-                user_id = str(uuid4())  # 仮のuser_id
-                user_name = sender_name or "ユーザー"
-                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}, 仮のuser_idを使用")
-            else:
-                user_id = str(user_result[0])
-                org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
-                user_name = user_result[2] or sender_name or "ユーザー"
+                # ユーザーが見つからない場合はエラー（登録誘導）
+                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 まだソウルくんに登録されていないみたいウル！\n\n管理者に連絡して、ユーザー登録をお願いしてウル🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = user_result[1]
+            user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合もエラー
+            if not org_id:
+                print(f"⚠️ organization_idがNULL: user_id={user_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
 
             # 目標を登録
             goal_id = str(uuid4())
@@ -4143,8 +4153,16 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
                 }
 
             user_id = str(user_result[0])
-            org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
+            org_id = user_result[1]
             user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合はエラー
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
 
             # アクティブな目標を取得
             goals_result = conn.execute(
@@ -4326,8 +4344,16 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
                 }
 
             user_id = str(user_result[0])
-            org_id = str(user_result[1]) if user_result[1] else "org_soulsyncs"
+            org_id = user_result[1]
             user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合はエラー
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
 
             # アクティブな目標を全て取得
             goals_result = conn.execute(

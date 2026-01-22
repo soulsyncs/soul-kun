@@ -84,6 +84,19 @@ gcloud projects get-iam-policy soulkun-production \
 
 ## 3. Cloud Scheduler ジョブの作成
 
+> **⚠️ 重要: org_id について**
+>
+> `org_id` は有効なUUID形式である必要があります（例: `123e4567-e89b-12d3-a456-426614174000`）。
+>
+> **組織UUIDの取得方法:**
+> ```sql
+> SELECT id, name FROM organizations WHERE name LIKE '%ソウルシンクス%';
+> ```
+>
+> **または、DEFAULT_ORG_ID環境変数を設定:**
+> Cloud Functionsのデプロイ時に `--set-env-vars="DEFAULT_ORG_ID=<UUID>"` を追加すれば、
+> スケジューラから org_id を省略できます（デフォルト値が使用されます）。
+
 ### 3.1 17:00 進捗確認 (goal-daily-check)
 
 ```bash
@@ -94,7 +107,7 @@ gcloud scheduler jobs create http goal-daily-check \
   --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/goal_daily_check" \
   --http-method=POST \
   --headers="Content-Type=application/json" \
-  --message-body='{"org_id": "org_soulsyncs"}' \
+  --message-body='{"org_id": "<YOUR_ORGANIZATION_UUID>"}' \
   --description="Phase 2.5: 17時進捗確認"
 ```
 
@@ -108,7 +121,7 @@ gcloud scheduler jobs create http goal-daily-reminder \
   --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/goal_daily_reminder" \
   --http-method=POST \
   --headers="Content-Type=application/json" \
-  --message-body='{"org_id": "org_soulsyncs"}' \
+  --message-body='{"org_id": "<YOUR_ORGANIZATION_UUID>"}' \
   --description="Phase 2.5: 18時未回答リマインド"
 ```
 
@@ -122,7 +135,7 @@ gcloud scheduler jobs create http goal-morning-feedback \
   --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/goal_morning_feedback" \
   --http-method=POST \
   --headers="Content-Type=application/json" \
-  --message-body='{"org_id": "org_soulsyncs"}' \
+  --message-body='{"org_id": "<YOUR_ORGANIZATION_UUID>"}' \
   --description="Phase 2.5: 8時朝フィードバック・チームサマリー"
 ```
 
@@ -136,7 +149,7 @@ gcloud scheduler jobs create http goal-consecutive-unanswered \
   --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/goal_consecutive_unanswered_check" \
   --http-method=POST \
   --headers="Content-Type=application/json" \
-  --message-body='{"org_id": "org_soulsyncs", "consecutive_days": 3}' \
+  --message-body='{"org_id": "<YOUR_ORGANIZATION_UUID>", "consecutive_days": 3}' \
   --description="Phase 2.5: 3日連続未回答アラート"
 ```
 
@@ -165,7 +178,7 @@ gcloud scheduler jobs run goal-daily-check --location=asia-northeast1
 # ドライランモードでテスト実行（実際には送信しない）
 curl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"org_id": "org_soulsyncs", "dry_run": true}' \
+  -d '{"org_id": "<YOUR_ORGANIZATION_UUID>", "dry_run": true}' \
   https://asia-northeast1-soulkun-production.cloudfunctions.net/goal_daily_check
 ```
 
@@ -291,13 +304,13 @@ ORDER BY created_at DESC;
 -- ユーザーの ChatWork 設定を確認
 SELECT id, display_name, chatwork_room_id
 FROM users
-WHERE organization_id = 'org_soulsyncs';
+WHERE organization_id = '<YOUR_ORGANIZATION_UUID>';
 
 -- ユーザーのアクティブな目標を確認
 SELECT u.display_name, g.title, g.status
 FROM users u
 JOIN goals g ON g.user_id = u.id
-WHERE g.organization_id = 'org_soulsyncs'
+WHERE g.organization_id = '<YOUR_ORGANIZATION_UUID>'
   AND g.status = 'active';
 ```
 

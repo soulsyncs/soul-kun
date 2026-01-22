@@ -3226,7 +3226,7 @@ def ensure_overdue_tables():
                 print("✅ metadataカラム確認/追加完了")
             except Exception as e:
                 print(f"⚠️ metadataカラム追加エラー（無視）: {e}")
-            # ★★★ v10.5.0: check_notification_type制約を更新（task_escalation追加）★★★
+            # ★★★ v10.14.2: check_notification_type制約を更新（goal通知追加）★★★
             try:
                 with pool.begin() as conn:
                     conn.execute(sqlalchemy.text("""
@@ -3236,12 +3236,34 @@ def ensure_overdue_tables():
                         ALTER TABLE notification_logs ADD CONSTRAINT check_notification_type
                         CHECK (notification_type IN (
                             'task_reminder', 'task_overdue', 'task_escalation',
-                            'deadline_alert', 'escalation_alert', 'dm_unavailable'
+                            'deadline_alert', 'escalation_alert', 'dm_unavailable',
+                            'goal_daily_check', 'goal_daily_reminder', 'goal_morning_feedback',
+                            'goal_team_summary', 'goal_consecutive_unanswered'
                         ))
                     """))
-                print("✅ check_notification_type制約更新完了")
+                print("✅ check_notification_type制約更新完了（goal通知対応）")
             except Exception as e:
                 print(f"⚠️ check_notification_type制約更新エラー（無視）: {e}")
+            # ★★★ v10.14.2: target_idをBIGINT→TEXTに変更（UUID対応）★★★
+            try:
+                with pool.begin() as conn:
+                    # target_idの型を確認
+                    result = conn.execute(sqlalchemy.text("""
+                        SELECT data_type FROM information_schema.columns
+                        WHERE table_name = 'notification_logs' AND column_name = 'target_id'
+                    """))
+                    row = result.fetchone()
+                    if row and row[0] == 'bigint':
+                        # BIGINTの場合はTEXTに変更（既存データはTEXTに自動キャスト）
+                        conn.execute(sqlalchemy.text("""
+                            ALTER TABLE notification_logs
+                            ALTER COLUMN target_id TYPE TEXT USING target_id::TEXT
+                        """))
+                        print("✅ target_idカラムをBIGINT→TEXTに変更完了（UUID対応）")
+                    else:
+                        print("✅ target_idカラム確認完了（TEXT）")
+            except Exception as e:
+                print(f"⚠️ target_idカラム変更エラー（無視）: {e}")
         else:
             with pool.begin() as conn:
                 conn.execute(sqlalchemy.text("""
@@ -3250,7 +3272,7 @@ def ensure_overdue_tables():
                         organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
                         notification_type VARCHAR(50) NOT NULL,
                         target_type VARCHAR(50) NOT NULL,
-                        target_id BIGINT,
+                        target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
                         notification_date DATE NOT NULL,
                         sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                         status VARCHAR(20) NOT NULL,

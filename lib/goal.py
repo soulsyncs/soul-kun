@@ -3,6 +3,8 @@ Goal Management Service
 
 目標達成支援用のサービス層（Phase 2.5）
 
+★★★ v10.14.3: 監査ログ対応追加 ★★★
+
 設計書: docs/05_phase2-5_goal_achievement.md (v1.5)
 
 使用例（Flask/Cloud Functions）:

@@ -6363,11 +6363,17 @@ def goal_daily_check(request):
         dry_run = request_json.get("dry_run", DRY_RUN)
 
         # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_check",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
         if not _validate_org_id(org_id):
             return jsonify({
                 "status": "error",
                 "notification_type": "goal_daily_check",
-                "error": "Invalid or missing org_id. Must be a valid UUID.",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
             }), 400
 
         print(f"組織ID: {org_id}")
@@ -6436,11 +6442,17 @@ def goal_daily_reminder(request):
         dry_run = request_json.get("dry_run", DRY_RUN)
 
         # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_reminder",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
         if not _validate_org_id(org_id):
             return jsonify({
                 "status": "error",
                 "notification_type": "goal_daily_reminder",
-                "error": "Invalid or missing org_id. Must be a valid UUID.",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
             }), 400
 
         print(f"組織ID: {org_id}")
@@ -6511,11 +6523,17 @@ def goal_morning_feedback(request):
         dry_run = request_json.get("dry_run", DRY_RUN)
 
         # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_morning_feedback",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
         if not _validate_org_id(org_id):
             return jsonify({
                 "status": "error",
                 "notification_type": "goal_morning_feedback",
-                "error": "Invalid or missing org_id. Must be a valid UUID.",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
             }), 400
 
         print(f"組織ID: {org_id}")
@@ -6588,11 +6606,17 @@ def goal_consecutive_unanswered_check(request):
         dry_run = request_json.get("dry_run", DRY_RUN)
 
         # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_consecutive_unanswered",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
         if not _validate_org_id(org_id):
             return jsonify({
                 "status": "error",
                 "notification_type": "goal_consecutive_unanswered",
-                "error": "Invalid or missing org_id. Must be a valid UUID.",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
             }), 400
 
         print(f"組織ID: {org_id}")

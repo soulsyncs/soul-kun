@@ -405,7 +405,7 @@ class TestSendDailyCheckToUser:
         )
 
         assert status == "skipped"
-        assert error == "already_sent_or_processing"
+        assert error == "already_sent"
 
     def test_dry_run_mode(self, mock_goal_db_conn):
         """ドライランモードでは実際に送信しない"""
@@ -591,7 +591,7 @@ class TestSendTeamSummaryToLeader:
         )
 
         assert status == "skipped"
-        assert error == "already_sent_or_processing"
+        assert error == "already_sent"
 
 
 class TestScheduledDailyCheck:

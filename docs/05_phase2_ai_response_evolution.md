@@ -2796,29 +2796,193 @@ COMMENT ON TABLE emotion_change_detections IS
 
 Phase 2進化版の通知は、既存の `notification_logs` テーブルを使用して冪等性を保証します。
 
-**追加する notification_type:**
+#### 5.6.1 既存の notification_type 一覧
 
-| notification_type | 説明 | target_type |
-|-------------------|------|-------------|
-| `pattern_alert` | パターン検出通知 | pattern |
-| `personalization_risk` | 属人化リスク通知 | user |
-| `bottleneck_alert` | ボトルネック通知 | user |
-| `weekly_report` | 週次レポート | system |
-| `insight_notification` | 気づき通知 | insight |
+**現在の `check_notification_type` 制約で許可されている値（`remind-tasks/main.py:3236-3240`）:**
 
-**実装例:**
+| notification_type | 説明 | 導入バージョン |
+|-------------------|------|--------------|
+| `task_reminder` | タスク期限超過リマインド | v10.1.4 |
+| `task_overdue` | タスク超過（非推奨、task_reminderに統合） | v10.1.4 |
+| `task_escalation` | タスクエスカレーション通知 | v10.5.0 |
+| `deadline_alert` | 期限アラート | v10.5.0 |
+| `escalation_alert` | エスカレーションアラート | v10.5.0 |
+| `dm_unavailable` | DM利用不可通知 | v10.5.0 |
+
+**設計書（`docs/03_database_design.md:1070-1075`）に記載されている値:**
+
+| notification_type | 説明 |
+|-------------------|------|
+| `task_reminder` | タスク期限超過リマインド |
+| `goal_reminder` | 目標達成状況リマインド（Phase 2.5） |
+| `meeting_reminder` | 会議リマインド（Phase C） |
+| `system_notification` | システム通知 |
+
+#### 5.6.2 Phase 2進化版で追加する notification_type
+
+| notification_type | 説明 | target_type | 用途 |
+|-------------------|------|-------------|------|
+| `pattern_alert` | パターン検出通知 | pattern | 同じ質問が頻出した際に管理者へ通知 |
+| `personalization_risk` | 属人化リスク通知 | user | 特定の人への質問集中を検出した際に通知 |
+| `bottleneck_alert` | ボトルネック通知 | user | 承認待ち滞留を検出した際に通知 |
+| `weekly_report` | 週次レポート | system | ソウルくんの週次サマリーを経営陣へ送信 |
+| `insight_notification` | 気づき通知 | insight | ソウルくんの気づきを管理者へ通知 |
+
+#### 5.6.3 制約更新のマイグレーション手順【必須】
+
+**⚠️ 重要: Phase 2進化版を実装する前に、以下のマイグレーションを実行する必要があります。**
+
+```sql
+-- =====================================================
+-- Phase 2進化版 マイグレーション: notification_type制約の更新
+-- 実行タイミング: Phase 2進化版の実装開始前
+-- =====================================================
+
+-- Step 1: 既存制約の削除
+ALTER TABLE notification_logs
+DROP CONSTRAINT IF EXISTS check_notification_type;
+
+-- Step 2: 新しい制約の追加（既存値 + Phase 2進化版の新規値）
+ALTER TABLE notification_logs
+ADD CONSTRAINT check_notification_type
+CHECK (notification_type IN (
+    -- 既存値（v10.5.0まで）
+    'task_reminder',
+    'task_overdue',
+    'task_escalation',
+    'deadline_alert',
+    'escalation_alert',
+    'dm_unavailable',
+    -- Phase 2.5追加
+    'goal_reminder',
+    'goal_daily_check',
+    'goal_morning_feedback',
+    'goal_consecutive_unanswered',
+    -- Phase C追加予定
+    'meeting_reminder',
+    -- システム通知
+    'system_notification',
+    -- ★ Phase 2進化版で追加（本設計書）
+    'pattern_alert',
+    'personalization_risk',
+    'bottleneck_alert',
+    'weekly_report',
+    'insight_notification'
+));
+
+-- Step 3: コメントの更新
+COMMENT ON COLUMN notification_logs.notification_type IS
+'通知タイプ:
+【既存（Phase 1-B）】
+- task_reminder: タスク期限超過リマインド
+- task_escalation: タスクエスカレーション通知
+- deadline_alert: 期限アラート
+- escalation_alert: エスカレーションアラート
+- dm_unavailable: DM利用不可通知
+
+【Phase 2.5】
+- goal_reminder: 目標達成状況リマインド
+- goal_daily_check: 日次目標確認
+- goal_morning_feedback: 朝のフィードバック
+- goal_consecutive_unanswered: 連続未回答アラート
+
+【Phase 2進化版】★新規
+- pattern_alert: パターン検出通知
+- personalization_risk: 属人化リスク通知
+- bottleneck_alert: ボトルネック通知
+- weekly_report: 週次レポート
+- insight_notification: 気づき通知
+
+【Phase C】
+- meeting_reminder: 会議リマインド
+
+【その他】
+- system_notification: システム通知
+';
+```
+
+**Cloud Functions（remind-tasks/main.py）側の更新:**
+
+`remind-tasks/main.py` の `ensure_notification_logs_table` 関数内にある制約定義も同様に更新が必要です。
 
 ```python
-from lib.audit import log_audit
-from datetime import date
+# remind-tasks/main.py の該当箇所（約 line 3236）
+conn.execute(sqlalchemy.text("""
+    ALTER TABLE notification_logs ADD CONSTRAINT check_notification_type
+    CHECK (notification_type IN (
+        'task_reminder', 'task_overdue', 'task_escalation',
+        'deadline_alert', 'escalation_alert', 'dm_unavailable',
+        'goal_reminder', 'goal_daily_check', 'goal_morning_feedback',
+        'goal_consecutive_unanswered',
+        'meeting_reminder', 'system_notification',
+        -- ★ Phase 2進化版で追加
+        'pattern_alert', 'personalization_risk', 'bottleneck_alert',
+        'weekly_report', 'insight_notification'
+    ))
+"""))
+```
 
-async def send_pattern_alert(pattern_id: UUID, org_id: UUID, user_id: UUID):
-    """パターン検出通知を送信（冪等性保証）"""
+**設計書（docs/03_database_design.md）の更新:**
+
+`docs/03_database_design.md` の notification_logs テーブル定義（line 1070付近）にも、新規 notification_type を追記する必要があります。
+
+#### 5.6.4 status値の運用ルール
+
+**⚠️ 重要: `notification_logs.status` は以下の値のみ使用してください。**
+
+| status | 説明 | 使用タイミング |
+|--------|------|--------------|
+| `success` | 通知送信成功 | ChatWork API呼び出し成功後 |
+| `failed` | 通知送信失敗 | ChatWork API呼び出し失敗時 |
+| `skipped` | 通知スキップ | 送信条件を満たさない場合 |
+
+**❌ 使用しない値:**
+- `pending`: 既存運用と不整合のため使用禁止
+
+#### 5.6.5 実装例（正しいフロー）
+
+```python
+from datetime import date
+from typing import Optional
+
+async def send_pattern_alert(
+    pattern_id: UUID,
+    organization_id: UUID,
+    room_id: str,
+    conn  # DB接続
+) -> Optional[UUID]:
+    """
+    パターン検出通知を送信（冪等性保証）
+
+    フロー:
+    1. 通知を実際に送信
+    2. 成功/失敗に応じてnotification_logsに記録
+
+    【重要】
+    - INSERT時にstatusは 'success' または 'failed' を設定
+    - 'pending' は使用しない（既存運用と不整合）
+    - ON CONFLICT DO NOTHING で冪等性を保証（同日・同対象への二重送信防止）
+    """
 
     today = date.today()
+    notification_id = None
+    status = 'failed'
+    error_message = None
 
-    # notification_logs に記録（UPSERT）
-    await conn.execute("""
+    try:
+        # Step 1: 通知を実際に送信
+        await send_chatwork_message(
+            room_id=room_id,
+            message=f"【パターン検出】質問パターンが検出されました（ID: {pattern_id}）"
+        )
+        status = 'success'
+
+    except Exception as e:
+        status = 'failed'
+        error_message = str(e)[:500]  # エラーメッセージは500文字まで
+
+    # Step 2: 送信結果をnotification_logsに記録
+    result = await conn.execute("""
         INSERT INTO notification_logs (
             organization_id,
             notification_type,
@@ -2826,19 +2990,60 @@ async def send_pattern_alert(pattern_id: UUID, org_id: UUID, user_id: UUID):
             target_id,
             notification_date,
             status,
+            sent_at,
+            error_message,
             channel,
             channel_target
         )
-        VALUES ($1, 'pattern_alert', 'pattern', $2, $3, 'pending', 'chatwork', $4)
+        VALUES (
+            $1,                    -- organization_id
+            'pattern_alert',       -- notification_type（★制約に追加が必要）
+            'pattern',             -- target_type
+            $2,                    -- target_id (pattern_id)
+            $3,                    -- notification_date
+            $4,                    -- status ('success' or 'failed')
+            NOW(),                 -- sent_at
+            $5,                    -- error_message
+            'chatwork',            -- channel
+            $6                     -- channel_target (room_id)
+        )
         ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
-        DO NOTHING  -- 既に送信済みなら何もしない
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            sent_at = NOW(),
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
         RETURNING id
-    """, org_id, pattern_id, today, room_id)
+    """, organization_id, pattern_id, today, status, error_message, room_id)
 
-    # 挿入されたら通知を送信
     if result:
-        await send_chatwork_notification(...)
-        await update_notification_status(result['id'], 'success')
+        notification_id = result['id']
+
+    return notification_id
+```
+
+**リトライ時の動作:**
+
+```python
+# 失敗した通知をリトライする場合
+# ON CONFLICT DO UPDATE により、retry_countがインクリメントされる
+async def retry_failed_notifications(organization_id: UUID, conn):
+    """失敗した通知をリトライ"""
+
+    failed_notifications = await conn.execute("""
+        SELECT id, notification_type, target_type, target_id, channel_target
+        FROM notification_logs
+        WHERE organization_id = $1
+          AND status = 'failed'
+          AND notification_date = CURRENT_DATE
+          AND retry_count < 3  -- 最大3回まで
+    """, organization_id)
+
+    for notification in failed_notifications:
+        # リトライ処理...
+        # 同じINSERT...ON CONFLICT DO UPDATEを使用
+        pass
 ```
 
 ---
@@ -2860,15 +3065,36 @@ async def send_pattern_alert(pattern_id: UUID, org_id: UUID, user_id: UUID):
 ```python
 from lib.audit import log_audit
 
-async def get_emotion_detection(detection_id: UUID, user: User):
-    """感情変化検出ログを取得（監査ログ記録付き）"""
+async def get_emotion_detection(
+    detection_id: UUID,
+    user: User,
+    organization_id: UUID  # ★ テナント識別子を必ず受け取る
+):
+    """感情変化検出ログを取得（監査ログ記録付き）
+
+    【重要】organization_id フィルタは必須
+    - Phase 4以前はRLSがないため、organization_idでフィルタしないと
+      他テナントのデータが取得できてしまう（越境参照リスク）
+    - CLAUDE.md「10の鉄則」#1に準拠
+    """
 
     # 権限チェック
     if not user.is_admin:
         raise PermissionError("管理者のみアクセス可能です")
 
-    # データ取得
-    detection = await EmotionChangeDetection.get(id=detection_id)
+    # ユーザーの所属組織と要求された組織が一致するか確認
+    if user.organization_id != organization_id:
+        raise PermissionError("他組織のデータにはアクセスできません")
+
+    # データ取得【★ organization_id フィルタ必須】
+    detection = await EmotionChangeDetection.get(
+        id=detection_id,
+        organization_id=organization_id  # ★ 必ずorganization_idでフィルタ
+    )
+
+    # データが見つからない場合
+    if not detection:
+        raise NotFoundError(f"detection_id={detection_id} が見つかりません")
 
     # 監査ログ記録【必須】
     await log_audit(
@@ -2876,6 +3102,7 @@ async def get_emotion_detection(detection_id: UUID, user: User):
         action='view',
         resource_type='emotion_change_detection',
         resource_id=detection_id,
+        organization_id=organization_id,  # ★ 監査ログにも組織IDを記録
         classification='restricted',
         metadata={
             'target_user_id': str(detection.user_id),
@@ -2885,6 +3112,18 @@ async def get_emotion_detection(detection_id: UUID, user: User):
 
     return detection
 ```
+
+**⚠️ organization_id フィルタの重要性:**
+
+| 状況 | フィルタなし | フィルタあり |
+|------|------------|------------|
+| Phase 4前（RLSなし） | ❌ 他テナントのデータ取得可能 | ✅ 自テナントのみ |
+| Phase 4後（RLSあり） | ⚠️ RLSで弾かれるが非効率 | ✅ 効率的なクエリ |
+
+**実装時のチェックリスト:**
+- [ ] 全ての取得系メソッドに `organization_id` パラメータを追加
+- [ ] クエリの WHERE 句に `organization_id = $n` を含める
+- [ ] ユーザーの所属組織との一致を検証する
 
 **audit_logs に記録する情報:**
 

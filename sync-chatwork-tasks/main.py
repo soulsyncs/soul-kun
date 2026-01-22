@@ -7553,9 +7553,13 @@ def sync_chatwork_tasks(request):
 
         result_msg = f'Task sync completed'
         if backfill_result:
-            result_msg += f", summary: {backfill_result['success']}/{backfill_result['total']}"
+            # v10.14.0: fix_bad_summaries は total_checked を使用
+            total_key = 'total_checked' if 'total_checked' in backfill_result else 'total'
+            result_msg += f", summary: {backfill_result['success']}/{backfill_result.get(total_key, '?')}"
+        if quality_result:
+            result_msg += f", quality: {quality_result['quality_rate']:.1f}%"
         return (result_msg, 200)
-        
+
     except Exception as e:
         # ★★★ v6.8.5: conn存在チェック追加 ★★★
         if conn:

@@ -1,3 +1,65 @@
+# 付録L：v10.15 Phase 2.5 目標達成支援【新設】
+
+## ■ v10.15 変更サマリー
+
+| バージョン | 日付 | 内容 |
+|-----------|------|------|
+| v10.15.0 | 2026-01-23 | Phase 2.5 Week 1: DBテーブル設計・マイグレーション・ORMモデル作成 |
+
+## ■ v10.15.0 Week 1 実装内容
+
+### 作成されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `migrations/phase_2-5_cloudsql.sql` | Cloud SQLマイグレーション（goals, goal_progress, goal_reminders, audit_logs） |
+| `migrations/phase_2-5_execution_guide.md` | マイグレーション実行ガイド |
+| `api/app/models/goal.py` | SQLAlchemy ORMモデル（Goal, GoalProgress, GoalReminder, AuditLog） |
+
+### 作成されたテーブル
+
+| テーブル | カラム数 | 説明 |
+|---------|---------|------|
+| `goals` | 22 | 目標管理（個人・部署・会社目標） |
+| `goal_progress` | 14 | 日次進捗記録（17時の振り返り） |
+| `goal_reminders` | 10 | リマインド設定（通知タイミング） |
+| `audit_logs` | 13 | 監査ログ（confidential以上の操作記録） |
+
+### 設計書準拠
+
+| 項目 | 設計書 | 実装 |
+|------|--------|------|
+| テナント分離 | ✅ 全テーブルにorganization_id | ✅ 実装済み |
+| 機密区分 | ✅ 4段階（public/internal/confidential/restricted） | ✅ CHECK制約付き |
+| UUID主キー | ✅ INT AUTO_INCREMENTは使わない | ✅ gen_random_uuid() |
+| created_by/updated_by | ✅ 全テーブルに追加 | ✅ 実装済み |
+| 冪等性 | ✅ goal_progressに UNIQUE(goal_id, progress_date) | ✅ 実装済み |
+
+### CHECK制約
+
+| 制約名 | 対象テーブル | 許可値 |
+|--------|-------------|--------|
+| `check_goal_level` | goals | company, department, individual |
+| `check_goal_type` | goals | numeric, deadline, action |
+| `check_goal_status` | goals | active, completed, cancelled |
+| `check_period_type` | goals | yearly, quarterly, monthly, weekly |
+| `check_goal_classification` | goals | public, internal, confidential, restricted |
+| `check_period_range` | goals | period_start <= period_end |
+| `check_goal_progress_classification` | goal_progress | public, internal, confidential, restricted |
+| `check_reminder_type` | goal_reminders | daily_check, morning_feedback, team_summary, daily_reminder |
+| `check_audit_log_classification` | audit_logs | public, internal, confidential, restricted |
+
+## ■ 次のステップ（Week 2以降）
+
+| Week | タスク | 状態 |
+|------|--------|------|
+| Week 1 | DBテーブル作成・ORMモデル | ✅ 完了 |
+| Week 2 | ChatWork目標登録機能 | 📋 未着手 |
+| Week 3 | 17時進捗確認・18時リマインド・8時フィードバック | 📋 未着手 |
+| Week 4 | チームサマリー・テスト | 📋 未着手 |
+
+---
+
 # 付録E：v10.0追記内容サマリー【新設】
 
 ## ■ v9.2 → v10.0 の変更一覧

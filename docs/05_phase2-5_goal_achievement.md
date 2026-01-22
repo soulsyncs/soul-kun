@@ -1,8 +1,18 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.0
+**バージョン:** v1.1
 **作成日:** 2026-01-22
+**更新日:** 2026-01-22
 **ステータス:** 設計中
+
+**v1.1 変更点:**
+- goal_reminders に organization_id 追加（鉄則遵守）
+- goal_progress, goal_reminders に created_by/updated_by 追加
+- 通知の冪等性設計を追加（notification_logs活用）
+- API設計に認証必須・ページネーション明記
+- ChatWork エラーハンドリング（429/timeout）追加
+- 監査ログ・機密区分の設計追加
+- goal_progress の更新ルール（UPSERT）明記
 
 ---
 
@@ -409,6 +419,9 @@ CREATE TABLE goals (
     -- ステータス
     status VARCHAR(20) NOT NULL DEFAULT 'active',  -- 'active', 'completed', 'cancelled'
 
+    -- 機密区分（目標は人事評価に関わるためinternal以上）
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',  -- 'internal', 'confidential'
+
     -- メタデータ
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -428,6 +441,7 @@ CREATE INDEX idx_goals_status ON goals(status) WHERE status = 'active';
 COMMENT ON TABLE goals IS '目標管理テーブル（Phase 2.5）';
 COMMENT ON COLUMN goals.goal_level IS '目標レベル: company=会社, department=部署, individual=個人';
 COMMENT ON COLUMN goals.goal_type IS '目標タイプ: numeric=数値, deadline=期限, action=行動';
+COMMENT ON COLUMN goals.classification IS '機密区分: internal=社内限定, confidential=機密（評価に関わる場合）';
 ```
 
 ### 7.2 goal_progress テーブル（進捗記録）
@@ -454,11 +468,16 @@ CREATE TABLE goal_progress (
     ai_feedback TEXT,  -- ソウルくんからのフィードバック
     ai_feedback_sent_at TIMESTAMPTZ,  -- フィードバック送信日時
 
+    -- 機密区分（目標・進捗は人事評価に関わるためinternal以上）
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',  -- 'internal', 'confidential'
+
     -- メタデータ
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id),
+    updated_by UUID REFERENCES users(id),
 
-    -- 冪等性（1日1回のみ記録）
+    -- 冪等性（1日1回のみ記録、訂正時は上書き）
     CONSTRAINT unique_goal_progress UNIQUE(goal_id, progress_date)
 );
 
@@ -471,6 +490,36 @@ CREATE INDEX idx_goal_progress_date ON goal_progress(progress_date);
 COMMENT ON TABLE goal_progress IS '目標の日次進捗記録（Phase 2.5）';
 COMMENT ON COLUMN goal_progress.daily_note IS '17時の「今日何やった？」への回答';
 COMMENT ON COLUMN goal_progress.daily_choice IS '「今日何を選んだ？」への回答';
+COMMENT ON COLUMN goal_progress.classification IS '機密区分: internal=社内限定, confidential=機密（評価に関わる場合）';
+COMMENT ON CONSTRAINT unique_goal_progress ON goal_progress IS
+'冪等性保証: 同日に複数回返信があった場合は最新で上書き（UPSERT）';
+```
+
+**進捗記録の更新ルール:**
+
+| 状況 | 処理 |
+|------|------|
+| 初回回答 | INSERT |
+| 同日の訂正・追加回答 | UPSERT（最新で上書き） |
+| 翌日以降の訂正 | 新しいレコードをINSERT（過去は変更不可） |
+
+```python
+# UPSERT実装例
+await conn.execute("""
+    INSERT INTO goal_progress (
+        goal_id, organization_id, progress_date, value,
+        cumulative_value, daily_note, daily_choice, created_by
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    ON CONFLICT (goal_id, progress_date)
+    DO UPDATE SET
+        value = EXCLUDED.value,
+        cumulative_value = EXCLUDED.cumulative_value,
+        daily_note = EXCLUDED.daily_note,
+        daily_choice = EXCLUDED.daily_choice,
+        updated_at = NOW(),
+        updated_by = EXCLUDED.created_by
+""", goal_id, org_id, date, value, cumulative, note, choice, user_id)
 ```
 
 ### 7.3 goal_reminders テーブル（リマインド設定）
@@ -479,6 +528,9 @@ COMMENT ON COLUMN goal_progress.daily_choice IS '「今日何を選んだ？」�
 CREATE TABLE goal_reminders (
     -- 主キー
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- テナント分離（鉄則: 全テーブルにorganization_id）
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
 
     -- リレーション
     goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
@@ -493,10 +545,13 @@ CREATE TABLE goal_reminders (
 
     -- メタデータ
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    created_by UUID REFERENCES users(id),
+    updated_by UUID REFERENCES users(id)
 );
 
 -- インデックス
+CREATE INDEX idx_goal_reminders_org ON goal_reminders(organization_id);
 CREATE INDEX idx_goal_reminders_goal ON goal_reminders(goal_id);
 CREATE INDEX idx_goal_reminders_enabled ON goal_reminders(is_enabled) WHERE is_enabled = TRUE;
 
@@ -504,25 +559,132 @@ CREATE INDEX idx_goal_reminders_enabled ON goal_reminders(is_enabled) WHERE is_e
 COMMENT ON TABLE goal_reminders IS '目標リマインド設定（Phase 2.5）';
 ```
 
+### 7.4 通知の冪等性設計（notification_logs活用）
+
+**Phase 1-Bで構築済みの `notification_logs` テーブルを活用し、二重送信を防止する。**
+
+```sql
+-- 目標関連の通知タイプ（notification_logsに追加）
+-- notification_type: 'goal_daily_check', 'goal_morning_feedback', 'goal_team_summary'
+-- target_type: 'goal'
+-- target_id: goal_id
+
+-- 冪等性キー: organization_id + target_type + target_id + notification_date + notification_type
+```
+
+**通知送信フロー:**
+
+```python
+async def send_goal_reminder(goal_id: UUID, org_id: UUID, reminder_type: str):
+    """
+    目標リマインド送信（冪等性保証）
+    """
+    today = date.today()
+
+    # 1. 既に送信済みか確認
+    existing = await conn.fetchrow("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = $1
+          AND target_type = 'goal'
+          AND target_id = $2
+          AND notification_date = $3
+          AND notification_type = $4
+    """, org_id, goal_id, today, reminder_type)
+
+    if existing and existing['status'] == 'success':
+        logger.info(f"既に送信済み: {goal_id} / {reminder_type}")
+        return  # スキップ
+
+    # 2. ChatWork送信
+    try:
+        await send_chatwork_message(...)
+        status = 'success'
+        error_message = None
+    except ChatWorkRateLimitError:
+        status = 'failed'
+        error_message = 'rate_limit'
+    except Exception as e:
+        status = 'failed'
+        error_message = str(e)
+
+    # 3. 送信ログを記録（UPSERT）
+    await conn.execute("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES ($1, $2, 'goal', $3, $4, $5, $6, 'chatwork', $7)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """, org_id, reminder_type, goal_id, today, status, error_message, room_id)
+```
+
+**Scheduler再実行時の挙動:**
+
+| 状況 | 処理 |
+|------|------|
+| 未送信 | 送信実行 |
+| 送信成功済み | スキップ（二重送信防止） |
+| 送信失敗済み | リトライ（retry_count++） |
+| リトライ上限超過（3回） | スキップ + アラート |
+
 ---
 
 ## 8. API設計
 
-### 8.1 エンドポイント一覧
+### 8.1 共通仕様（鉄則遵守）
 
-| メソッド | エンドポイント | 説明 |
-|---------|--------------|------|
-| POST | /api/v1/goals | 目標登録 |
-| GET | /api/v1/goals | 目標一覧取得 |
-| GET | /api/v1/goals/{id} | 目標詳細取得 |
-| PUT | /api/v1/goals/{id} | 目標更新 |
-| DELETE | /api/v1/goals/{id} | 目標削除 |
-| POST | /api/v1/goals/{id}/progress | 進捗記録 |
-| GET | /api/v1/goals/{id}/progress | 進捗履歴取得 |
-| GET | /api/v1/goals/summary/team | チームサマリー取得 |
-| GET | /api/v1/goals/summary/department | 部署サマリー取得 |
+**認証:** 全APIは認証必須（例外なし）
 
-### 8.2 ChatWork連携
+```
+Authorization: Bearer <access_token>
+```
+
+**ページネーション:** 1000件を超える可能性のあるAPIには必須
+
+```
+GET /api/v1/goals?limit=100&offset=0
+GET /api/v1/goals/{id}/progress?limit=100&offset=0
+```
+
+| パラメータ | デフォルト | 最大値 |
+|-----------|----------|-------|
+| limit | 100 | 1000 |
+| offset | 0 | - |
+
+**レスポンス形式:**
+
+```json
+{
+  "data": [...],
+  "pagination": {
+    "total": 150,
+    "limit": 100,
+    "offset": 0,
+    "has_next": true
+  }
+}
+```
+
+### 8.2 エンドポイント一覧
+
+| メソッド | エンドポイント | 説明 | ページネーション |
+|---------|--------------|------|----------------|
+| POST | /api/v1/goals | 目標登録 | - |
+| GET | /api/v1/goals | 目標一覧取得 | ✅ 必須 |
+| GET | /api/v1/goals/{id} | 目標詳細取得 | - |
+| PUT | /api/v1/goals/{id} | 目標更新 | - |
+| DELETE | /api/v1/goals/{id} | 目標削除 | - |
+| POST | /api/v1/goals/{id}/progress | 進捗記録 | - |
+| GET | /api/v1/goals/{id}/progress | 進捗履歴取得 | ✅ 必須 |
+| GET | /api/v1/goals/summary/team | チームサマリー取得 | ✅ 必須 |
+| GET | /api/v1/goals/summary/department | 部署サマリー取得 | ✅ 必須 |
+
+### 8.3 ChatWork連携
 
 | 機能 | トリガー | 処理 |
 |------|---------|------|
@@ -530,6 +692,49 @@ COMMENT ON TABLE goal_reminders IS '目標リマインド設定（Phase 2.5）';
 | 進捗確認 | 毎日17時（Scheduler） | 全員にDMで問いかけ |
 | 進捗回答 | スタッフの返信 | goal_progressに記録 |
 | フィードバック | 毎日8時（Scheduler） | 個人DM + サマリー送信 |
+
+### 8.4 ChatWork API エラーハンドリング
+
+**レート制限（429）・タイムアウト対応:**
+
+```python
+import asyncio
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=60)
+)
+async def send_chatwork_with_retry(room_id: str, message: str):
+    """
+    ChatWork送信（指数バックオフ + リトライ上限）
+    """
+    try:
+        response = await chatwork_client.send_message(room_id, message)
+        return response
+    except ChatWorkRateLimitError as e:
+        # 429: レート制限
+        wait_seconds = int(e.headers.get('Retry-After', 60))
+        logger.warning(f"ChatWork rate limit. Waiting {wait_seconds}s")
+        await asyncio.sleep(wait_seconds)
+        raise  # リトライ
+    except ChatWorkTimeoutError:
+        logger.warning("ChatWork timeout. Retrying...")
+        raise  # リトライ
+    except ChatWorkServerError:
+        logger.error("ChatWork server error. Retrying...")
+        raise  # リトライ
+```
+
+**エラー時の挙動:**
+
+| エラー | 対応 | 上限 |
+|--------|------|------|
+| 429 Rate Limit | 指数バックオフ + リトライ | 3回 |
+| Timeout | 即時リトライ | 3回 |
+| 5xx Server Error | 指数バックオフ + リトライ | 3回 |
+| 4xx Client Error | リトライしない（ログ記録） | - |
+| 上限超過 | notification_logsに'failed'記録 + アラート | - |
 
 ---
 
@@ -634,7 +839,84 @@ COMMENT ON TABLE goal_reminders IS '目標リマインド設定（Phase 2.5）';
 
 ---
 
-## 12. 次のアクション
+## 12. 監査ログ・機密区分
+
+### 12.1 機密区分の設計
+
+**目標・進捗データは人事評価に関わるため、`internal`（社内限定）以上の機密区分を設定。**
+
+| データ | 機密区分 | 理由 |
+|--------|---------|------|
+| 目標（goals） | internal | 個人の業績目標 |
+| 進捗（goal_progress） | internal | 日々の実績・振り返り |
+| チームサマリー | internal | 部下の進捗一覧 |
+| 個人フィードバック | confidential | 評価に直結する可能性 |
+
+### 12.2 監査ログの記録
+
+**以下の操作は `audit_logs` テーブルに記録する（鉄則: confidential以上の操作で記録）:**
+
+| 操作 | action | resource_type | 記録タイミング |
+|------|--------|--------------|---------------|
+| 目標閲覧 | view | goal | 他人の目標を閲覧時 |
+| 目標作成 | create | goal | 常に |
+| 目標更新 | update | goal | 常に |
+| 目標削除 | delete | goal | 常に |
+| 進捗閲覧 | view | goal_progress | 他人の進捗を閲覧時 |
+| 進捗記録 | create | goal_progress | 常に |
+| サマリー閲覧 | view | goal_summary | チームリーダー・部長がサマリー閲覧時 |
+
+```python
+from lib.audit import log_audit
+
+# 他人の目標を閲覧した場合
+if goal.user_id != current_user.id:
+    await log_audit(
+        user=current_user,
+        action='view',
+        resource_type='goal',
+        resource_id=goal.id,
+        classification='internal',
+        metadata={'goal_owner_id': str(goal.user_id)}
+    )
+```
+
+### 12.3 アクセス制御
+
+**組織図（Phase 3.5）と連動したアクセス制御:**
+
+```python
+async def can_view_goal(user: User, goal: Goal) -> bool:
+    """
+    目標の閲覧権限チェック
+    """
+    # 自分の目標は常にOK
+    if goal.user_id == user.id:
+        return True
+
+    # 組織図から上司関係を確認
+    user_role = await get_user_role(user.id)
+
+    if user_role.name == 'チームリーダー':
+        # チームメンバーの目標のみ
+        team_members = await get_team_members(user.id)
+        return goal.user_id in team_members
+
+    if user_role.name == '部長':
+        # 部署全員の目標
+        dept_members = await get_department_members(user.department_id)
+        return goal.user_id in dept_members
+
+    if user_role.name in ['経営', '代表']:
+        # 全員の目標
+        return True
+
+    return False
+```
+
+---
+
+## 13. 次のアクション
 
 1. **カズさん承認** → この設計書の内容でOKか確認
 2. **DB作成** → goals, goal_progress, goal_remindersテーブル作成

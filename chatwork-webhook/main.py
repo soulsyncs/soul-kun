@@ -1050,7 +1050,8 @@ def should_ignore_toall(body):
         return False
 
     # TO ALLでも、ソウルくんへの直接メンションがあれば反応する
-    if body and f"[To:{MY_ACCOUNT_ID}]" in body:
+    # 大文字小文字を無視（[To:ID]でも[to:ID]でもマッチ）
+    if body and f"[to:{MY_ACCOUNT_ID}]" in body.lower():
         print(f"📌 TO ALL + ソウルくん直接メンションのため反応する")
         return False
 

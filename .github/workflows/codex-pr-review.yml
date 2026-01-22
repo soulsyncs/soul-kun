@@ -24,7 +24,7 @@ jobs:
             ${{ github.event.pull_request.base.ref }} \
             +refs/pull/${{ github.event.pull_request.number }}/head
 
-      - name: Build Codex prompt (PR context + diff)
+      - name: Build Codex prompt (PR context + design docs + diff)
         shell: bash
         run: |
           set -euo pipefail
@@ -40,6 +40,47 @@ jobs:
           PRBODY_EOF
 
           {
+            # ========================================
+            # 設計書セクション（Codexが参照する全体設計）
+            # ========================================
+            echo "=========================================="
+            echo "PROJECT DESIGN DOCUMENTS (設計書)"
+            echo "=========================================="
+            echo ""
+
+            # CLAUDE.md（プロジェクト概要・鉄則・進捗・規約）
+            echo "--- CLAUDE.md (プロジェクト概要・鉄則・進捗) ---"
+            if [ -f "CLAUDE.md" ]; then
+              cat CLAUDE.md
+            else
+              echo "(CLAUDE.md not found)"
+            fi
+            echo ""
+
+            # Phase概要（Phase構成・スケジュール・現在の進捗）
+            echo "--- docs/02_phase_overview.md (Phase構成・進捗) ---"
+            if [ -f "docs/02_phase_overview.md" ]; then
+              cat docs/02_phase_overview.md
+            else
+              echo "(docs/02_phase_overview.md not found)"
+            fi
+            echo ""
+
+            # 変更履歴（最近の実装履歴）
+            echo "--- docs/CHANGELOG.md (最近の変更履歴) ---"
+            if [ -f "docs/CHANGELOG.md" ]; then
+              cat docs/CHANGELOG.md
+            else
+              echo "(docs/CHANGELOG.md not found)"
+            fi
+            echo ""
+
+            # ========================================
+            # PRセクション
+            # ========================================
+            echo "=========================================="
+            echo "PULL REQUEST INFORMATION"
+            echo "=========================================="
             echo "PR_URL: ${PR_URL}"
             echo "PR_TITLE: ${PR_TITLE}"
             echo "PR_NUMBER: ${PR_NUMBER}"
@@ -49,12 +90,22 @@ jobs:
             echo "PR_BODY:"
             cat /tmp/pr_body.txt
             echo ""
-            echo "---"
-            echo "INSTRUCTIONS:"
+
+            # ========================================
+            # レビュー指示セクション
+            # ========================================
+            echo "=========================================="
+            echo "REVIEW INSTRUCTIONS"
+            echo "=========================================="
             cat scripts/pr_review_prompt.txt
             echo ""
-            echo "---"
-            echo "DIFF:"
+
+            # ========================================
+            # Diffセクション
+            # ========================================
+            echo "=========================================="
+            echo "CODE DIFF"
+            echo "=========================================="
             # FETCH_HEAD は直前の `git fetch ... +refs/pull/.../head` で入る
             git diff --no-color --unified=3 "origin/${BASE_REF}...FETCH_HEAD"
           } > /tmp/codex_prompt.txt

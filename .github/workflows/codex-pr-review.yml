@@ -16,6 +16,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
+          fetch-depth: 0
 
       - name: Pre-fetch base and head refs
         run: |
@@ -32,7 +33,11 @@ jobs:
           PR_NUMBER="${{ github.event.pull_request.number }}"
           BASE_REF="${{ github.event.pull_request.base.ref }}"
           HEAD_REF="${{ github.event.pull_request.head.ref }}"
-          PR_BODY="${{ github.event.pull_request.body }}"
+
+          # PR本文は here-doc で一時ファイルに書き出す（", $, 改行に強くする）
+          cat <<'PRBODY_EOF' > /tmp/pr_body.txt
+          ${{ github.event.pull_request.body }}
+          PRBODY_EOF
 
           {
             echo "PR_URL: ${PR_URL}"
@@ -42,7 +47,7 @@ jobs:
             echo "HEAD: ${HEAD_REF}"
             echo ""
             echo "PR_BODY:"
-            echo "${PR_BODY}"
+            cat /tmp/pr_body.txt
             echo ""
             echo "---"
             echo "INSTRUCTIONS:"
@@ -51,7 +56,7 @@ jobs:
             echo "---"
             echo "DIFF:"
             # FETCH_HEAD は直前の `git fetch ... +refs/pull/.../head` で入る
-            git diff --no-color --unified=3 "origin/${BASE_REF}...FETCH_HEAD" || true
+            git diff --no-color --unified=3 "origin/${BASE_REF}...FETCH_HEAD"
           } > /tmp/codex_prompt.txt
 
       - name: Run Codex

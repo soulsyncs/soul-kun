@@ -616,10 +616,10 @@ CREATE TABLE emotion_change_detections (
 **データベーステーブル:**
 
 ```sql
--- 長期記憶テーブル
+-- 長期記憶テーブル【v1.2修正: ON DELETE, updated_by追加】
 CREATE TABLE long_term_memories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     memory_type VARCHAR(50) NOT NULL,         -- decision, project, customer, organization
     importance VARCHAR(20) NOT NULL,          -- critical, high, medium, low
     title VARCHAR(200) NOT NULL,
@@ -634,7 +634,8 @@ CREATE TABLE long_term_memories (
     valid_until DATE,                         -- 有効終了日
     status VARCHAR(20) DEFAULT 'active',      -- active, archived, deleted
     classification VARCHAR(20) DEFAULT 'internal',
-    created_by UUID REFERENCES users(id),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMPTZ                    -- 自動削除日時
@@ -778,10 +779,10 @@ CREATE TABLE task_dependencies (
 **データベーステーブル:**
 
 ```sql
--- 会社ルール
+-- 会社ルール【v1.2修正: ON DELETE, updated_by追加】
 CREATE TABLE company_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     category VARCHAR(50) NOT NULL,            -- business, communication, culture, prohibition
     title VARCHAR(200) NOT NULL,
     description TEXT NOT NULL,
@@ -792,8 +793,9 @@ CREATE TABLE company_rules (
     effective_until DATE,
     source VARCHAR(100),                      -- 出典（就業規則、社内通達等）
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
-    approved_by UUID REFERENCES users(id),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -1200,19 +1202,20 @@ CREATE TABLE onboarding_progress (
 #### 実装詳細
 
 ```sql
--- 定期タスクテンプレート
+-- 定期タスクテンプレート【v1.2修正: ON DELETE, updated_by追加】
 CREATE TABLE recurring_task_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     template_name VARCHAR(200) NOT NULL,
     task_title VARCHAR(200) NOT NULL,
     task_description TEXT,
-    default_assignee_id UUID REFERENCES users(id),
+    default_assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
     recurrence_rule JSONB NOT NULL,           -- RRULE形式
     auto_create BOOLEAN DEFAULT false,        -- 自動作成するか
     room_id VARCHAR(50),                      -- ChatWorkルームID
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
@@ -3399,12 +3402,12 @@ CREATE TABLE user_referral_settings (
 **実装（データベース修正）:**
 
 ```sql
--- 会社ルールテーブル（承認制に修正）
+-- 会社ルールテーブル（承認制に修正）【v1.2修正: ON DELETE, updated_by追加】
 DROP TABLE IF EXISTS company_rules;
 
 CREATE TABLE company_rules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
 
     -- 基本情報
     category VARCHAR(50) NOT NULL,            -- business, communication, culture, prohibition
@@ -3414,7 +3417,7 @@ CREATE TABLE company_rules (
     -- ★承認管理（追加）
     status VARCHAR(20) DEFAULT 'draft',       -- draft（暫定）, pending_approval（承認待ち）, approved（確定）, rejected（却下）
     submitted_for_approval_at TIMESTAMPTZ,    -- 承認申請日時
-    approved_by UUID REFERENCES users(id),    -- 承認者
+    approved_by UUID REFERENCES users(id) ON DELETE SET NULL,    -- 承認者
     approved_at TIMESTAMPTZ,                    -- 承認日時
     rejection_reason TEXT,                    -- 却下理由
 
@@ -3422,7 +3425,7 @@ CREATE TABLE company_rules (
     source_type VARCHAR(50) NOT NULL,         -- official_document（公式文書）, admin_statement（管理者発言）, conversation（会話）
     source_reference TEXT,                    -- 出典の詳細（文書名、会話日時等）
     confidence_level VARCHAR(20) NOT NULL,    -- high, medium, low
-    original_speaker_id UUID REFERENCES users(id),  -- 発言者
+    original_speaker_id UUID REFERENCES users(id) ON DELETE SET NULL,  -- 発言者
 
     -- ★有効期限（追加）
     effective_from DATE DEFAULT CURRENT_DATE,
@@ -3436,7 +3439,8 @@ CREATE TABLE company_rules (
     applies_to_ids UUID[] DEFAULT '{}',
 
     -- 監査
-    created_by UUID REFERENCES users(id),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

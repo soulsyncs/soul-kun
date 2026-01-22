@@ -6482,3 +6482,79 @@ def goal_morning_feedback(request):
             "notification_type": "goal_morning_feedback",
             "error": str(e),
         }), 500
+
+
+@functions_framework.http
+def goal_consecutive_unanswered_check(request):
+    """
+    Cloud Function: 3日連続未回答チェック
+
+    3日連続で進捗報告がないスタッフを検出し、
+    そのスタッフのチームリーダー・部長にアラートを送信。
+
+    Cloud Scheduler から毎日09:00 JSTに呼び出される想定。
+    （8時の朝フィードバック後に実行）
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "consecutive_days": 3,  // 省略時は3日
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== ⚠️ Phase 2.5: 連続未回答チェック 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        consecutive_days = request_json.get("consecutive_days", 3)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        print(f"組織ID: {org_id}")
+        print(f"連続未回答日数: {consecutive_days}日")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュールから連続未回答チェック関数を取得
+        import sys
+        import os
+        lib_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib')
+        if lib_path not in sys.path:
+            sys.path.insert(0, lib_path)
+
+        from lib.goal_notification import scheduled_consecutive_unanswered_check
+
+        # DB接続を取得
+        pool = get_pool()
+        with pool.begin() as conn:
+            results = scheduled_consecutive_unanswered_check(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                consecutive_days=consecutive_days,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== ⚠️ 連続未回答チェック 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_consecutive_unanswered",
+            "consecutive_days": consecutive_days,
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_consecutive_unanswered",
+            "error": str(e),
+        }), 500

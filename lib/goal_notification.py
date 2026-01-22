@@ -1221,6 +1221,482 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
 
 
 # =====================================================
+# 3日連続未回答通知
+# =====================================================
+
+def build_consecutive_unanswered_alert_message(
+    leader_name: str,
+    unanswered_members: List[Dict],
+    consecutive_days: int = 3
+) -> str:
+    """
+    3日連続未回答者のアラートメッセージを生成
+
+    Args:
+        leader_name: リーダー表示名
+        unanswered_members: 未回答メンバーリスト
+        consecutive_days: 連続未回答日数
+
+    Returns:
+        ChatWork送信用メッセージ
+    """
+    message = f"{leader_name}さん、お知らせウル🐺\n\n"
+    message += f"【{consecutive_days}日連続未回答のメンバー】\n\n"
+
+    for member in unanswered_members:
+        member_name = member.get('user_name', '不明')
+        last_response_date = member.get('last_response_date')
+
+        if last_response_date:
+            last_date_str = last_response_date.strftime('%m/%d') if hasattr(last_response_date, 'strftime') else str(last_response_date)
+            message += f"・{member_name}さん（最終回答: {last_date_str}）\n"
+        else:
+            message += f"・{member_name}さん（回答履歴なし）\n"
+
+    message += "\n忙しいのかもしれないけど、\n"
+    message += "声かけを検討してほしいウル🐺\n\n"
+    message += "「何か困ってることはない？」\n"
+    message += "「目標の進め方で相談があれば聞くよ」\n"
+    message += "みたいな感じで話しかけてみてほしいウル✨\n\n"
+    message += "ソウルくんは、みんなが目標に向かって\n"
+    message += "一緒に頑張れることを願ってるウル💪"
+
+    return message
+
+
+def check_consecutive_unanswered_users(
+    conn,
+    org_id: str,
+    consecutive_days: int = 3
+) -> List[Dict]:
+    """
+    連続未回答ユーザーを検出
+
+    Args:
+        conn: データベース接続
+        org_id: 組織ID
+        consecutive_days: 連続未回答日数の閾値
+
+    Returns:
+        未回答ユーザーリスト（リーダー情報付き）
+    """
+    import sqlalchemy
+
+    today = date.today()
+    check_start_date = today - timedelta(days=consecutive_days)
+
+    # アクティブな目標を持つユーザーで、指定日数以内に進捗報告がないユーザーを取得
+    result = conn.execute(sqlalchemy.text("""
+        WITH users_with_goals AS (
+            SELECT DISTINCT
+                u.id AS user_id,
+                u.display_name AS user_name,
+                u.chatwork_room_id,
+                ud.department_id,
+                d.name AS department_name
+            FROM users u
+            JOIN goals g ON g.user_id = u.id
+            LEFT JOIN user_departments ud ON ud.user_id = u.id
+            LEFT JOIN departments d ON ud.department_id = d.id
+            WHERE g.organization_id = :org_id
+              AND g.status = 'active'
+              AND u.chatwork_room_id IS NOT NULL
+        ),
+        last_progress AS (
+            SELECT
+                g.user_id,
+                MAX(gp.progress_date) AS last_response_date
+            FROM goal_progress gp
+            JOIN goals g ON gp.goal_id = g.id
+            WHERE g.organization_id = :org_id
+            GROUP BY g.user_id
+        )
+        SELECT
+            uwg.user_id,
+            uwg.user_name,
+            uwg.chatwork_room_id,
+            uwg.department_id,
+            uwg.department_name,
+            lp.last_response_date
+        FROM users_with_goals uwg
+        LEFT JOIN last_progress lp ON lp.user_id = uwg.user_id
+        WHERE lp.last_response_date IS NULL
+           OR lp.last_response_date < :check_start_date
+        ORDER BY uwg.department_name, uwg.user_name
+    """), {
+        'org_id': org_id,
+        'check_start_date': check_start_date,
+    })
+
+    unanswered_users = []
+    for row in result.fetchall():
+        unanswered_users.append({
+            'user_id': str(row[0]),
+            'user_name': row[1],
+            'chatwork_room_id': row[2],
+            'department_id': str(row[3]) if row[3] else None,
+            'department_name': row[4],
+            'last_response_date': row[5],
+        })
+
+    return unanswered_users
+
+
+def send_consecutive_unanswered_alert_to_leader(
+    conn,
+    leader_id: str,
+    org_id: str,
+    leader_name: str,
+    chatwork_room_id: str,
+    unanswered_members: List[Dict],
+    consecutive_days: int,
+    send_message_func,
+    dry_run: bool = False
+) -> Tuple[str, Optional[str]]:
+    """
+    3日連続未回答アラートをリーダーに送信
+
+    Args:
+        conn: データベース接続
+        leader_id: リーダーユーザーID
+        org_id: 組織ID
+        leader_name: リーダー表示名
+        chatwork_room_id: ChatWork ルームID
+        unanswered_members: 未回答メンバーリスト
+        consecutive_days: 連続未回答日数
+        send_message_func: メッセージ送信関数
+        dry_run: ドライランモード
+
+    Returns:
+        Tuple[status, error_message]
+    """
+    import sqlalchemy
+
+    today = date.today()
+    notification_type = "goal_consecutive_unanswered"
+
+    # 既に送信済みか確認（1日1回のみ）
+    result = conn.execute(sqlalchemy.text("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = :org_id
+          AND target_type = 'user'
+          AND target_id = :leader_id
+          AND notification_date = :today
+          AND notification_type = :notification_type
+    """), {
+        'org_id': org_id,
+        'leader_id': leader_id,
+        'today': today,
+        'notification_type': notification_type,
+    })
+    existing = result.fetchone()
+
+    if existing and existing[1] == 'success':
+        logger.info(f"既に連続未回答アラート送信済み: leader={leader_id}")
+        return ('skipped', 'already_sent')
+
+    # メッセージ生成
+    message = build_consecutive_unanswered_alert_message(
+        leader_name, unanswered_members, consecutive_days
+    )
+
+    status = 'pending'
+    error_message = None
+
+    if dry_run:
+        logger.info(f"[DRY_RUN] 連続未回答アラート: {leader_name}さん（{len(unanswered_members)}名）")
+        status = 'skipped'
+        error_message = 'dry_run'
+    else:
+        try:
+            send_message_func(chatwork_room_id, message)
+            status = 'success'
+        except Exception as e:
+            status = 'failed'
+            error_message = sanitize_error(e)
+            logger.error(f"連続未回答アラート送信エラー: leader={leader_id}, error={error_message}")
+
+    # 送信ログを記録
+    member_ids = [m['user_id'] for m in unanswered_members]
+    conn.execute(sqlalchemy.text("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target,
+            metadata
+        )
+        VALUES (:org_id, :notification_type, 'user', :leader_id, :today, :status, :error_message, 'chatwork', :room_id,
+                :metadata::jsonb)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """), {
+        'org_id': org_id,
+        'notification_type': notification_type,
+        'leader_id': leader_id,
+        'today': today,
+        'status': status,
+        'error_message': error_message,
+        'room_id': chatwork_room_id,
+        'metadata': f'{{"consecutive_days": {consecutive_days}, "member_count": {len(unanswered_members)}, "member_ids": {member_ids}}}',
+    })
+
+    return (status, error_message)
+
+
+def scheduled_consecutive_unanswered_check(
+    conn,
+    org_id: str,
+    send_message_func,
+    consecutive_days: int = 3,
+    dry_run: bool = False
+) -> Dict[str, int]:
+    """
+    3日連続未回答チェックの一括実行
+
+    Args:
+        conn: データベース接続
+        org_id: 組織ID
+        send_message_func: メッセージ送信関数
+        consecutive_days: 連続未回答日数の閾値
+        dry_run: ドライランモード
+
+    Returns:
+        送信結果のサマリー
+    """
+    import sqlalchemy
+
+    logger.info(f"=== {consecutive_days}日連続未回答チェック 開始 (org={org_id}) ===")
+
+    results = {'success': 0, 'skipped': 0, 'failed': 0}
+
+    # 連続未回答ユーザーを取得
+    unanswered_users = check_consecutive_unanswered_users(conn, org_id, consecutive_days)
+
+    if not unanswered_users:
+        logger.info("連続未回答ユーザーなし")
+        return results
+
+    logger.info(f"連続未回答ユーザー: {len(unanswered_users)}名")
+
+    # 部署ごとにグループ化
+    by_department = {}
+    for user in unanswered_users:
+        dept_id = user.get('department_id') or 'no_department'
+        if dept_id not in by_department:
+            by_department[dept_id] = {
+                'department_name': user.get('department_name') or '部署なし',
+                'members': [],
+            }
+        by_department[dept_id]['members'].append(user)
+
+    # 各部署のリーダーに通知
+    for dept_id, dept_data in by_department.items():
+        if dept_id == 'no_department':
+            # 部署なしの場合は管理者に通知（後で実装）
+            continue
+
+        # 部署のリーダーを取得
+        leaders_result = conn.execute(sqlalchemy.text("""
+            SELECT
+                u.id AS user_id,
+                u.display_name AS user_name,
+                u.chatwork_room_id
+            FROM users u
+            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN roles r ON ud.role_id = r.id
+            WHERE ud.department_id = :department_id
+              AND u.organization_id = :org_id
+              AND r.name IN ('チームリーダー', '部長', '経営', '代表')
+              AND u.chatwork_room_id IS NOT NULL
+        """), {'department_id': dept_id, 'org_id': org_id})
+
+        leaders = leaders_result.fetchall()
+
+        if not leaders:
+            logger.info(f"部署 {dept_data['department_name']} にリーダーなし")
+            continue
+
+        for leader in leaders:
+            leader_id = str(leader[0])
+            leader_name = leader[1]
+            chatwork_room_id = leader[2]
+
+            # 自分自身は除外
+            members_to_notify = [
+                m for m in dept_data['members']
+                if m['user_id'] != leader_id
+            ]
+
+            if not members_to_notify:
+                continue
+
+            status, error = send_consecutive_unanswered_alert_to_leader(
+                conn=conn,
+                leader_id=leader_id,
+                org_id=org_id,
+                leader_name=leader_name,
+                chatwork_room_id=chatwork_room_id,
+                unanswered_members=members_to_notify,
+                consecutive_days=consecutive_days,
+                send_message_func=send_message_func,
+                dry_run=dry_run,
+            )
+
+            results[status] = results.get(status, 0) + 1
+
+    logger.info(f"=== {consecutive_days}日連続未回答チェック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    return results
+
+
+# =====================================================
+# アクセス権限チェック
+# =====================================================
+
+def can_view_goal(
+    conn,
+    viewer_user_id: str,
+    goal_user_id: str,
+    org_id: str
+) -> bool:
+    """
+    目標の閲覧権限をチェック
+
+    権限ルール:
+    - 自分の目標: 常にOK
+    - チームリーダー: チームメンバーの目標のみ
+    - 部長: 部署全員の目標
+    - 経営/代表: 全員の目標
+
+    Args:
+        conn: データベース接続
+        viewer_user_id: 閲覧者ユーザーID
+        goal_user_id: 目標所有者ユーザーID
+        org_id: 組織ID
+
+    Returns:
+        閲覧可能かどうか
+    """
+    import sqlalchemy
+
+    # 自分の目標は常にOK
+    if viewer_user_id == goal_user_id:
+        return True
+
+    # 閲覧者の役職を取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT
+            r.name AS role_name,
+            ud.department_id
+        FROM users u
+        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN roles r ON ud.role_id = r.id
+        WHERE u.id = :viewer_id
+          AND u.organization_id = :org_id
+    """), {'viewer_id': viewer_user_id, 'org_id': org_id})
+
+    viewer_info = result.fetchone()
+
+    if not viewer_info:
+        return False
+
+    role_name = viewer_info[0]
+    viewer_dept_id = viewer_info[1]
+
+    # 経営・代表は全員の目標を閲覧可能
+    if role_name in ('経営', '代表'):
+        return True
+
+    # 部長は部署全員の目標を閲覧可能
+    if role_name == '部長':
+        # 目標所有者が同じ部署か確認
+        result = conn.execute(sqlalchemy.text("""
+            SELECT 1 FROM user_departments
+            WHERE user_id = :goal_user_id
+              AND department_id = :viewer_dept_id
+        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id})
+
+        return result.fetchone() is not None
+
+    # チームリーダーはチームメンバーの目標を閲覧可能
+    if role_name == 'チームリーダー':
+        # 目標所有者が同じ部署か確認
+        result = conn.execute(sqlalchemy.text("""
+            SELECT 1 FROM user_departments
+            WHERE user_id = :goal_user_id
+              AND department_id = :viewer_dept_id
+        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id})
+
+        return result.fetchone() is not None
+
+    # その他の役職は自分の目標のみ
+    return False
+
+
+def get_viewable_user_ids(
+    conn,
+    viewer_user_id: str,
+    org_id: str
+) -> List[str]:
+    """
+    閲覧可能なユーザーIDリストを取得
+
+    Args:
+        conn: データベース接続
+        viewer_user_id: 閲覧者ユーザーID
+        org_id: 組織ID
+
+    Returns:
+        閲覧可能なユーザーIDリスト
+    """
+    import sqlalchemy
+
+    # 閲覧者の役職を取得
+    result = conn.execute(sqlalchemy.text("""
+        SELECT
+            r.name AS role_name,
+            ud.department_id
+        FROM users u
+        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN roles r ON ud.role_id = r.id
+        WHERE u.id = :viewer_id
+          AND u.organization_id = :org_id
+    """), {'viewer_id': viewer_user_id, 'org_id': org_id})
+
+    viewer_info = result.fetchone()
+
+    if not viewer_info:
+        return [viewer_user_id]  # 自分のみ
+
+    role_name = viewer_info[0]
+    viewer_dept_id = viewer_info[1]
+
+    # 経営・代表は全員
+    if role_name in ('経営', '代表'):
+        result = conn.execute(sqlalchemy.text("""
+            SELECT id FROM users
+            WHERE organization_id = :org_id
+        """), {'org_id': org_id})
+        return [str(row[0]) for row in result.fetchall()]
+
+    # 部長・チームリーダーは部署メンバー
+    if role_name in ('部長', 'チームリーダー'):
+        result = conn.execute(sqlalchemy.text("""
+            SELECT DISTINCT u.id
+            FROM users u
+            JOIN user_departments ud ON ud.user_id = u.id
+            WHERE ud.department_id = :dept_id
+              AND u.organization_id = :org_id
+        """), {'dept_id': viewer_dept_id, 'org_id': org_id})
+        return [str(row[0]) for row in result.fetchall()]
+
+    # その他は自分のみ
+    return [viewer_user_id]
+
+
+# =====================================================
 # エクスポート
 # =====================================================
 
@@ -1234,13 +1710,21 @@ __all__ = [
     'build_daily_reminder_message',
     'build_morning_feedback_message',
     'build_team_summary_message',
+    'build_consecutive_unanswered_alert_message',
     # 通知送信関数
     'send_daily_check_to_user',
     'send_daily_reminder_to_user',
     'send_morning_feedback_to_user',
     'send_team_summary_to_leader',
+    'send_consecutive_unanswered_alert_to_leader',
     # スケジュール関数
     'scheduled_daily_check',
     'scheduled_daily_reminder',
     'scheduled_morning_feedback',
+    'scheduled_consecutive_unanswered_check',
+    # 連続未回答チェック
+    'check_consecutive_unanswered_users',
+    # アクセス権限
+    'can_view_goal',
+    'get_viewable_user_ids',
 ]

@@ -285,3 +285,156 @@ def sample_pdf_bytes():
     """サンプルPDFバイト（最小限のPDF構造）"""
     # 実際のテストでは適切なPDFファイルを使用
     return b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF"
+
+
+# ================================================================
+# Phase 2.5: 目標管理関連フィクスチャ
+# ================================================================
+
+@pytest.fixture
+def sample_goal():
+    """サンプル目標データ"""
+    from datetime import date
+    return {
+        "id": "goal_test_001",
+        "organization_id": "org_test",
+        "user_id": "user_test_001",
+        "department_id": "dept_test_001",
+        "parent_goal_id": None,
+        "goal_level": "individual",
+        "title": "粗利300万円",
+        "description": "今月の粗利目標",
+        "goal_type": "numeric",
+        "target_value": 3000000,
+        "current_value": 1500000,
+        "unit": "円",
+        "deadline": None,
+        "period_type": "monthly",
+        "period_start": date(2026, 1, 1),
+        "period_end": date(2026, 1, 31),
+        "status": "active",
+        "classification": "internal",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+
+
+@pytest.fixture
+def sample_goal_progress():
+    """サンプル進捗データ"""
+    from datetime import date
+    return {
+        "id": "progress_test_001",
+        "goal_id": "goal_test_001",
+        "organization_id": "org_test",
+        "progress_date": date.today(),
+        "value": 150000,
+        "cumulative_value": 1650000,
+        "daily_note": "新規案件の契約が取れました",
+        "daily_choice": "積極的に提案活動を行いました",
+        "ai_feedback": None,
+        "ai_feedback_sent_at": None,
+        "classification": "internal",
+        "created_at": datetime.now(),
+        "updated_at": datetime.now(),
+    }
+
+
+@pytest.fixture
+def sample_user():
+    """サンプルユーザーデータ"""
+    return {
+        "id": "user_test_001",
+        "organization_id": "org_test",
+        "display_name": "山田太郎",
+        "email": "yamada@example.com",
+        "chatwork_account_id": "12345678",
+        "chatwork_room_id": "987654321",
+    }
+
+
+@pytest.fixture
+def sample_department():
+    """サンプル部署データ"""
+    return {
+        "id": "dept_test_001",
+        "organization_id": "org_test",
+        "name": "営業部",
+        "path": "営業部",
+    }
+
+
+@pytest.fixture
+def sample_team_members():
+    """サンプルチームメンバーデータ"""
+    return [
+        {
+            "user_id": "user_test_001",
+            "user_name": "山田太郎",
+            "goals": [
+                {
+                    "id": "goal_001",
+                    "title": "粗利目標",
+                    "goal_type": "numeric",
+                    "target_value": 3000000,
+                    "current_value": 1950000,
+                    "unit": "円",
+                }
+            ]
+        },
+        {
+            "user_id": "user_test_002",
+            "user_name": "鈴木花子",
+            "goals": [
+                {
+                    "id": "goal_002",
+                    "title": "粗利目標",
+                    "goal_type": "numeric",
+                    "target_value": 3000000,
+                    "current_value": 1500000,
+                    "unit": "円",
+                }
+            ]
+        },
+        {
+            "user_id": "user_test_003",
+            "user_name": "田中一郎",
+            "goals": [
+                {
+                    "id": "goal_003",
+                    "title": "粗利目標",
+                    "goal_type": "numeric",
+                    "target_value": 3000000,
+                    "current_value": 2200000,
+                    "unit": "円",
+                }
+            ]
+        },
+    ]
+
+
+@pytest.fixture
+def mock_goal_db_conn():
+    """目標管理用DBコネクションのモック"""
+    conn = MagicMock()
+
+    # execute のモックを設定
+    result = MagicMock()
+    result.fetchone.return_value = None
+    result.fetchall.return_value = []
+    result.rowcount = 1
+    conn.execute.return_value = result
+
+    # コンテキストマネージャー対応
+    conn.__enter__ = MagicMock(return_value=conn)
+    conn.__exit__ = MagicMock(return_value=None)
+
+    return conn
+
+
+@pytest.fixture
+def mock_chatwork_send():
+    """ChatWorkメッセージ送信のモック"""
+    def mock_send(room_id, message):
+        return True
+    return mock_send

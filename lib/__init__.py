@@ -159,15 +159,23 @@ from lib.goal_notification import (
     build_daily_reminder_message,
     build_morning_feedback_message,
     build_team_summary_message,
+    build_consecutive_unanswered_alert_message,
     # 通知送信関数
     send_daily_check_to_user,
     send_daily_reminder_to_user,
     send_morning_feedback_to_user,
     send_team_summary_to_leader,
+    send_consecutive_unanswered_alert_to_leader,
     # スケジュール関数
     scheduled_daily_check,
     scheduled_daily_reminder,
     scheduled_morning_feedback,
+    scheduled_consecutive_unanswered_check,
+    # 連続未回答チェック
+    check_consecutive_unanswered_users,
+    # アクセス権限
+    can_view_goal,
+    get_viewable_user_ids,
 )
 
 __all__ = [
@@ -250,11 +258,17 @@ __all__ = [
     "build_daily_reminder_message",
     "build_morning_feedback_message",
     "build_team_summary_message",
+    "build_consecutive_unanswered_alert_message",
     "send_daily_check_to_user",
     "send_daily_reminder_to_user",
     "send_morning_feedback_to_user",
     "send_team_summary_to_leader",
+    "send_consecutive_unanswered_alert_to_leader",
     "scheduled_daily_check",
     "scheduled_daily_reminder",
     "scheduled_morning_feedback",
+    "scheduled_consecutive_unanswered_check",
+    "check_consecutive_unanswered_users",
+    "can_view_goal",
+    "get_viewable_user_ids",
 ]

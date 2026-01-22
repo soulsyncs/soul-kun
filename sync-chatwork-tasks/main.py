@@ -19,6 +19,31 @@ import anthropic  # v10.5.0: タスク要約機能用
 import os  # v10.5.0: 環境変数取得用
 from google import genai  # v10.8.1: Gemini APIでタスク要約
 
+# =====================================================
+# v10.14.1: lib/共通ライブラリからインポート
+# =====================================================
+# デプロイ前に deploy.sh で soul-kun/lib/ からコピーされます
+# =====================================================
+try:
+    from lib import (
+        # Text Utils
+        GREETING_PATTERNS as LIB_GREETING_PATTERNS,
+        CLOSING_PATTERNS as LIB_CLOSING_PATTERNS,
+        remove_greetings as lib_remove_greetings,
+        extract_task_subject as lib_extract_task_subject,
+        is_greeting_only as lib_is_greeting_only,
+        validate_summary as lib_validate_summary,
+        validate_and_get_reason,
+        # Audit
+        log_audit,
+        log_audit_batch,
+    )
+    USE_LIB = True
+    print("✅ lib/ モジュールをロードしました (v10.14.1)")
+except ImportError as e:
+    USE_LIB = False
+    print(f"⚠️ lib/ モジュールが見つかりません。インライン関数を使用します: {e}")
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -244,6 +269,7 @@ def remove_greetings(text: str) -> str:
     テキストから日本語の挨拶・定型文を除去する
 
     ★★★ v10.14.0: 新規追加 ★★★
+    ★★★ v10.14.1: lib/text_utils.py に移行（フォールバック保持）★★★
 
     除去対象:
     - 開始の挨拶: お疲れ様です、いつもお世話になっております、等
@@ -257,6 +283,11 @@ def remove_greetings(text: str) -> str:
     Returns:
         挨拶を除去したテキスト
     """
+    # v10.14.1: lib/を使用可能な場合はそちらを使用
+    if USE_LIB:
+        return lib_remove_greetings(text)
+
+    # フォールバック: インライン実装
     if not text:
         return ""
 
@@ -285,6 +316,7 @@ def extract_task_subject(text: str) -> str:
     テキストからタスクの件名/タイトルを抽出する
 
     ★★★ v10.14.0: 新規追加 ★★★
+    ★★★ v10.14.1: lib/text_utils.py に移行（フォールバック保持）★★★
 
     優先順位:
     1. 【...】 形式の件名（日本語ビジネス標準）
@@ -297,6 +329,11 @@ def extract_task_subject(text: str) -> str:
     Returns:
         件名（見つからない場合は空文字列）
     """
+    # v10.14.1: lib/を使用可能な場合はそちらを使用
+    if USE_LIB:
+        return lib_extract_task_subject(text)
+
+    # フォールバック: インライン実装
     if not text:
         return ""
 
@@ -331,6 +368,7 @@ def is_greeting_only(text: str) -> bool:
     テキストが挨拶のみかどうかを判定する
 
     ★★★ v10.14.0: 新規追加 ★★★
+    ★★★ v10.14.1: lib/text_utils.py に移行（フォールバック保持）★★★
 
     判定基準:
     - 挨拶を除去した後に実質的なコンテンツがない
@@ -342,6 +380,11 @@ def is_greeting_only(text: str) -> bool:
     Returns:
         True: 挨拶のみ、False: 実質的なコンテンツあり
     """
+    # v10.14.1: lib/を使用可能な場合はそちらを使用
+    if USE_LIB:
+        return lib_is_greeting_only(text)
+
+    # フォールバック: インライン実装
     if not text:
         return True
 
@@ -355,6 +398,7 @@ def validate_summary(summary: str, original_body: str) -> bool:
     要約の品質を検証する
 
     ★★★ v10.14.0: 新規追加 ★★★
+    ★★★ v10.14.1: lib/text_utils.py に移行（フォールバック保持）★★★
 
     検証項目:
     1. 挨拶だけではないか
@@ -368,6 +412,11 @@ def validate_summary(summary: str, original_body: str) -> bool:
     Returns:
         True: 有効な要約、False: 無効（再生成が必要）
     """
+    # v10.14.1: lib/を使用可能な場合はそちらを使用
+    if USE_LIB:
+        return lib_validate_summary(summary, original_body)
+
+    # フォールバック: インライン実装
     if not summary:
         return False
 
@@ -1094,11 +1143,18 @@ def regenerate_all_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
     return result
 
 
-def regenerate_bad_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> dict:
+def regenerate_bad_summaries(
+    conn,
+    cursor,
+    organization_id: str = "org_soulsyncs",
+    offset: int = 0,
+    limit: int = 50
+) -> dict:
     """
     低品質の要約のみを再生成する
 
     ★★★ v10.14.0: 新規追加 ★★★
+    ★★★ v10.14.1: organization_idフィルタ + 監査ログ追加 ★★★
 
     低品質の判定基準（validate_summary関数）:
     - 挨拶のみ（お疲れ様です、等）
@@ -1108,38 +1164,46 @@ def regenerate_bad_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
     Args:
         conn: DB接続
         cursor: DBカーソル
+        organization_id: テナントID（デフォルト: org_soulsyncs）【v10.14.1追加】
         offset: 開始位置（バッチ処理の再開に使用）
         limit: 一度に処理する件数
 
     Returns:
         処理結果の辞書
     """
-    # 全件数を取得
+    # v10.14.1: 全件数を取得（organization_idでフィルタ）
     cursor.execute("""
         SELECT COUNT(*) FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
-    """)
+          AND organization_id = %s
+    """, (organization_id,))
     total_count = cursor.fetchone()[0]
 
-    # offsetベースでバッチ取得
+    # v10.14.1: offsetベースでバッチ取得（organization_idでフィルタ）
     cursor.execute("""
         SELECT task_id, body, summary FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
+          AND organization_id = %s
         ORDER BY task_id DESC
         LIMIT %s OFFSET %s
-    """, (limit, offset))
+    """, (organization_id, limit, offset))
     tasks = cursor.fetchall()
 
     result = {
+        "organization_id": organization_id,  # v10.14.1: 追加
         "total_checked": len(tasks),
         "bad_found": 0,
         "regenerated": 0,
+        "skipped_same": 0,  # v10.14.1: 冪等性 - 同一要約スキップ数
         "failed": 0,
         "offset": offset,
         "next_offset": offset + len(tasks) if offset + len(tasks) < total_count else None
     }
 
-    print(f"📊 低品質要約チェック開始: offset={offset}, limit={limit}, チェック件数={len(tasks)}")
+    # v10.14.1: 監査ログ用の変更履歴
+    audit_items = []
+
+    print(f"📊 低品質要約チェック開始: org={organization_id}, offset={offset}, limit={limit}, チェック件数={len(tasks)}")
 
     for task_id, body, current_summary in tasks:
         try:
@@ -1149,19 +1213,33 @@ def regenerate_bad_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
 
             # 低品質要約を発見
             result["bad_found"] += 1
-            print(f"🔍 低品質要約発見: task_id={task_id}, summary='{current_summary[:30]}...'")
+            summary_preview = current_summary[:30] if current_summary else ""
+            print(f"🔍 低品質要約発見: task_id={task_id}, summary='{summary_preview}...'")
 
             # 再生成
             new_summary = generate_task_summary(body)
             if new_summary and validate_summary(new_summary, body):
+                # v10.14.1: 冪等性チェック - 同一要約ならスキップ
+                if new_summary.strip() == (current_summary or "").strip():
+                    result["skipped_same"] += 1
+                    print(f"⏭️ 冪等性スキップ: task_id={task_id}（新旧要約同一）")
+                    continue
+
                 cursor.execute("""
                     UPDATE chatwork_tasks
                     SET summary = %s
-                    WHERE task_id = %s
-                """, (new_summary, task_id))
+                    WHERE task_id = %s AND organization_id = %s
+                """, (new_summary, task_id, organization_id))
                 conn.commit()
                 result["regenerated"] += 1
                 print(f"✅ 再生成成功: task_id={task_id}, new_summary='{new_summary}'")
+
+                # v10.14.1: 監査ログ用に記録
+                audit_items.append({
+                    "task_id": str(task_id),
+                    "old_summary": current_summary[:50] if current_summary else None,
+                    "new_summary": new_summary[:50] if new_summary else None,
+                })
             else:
                 result["failed"] += 1
                 print(f"⚠️ 再生成でも低品質: task_id={task_id}")
@@ -1177,36 +1255,66 @@ def regenerate_bad_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
             except Exception:
                 pass
 
-    print(f"📊 低品質要約チェック完了: チェック={result['total_checked']}, 低品質={result['bad_found']}, 再生成成功={result['regenerated']}, 失敗={result['failed']}")
+    print(f"📊 低品質要約チェック完了: チェック={result['total_checked']}, 低品質={result['bad_found']}, 再生成成功={result['regenerated']}, 冪等スキップ={result['skipped_same']}, 失敗={result['failed']}")
+
+    # v10.14.1: 監査ログを記録
+    if USE_LIB and audit_items:
+        try:
+            log_audit_batch(
+                conn=conn,
+                cursor=cursor,
+                organization_id=organization_id,
+                action="regenerate",
+                resource_type="chatwork_task",
+                items=audit_items,
+                summary_details={
+                    "total_checked": result["total_checked"],
+                    "bad_found": result["bad_found"],
+                    "regenerated": result["regenerated"],
+                    "failed": result["failed"],
+                }
+            )
+        except Exception as e:
+            print(f"⚠️ 監査ログ記録エラー（処理は継続）: {e}")
 
     return result
 
 
-def report_summary_quality(conn, cursor) -> dict:
+def report_summary_quality(
+    conn,
+    cursor,
+    organization_id: str = "org_soulsyncs"
+) -> dict:
     """
     要約品質のレポートを生成する
 
     ★★★ v10.14.0: 再発防止策 - 品質モニタリング ★★★
+    ★★★ v10.14.1: organization_idフィルタ追加 ★★★
 
     このレポートは定期的に呼び出して、低品質要約の発生を監視する。
     問題があれば早期に検知できる。
+
+    Args:
+        conn: DB接続
+        cursor: DBカーソル
+        organization_id: テナントID（デフォルト: org_soulsyncs）【v10.14.1追加】
 
     Returns:
         品質レポートの辞書
     """
     print("=" * 60)
-    print("📊 要約品質レポート (v10.14.0)")
+    print(f"📊 要約品質レポート (v10.14.1) org={organization_id}")
     print("=" * 60)
 
-    # 1. 全体統計
+    # 1. 全体統計（v10.14.1: organization_idでフィルタ）
     cursor.execute("""
         SELECT
             COUNT(*) AS total_open,
             COUNT(summary) AS with_summary,
             COUNT(*) - COUNT(summary) AS without_summary
         FROM chatwork_tasks
-        WHERE status = 'open'
-    """)
+        WHERE status = 'open' AND organization_id = %s
+    """, (organization_id,))
     stats = cursor.fetchone()
     total_open = stats[0]
     with_summary = stats[1]
@@ -1217,14 +1325,15 @@ def report_summary_quality(conn, cursor) -> dict:
     print(f"   要約あり: {with_summary}")
     print(f"   要約なし: {without_summary}")
 
-    # 2. 低品質要約をサンプリングチェック（最新50件）
+    # 2. 低品質要約をサンプリングチェック（最新50件）（v10.14.1: organization_idでフィルタ）
     cursor.execute("""
         SELECT task_id, body, summary
         FROM chatwork_tasks
         WHERE status = 'open' AND summary IS NOT NULL
+          AND organization_id = %s
         ORDER BY task_id DESC
         LIMIT 50
-    """)
+    """, (organization_id,))
     sample_tasks = cursor.fetchall()
 
     bad_count = 0
@@ -1263,6 +1372,7 @@ def report_summary_quality(conn, cursor) -> dict:
     print("=" * 60)
 
     return {
+        "organization_id": organization_id,  # v10.14.1: 追加
         "total_open": total_open,
         "with_summary": with_summary,
         "without_summary": without_summary,
@@ -7497,7 +7607,13 @@ def sync_chatwork_tasks(request):
 
                 while True:
                     print(f"--- バッチ {batch_num} 開始 (offset={offset}) ---")
-                    batch_result = regenerate_bad_summaries(conn, cursor, offset=offset, limit=50)
+                    # v10.14.1: organization_idを明示的に渡す
+                    batch_result = regenerate_bad_summaries(
+                        conn, cursor,
+                        organization_id="org_soulsyncs",
+                        offset=offset,
+                        limit=50
+                    )
 
                     total_checked += batch_result["total_checked"]
                     total_bad += batch_result["bad_found"]
@@ -7545,7 +7661,11 @@ def sync_chatwork_tasks(request):
         quality_result = None
         if quality_report:
             try:
-                quality_result = report_summary_quality(conn, cursor)
+                # v10.14.1: organization_idを明示的に渡す
+                quality_result = report_summary_quality(
+                    conn, cursor,
+                    organization_id="org_soulsyncs"
+                )
             except Exception as e:
                 print(f"⚠️ 品質レポートエラー: {e}")
                 import traceback

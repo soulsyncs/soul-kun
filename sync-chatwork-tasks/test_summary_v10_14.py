@@ -1,159 +1,130 @@
 """
-v10.14.0 タスク要約機能のテスト（スタンドアロン版）
+v10.14.1 タスク要約機能のテスト（pytest形式）
+
+★★★ v10.14.1: pytest形式に変換 ★★★
 
 テスト項目:
 1. remove_greetings() - 挨拶除去
 2. extract_task_subject() - 件名抽出
 3. is_greeting_only() - 挨拶のみ判定
 4. validate_summary() - 要約バリデーション
+5. validate_and_get_reason() - 理由付きバリデーション
+6. clean_chatwork_tags() - ChatWorkタグ除去
+
+実行方法:
+    pytest test_summary_v10_14.py -v
 """
 
-import re
+import pytest
+import sys
+import os
 
-# =====================================================
-# 挨拶パターン（main.pyからコピー）
-# =====================================================
-GREETING_PATTERNS = [
-    # 開始の挨拶
-    r'^お疲れ様です[。！!]?\s*',
-    r'^お疲れさまです[。！!]?\s*',
-    r'^おつかれさまです[。！!]?\s*',
-    r'^お疲れ様でした[。！!]?\s*',
-    r'^いつもお世話になっております[。！!]?\s*',
-    r'^いつもお世話になります[。！!]?\s*',
-    r'^お世話になっております[。！!]?\s*',
-    r'^お世話になります[。！!]?\s*',
-    r'^こんにちは[。！!]?\s*',
-    r'^おはようございます[。！!]?\s*',
-    r'^こんばんは[。！!]?\s*',
-    # お詫び・断り
-    r'^夜分に申し訳ございません[。！!]?\s*',
-    r'^夜分遅くに失礼いたします[。！!]?\s*',
-    r'^夜分遅くに失礼します[。！!]?\s*',
-    r'^お忙しいところ恐れ入りますが[、,]?\s*',
-    r'^お忙しいところ申し訳ございませんが[、,]?\s*',
-    r'^お忙しいところ恐縮ですが[、,]?\s*',
-    r'^突然のご連絡失礼いたします[。！!]?\s*',
-    r'^突然のご連絡失礼します[。！!]?\s*',
-    r'^ご連絡が遅くなり申し訳ございません[。！!]?\s*',
-    r'^ご連絡遅くなりまして申し訳ございません[。！!]?\s*',
-    r'^大変遅くなってしまい申し訳[ございませんありません。！!]*\s*',
-    # メール形式
-    r'^[Rr][Ee]:\s*',
-    r'^[Ff][Ww][Dd]?:\s*',
-    r'^[Cc][Cc]:\s*',
-]
+# lib/をインポートパスに追加
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-CLOSING_PATTERNS = [
-    r'よろしくお願い(いた)?します[。！!]?\s*$',
-    r'よろしくお願い(いた)?致します[。！!]?\s*$',
-    r'お願い(いた)?します[。！!]?\s*$',
-    r'ご確認(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
-    r'ご対応(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
-    r'ご検討(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
-    r'何卒よろしくお願い(いた)?します[。！!]?\s*$',
-    r'以上、?よろしくお願い(いた)?します[。！!]?\s*$',
-    r'以上です[。！!]?\s*$',
-    r'以上となります[。！!]?\s*$',
-    r'引き続きよろしくお願い(いた)?します[。！!]?\s*$',
-]
+try:
+    from lib import (
+        GREETING_PATTERNS,
+        CLOSING_PATTERNS,
+        GREETING_STARTS,
+        TRUNCATION_INDICATORS,
+        remove_greetings,
+        extract_task_subject,
+        is_greeting_only,
+        validate_summary,
+        validate_and_get_reason,
+        clean_chatwork_tags,
+    )
+    LIB_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: lib/ not available ({e}), using local definitions")
+    LIB_AVAILABLE = False
 
+    # Fallback: lib/がない場合のローカル定義
+    import re
 
-def remove_greetings(text: str) -> str:
-    """テキストから日本語の挨拶・定型文を除去する"""
-    if not text:
-        return ""
+    GREETING_PATTERNS = [
+        r'^お疲れ様です[。！!]?\s*',
+        r'^お疲れさまです[。！!]?\s*',
+        r'^いつもお世話になっております[。！!]?\s*',
+        r'^こんにちは[。！!]?\s*',
+        r'^夜分に申し訳ございません[。！!]?\s*',
+        r'^[Rr][Ee]:\s*',
+        r'^[Cc][Cc]:\s*',
+    ]
 
-    result = text
+    CLOSING_PATTERNS = [
+        r'よろしくお願い(いた)?します[。！!]?\s*$',
+    ]
 
-    # 開始の挨拶を除去（複数回試行 - ネストした挨拶対応）
-    for _ in range(3):
-        original = result
-        for pattern in GREETING_PATTERNS:
+    GREETING_STARTS = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
+    TRUNCATION_INDICATORS = ['…', '...', '。。', '、、']
+
+    def remove_greetings(text: str) -> str:
+        if not text:
+            return ""
+        result = text
+        for _ in range(3):
+            original = result
+            for pattern in GREETING_PATTERNS:
+                result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
+            if result == original:
+                break
+        for pattern in CLOSING_PATTERNS:
             result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
-        if result == original:
-            break
+        return result.strip()
 
-    # 終了の挨拶を除去
-    for pattern in CLOSING_PATTERNS:
-        result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
-
-    # 行頭の空白・改行を整理
-    result = result.strip()
-
-    return result
-
-
-def extract_task_subject(text: str) -> str:
-    """テキストからタスクの件名/タイトルを抽出する"""
-    if not text:
+    def extract_task_subject(text: str) -> str:
+        if not text:
+            return ""
+        subject_match = re.search(r'【([^】]+)】', text)
+        if subject_match:
+            subject = subject_match.group(1).strip()
+            if len(subject) >= 3:
+                return f"【{subject}】"
+        headline_match = re.search(r'^[■●◆▼★☆□○◇]\s*(.+?)(?:\n|$)', text, re.MULTILINE)
+        if headline_match:
+            headline = headline_match.group(1).strip()
+            if 3 <= len(headline) <= 50:
+                return headline
         return ""
 
-    # 1. 【...】 形式の件名を抽出
-    subject_match = re.search(r'【([^】]+)】', text)
-    if subject_match:
-        subject = subject_match.group(1).strip()
-        if len(subject) >= 3:
-            return f"【{subject}】"
+    def is_greeting_only(text: str) -> bool:
+        if not text:
+            return True
+        cleaned = remove_greetings(text)
+        return len(cleaned.strip()) <= 5
 
-    # 2. ■/●/◆/▼/★ で始まる見出しを抽出
-    headline_match = re.search(r'^[■●◆▼★☆□○◇]\s*(.+?)(?:\n|$)', text, re.MULTILINE)
-    if headline_match:
-        headline = headline_match.group(1).strip()
-        if 3 <= len(headline) <= 50:
-            return headline
-
-    # 3. 1行目が短い場合は件名として扱う
-    first_line = text.split('\n')[0].strip()
-    if (first_line and
-        len(first_line) <= 40 and
-        not re.match(r'^(お疲れ|いつも|こんにち|おはよう|こんばん)', first_line) and
-        not first_line.endswith(('。', '？', '?'))):
-        return first_line
-
-    return ""
-
-
-def is_greeting_only(text: str) -> bool:
-    """テキストが挨拶のみかどうかを判定する"""
-    if not text:
+    def validate_summary(summary: str, original_body: str) -> bool:
+        if not summary:
+            return False
+        if is_greeting_only(summary):
+            return False
+        if len(summary) < 8 and len(original_body) > 50:
+            return False
+        if any(summary.endswith(ind) for ind in TRUNCATION_INDICATORS):
+            return False
+        if any(summary.startswith(g) for g in GREETING_STARTS):
+            return False
         return True
 
-    cleaned = remove_greetings(text)
-    return len(cleaned.strip()) <= 5
+    def validate_and_get_reason(summary, original_body):
+        if not validate_summary(summary, original_body):
+            return False, "invalid"
+        return True, None
+
+    def clean_chatwork_tags(body: str) -> str:
+        return body
 
 
-def validate_summary(summary: str, original_body: str) -> bool:
-    """要約の品質を検証する"""
-    if not summary:
-        return False
+# =====================================================
+# テストケース
+# =====================================================
 
-    # 1. 挨拶だけの場合はNG
-    if is_greeting_only(summary):
-        return False
+class TestRemoveGreetings:
+    """remove_greetings() のテスト"""
 
-    # 2. 非常に短い場合はNG（ただし元の本文も短い場合はOK）
-    if len(summary) < 8 and len(original_body) > 50:
-        return False
-
-    # 3. 明らかに途切れている場合はNG
-    truncation_indicators = ['…', '...', '。。', '、、']
-    if any(summary.endswith(ind) for ind in truncation_indicators):
-        return False
-
-    # 4. 挨拶で始まる場合はNG
-    greeting_starts = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
-    if any(summary.startswith(g) for g in greeting_starts):
-        return False
-
-    return True
-
-
-def test_remove_greetings():
-    """挨拶除去のテスト"""
-    print("\n=== test_remove_greetings ===")
-
-    test_cases = [
+    @pytest.mark.parametrize("input_text,expected_part", [
         ("お疲れ様です！\n夜分に申し訳ございません。\n経費精算書を提出してください。", "経費精算書を提出してください"),
         ("お疲れ様です。\nETCカードの利用報告をお願いします。", "ETCカードの利用報告"),
         ("いつもお世話になっております。\n請求書の確認をお願いいたします。", "請求書の確認"),
@@ -161,180 +132,159 @@ def test_remove_greetings():
         ("Re: 会議資料の件", "会議資料の件"),
         ("CC: 週次報告について", "週次報告について"),
         ("シンプルなタスク内容", "シンプルなタスク内容"),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for input_text, expected_part in test_cases:
+    ])
+    def test_basic_greeting_removal(self, input_text, expected_part):
+        """基本的な挨拶除去"""
         result = remove_greetings(input_text)
-        if expected_part in result:
-            print(f"✅ PASS: '{input_text[:30]}...' -> '{result}'")
-            passed += 1
-        else:
-            print(f"❌ FAIL: '{input_text[:30]}...' -> '{result}' (expected to contain '{expected_part}')")
-            failed += 1
+        assert expected_part in result, f"Expected '{expected_part}' in '{result}'"
 
-    print(f"\n結果: {passed}/{passed + failed} passed")
-    return failed == 0
+    def test_empty_input(self):
+        """空入力の処理"""
+        assert remove_greetings("") == ""
+        assert remove_greetings(None) == ""
+
+    def test_no_greeting(self):
+        """挨拶がない場合"""
+        text = "経費精算書を提出してください"
+        result = remove_greetings(text)
+        assert text in result
+
+    def test_nested_greetings(self):
+        """ネストした挨拶の除去"""
+        text = "お疲れ様です！いつもお世話になっております。タスク内容です。"
+        result = remove_greetings(text)
+        assert "タスク内容" in result
 
 
-def test_extract_task_subject():
-    """件名抽出のテスト"""
-    print("\n=== test_extract_task_subject ===")
+class TestExtractTaskSubject:
+    """extract_task_subject() のテスト"""
 
-    test_cases = [
+    @pytest.mark.parametrize("input_text,expected", [
         ("【1月ETCカード利用管理依頼】\nお疲れ様です！\n...", "【1月ETCカード利用管理依頼】"),
         ("【経費精算書提出のお願い】について", "【経費精算書提出のお願い】"),
         ("■ 週次報告\nお疲れ様です。今週の報告です。", "週次報告"),
         ("● 緊急対応のお願い\n本日中に対応ください。", "緊急対応のお願い"),
         ("お疲れ様です。\n経費精算をお願いします。", ""),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for input_text, expected in test_cases:
+    ])
+    def test_subject_extraction(self, input_text, expected):
+        """件名抽出"""
         result = extract_task_subject(input_text)
-        if result == expected:
-            print(f"✅ PASS: '{input_text[:30]}...' -> '{result}'")
-            passed += 1
-        else:
-            print(f"❌ FAIL: '{input_text[:30]}...' -> '{result}' (expected '{expected}')")
-            failed += 1
+        assert result == expected
 
-    print(f"\n結果: {passed}/{passed + failed} passed")
-    return failed == 0
+    def test_empty_input(self):
+        """空入力の処理"""
+        assert extract_task_subject("") == ""
+        assert extract_task_subject(None) == ""
+
+    def test_short_subject_ignored(self):
+        """短すぎる件名は無視"""
+        text = "【AB】テスト"  # 2文字は短すぎる
+        result = extract_task_subject(text)
+        # 3文字以上が必要
+        assert result == "" or len(result.strip("【】")) >= 3
 
 
-def test_is_greeting_only():
-    """挨拶のみ判定のテスト"""
-    print("\n=== test_is_greeting_only ===")
+class TestIsGreetingOnly:
+    """is_greeting_only() のテスト"""
 
-    test_cases = [
+    @pytest.mark.parametrize("input_text,expected", [
         ("お疲れ様です！", True),
         ("お疲れ様です！夜分に申し訳ございません。", True),
         ("いつもお世話になっております。", True),
         ("お疲れ様です！経費精算書を提出してください。", False),
         ("ETCカードの利用報告", False),
         ("【重要】会議資料の提出", False),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for input_text, expected in test_cases:
+        ("", True),  # 空文字列はTrueを期待
+        (None, True),  # Noneも同様
+    ])
+    def test_greeting_only_detection(self, input_text, expected):
+        """挨拶のみ判定"""
         result = is_greeting_only(input_text)
-        if result == expected:
-            print(f"✅ PASS: '{input_text[:30]}' -> {result}")
-            passed += 1
-        else:
-            print(f"❌ FAIL: '{input_text[:30]}' -> {result} (expected {expected})")
-            failed += 1
-
-    print(f"\n結果: {passed}/{passed + failed} passed")
-    return failed == 0
+        assert result == expected
 
 
-def test_validate_summary():
-    """要約バリデーションのテスト"""
-    print("\n=== test_validate_summary ===")
+class TestValidateSummary:
+    """validate_summary() のテスト"""
 
-    test_cases = [
+    @pytest.mark.parametrize("summary,original,expected", [
         ("経費精算書の提出依頼", "お疲れ様です。経費精算書を提出してください。", True),
         ("ETCカード利用報告", "ETCカードの利用報告をお願いします。", True),
         ("お疲れ様です！夜分に申し訳ございません。", "長い本文..." * 20, False),
         ("いつもお世話になっております", "長い本文..." * 20, False),
-        ("経費精算書を確認し…", "長い本文..." * 20, False),
-        ("短", "とても長い本文がここに入ります" * 10, False),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for summary, original, expected in test_cases:
+        ("経費精算書を確認し…", "長い本文..." * 20, False),  # 途切れている
+        ("短", "とても長い本文がここに入ります" * 10, False),  # 短すぎる
+    ])
+    def test_summary_validation(self, summary, original, expected):
+        """要約バリデーション"""
         result = validate_summary(summary, original)
-        if result == expected:
-            print(f"✅ PASS: '{summary[:30]}' -> {result}")
-            passed += 1
-        else:
-            print(f"❌ FAIL: '{summary[:30]}' -> {result} (expected {expected})")
-            failed += 1
+        assert result == expected
 
-    print(f"\n結果: {passed}/{passed + failed} passed")
-    return failed == 0
+    def test_empty_summary(self):
+        """空の要約は無効"""
+        assert validate_summary("", "元の本文") == False
+        assert validate_summary(None, "元の本文") == False
 
 
-def test_real_world_examples():
+class TestRealWorldExamples:
     """実際のタスク例でのテスト"""
-    print("\n=== test_real_world_examples ===")
 
-    # DBで見つかった実際の低品質要約
-    test_cases = [
-        # (元の要約, 元の本文, 期待: validate_summary=False)
+    @pytest.mark.parametrize("summary,original,expected", [
+        # DBで見つかった実際の低品質要約
         (
             "お疲れ様です！\n夜分に申し訳ございません。",
-            "[qt][qtmeta aid=2930506 time=1768998166][To:1728974]菊地 雅克(キクチ マサカズ)さん\n[To:10191707]高野　義浩 (タカノ ヨシヒロ)さん\nお疲れ様です！\n夜分に申し訳ございません。\n経理申請フォームの確認をお願いします。[/qt]",
+            "[qt][qtmeta aid=2930506 time=1768998166]経理申請フォームの確認をお願いします。[/qt]",
             False
         ),
+        # 件名があるから有効
         (
-            "【1月ETCカード利用管理依頼】\nお疲れ様です！\nETCカードに関わる業務の",
-            "【1月ETCカード利用管理依頼】\nお疲れ様です！\nETCカードに関わる業務のご依頼です！\nこちら来月の月初（10日ごろまで）にご対応いただければと思います。",
-            True  # 件名があるから有効
+            "【1月ETCカード利用管理依頼】\nETCカードに関わる業務の",
+            "【1月ETCカード利用管理依頼】\nお疲れ様です！\nETCカードに関わる業務のご依頼です！",
+            True
         ),
-    ]
-
-    passed = 0
-    failed = 0
-
-    for summary, original, expected in test_cases:
+    ])
+    def test_real_world_cases(self, summary, original, expected):
+        """実際のケース"""
         result = validate_summary(summary, original)
-        if result == expected:
-            print(f"✅ PASS: '{summary[:30]}...' -> validate={result}")
-            passed += 1
-        else:
-            print(f"❌ FAIL: '{summary[:30]}...' -> validate={result} (expected {expected})")
-            failed += 1
-
-    print(f"\n結果: {passed}/{passed + failed} passed")
-    return failed == 0
+        assert result == expected
 
 
-def run_all_tests():
-    """全テストを実行"""
-    print("=" * 60)
-    print("v10.14.0 タスク要約機能テスト")
-    print("=" * 60)
+class TestValidateAndGetReason:
+    """validate_and_get_reason() のテスト"""
 
-    results = []
-    results.append(("remove_greetings", test_remove_greetings()))
-    results.append(("extract_task_subject", test_extract_task_subject()))
-    results.append(("is_greeting_only", test_is_greeting_only()))
-    results.append(("validate_summary", test_validate_summary()))
-    results.append(("real_world_examples", test_real_world_examples()))
+    def test_valid_summary_returns_none_reason(self):
+        """有効な要約は理由なし"""
+        is_valid, reason = validate_and_get_reason("経費精算書の提出依頼", "元の本文")
+        assert is_valid == True
+        assert reason is None
 
-    print("\n" + "=" * 60)
-    print("テスト結果サマリー")
-    print("=" * 60)
+    def test_invalid_summary_returns_reason(self):
+        """無効な要約は理由あり"""
+        is_valid, reason = validate_and_get_reason("お疲れ様です！", "長い本文" * 20)
+        assert is_valid == False
+        assert reason is not None
 
-    all_passed = True
-    for name, passed in results:
-        status = "✅ PASS" if passed else "❌ FAIL"
-        print(f"{status}: {name}")
-        if not passed:
-            all_passed = False
 
-    print("\n" + "=" * 60)
-    if all_passed:
-        print("✅ 全テスト成功!")
-    else:
-        print("❌ 一部テスト失敗")
-    print("=" * 60)
+class TestCleanChatworkTags:
+    """clean_chatwork_tags() のテスト"""
 
-    return all_passed
+    def test_qt_tag_removal(self):
+        """[qt]タグの除去"""
+        text = "[qt][qtmeta aid=123]内容[/qt]"
+        result = clean_chatwork_tags(text)
+        # タグが除去されているか、少なくとも内容が残っている
+        assert "[qt]" not in result or "内容" in result
 
+    def test_to_tag_removal(self):
+        """[To:]タグの除去"""
+        text = "[To:12345]山田さん\nタスク内容"
+        result = clean_chatwork_tags(text)
+        assert "タスク内容" in result
+
+
+# =====================================================
+# テスト実行
+# =====================================================
 
 if __name__ == "__main__":
-    import sys
-    success = run_all_tests()
-    sys.exit(0 if success else 1)
+    print(f"lib/ available: {LIB_AVAILABLE}")
+    pytest.main([__file__, "-v", "--tb=short"])

@@ -930,6 +930,40 @@ def send_team_summary_to_leader(
         'status': status,
         'error_message': error_message,
     })
+
+    # =====================================================
+    # CLAUDE.md鉄則#3: confidential以上の操作では監査ログを記録
+    # チームサマリーは他ユーザーの目標データを閲覧する機密操作
+    # =====================================================
+    if status == 'success' and team_members:
+        viewed_user_ids = [m.get('user_id') for m in team_members if m.get('user_id')]
+        audit_details = json.dumps({
+            "action": "view_team_goals",
+            "department_id": department_id,
+            "department_name": department_name,
+            "viewed_user_count": len(team_members),
+            "viewed_user_ids": viewed_user_ids[:10],
+        }, ensure_ascii=False)
+
+        try:
+            conn.execute(sqlalchemy.text("""
+                INSERT INTO audit_logs (
+                    organization_id, user_id, action, resource_type,
+                    resource_id, classification, details, created_at
+                ) VALUES (
+                    :org_id, :user_id, 'read', 'goal_progress',
+                    :resource_id, 'confidential',
+                    :details::jsonb, CURRENT_TIMESTAMP
+                )
+            """), {
+                'org_id': org_id,
+                'user_id': recipient_id,
+                'resource_id': f"team_summary_{department_id}_{today}",
+                'details': audit_details,
+            })
+        except Exception as audit_error:
+            logger.warning(f"監査ログ記録エラー（non-blocking）: {audit_error}")
+
     conn.commit()
 
     return (status, error_message)
@@ -1534,6 +1568,39 @@ def send_consecutive_unanswered_alert_to_leader(
         'status': status,
         'error_message': error_message,
     })
+
+    # =====================================================
+    # CLAUDE.md鉄則#3: confidential以上の操作では監査ログを記録
+    # 連続未回答アラートは他ユーザーの回答状況を閲覧する機密操作
+    # =====================================================
+    if status == 'success' and unanswered_members:
+        viewed_user_ids = [m.get('user_id') for m in unanswered_members if m.get('user_id')]
+        audit_details = json.dumps({
+            "action": "view_consecutive_unanswered",
+            "consecutive_days": consecutive_days,
+            "viewed_user_count": len(unanswered_members),
+            "viewed_user_ids": viewed_user_ids[:10],
+        }, ensure_ascii=False)
+
+        try:
+            conn.execute(sqlalchemy.text("""
+                INSERT INTO audit_logs (
+                    organization_id, user_id, action, resource_type,
+                    resource_id, classification, details, created_at
+                ) VALUES (
+                    :org_id, :user_id, 'read', 'goal_progress',
+                    :resource_id, 'confidential',
+                    :details::jsonb, CURRENT_TIMESTAMP
+                )
+            """), {
+                'org_id': org_id,
+                'user_id': leader_id,
+                'resource_id': f"unanswered_alert_{consecutive_days}days_{today}",
+                'details': audit_details,
+            })
+        except Exception as audit_error:
+            logger.warning(f"監査ログ記録エラー（non-blocking）: {audit_error}")
+
     conn.commit()
 
     return (status, error_message)
@@ -1660,11 +1727,11 @@ def can_view_goal(
     """
     目標の閲覧権限をチェック
 
-    権限ルール:
-    - 自分の目標: 常にOK
-    - チームリーダー: チームメンバーの目標のみ
-    - 部長: 部署全員の目標
-    - 経営/代表: 全員の目標
+    権限レベル（rolesテーブルのlevelカラム）に基づく階層アクセス制御:
+    - Level 5-6 (代表/CFO/管理部): 組織全員の目標
+    - Level 4 (部長/取締役): 自部署＋配下全部署の目標
+    - Level 3 (課長/リーダー): 自部署＋直下部署の目標
+    - Level 1-2 (社員/業務委託): 自分の目標のみ
 
     Args:
         conn: データベース接続
@@ -1681,58 +1748,80 @@ def can_view_goal(
     if viewer_user_id == goal_user_id:
         return True
 
-    # 閲覧者の役職を取得
-    # テナント分離: users, user_departmentsでorg_idフィルタ
+    # 閲覧者の全ての役職・部署を取得し、最大権限レベルを使用
+    # テナント分離: users, user_departments, departmentsでorg_idフィルタ
     # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
     result = conn.execute(sqlalchemy.text("""
         SELECT
-            r.name AS role_name,
-            ud.department_id
+            r.level AS role_level,
+            ud.department_id,
+            d.path AS dept_path
         FROM users u
         JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
         JOIN roles r ON ud.role_id = r.id
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = ud.organization_id
         WHERE u.id = :viewer_id
           AND u.organization_id = :org_id
           AND ud.organization_id = :org_id
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
-    viewer_info = result.fetchone()
+    viewer_roles = result.fetchall()
 
-    if not viewer_info:
+    if not viewer_roles:
         return False
 
-    role_name = viewer_info[0]
-    viewer_dept_id = viewer_info[1]
+    # 最大権限レベルと、そのレベルに対応する部署情報を取得
+    max_level = max(row[0] for row in viewer_roles)
+    max_level_depts = [(row[1], row[2]) for row in viewer_roles if row[0] == max_level]
 
-    # 経営・代表は全員の目標を閲覧可能
-    if role_name in ('経営', '代表'):
+    # Level 5-6: 組織全員の目標を閲覧可能
+    if max_level >= 5:
         return True
 
-    # 部長は部署全員の目標を閲覧可能
-    if role_name == '部長':
-        # 目標所有者が同じ部署か確認（テナント分離: org_idフィルタ）
-        result = conn.execute(sqlalchemy.text("""
-            SELECT 1 FROM user_departments
-            WHERE user_id = :goal_user_id
-              AND department_id = :viewer_dept_id
-              AND organization_id = :org_id
-        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id, 'org_id': org_id})
+    # 目標所有者の部署情報を取得（テナント分離: org_idフィルタ）
+    result = conn.execute(sqlalchemy.text("""
+        SELECT
+            ud.department_id,
+            d.path AS dept_path
+        FROM user_departments ud
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = ud.organization_id
+        WHERE ud.user_id = :goal_user_id
+          AND ud.organization_id = :org_id
+    """), {'goal_user_id': goal_user_id, 'org_id': org_id})
 
-        return result.fetchone() is not None
+    goal_user_depts = result.fetchall()
 
-    # チームリーダーはチームメンバーの目標を閲覧可能
-    if role_name == 'チームリーダー':
-        # 目標所有者が同じ部署か確認（テナント分離: org_idフィルタ）
-        result = conn.execute(sqlalchemy.text("""
-            SELECT 1 FROM user_departments
-            WHERE user_id = :goal_user_id
-              AND department_id = :viewer_dept_id
-              AND organization_id = :org_id
-        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id, 'org_id': org_id})
+    if not goal_user_depts:
+        return False
 
-        return result.fetchone() is not None
+    # Level 4 (部長/取締役): 自部署＋配下全部署の目標を閲覧可能
+    if max_level == 4:
+        for viewer_dept_id, viewer_dept_path in max_level_depts:
+            for goal_dept_id, goal_dept_path in goal_user_depts:
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT 1 WHERE :goal_path::ltree <@ :viewer_path::ltree
+                """), {'goal_path': goal_dept_path, 'viewer_path': viewer_dept_path})
+                if result.fetchone() is not None:
+                    return True
+        return False
 
-    # その他の役職は自分の目標のみ
+    # Level 3 (課長/リーダー): 自部署＋直下部署の目標を閲覧可能
+    if max_level == 3:
+        viewer_dept_ids = [str(dept_id) for dept_id, _ in max_level_depts]
+        for goal_dept_id, _ in goal_user_depts:
+            if str(goal_dept_id) in viewer_dept_ids:
+                return True
+            result = conn.execute(sqlalchemy.text("""
+                SELECT 1 FROM departments
+                WHERE id = :goal_dept_id
+                  AND parent_department_id = ANY(:viewer_dept_ids::uuid[])
+                  AND organization_id = :org_id
+            """), {'goal_dept_id': goal_dept_id, 'viewer_dept_ids': viewer_dept_ids, 'org_id': org_id})
+            if result.fetchone() is not None:
+                return True
+        return False
+
+    # Level 1-2 (社員/業務委託): 自分の目標のみ
     return False
 
 
@@ -1744,6 +1833,12 @@ def get_viewable_user_ids(
     """
     閲覧可能なユーザーIDリストを取得
 
+    権限レベル（rolesテーブルのlevelカラム）に基づく階層アクセス制御:
+    - Level 5-6 (代表/CFO/管理部): 組織全員
+    - Level 4 (部長/取締役): 自部署＋配下全部署のメンバー
+    - Level 3 (課長/リーダー): 自部署＋直下部署のメンバー
+    - Level 1-2 (社員/業務委託): 自分のみ
+
     Args:
         conn: データベース接続
         viewer_user_id: 閲覧者ユーザーID
@@ -1754,50 +1849,76 @@ def get_viewable_user_ids(
     """
     import sqlalchemy
 
-    # 閲覧者の役職を取得
-    # テナント分離: users, user_departmentsでorg_idフィルタ
+    # 閲覧者の全ての役職・部署を取得し、最大権限レベルを使用
+    # テナント分離: users, user_departments, departmentsでorg_idフィルタ
     # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
     result = conn.execute(sqlalchemy.text("""
         SELECT
-            r.name AS role_name,
-            ud.department_id
+            r.level AS role_level,
+            ud.department_id,
+            d.path AS dept_path
         FROM users u
         JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
         JOIN roles r ON ud.role_id = r.id
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = ud.organization_id
         WHERE u.id = :viewer_id
           AND u.organization_id = :org_id
           AND ud.organization_id = :org_id
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
-    viewer_info = result.fetchone()
+    viewer_roles = result.fetchall()
 
-    if not viewer_info:
+    if not viewer_roles:
         return [viewer_user_id]  # 自分のみ
 
-    role_name = viewer_info[0]
-    viewer_dept_id = viewer_info[1]
+    # 最大権限レベルと、そのレベルに対応する部署情報を取得
+    max_level = max(row[0] for row in viewer_roles)
+    max_level_depts = [(row[1], row[2]) for row in viewer_roles if row[0] == max_level]
 
-    # 経営・代表は全員
-    if role_name in ('経営', '代表'):
+    # Level 5-6: 組織全員
+    if max_level >= 5:
         result = conn.execute(sqlalchemy.text("""
             SELECT id FROM users
             WHERE organization_id = :org_id
         """), {'org_id': org_id})
         return [str(row[0]) for row in result.fetchall()]
 
-    # 部長・チームリーダーは部署メンバー（テナント分離: user_departmentsにもorg_idフィルタ）
-    if role_name in ('部長', 'チームリーダー'):
+    # Level 4 (部長/取締役): 自部署＋配下全部署のメンバー
+    if max_level == 4:
+        viewer_dept_paths = [str(dept_path) for _, dept_path in max_level_depts]
         result = conn.execute(sqlalchemy.text("""
             SELECT DISTINCT u.id
             FROM users u
             JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
-            WHERE ud.department_id = :dept_id
-              AND u.organization_id = :org_id
+            JOIN departments d ON d.id = ud.department_id AND d.organization_id = ud.organization_id
+            WHERE u.organization_id = :org_id
               AND ud.organization_id = :org_id
-        """), {'dept_id': viewer_dept_id, 'org_id': org_id})
+              AND EXISTS (
+                  SELECT 1 FROM unnest(:viewer_paths::ltree[]) AS vp
+                  WHERE d.path <@ vp
+              )
+        """), {'org_id': org_id, 'viewer_paths': viewer_dept_paths})
         return [str(row[0]) for row in result.fetchall()]
 
-    # その他は自分のみ
+    # Level 3 (課長/リーダー): 自部署＋直下部署のメンバー
+    if max_level == 3:
+        viewer_dept_ids = [str(dept_id) for dept_id, _ in max_level_depts]
+        result = conn.execute(sqlalchemy.text("""
+            SELECT DISTINCT u.id
+            FROM users u
+            JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
+            JOIN departments d ON d.id = ud.department_id AND d.organization_id = ud.organization_id
+            WHERE u.organization_id = :org_id
+              AND ud.organization_id = :org_id
+              AND (
+                  ud.department_id = ANY(:viewer_dept_ids::uuid[])
+                  OR
+                  d.parent_department_id = ANY(:viewer_dept_ids::uuid[])
+              )
+        """), {'org_id': org_id, 'viewer_dept_ids': viewer_dept_ids})
+        return [str(row[0]) for row in result.fetchall()]
+
+    # Level 1-2 (社員/業務委託): 自分のみ
     return [viewer_user_id]
 
 

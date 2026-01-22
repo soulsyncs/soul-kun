@@ -1028,6 +1028,36 @@ def is_toall_mention(body):
         return False
 
 
+def should_ignore_toall(body):
+    """TO ALLメンションを無視すべきか判定
+
+    判定ロジック:
+    - [toall]がなければ → 無視しない（通常処理）
+    - [toall]があっても、ソウルくんへの直接メンションがあれば → 無視しない（反応する）
+    - [toall]のみの場合 → 無視する
+
+    v10.16.1で追加（v10.16.0からの改善）
+    - 「TO ALL + ソウルくん直接メンション」の場合は反応するように変更
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        bool: 無視すべきならTrue、反応すべきならFalse
+    """
+    # TO ALLでなければ無視しない
+    if not is_toall_mention(body):
+        return False
+
+    # TO ALLでも、ソウルくんへの直接メンションがあれば反応する
+    if body and f"[To:{MY_ACCOUNT_ID}]" in body:
+        print(f"📌 TO ALL + ソウルくん直接メンションのため反応する")
+        return False
+
+    # TO ALLのみなので無視
+    return True
+
+
 # ===== データベース操作関数 =====
 
 def get_or_create_person(name):
@@ -4465,14 +4495,14 @@ def chatwork_webhook(request):
             return jsonify({"status": "ok", "message": "Ignored bot reply pattern"})
 
         # =====================================================
-        # v10.16.0: オールメンション（toall）を無視
+        # v10.16.1: オールメンション（toall）の判定改善
         # =====================================================
-        # オールメンションはアナウンス用途で使われるため、
-        # ソウルくんは反応しない。個別メンションのみ反応する。
+        # - TO ALLのみ → 無視
+        # - TO ALL + ソウルくん直接メンション → 反応する
         # =====================================================
-        if is_toall_mention(body):
-            print(f"⏭️ オールメンション（toall）のため無視")
-            return jsonify({"status": "ok", "message": "Ignored toall mention"})
+        if should_ignore_toall(body):
+            print(f"⏭️ オールメンション（toall）のみのため無視")
+            return jsonify({"status": "ok", "message": "Ignored toall mention without direct mention to Soul-kun"})
 
         # 返信検出
         is_reply = is_mention_or_reply_to_soulkun(body)
@@ -6858,9 +6888,9 @@ def check_reply_messages(request):
                         if account_id is not None and str(account_id) == MY_ACCOUNT_ID:
                             continue
 
-                        # v10.16.0: オールメンション（toall）を無視
-                        if is_toall_mention(body):
-                            print(f"   ⏭️ オールメンション（toall）のため無視")
+                        # v10.16.1: オールメンション（toall）の判定改善
+                        if should_ignore_toall(body):
+                            print(f"   ⏭️ オールメンション（toall）のみのため無視")
                             continue
 
                         # メンションまたは返信を検出

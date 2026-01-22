@@ -447,6 +447,14 @@ git diff --stat HEAD~5
 
 ## 直近の主な成果
 
+- **2026-01-23**: v10.16.3
+  - `gh pr checks`が正しく動作するよう修正（PR #26）
+    - GitHub Actionsワークフロー完了後にcommit statusを設定するステップを追加
+    - `statuses: write` 権限を追加
+    - context: `codex-review` でステータスを設定
+    - Claude Codeが`gh pr checks`でレビュー完了を正しく検出できるようになる
+    - Codex MEDIUM指摘：失敗時のハンドリングは今後対応予定
+
 - **2026-01-23**: v10.16.2
   - Codexレビューを経営者・PM・エンジニアの3視点で強化（PR #24）
     - 経営者視点：ビジネスインパクト（素人でも分かる説明）、ランニングコスト分析（APIコスト概算）、戦略整合性

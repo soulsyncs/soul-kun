@@ -539,7 +539,7 @@ CREATE TABLE bottleneck_detections (
 **データベーステーブル:**
 
 ```sql
--- 感情変化の検出ログ（厳重管理）
+-- 感情変化の検出ログ（厳重管理）【v1.2修正: CHECK制約追加】
 CREATE TABLE emotion_change_detections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
@@ -547,9 +547,11 @@ CREATE TABLE emotion_change_detections (
     detection_type VARCHAR(50) NOT NULL,
     confidence_score FLOAT NOT NULL,          -- 0.0-1.0
     indicators JSONB NOT NULL,                -- 検出根拠（匿名化）
-    notified_to UUID REFERENCES users(id),    -- 通知先（管理者）
+    notified_to UUID REFERENCES users(id) ON DELETE SET NULL,  -- 通知先（管理者）
     notified_at TIMESTAMPTZ,
-    classification VARCHAR(20) DEFAULT 'restricted',  -- 常にrestricted
+    -- 機密区分: 常にrestricted（CHECK制約で強制）
+    classification VARCHAR(20) DEFAULT 'restricted' CHECK (classification = 'restricted'),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
 
     -- 自動削除（90日後）
@@ -1972,7 +1974,7 @@ COMMENT ON TABLE bottleneck_detections IS 'Phase 2進化版: ボトルネック�
 ### 5.2.4 emotion_change_detections
 
 ```sql
--- 感情変化の検出ログ（厳重管理）
+-- 感情変化の検出ログ（厳重管理）【v1.2修正: CHECK制約、created_by追加】
 CREATE TABLE emotion_change_detections (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL REFERENCES organizations(id),
@@ -1980,9 +1982,11 @@ CREATE TABLE emotion_change_detections (
     detection_type VARCHAR(50) NOT NULL,
     confidence_score FLOAT NOT NULL,
     indicators JSONB NOT NULL,
-    notified_to UUID REFERENCES users(id),
+    notified_to UUID REFERENCES users(id) ON DELETE SET NULL,
     notified_at TIMESTAMPTZ,
-    classification VARCHAR(20) DEFAULT 'restricted',
+    -- 機密区分: 常にrestricted（CHECK制約で強制）
+    classification VARCHAR(20) DEFAULT 'restricted' CHECK (classification = 'restricted'),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP + INTERVAL '90 days'
 );
@@ -1991,7 +1995,7 @@ CREATE TABLE emotion_change_detections (
 CREATE INDEX idx_emotion_change_detections_expires
 ON emotion_change_detections(expires_at);
 
-COMMENT ON TABLE emotion_change_detections IS 'Phase 2進化版: 感情変化の検出ログ（カテゴリA4）- 厳重管理、90日後自動削除';
+COMMENT ON TABLE emotion_change_detections IS 'Phase 2進化版: 感情変化の検出ログ（カテゴリA4）- 厳重管理、90日後自動削除、classification常にrestricted';
 ```
 
 ### 5.2.5 long_term_memories
@@ -2930,7 +2934,17 @@ conn.execute(sqlalchemy.text("""
 
 **設計書（docs/03_database_design.md）の更新:**
 
-`docs/03_database_design.md` の notification_logs テーブル定義（line 1070付近）にも、新規 notification_type を追記する必要があります。
+> **⚠️ 必須フォローアップ（実装ブロッカー）**
+>
+> Phase 2進化版の機能を実装する前に、以下の更新を完了してください：
+>
+> 1. `docs/03_database_design.md` の notification_logs テーブル定義（line 1070付近）に、
+>    新規 notification_type（`pattern_alert`, `personalization_risk`, `emotion_change`,
+>    `proactive_reminder`, `weekly_report`, `insight_notification`）を追記する
+>
+> 2. 本番DBで `check_notification_type` 制約を更新する（上記5.6.3の手順を参照）
+>
+> **これらが未完了の状態で新機能を実装すると、INSERT時に制約違反エラーが発生します。**
 
 #### 5.6.4 status値の運用ルール
 

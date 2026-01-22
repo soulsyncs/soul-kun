@@ -1,9 +1,14 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.3
+**バージョン:** v1.4
 **作成日:** 2026-01-22
 **更新日:** 2026-01-22
 **ステータス:** 設計中
+
+**v1.4 変更点:**
+- notification_type/target_type が VARCHAR(50) 型であることを明記（マイグレーション不要）
+- チーム/部署サマリーの冪等性キーを「受信者単位」に変更（複数リーダー対応）
+- 18時の未回答リマインド設計を追加（reminder_type, notification_type, 送信フロー）
 
 **v1.3 変更点:**
 - notification_logs との整合性を確認・明記（target_idはUUID型、Phase 1-Bと互換）
@@ -553,8 +558,8 @@ CREATE TABLE goal_reminders (
     goal_id UUID NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
 
     -- リマインド設定
-    reminder_type VARCHAR(50) NOT NULL,  -- 'daily_check', 'morning_feedback', 'team_summary'
-    reminder_time TIME NOT NULL,  -- 17:00, 08:00
+    reminder_type VARCHAR(50) NOT NULL,  -- 'daily_check', 'morning_feedback', 'team_summary', 'daily_reminder'
+    reminder_time TIME NOT NULL,  -- 17:00, 08:00, 18:00
     is_enabled BOOLEAN DEFAULT TRUE,
 
     -- ChatWork設定
@@ -592,39 +597,64 @@ sa.Column('target_id', postgresql.UUID(as_uuid=True), nullable=True,
 
 → マイグレーション不要。user_id (UUID) や department_id (UUID) をそのまま保存可能。
 
-#### enum値の拡張（notification_type / target_type）
+#### notification_type / target_type の型と拡張
+
+**✅ これらのカラムは VARCHAR(50) 型（PostgreSQL enum ではない）**
+
+```python
+# Phase 1-B設計（docs/05_phase_1b_task_detection.md 71-74行目）より
+sa.Column('notification_type', sa.String(50), nullable=False,
+          comment='task_reminder, goal_reminder, meeting_reminder, system_notification'),
+sa.Column('target_type', sa.String(50), nullable=False,
+          comment='task, goal, meeting, system'),
+```
+
+→ **マイグレーション不要**。VARCHAR型なので、新しい値をINSERTするだけで拡張可能。
+→ PostgreSQL enum 型のように `ALTER TYPE ... ADD VALUE` は不要。
 
 | 項目 | Phase 1-B 既存値 | Phase 2.5 追加値 |
 |------|----------------|-----------------|
-| notification_type | `task_reminder`, `goal_reminder`, `meeting_reminder`, `system_notification` | `goal_daily_check`, `goal_morning_feedback`, `goal_team_summary` |
+| notification_type | `task_reminder`, `goal_reminder`, `meeting_reminder`, `system_notification` | `goal_daily_check`, `goal_morning_feedback`, `goal_team_summary`, `goal_daily_reminder` |
 | target_type | `task`, `goal`, `meeting`, `system` | `user`, `department` |
 
-**設計方針:** 既存のenum値を壊さず、Phase 2.5用の値を追加する。
+**設計方針:** VARCHAR型のため、既存の値を壊さず新規値を追加可能。
 既存のPhase 1-B通知（`task_reminder` + `target_type=task`）には影響なし。
 
-**⚠️ 重要: 通知はユーザー単位/部署単位で集約する（目標単位ではない）**
+**⚠️ 重要: 通知は「受信者単位」で管理する**
 
-複数の目標を持つユーザーに対して、1日1通にまとめることでスパムを防止。
+- 複数の目標を持つユーザー → 1日1通にまとめてスパム防止
+- 同一部署に複数の受信者（リーダー複数＋部長）→ 全員に届くよう「受信者単位」で管理
 
 ```sql
 -- Phase 2.5で使用する通知パターン
 
--- 1. 17時の進捗確認（ユーザー単位で1通）
+-- 1. 17時の進捗確認（受信者単位で1通）
 --    notification_type = 'goal_daily_check'
 --    target_type = 'user'
 --    target_id = user_id (UUID)
+--    → 1ユーザーが複数目標を持っていても、1通にまとめる
 
--- 2. 8時の個人フィードバック（ユーザー単位で1通）
+-- 2. 8時の個人フィードバック（受信者単位で1通）
 --    notification_type = 'goal_morning_feedback'
 --    target_type = 'user'
 --    target_id = user_id (UUID)
+--    → 前日の進捗に基づくフィードバック
 
--- 3. 8時のチーム/部署サマリー（部署単位で1通）
+-- 3. 8時のチーム/部署サマリー（受信者単位で1通）★重要★
 --    notification_type = 'goal_team_summary'
---    target_type = 'department'
---    target_id = department_id (UUID)
+--    target_type = 'user'        ← 部署ではなく受信者
+--    target_id = recipient_user_id (UUID)  ← 受信者のuser_id
+--    → 同一部署にリーダー3人＋部長1人がいる場合、4人全員に届く
+--    → 「部署単位」だと2人目以降がスキップされる問題を回避
+
+-- 4. 18時の未回答リマインド（受信者単位で1通）
+--    notification_type = 'goal_daily_reminder'
+--    target_type = 'user'
+--    target_id = user_id (UUID)
+--    → 17時の進捗確認に未回答の人のみ
 
 -- 冪等性キー: organization_id + target_type + target_id + notification_date + notification_type
+-- ※ 全ての通知が target_type='user' + target_id=受信者UUID で統一
 ```
 
 **通知送信フロー:**
@@ -685,28 +715,204 @@ async def send_daily_check_to_user(user_id: UUID, org_id: UUID):
     """, org_id, notification_type, user_id, today, status, error_message, room_id)
 
 
-async def send_team_summary_to_leader(leader_id: UUID, department_id: UUID, org_id: UUID):
+async def send_team_summary_to_leader(recipient_id: UUID, department_id: UUID, org_id: UUID):
     """
-    8時のチームサマリー送信（部署単位で冪等性保証）
+    8時のチームサマリー送信（受信者単位で冪等性保証）
+
+    ★重要: 冪等性キーは「受信者」単位（部署単位ではない）
+    同一部署に複数の受信者（リーダー3人＋部長1人）がいる場合、
+    全員にサマリーが届くように、target_id = recipient_user_id を使用。
     """
     today = date.today()
     notification_type = 'goal_team_summary'
 
-    # 既に送信済みか確認（部署単位）
+    # 既に送信済みか確認（受信者単位）★部署単位ではない★
     existing = await conn.fetchrow("""
         SELECT id, status FROM notification_logs
         WHERE organization_id = $1
-          AND target_type = 'department'
+          AND target_type = 'user'           -- ★ 'department' ではなく 'user'
+          AND target_id = $2                 -- ★ 受信者のuser_id
+          AND notification_date = $3
+          AND notification_type = $4
+    """, org_id, recipient_id, today, notification_type)  # ★ recipient_id を使用
+
+    if existing and existing['status'] == 'success':
+        logger.info(f"既に送信済み: recipient={recipient_id} / {notification_type}")
+        return  # スキップ（二重送信防止）
+
+    # 部署のメンバー進捗を取得してサマリー作成
+    team_members = await get_department_members(department_id, org_id)
+    summary_message = build_team_summary_message(recipient_id, department_id, team_members)
+
+    # ChatWork送信
+    try:
+        recipient = await get_user(recipient_id)
+        await send_chatwork_message(recipient.chatwork_room_id, summary_message)
+        status = 'success'
+        error_message = None
+    except ChatWorkRateLimitError:
+        status = 'failed'
+        error_message = 'rate_limit'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+
+    # 送信ログを記録（UPSERT）★ target_type='user', target_id=recipient_id ★
+    await conn.execute("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES ($1, $2, 'user', $3, $4, $5, $6, 'chatwork', $7)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """, org_id, notification_type, recipient_id, today, status, error_message, recipient.chatwork_room_id)
+
+
+async def send_all_team_summaries(org_id: UUID):
+    """
+    8時のチームサマリー一括送信
+
+    部署ごとに、その部署のサマリーを受け取るべき全員（チームリーダー＋部長）に送信。
+    """
+    today = date.today()
+
+    # 部署ごとにサマリー受信者を取得
+    departments = await get_departments_with_active_goals(org_id)
+
+    for dept in departments:
+        # この部署のサマリーを受け取るべき人（リーダー全員＋部長）
+        recipients = await get_summary_recipients(dept.id, org_id)
+
+        for recipient in recipients:
+            # 各受信者に個別に送信（冪等性は受信者単位で管理）
+            await send_team_summary_to_leader(
+                recipient_id=recipient.user_id,
+                department_id=dept.id,
+                org_id=org_id
+            )
+
+
+async def send_daily_reminder_to_user(user_id: UUID, org_id: UUID):
+    """
+    18時の未回答リマインド送信（受信者単位で冪等性保証）
+
+    17時の進捗確認（goal_daily_check）に未回答の人に対して、
+    「まだ回答してないウル？」とリマインドを送信。
+    """
+    today = date.today()
+    notification_type = 'goal_daily_reminder'
+
+    # 1. 既に18時リマインド送信済みか確認
+    existing = await conn.fetchrow("""
+        SELECT id, status FROM notification_logs
+        WHERE organization_id = $1
+          AND target_type = 'user'
           AND target_id = $2
           AND notification_date = $3
           AND notification_type = $4
-    """, org_id, department_id, today, notification_type)
+    """, org_id, user_id, today, notification_type)
 
     if existing and existing['status'] == 'success':
-        return  # スキップ（二重送信防止）
+        logger.info(f"既に18時リマインド送信済み: user={user_id}")
+        return  # スキップ
 
-    # ... 以下同様
+    # 2. 17時の進捗確認に回答済みか確認（goal_progressに当日のレコードがあるか）
+    progress_today = await conn.fetchrow("""
+        SELECT id FROM goal_progress gp
+        JOIN goals g ON gp.goal_id = g.id
+        WHERE g.user_id = $1
+          AND g.organization_id = $2
+          AND gp.progress_date = $3
+    """, user_id, org_id, today)
+
+    if progress_today:
+        logger.info(f"既に回答済み: user={user_id}")
+        return  # 回答済みなのでリマインド不要
+
+    # 3. 未回答なのでリマインド送信
+    user = await get_user(user_id)
+    message = build_daily_reminder_message(user)
+
+    try:
+        await send_chatwork_message(user.chatwork_room_id, message)
+        status = 'success'
+        error_message = None
+    except ChatWorkRateLimitError:
+        status = 'failed'
+        error_message = 'rate_limit'
+    except Exception as e:
+        status = 'failed'
+        error_message = sanitize_error(e)
+
+    # 4. 送信ログを記録（UPSERT）
+    await conn.execute("""
+        INSERT INTO notification_logs (
+            organization_id, notification_type, target_type, target_id,
+            notification_date, status, error_message, channel, channel_target
+        )
+        VALUES ($1, $2, 'user', $3, $4, $5, $6, 'chatwork', $7)
+        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+        DO UPDATE SET
+            status = EXCLUDED.status,
+            error_message = EXCLUDED.error_message,
+            retry_count = notification_logs.retry_count + 1,
+            updated_at = NOW()
+    """, org_id, notification_type, user_id, today, status, error_message, user.chatwork_room_id)
+
+
+def build_daily_reminder_message(user) -> str:
+    """
+    18時の未回答リマインドメッセージを生成
+    """
+    return f"""{user.display_name}さん、まだ今日の振り返りができてないウル🐺
+
+17時に送った進捗確認、見てくれたウル？
+
+忙しい1日だったかもしれないけど、
+1分だけ時間をもらえると嬉しいウル✨
+
+【今日の振り返り】
+・目標に向けて、今日どんな行動を選んだウル？
+・数字があれば、今日の実績も教えてほしいウル！
+
+返信で教えてくれると、明日の朝フィードバックするウル💪
+"""
 ```
+
+#### 18時リマインドのスケジュール設定
+
+```python
+# Cloud Scheduler設定（18:00 JST）
+# cron: 0 18 * * * Asia/Tokyo
+
+async def scheduled_daily_reminder(org_id: UUID):
+    """
+    18時の未回答リマインド一括送信（Scheduler から呼び出し）
+    """
+    # 17時の進捗確認対象者のうち、未回答の人を取得
+    users_with_goals = await get_users_with_active_goals(org_id)
+
+    for user in users_with_goals:
+        # 各ユーザーに対してリマインド送信（冪等性は内部で管理）
+        await send_daily_reminder_to_user(
+            user_id=user.id,
+            org_id=org_id
+        )
+```
+
+#### 通知タイプ一覧（Phase 2.5）
+
+| 通知タイプ | notification_type | target_type | 送信時刻 | 説明 |
+|-----------|------------------|-------------|---------|------|
+| 17時進捗確認 | `goal_daily_check` | `user` | 17:00 | 全員に今日の振り返りを問いかけ |
+| 18時未回答リマインド | `goal_daily_reminder` | `user` | 18:00 | 17時に未回答の人にリマインド |
+| 8時個人フィードバック | `goal_morning_feedback` | `user` | 08:00 | 前日の振り返りに対するフィードバック |
+| 8時チームサマリー | `goal_team_summary` | `user` | 08:00 | チームリーダー・部長向けサマリー |
 
 ### 7.5 エラーメッセージのサニタイズ
 
@@ -1086,3 +1292,4 @@ async def can_view_goal(user: User, goal: Goal) -> bool:
 ---
 
 **[📁 目次に戻る](00_README.md)**
+

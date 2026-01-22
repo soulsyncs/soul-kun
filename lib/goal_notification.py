@@ -1242,7 +1242,9 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     # 2. チームサマリー（チームリーダー・部長向け）
     # =====================================================
 
-    # サマリー受信者（チームリーダー・部長）を取得（テナント分離: 全テーブルでorg_idフィルタ）
+    # サマリー受信者（チームリーダー・部長）を取得
+    # テナント分離: users, user_departments, departmentsでorg_idフィルタ
+    # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
@@ -1651,7 +1653,8 @@ def scheduled_consecutive_unanswered_check(
             continue
 
         # 部署のリーダーを取得
-        # テナント分離: users, user_departmentsの両方でorg_idフィルタ
+        # テナント分離: users, user_departmentsでorg_idフィルタ
+        # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
         leaders_result = conn.execute(sqlalchemy.text("""
             SELECT
                 u.id AS user_id,
@@ -1739,7 +1742,9 @@ def can_view_goal(
     if viewer_user_id == goal_user_id:
         return True
 
-    # 閲覧者の役職を取得（テナント分離: user_departmentsにもorg_idフィルタ）
+    # 閲覧者の役職を取得
+    # テナント分離: users, user_departmentsでorg_idフィルタ
+    # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
     result = conn.execute(sqlalchemy.text("""
         SELECT
             r.name AS role_name,
@@ -1810,7 +1815,9 @@ def get_viewable_user_ids(
     """
     import sqlalchemy
 
-    # 閲覧者の役職を取得（テナント分離: user_departmentsにもorg_idフィルタ）
+    # 閲覧者の役職を取得
+    # テナント分離: users, user_departmentsでorg_idフィルタ
+    # 注: rolesはシステム共通マスタテーブル（organization_idなし）のため除外
     result = conn.execute(sqlalchemy.text("""
         SELECT
             r.name AS role_name,

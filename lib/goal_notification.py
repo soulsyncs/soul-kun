@@ -555,6 +555,7 @@ def send_daily_check_to_user(
         'error_message': error_message,
         'room_id': chatwork_room_id,
     })
+    conn.commit()
 
     return (status, error_message)
 
@@ -669,6 +670,7 @@ def send_daily_reminder_to_user(
         'error_message': error_message,
         'room_id': chatwork_room_id,
     })
+    conn.commit()
 
     return (status, error_message)
 
@@ -768,6 +770,7 @@ def send_morning_feedback_to_user(
         'error_message': error_message,
         'room_id': chatwork_room_id,
     })
+    conn.commit()
 
     return (status, error_message)
 
@@ -873,6 +876,7 @@ def send_team_summary_to_leader(
         'room_id': chatwork_room_id,
         'metadata': f'{{"department_id": "{department_id}", "department_name": "{department_name}"}}',
     })
+    conn.commit()
 
     return (status, error_message)
 
@@ -900,15 +904,16 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
 
     results = {'success': 0, 'skipped': 0, 'failed': 0}
 
-    # アクティブな目標を持つユーザーを取得
+    # アクティブな目標を持つユーザーを取得（テナント分離: users, goalsの両方でorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
             u.display_name AS user_name,
             u.chatwork_room_id
         FROM users u
-        JOIN goals g ON g.user_id = u.id
-        WHERE g.organization_id = :org_id
+        JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
+        WHERE u.organization_id = :org_id
+          AND g.organization_id = :org_id
           AND g.status = 'active'
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -984,15 +989,16 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
 
     results = {'success': 0, 'skipped': 0, 'failed': 0}
 
-    # アクティブな目標を持つユーザーを取得
+    # アクティブな目標を持つユーザーを取得（テナント分離: users, goalsの両方でorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
             u.display_name AS user_name,
             u.chatwork_room_id
         FROM users u
-        JOIN goals g ON g.user_id = u.id
-        WHERE g.organization_id = :org_id
+        JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
+        WHERE u.organization_id = :org_id
+          AND g.organization_id = :org_id
           AND g.status = 'active'
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -1128,7 +1134,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     # 2. チームサマリー（チームリーダー・部長向け）
     # =====================================================
 
-    # サマリー受信者（チームリーダー・部長）を取得
+    # サマリー受信者（チームリーダー・部長）を取得（テナント分離: 全テーブルでorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT
             u.id AS user_id,
@@ -1137,10 +1143,12 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             d.id AS department_id,
             d.name AS department_name
         FROM users u
-        JOIN user_departments ud ON ud.user_id = u.id
-        JOIN departments d ON ud.department_id = d.id
+        JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
+        JOIN departments d ON ud.department_id = d.id AND d.organization_id = ud.organization_id
         JOIN roles r ON ud.role_id = r.id
         WHERE u.organization_id = :org_id
+          AND ud.organization_id = :org_id
+          AND d.organization_id = :org_id
           AND r.name IN ('チームリーダー', '部長', '経営', '代表')
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -1155,7 +1163,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         department_id = str(leader[3])
         department_name = leader[4]
 
-        # 部署メンバーの進捗を取得
+        # 部署メンバーの進捗を取得（テナント分離: 全テーブルでorg_idフィルタ）
         members_result = conn.execute(sqlalchemy.text("""
             SELECT
                 u.id AS user_id,
@@ -1167,9 +1175,11 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
                 g.current_value,
                 g.unit
             FROM users u
-            JOIN user_departments ud ON ud.user_id = u.id
-            JOIN goals g ON g.user_id = u.id
-            WHERE ud.department_id = :department_id
+            JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
+            JOIN goals g ON g.user_id = u.id AND g.organization_id = u.organization_id
+            WHERE u.organization_id = :org_id
+              AND ud.organization_id = :org_id
+              AND ud.department_id = :department_id
               AND g.organization_id = :org_id
               AND g.status = 'active'
             ORDER BY u.display_name, g.created_at
@@ -1442,6 +1452,7 @@ def send_consecutive_unanswered_alert_to_leader(
         'room_id': chatwork_room_id,
         'metadata': f'{{"consecutive_days": {consecutive_days}, "member_count": {len(unanswered_members)}, "member_ids": {member_ids}}}',
     })
+    conn.commit()
 
     return (status, error_message)
 
@@ -1585,16 +1596,17 @@ def can_view_goal(
     if viewer_user_id == goal_user_id:
         return True
 
-    # 閲覧者の役職を取得
+    # 閲覧者の役職を取得（テナント分離: user_departmentsにもorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT
             r.name AS role_name,
             ud.department_id
         FROM users u
-        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
         JOIN roles r ON ud.role_id = r.id
         WHERE u.id = :viewer_id
           AND u.organization_id = :org_id
+          AND ud.organization_id = :org_id
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
     viewer_info = result.fetchone()
@@ -1611,23 +1623,25 @@ def can_view_goal(
 
     # 部長は部署全員の目標を閲覧可能
     if role_name == '部長':
-        # 目標所有者が同じ部署か確認
+        # 目標所有者が同じ部署か確認（テナント分離: org_idフィルタ）
         result = conn.execute(sqlalchemy.text("""
             SELECT 1 FROM user_departments
             WHERE user_id = :goal_user_id
               AND department_id = :viewer_dept_id
-        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id})
+              AND organization_id = :org_id
+        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id, 'org_id': org_id})
 
         return result.fetchone() is not None
 
     # チームリーダーはチームメンバーの目標を閲覧可能
     if role_name == 'チームリーダー':
-        # 目標所有者が同じ部署か確認
+        # 目標所有者が同じ部署か確認（テナント分離: org_idフィルタ）
         result = conn.execute(sqlalchemy.text("""
             SELECT 1 FROM user_departments
             WHERE user_id = :goal_user_id
               AND department_id = :viewer_dept_id
-        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id})
+              AND organization_id = :org_id
+        """), {'goal_user_id': goal_user_id, 'viewer_dept_id': viewer_dept_id, 'org_id': org_id})
 
         return result.fetchone() is not None
 
@@ -1653,16 +1667,17 @@ def get_viewable_user_ids(
     """
     import sqlalchemy
 
-    # 閲覧者の役職を取得
+    # 閲覧者の役職を取得（テナント分離: user_departmentsにもorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT
             r.name AS role_name,
             ud.department_id
         FROM users u
-        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
         JOIN roles r ON ud.role_id = r.id
         WHERE u.id = :viewer_id
           AND u.organization_id = :org_id
+          AND ud.organization_id = :org_id
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
     viewer_info = result.fetchone()
@@ -1681,14 +1696,15 @@ def get_viewable_user_ids(
         """), {'org_id': org_id})
         return [str(row[0]) for row in result.fetchall()]
 
-    # 部長・チームリーダーは部署メンバー
+    # 部長・チームリーダーは部署メンバー（テナント分離: user_departmentsにもorg_idフィルタ）
     if role_name in ('部長', 'チームリーダー'):
         result = conn.execute(sqlalchemy.text("""
             SELECT DISTINCT u.id
             FROM users u
-            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN user_departments ud ON ud.user_id = u.id AND ud.organization_id = u.organization_id
             WHERE ud.department_id = :dept_id
               AND u.organization_id = :org_id
+              AND ud.organization_id = :org_id
         """), {'dept_id': viewer_dept_id, 'org_id': org_id})
         return [str(row[0]) for row in result.fetchall()]
 

@@ -804,8 +804,13 @@ class GoalService:
         organization_id: UUID,
         progress_date: date,
         ai_feedback: str,
+        user_id: Optional[UUID] = None,
     ) -> bool:
-        """AIフィードバックを保存（confidentialに昇格）"""
+        """
+        AIフィードバックを保存（confidentialに昇格）
+
+        CLAUDE.md鉄則#3: confidential以上の操作では監査ログを記録
+        """
         with self.pool.connect() as conn:
             result = conn.execute(
                 text("""
@@ -825,6 +830,45 @@ class GoalService:
                     "ai_feedback": ai_feedback,
                 },
             )
+
+            # 監査ログを記録（CLAUDE.md鉄則#3: confidential操作の監査）
+            if result.rowcount > 0:
+                # goal_progress_idを取得
+                progress_result = conn.execute(
+                    text("""
+                        SELECT id FROM goal_progress
+                        WHERE goal_id = :goal_id
+                          AND organization_id = :organization_id
+                          AND progress_date = :progress_date
+                    """),
+                    {
+                        "goal_id": str(goal_id),
+                        "organization_id": str(organization_id),
+                        "progress_date": progress_date,
+                    },
+                )
+                progress_row = progress_result.fetchone()
+                progress_id = str(progress_row[0]) if progress_row else None
+
+                conn.execute(
+                    text("""
+                        INSERT INTO audit_logs (
+                            organization_id, user_id, action, resource_type,
+                            resource_id, classification, details, created_at
+                        ) VALUES (
+                            :org_id, :user_id, 'update', 'goal_progress',
+                            :resource_id, 'confidential',
+                            :details::jsonb, CURRENT_TIMESTAMP
+                        )
+                    """),
+                    {
+                        "org_id": str(organization_id),
+                        "user_id": str(user_id) if user_id else None,
+                        "resource_id": progress_id,
+                        "details": f'{{"goal_id": "{goal_id}", "progress_date": "{progress_date}", "action": "save_ai_feedback", "classification_change": "internal->confidential"}}',
+                    },
+                )
+
             conn.commit()
 
         return result.rowcount > 0

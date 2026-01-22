@@ -6325,9 +6325,9 @@ def goal_daily_check(request):
         # 目標通知モジュール取得
         scheduled_daily_check, _, _ = _get_goal_notification_module()
 
-        # DB接続を取得
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
         pool = get_pool()
-        with pool.begin() as conn:
+        with pool.connect() as conn:
             results = scheduled_daily_check(
                 conn=conn,
                 org_id=org_id,
@@ -6349,10 +6349,12 @@ def goal_daily_check(request):
     except Exception as e:
         print(f"❌ エラー: {e}")
         traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
         return jsonify({
             "status": "error",
             "notification_type": "goal_daily_check",
-            "error": str(e),
+            "error": sanitize_error(e),
         }), 500
 
 
@@ -6388,9 +6390,9 @@ def goal_daily_reminder(request):
         # 目標通知モジュール取得
         _, scheduled_daily_reminder, _ = _get_goal_notification_module()
 
-        # DB接続を取得
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
         pool = get_pool()
-        with pool.begin() as conn:
+        with pool.connect() as conn:
             results = scheduled_daily_reminder(
                 conn=conn,
                 org_id=org_id,
@@ -6412,10 +6414,12 @@ def goal_daily_reminder(request):
     except Exception as e:
         print(f"❌ エラー: {e}")
         traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
         return jsonify({
             "status": "error",
             "notification_type": "goal_daily_reminder",
-            "error": str(e),
+            "error": sanitize_error(e),
         }), 500
 
 
@@ -6453,9 +6457,9 @@ def goal_morning_feedback(request):
         # 目標通知モジュール取得
         _, _, scheduled_morning_feedback = _get_goal_notification_module()
 
-        # DB接続を取得
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
         pool = get_pool()
-        with pool.begin() as conn:
+        with pool.connect() as conn:
             results = scheduled_morning_feedback(
                 conn=conn,
                 org_id=org_id,
@@ -6477,10 +6481,12 @@ def goal_morning_feedback(request):
     except Exception as e:
         print(f"❌ エラー: {e}")
         traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
         return jsonify({
             "status": "error",
             "notification_type": "goal_morning_feedback",
-            "error": str(e),
+            "error": sanitize_error(e),
         }), 500
 
 
@@ -6527,9 +6533,9 @@ def goal_consecutive_unanswered_check(request):
 
         from lib.goal_notification import scheduled_consecutive_unanswered_check
 
-        # DB接続を取得
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
         pool = get_pool()
-        with pool.begin() as conn:
+        with pool.connect() as conn:
             results = scheduled_consecutive_unanswered_check(
                 conn=conn,
                 org_id=org_id,
@@ -6553,8 +6559,10 @@ def goal_consecutive_unanswered_check(request):
     except Exception as e:
         print(f"❌ エラー: {e}")
         traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
         return jsonify({
             "status": "error",
             "notification_type": "goal_consecutive_unanswered",
-            "error": str(e),
+            "error": sanitize_error(e),
         }), 500

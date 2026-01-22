@@ -5048,7 +5048,13 @@ def chatwork_webhook(request):
         if "ウル" in body and "[rp aid=" in body:
             print(f"⏭️ ボットの返信パターンを無視")
             return jsonify({"status": "ok", "message": "Ignored bot reply pattern"})
-        
+
+        # オールメンション（TO ALL）の場合、ソウルくんへの直接メンションがなければ無視
+        # ChatWorkでは[toall]を使うと全員にmention_to_meイベントが発火するため
+        if "[toall]" in body and f"[To:{MY_ACCOUNT_ID}]" not in body:
+            print(f"⏭️ オールメンションのみ（ソウルくん宛ではない）のため無視")
+            return jsonify({"status": "ok", "message": "Ignored toall mention without direct mention to Soul-kun"})
+
         # 返信検出
         is_reply = is_mention_or_reply_to_soulkun(body)
         print(f"💬 返信検出: {is_reply}")

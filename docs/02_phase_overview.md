@@ -71,7 +71,7 @@ DB: notification_logsテーブル（汎用通知ログ、v10.1.4）
 |--------|---|------|
 | notification_type | VARCHAR(50) | task_reminder, task_escalation, goal_reminder, meeting_reminder |
 | target_type | VARCHAR(50) | task, goal, meeting, system |
-| target_id | BIGINT | 対象ID（task_id等） |
+| target_id | UUID | 対象ID（task_id, user_id, goal_id等）※Phase 1-B v10.1.4でUUID型に統一 |
 | status | VARCHAR(20) | success, failed, skipped |
 | metadata | JSONB | overdue_days等の追加情報 |
 

@@ -1293,3 +1293,4 @@ async def can_view_goal(user: User, goal: Goal) -> bool:
 
 **[📁 目次に戻る](00_README.md)**
 
+

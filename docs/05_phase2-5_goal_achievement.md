@@ -1,9 +1,14 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.4
+**バージョン:** v1.5
 **作成日:** 2026-01-22
 **更新日:** 2026-01-22
 **ステータス:** 設計中
+
+**v1.5 変更点:**
+- AIフィードバック含む場合は classification を confidential に更新する運用を追加
+- 監査ログ例で classification を目標の機密区分から参照するように修正
+- エラーサニタイズ例にメール/IP/ポートのサニタイズ後形式を追加
 
 **v1.4 変更点:**
 - notification_type/target_type が VARCHAR(50) 型であることを明記（マイグレーション不要）
@@ -968,12 +973,17 @@ except Exception as e:
 
 **許可されるエラーメッセージ例:**
 
-| OK | NG |
-|----|-----|
+| OK（サニタイズ済み） | NG（機密情報を含む） |
+|---------------------|---------------------|
 | `rate_limit` | `User abc123@example.com exceeded rate limit` |
 | `timeout` | `/Users/kaz/soul-kun/lib/chatwork.py:123 timeout` |
 | `connection_error` | `Connection to 192.168.1.100:5432 failed` |
 | `[PATH] line 123: [UUID] not found` | `/home/deploy/app.py line 123: 550e8400-e29b-41d4-a716-446655440000 not found` |
+| `User [EMAIL] exceeded rate limit` | - |
+| `Connection to [IP]:[PORT] failed` | - |
+
+**注意:** OK欄の例はすべてサニタイズ済みの形式。
+メールアドレス → `[EMAIL]`、IPアドレス → `[IP]`、ポート → `[PORT]` に置換。
 
 **Scheduler再実行時の挙動:**
 
@@ -1213,9 +1223,27 @@ public < internal < confidential < restricted
 | データ | 機密区分 | 理由 |
 |--------|---------|------|
 | 目標（goals） | internal | 個人の業績目標 |
-| 進捗（goal_progress） | internal | 日々の実績・振り返り |
+| 進捗（goal_progress） | internal ※ | 日々の実績・振り返り |
 | チームサマリー | internal | 部下の進捗一覧 |
-| 個人フィードバック | confidential | 評価に直結する可能性 |
+| 個人フィードバック | confidential | 評価に直結する可能性（必ず監査ログ対象） |
+
+**※ goal_progressの機密区分について:**
+- 基本は `internal`（日々の進捗記録）
+- `ai_feedback` 列にソウルくんからのフィードバックが入った場合は `confidential` に更新
+- 理由: AIフィードバックは人事評価に直結する可能性があるため
+
+```python
+# AIフィードバック保存時に機密区分を更新
+if ai_feedback:
+    await conn.execute("""
+        UPDATE goal_progress
+        SET ai_feedback = $1,
+            ai_feedback_sent_at = NOW(),
+            classification = 'confidential',  -- フィードバック含む場合は confidential
+            updated_at = NOW()
+        WHERE id = $2
+    """, ai_feedback, progress_id)
+```
 
 ### 12.2 監査ログの記録
 
@@ -1241,7 +1269,7 @@ if goal.user_id != current_user.id:
         action='view',
         resource_type='goal',
         resource_id=goal.id,
-        classification='internal',
+        classification=goal.classification,  # 目標の機密区分を使用（internal or confidential）
         metadata={'goal_owner_id': str(goal.user_id)}
     )
 ```

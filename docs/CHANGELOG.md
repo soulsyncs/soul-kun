@@ -182,6 +182,27 @@ After  (v10.13.3): 「入社日から6か月間...8割以上出勤した場合�
 |-----------|------|------|
 | v10.14.0 | 2026-01-22 | タスク要約品質改善（挨拶除去・件名抽出・バリデーション） |
 | v10.14.1 | 2026-01-22 | 設計書準拠・コード品質改善、lib/text_utils.py・lib/audit.py共通化 |
+| v10.14.2 | 2026-01-22 | organization_id NULLのレガシーデータ対応（品質レポート・要約再生成）|
+
+## ■ v10.14.2 追加内容
+
+| 機能 | 説明 | 影響箇所 |
+|------|------|---------|
+| `report_summary_quality()` | organization_id IS NULL のレガシータスクも含めて統計・品質チェック | sync-chatwork-tasks/main.py |
+| `regenerate_bad_summaries()` | organization_id IS NULL のレガシータスクも検索・更新対象に | sync-chatwork-tasks/main.py |
+
+### 背景
+v10.14.1でorganization_idフィルタを追加したが、既存タスクはorganization_idがNULLのため除外されていた。
+これにより品質レポートが「オープンタスク0件」と表示されるバグが発生。
+
+### 修正内容
+```sql
+-- Before (v10.14.1)
+WHERE status = 'open' AND organization_id = %s
+
+-- After (v10.14.2)
+WHERE status = 'open' AND (organization_id = %s OR organization_id IS NULL)
+```
 
 ## ■ v10.14.1 追加内容
 

@@ -482,6 +482,42 @@ class GoalService:
             )
             conn.commit()
 
+            # CLAUDE.md #3: confidential/restricted の操作は監査ログに記録
+            classification_value = classification.value if isinstance(classification, Classification) else classification
+            if classification_value in ('confidential', 'restricted'):
+                import json
+                audit_details = json.dumps({
+                    "action": "create_goal",
+                    "goal_id": str(goal_id),
+                    "title": title,
+                    "goal_type": goal_type.value if isinstance(goal_type, GoalType) else goal_type,
+                    "classification": classification_value,
+                }, ensure_ascii=False)
+                try:
+                    conn.execute(
+                        text("""
+                            INSERT INTO audit_logs (
+                                organization_id, user_id, action, resource_type,
+                                resource_id, classification, details, created_at
+                            ) VALUES (
+                                :org_id, :user_id, 'create', 'goal',
+                                :resource_id, :classification,
+                                :details::jsonb, CURRENT_TIMESTAMP
+                            )
+                        """),
+                        {
+                            "org_id": str(organization_id),
+                            "user_id": str(created_by) if created_by else str(user_id),
+                            "resource_id": str(goal_id),
+                            "classification": classification_value,
+                            "details": audit_details,
+                        },
+                    )
+                    conn.commit()
+                    logger.info(f"Audit logged: create goal {goal_id} (classification={classification_value})")
+                except Exception as e:
+                    logger.warning(f"Failed to log audit for goal creation: {e}")
+
         logger.info(f"Goal created: id={goal_id}, title={title}, user_id={user_id}")
 
         return Goal(
@@ -580,6 +616,23 @@ class GoalService:
         updated_by: Optional[UUID] = None,
     ) -> bool:
         """目標の現在値を更新"""
+        # CLAUDE.md #3: 監査ログ用に目標の機密区分を取得
+        goal_classification = None
+        goal_title = None
+        old_value = None
+        with self.pool.connect() as conn:
+            goal_result = conn.execute(
+                text("""
+                    SELECT classification, title, current_value FROM goals
+                    WHERE id = :goal_id AND organization_id = :organization_id
+                """),
+                {"goal_id": str(goal_id), "organization_id": str(organization_id)},
+            ).fetchone()
+            if goal_result:
+                goal_classification = goal_result[0]
+                goal_title = goal_result[1]
+                old_value = goal_result[2]
+
         with self.pool.connect() as conn:
             result = conn.execute(
                 text("""
@@ -598,6 +651,41 @@ class GoalService:
             )
             conn.commit()
 
+            # CLAUDE.md #3: confidential/restricted の目標は監査ログに記録
+            if goal_classification in ('confidential', 'restricted') and result.rowcount > 0:
+                import json
+                audit_details = json.dumps({
+                    "action": "update_goal_current_value",
+                    "goal_id": str(goal_id),
+                    "goal_title": goal_title,
+                    "old_value": str(old_value) if old_value is not None else None,
+                    "new_value": str(current_value),
+                }, ensure_ascii=False)
+                try:
+                    conn.execute(
+                        text("""
+                            INSERT INTO audit_logs (
+                                organization_id, user_id, action, resource_type,
+                                resource_id, classification, details, created_at
+                            ) VALUES (
+                                :org_id, :user_id, 'update', 'goal',
+                                :resource_id, :classification,
+                                :details::jsonb, CURRENT_TIMESTAMP
+                            )
+                        """),
+                        {
+                            "org_id": str(organization_id),
+                            "user_id": str(updated_by) if updated_by else None,
+                            "resource_id": str(goal_id),
+                            "classification": goal_classification,
+                            "details": audit_details,
+                        },
+                    )
+                    conn.commit()
+                    logger.info(f"Audit logged: update_goal_current_value for goal {goal_id} (classification={goal_classification})")
+                except Exception as e:
+                    logger.warning(f"Failed to log audit for goal update: {e}")
+
         return result.rowcount > 0
 
     def complete_goal(
@@ -607,6 +695,21 @@ class GoalService:
         updated_by: Optional[UUID] = None,
     ) -> bool:
         """目標を完了"""
+        # CLAUDE.md #3: 監査ログ用に目標の機密区分を取得
+        goal_classification = None
+        goal_title = None
+        with self.pool.connect() as conn:
+            goal_result = conn.execute(
+                text("""
+                    SELECT classification, title FROM goals
+                    WHERE id = :goal_id AND organization_id = :organization_id
+                """),
+                {"goal_id": str(goal_id), "organization_id": str(organization_id)},
+            ).fetchone()
+            if goal_result:
+                goal_classification = goal_result[0]
+                goal_title = goal_result[1]
+
         with self.pool.connect() as conn:
             result = conn.execute(
                 text("""
@@ -623,6 +726,40 @@ class GoalService:
                 },
             )
             conn.commit()
+
+            # CLAUDE.md #3: confidential/restricted の目標は監査ログに記録
+            if goal_classification in ('confidential', 'restricted') and result.rowcount > 0:
+                import json
+                audit_details = json.dumps({
+                    "action": "complete_goal",
+                    "goal_id": str(goal_id),
+                    "goal_title": goal_title,
+                    "new_status": "completed",
+                }, ensure_ascii=False)
+                try:
+                    conn.execute(
+                        text("""
+                            INSERT INTO audit_logs (
+                                organization_id, user_id, action, resource_type,
+                                resource_id, classification, details, created_at
+                            ) VALUES (
+                                :org_id, :user_id, 'update', 'goal',
+                                :resource_id, :classification,
+                                :details::jsonb, CURRENT_TIMESTAMP
+                            )
+                        """),
+                        {
+                            "org_id": str(organization_id),
+                            "user_id": str(updated_by) if updated_by else None,
+                            "resource_id": str(goal_id),
+                            "classification": goal_classification,
+                            "details": audit_details,
+                        },
+                    )
+                    conn.commit()
+                    logger.info(f"Audit logged: complete_goal for goal {goal_id} (classification={goal_classification})")
+                except Exception as e:
+                    logger.warning(f"Failed to log audit for goal completion: {e}")
 
         return result.rowcount > 0
 
@@ -646,6 +783,21 @@ class GoalService:
         同日に複数回呼び出された場合は上書き。
         """
         progress_id = uuid4()
+
+        # CLAUDE.md #3: 監査ログ用に目標の機密区分を取得
+        goal_classification = None
+        goal_title = None
+        with self.pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT classification, title FROM goals
+                    WHERE id = :goal_id AND organization_id = :organization_id
+                """),
+                {"goal_id": str(goal_id), "organization_id": str(organization_id)},
+            ).fetchone()
+            if result:
+                goal_classification = result[0]
+                goal_title = result[1]
 
         # 累計値を計算
         cumulative_value = None
@@ -723,6 +875,42 @@ class GoalService:
                 conn.commit()
 
         logger.info(f"Progress recorded: goal_id={goal_id}, date={progress_date}, value={value}")
+
+        # CLAUDE.md #3: confidential/restricted の目標は監査ログに記録
+        if goal_classification in ('confidential', 'restricted'):
+            import json
+            audit_details = json.dumps({
+                "action": "record_progress",
+                "goal_id": str(goal_id),
+                "goal_title": goal_title,
+                "progress_date": str(progress_date),
+                "value": str(value) if value is not None else None,
+            }, ensure_ascii=False)
+            try:
+                with self.pool.connect() as conn:
+                    conn.execute(
+                        text("""
+                            INSERT INTO audit_logs (
+                                organization_id, user_id, action, resource_type,
+                                resource_id, classification, details, created_at
+                            ) VALUES (
+                                :org_id, :user_id, 'update', 'goal_progress',
+                                :resource_id, :classification,
+                                :details::jsonb, CURRENT_TIMESTAMP
+                            )
+                        """),
+                        {
+                            "org_id": str(organization_id),
+                            "user_id": str(user_id) if user_id else None,
+                            "resource_id": str(goal_id),
+                            "classification": goal_classification,
+                            "details": audit_details,
+                        },
+                    )
+                    conn.commit()
+                    logger.info(f"Audit logged: record_progress for goal {goal_id} (classification={goal_classification})")
+            except Exception as e:
+                logger.warning(f"Failed to log audit for progress recording: {e}")
 
         return GoalProgress(
             id=progress_id,

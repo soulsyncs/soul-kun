@@ -876,10 +876,10 @@ CREATE TABLE user_preferences (
 **データベーステーブル:**
 
 ```sql
--- 定期業務パターン
+-- 定期業務パターン【v1.2修正: ON DELETE, updated_by追加】
 CREATE TABLE recurring_patterns (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     pattern_name VARCHAR(200) NOT NULL,
     pattern_type VARCHAR(50) NOT NULL,        -- weekly, monthly, quarterly, yearly
     recurrence_rule JSONB NOT NULL,           -- iCalendar RRULE形式
@@ -889,24 +889,32 @@ CREATE TABLE recurring_patterns (
     reminder_message TEXT,                    -- リマインドメッセージ
     related_templates UUID[] DEFAULT '{}',    -- 関連するテンプレート
     status VARCHAR(20) DEFAULT 'active',
-    created_by UUID REFERENCES users(id),
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 次回実行予定
+-- 次回実行予定【v1.2修正: organization_id, ON DELETE, created_by, updated_by追加】
 CREATE TABLE recurring_schedules (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    pattern_id UUID NOT NULL REFERENCES recurring_patterns(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    pattern_id UUID NOT NULL REFERENCES recurring_patterns(id) ON DELETE CASCADE,
     next_occurrence DATE NOT NULL,
     reminder_sent BOOLEAN DEFAULT false,
     reminder_sent_at TIMESTAMPTZ,
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
 -- インデックス
 CREATE INDEX idx_recurring_schedules_next
 ON recurring_schedules(next_occurrence, reminder_sent);
+
+CREATE INDEX idx_recurring_schedules_org
+ON recurring_schedules(organization_id);
 ```
 
 #### リマインドメッセージテンプレート
@@ -1097,30 +1105,37 @@ CREATE TABLE risk_detections (
 #### 実装詳細
 
 ```sql
--- オンボーディングプログラム
+-- オンボーディングプログラム【v1.2修正: ON DELETE, created_by, updated_by追加】
 CREATE TABLE onboarding_programs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     program_name VARCHAR(200) NOT NULL,
     target_role VARCHAR(100),                 -- 対象役職
-    target_department_id UUID REFERENCES departments(id),
+    target_department_id UUID REFERENCES departments(id) ON DELETE SET NULL,
     steps JSONB NOT NULL,                     -- ステップ定義
     status VARCHAR(20) DEFAULT 'active',
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
--- 個人の進捗
+-- 個人の進捗【v1.2修正: organization_id, ON DELETE, created_by, updated_by追加】
 CREATE TABLE onboarding_progress (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    program_id UUID NOT NULL REFERENCES onboarding_programs(id),
-    user_id UUID NOT NULL REFERENCES users(id),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    program_id UUID NOT NULL REFERENCES onboarding_programs(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     current_step INT DEFAULT 0,
     completed_steps INT[] DEFAULT '{}',
     started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ,
     status VARCHAR(20) DEFAULT 'in_progress',
-    UNIQUE(program_id, user_id)
+    created_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    updated_by UUID REFERENCES users(id) ON DELETE SET NULL,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(organization_id, program_id, user_id)
 );
 ```
 

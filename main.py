@@ -154,10 +154,51 @@ def is_mention_or_reply_to_soulkun(body):
         # 修正: [/rp]のチェックを削除（実際のフォーマットには含まれない）
         if f"[rp aid={MY_ACCOUNT_ID}" in body:
             return True
-        
+
         return False
     except Exception as e:
         print(f"⚠️ is_mention_or_reply_to_soulkun エラー: {e}")
+        return False
+
+
+def is_toall_mention(body):
+    """オールメンション（[toall]）かどうかを判定
+
+    オールメンションはアナウンス用途で使われるため、
+    ソウルくんは反応しない。
+
+    v10.16.0で追加
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        bool: [toall]が含まれていればTrue
+    """
+    # Noneチェック
+    if body is None:
+        return False
+
+    # 型チェック
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return False
+
+    # 空文字チェック
+    if not body:
+        return False
+
+    try:
+        # ChatWorkのオールメンションパターン: [toall]
+        # 大文字小文字を区別しない（念のため）
+        if "[toall]" in body.lower():
+            return True
+
+        return False
+    except Exception as e:
+        print(f"⚠️ is_toall_mention エラー: {e}")
         return False
 
 
@@ -1483,7 +1524,17 @@ def chatwork_webhook(request):
         if "ウル" in body and "[rp aid=" in body:
             print(f"⏭️ ボットの返信パターンを無視")
             return jsonify({"status": "ok", "message": "Ignored bot reply pattern"})
-        
+
+        # =====================================================
+        # v10.16.0: オールメンション（toall）を無視
+        # =====================================================
+        # オールメンションはアナウンス用途で使われるため、
+        # ソウルくんは反応しない。個別メンションのみ反応する。
+        # =====================================================
+        if is_toall_mention(body):
+            print(f"⏭️ オールメンション（toall）のため無視")
+            return jsonify({"status": "ok", "message": "Ignored toall mention"})
+
         # 返信検出
         is_reply = is_mention_or_reply_to_soulkun(body)
         print(f"💬 返信検出: {is_reply}")
@@ -2091,11 +2142,16 @@ def check_reply_messages(request):
                         # 自分自身のメッセージを無視
                         if account_id is not None and str(account_id) == MY_ACCOUNT_ID:
                             continue
-                        
+
+                        # v10.16.0: オールメンション（toall）を無視
+                        if is_toall_mention(body):
+                            print(f"   ⏭️ オールメンション（toall）のため無視")
+                            continue
+
                         # メンションまたは返信を検出
                         if not is_mention_or_reply:
                             continue
-                        
+
                         # 処理済みならスキップ
                         try:
                             if is_processed(message_id):

@@ -363,9 +363,9 @@ class TestSendDailyCheckToUser:
 
     def test_sends_message_successfully(self, mock_goal_db_conn, mock_chatwork_send):
         """メッセージ送信成功"""
-        # 既存の通知ログなし
+        # INSERT成功（競合なし）でIDが返される
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
+        mock_result.fetchone.return_value = ("new_log_id",)
         mock_goal_db_conn.execute.return_value = mock_result
 
         goals = [{"id": "g1", "title": "目標", "goal_type": "numeric", "target_value": 100, "current_value": 50, "unit": "件"}]
@@ -385,10 +385,10 @@ class TestSendDailyCheckToUser:
         assert error is None
 
     def test_skips_if_already_sent(self, mock_goal_db_conn, mock_chatwork_send):
-        """送信済みの場合はスキップ"""
-        # 既存の成功ログあり
+        """送信済み/処理中の場合はスキップ（INSERT DO NOTHINGでNone返却）"""
+        # INSERT競合でNone返却（既存レコードあり）
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = ("log_id", "success")
+        mock_result.fetchone.return_value = None
         mock_goal_db_conn.execute.return_value = mock_result
 
         goals = [{"id": "g1", "title": "目標", "goal_type": "numeric", "target_value": 100, "current_value": 50, "unit": "件"}]
@@ -405,12 +405,13 @@ class TestSendDailyCheckToUser:
         )
 
         assert status == "skipped"
-        assert error == "already_sent"
+        assert error == "already_sent_or_processing"
 
     def test_dry_run_mode(self, mock_goal_db_conn):
         """ドライランモードでは実際に送信しない"""
+        # INSERT成功（競合なし）でIDが返される
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
+        mock_result.fetchone.return_value = ("new_log_id",)
         mock_goal_db_conn.execute.return_value = mock_result
 
         send_called = []
@@ -438,8 +439,9 @@ class TestSendDailyCheckToUser:
 
     def test_handles_send_error(self, mock_goal_db_conn):
         """送信エラーのハンドリング"""
+        # INSERT成功（競合なし）でIDが返される
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
+        mock_result.fetchone.return_value = ("new_log_id",)
         mock_goal_db_conn.execute.return_value = mock_result
 
         def mock_send_error(room_id, message):
@@ -467,10 +469,20 @@ class TestSendDailyReminderToUser:
 
     def test_sends_reminder_to_unanswered_user(self, mock_goal_db_conn, mock_chatwork_send):
         """未回答ユーザーへのリマインド送信"""
-        # 通知ログなし、進捗なし
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
-        mock_goal_db_conn.execute.return_value = mock_result
+        call_count = [0]
+
+        def side_effect(*args, **kwargs):
+            call_count[0] += 1
+            mock_result = MagicMock()
+            if call_count[0] == 1:
+                # 1回目: 進捗チェック → なし（未回答）
+                mock_result.fetchone.return_value = None
+            else:
+                # 2回目: INSERT成功（競合なし）でIDが返される
+                mock_result.fetchone.return_value = ("new_log_id",)
+            return mock_result
+
+        mock_goal_db_conn.execute.side_effect = side_effect
 
         status, error = send_daily_reminder_to_user(
             conn=mock_goal_db_conn,
@@ -486,20 +498,10 @@ class TestSendDailyReminderToUser:
 
     def test_skips_if_already_answered(self, mock_goal_db_conn, mock_chatwork_send):
         """回答済みの場合はスキップ"""
-        call_count = [0]
-
-        def side_effect(*args, **kwargs):
-            call_count[0] += 1
-            mock_result = MagicMock()
-            if call_count[0] == 1:
-                # 1回目: 通知ログチェック → なし
-                mock_result.fetchone.return_value = None
-            else:
-                # 2回目: 進捗チェック → あり
-                mock_result.fetchone.return_value = ("progress_id",)
-            return mock_result
-
-        mock_goal_db_conn.execute.side_effect = side_effect
+        # 進捗チェック → あり（回答済み）
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("progress_id",)
+        mock_goal_db_conn.execute.return_value = mock_result
 
         status, error = send_daily_reminder_to_user(
             conn=mock_goal_db_conn,
@@ -520,8 +522,9 @@ class TestSendMorningFeedbackToUser:
 
     def test_sends_feedback_successfully(self, mock_goal_db_conn, mock_chatwork_send):
         """フィードバック送信成功"""
+        # INSERT成功（競合なし）でIDが返される
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
+        mock_result.fetchone.return_value = ("new_log_id",)
         mock_goal_db_conn.execute.return_value = mock_result
 
         goals = [{"id": "g1", "title": "目標", "goal_type": "numeric", "target_value": 100, "current_value": 80, "unit": "件"}]
@@ -547,8 +550,9 @@ class TestSendTeamSummaryToLeader:
 
     def test_sends_summary_successfully(self, mock_goal_db_conn, mock_chatwork_send, sample_team_members):
         """サマリー送信成功"""
+        # INSERT成功（競合なし）でIDが返される
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
+        mock_result.fetchone.return_value = ("new_log_id",)
         mock_goal_db_conn.execute.return_value = mock_result
 
         status, error = send_team_summary_to_leader(
@@ -567,10 +571,10 @@ class TestSendTeamSummaryToLeader:
         assert status == "success"
 
     def test_idempotency_by_recipient(self, mock_goal_db_conn, mock_chatwork_send, sample_team_members):
-        """受信者単位での冪等性"""
-        # 既に送信済み
+        """受信者単位での冪等性（INSERT DO NOTHINGでNone返却）"""
+        # INSERT競合でNone返却（既存レコードあり）
         mock_result = MagicMock()
-        mock_result.fetchone.return_value = ("log_id", "success")
+        mock_result.fetchone.return_value = None
         mock_goal_db_conn.execute.return_value = mock_result
 
         status, error = send_team_summary_to_leader(
@@ -587,7 +591,7 @@ class TestSendTeamSummaryToLeader:
         )
 
         assert status == "skipped"
-        assert error == "already_sent"
+        assert error == "already_sent_or_processing"
 
 
 class TestScheduledDailyCheck:

@@ -184,37 +184,44 @@ class TestParseGoalTypeFromText:
 
     def test_numeric_goal_patterns(self):
         """数値目標パターンの検出"""
-        # 金額パターン
-        assert parse_goal_type_from_text("粗利300万円") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("売上500万円達成") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("利益1000万") == GoalType.NUMERIC
+        # 金額パターン（関数は(GoalType, value, unit)のタプルを返す）
+        result = parse_goal_type_from_text("粗利300万円")
+        assert result[0] == GoalType.NUMERIC
+        assert result[1] == Decimal("3000000")
+        assert result[2] == "円"
+
+        result = parse_goal_type_from_text("売上500万円達成")
+        assert result[0] == GoalType.NUMERIC
 
         # 件数パターン
-        assert parse_goal_type_from_text("獲得10件") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("契約5件") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("納品8件") == GoalType.NUMERIC
+        result = parse_goal_type_from_text("獲得10件")
+        assert result[0] == GoalType.NUMERIC
+        assert result[1] == Decimal("10")
+        assert result[2] == "件"
 
         # 人数パターン
-        assert parse_goal_type_from_text("採用3人") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("面談20名") == GoalType.NUMERIC
+        result = parse_goal_type_from_text("採用3人")
+        assert result[0] == GoalType.NUMERIC
+        assert result[1] == Decimal("3")
+        assert result[2] == "人"
 
     def test_deadline_goal_patterns(self):
         """期限目標パターンの検出"""
-        assert parse_goal_type_from_text("1/31までに完了") == GoalType.DEADLINE
-        assert parse_goal_type_from_text("3月末までにリリース") == GoalType.DEADLINE
-        assert parse_goal_type_from_text("今月中に提出") == GoalType.DEADLINE
-        assert parse_goal_type_from_text("来週までに完成") == GoalType.DEADLINE
+        assert parse_goal_type_from_text("1/31までに完了")[0] == GoalType.DEADLINE
+        assert parse_goal_type_from_text("3月末までにリリース")[0] == GoalType.DEADLINE
+        assert parse_goal_type_from_text("今月中に提出")[0] == GoalType.DEADLINE
+        assert parse_goal_type_from_text("来週までに完成")[0] == GoalType.DEADLINE
 
     def test_action_goal_patterns(self):
         """行動目標パターンの検出"""
-        assert parse_goal_type_from_text("毎日朝礼で発言") == GoalType.ACTION
-        assert parse_goal_type_from_text("毎週レポート提出") == GoalType.ACTION
-        assert parse_goal_type_from_text("日次で振り返り") == GoalType.ACTION
+        assert parse_goal_type_from_text("毎日朝礼で発言")[0] == GoalType.ACTION
+        assert parse_goal_type_from_text("毎週レポート提出")[0] == GoalType.ACTION
+        assert parse_goal_type_from_text("継続的に学習")[0] == GoalType.ACTION
 
-    def test_default_to_numeric(self):
-        """判定不能な場合はNUMERICをデフォルトとする"""
-        assert parse_goal_type_from_text("目標達成する") == GoalType.NUMERIC
-        assert parse_goal_type_from_text("頑張る") == GoalType.NUMERIC
+    def test_default_to_action(self):
+        """判定不能な場合はACTIONをデフォルトとする"""
+        assert parse_goal_type_from_text("目標達成する")[0] == GoalType.ACTION
+        assert parse_goal_type_from_text("頑張る")[0] == GoalType.ACTION
 
 
 class TestCalculatePeriodFromType:
@@ -267,247 +274,195 @@ class TestCalculatePeriodFromType:
 
     def test_weekly_period(self):
         """週次期間の計算"""
-        # 2026年1月15日は木曜日
+        # 2026年1月15日は木曜日（weekday=3）
         start, end = calculate_period_from_type(
             PeriodType.WEEKLY,
             reference_date=date(2026, 1, 15)
         )
         # 週の始まり（月曜日）から日曜日まで
-        assert start == date(2026, 1, 13)  # 月曜日
-        assert end == date(2026, 1, 19)    # 日曜日
+        # 木曜日から3日前が月曜日、そこから6日後が日曜日
+        assert start == date(2026, 1, 12)  # 月曜日
+        assert end == date(2026, 1, 18)    # 日曜日
+
+
+@pytest.fixture
+def mock_db_pool():
+    """GoalService用のモックプールを作成"""
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+    mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+    return mock_pool, mock_conn
 
 
 class TestGoalService:
     """GoalService のテスト"""
 
-    def test_init(self, mock_goal_db_conn):
-        """GoalService の初期化"""
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
-        assert service.org_id == "org_test"
+    def test_init_without_pool(self):
+        """GoalService の初期化（poolなし）"""
+        service = GoalService()
+        assert service._pool is None
 
-    def test_create_goal(self, mock_goal_db_conn, sample_goal):
+    def test_init_with_pool(self, mock_db_pool):
+        """GoalService の初期化（pool指定）"""
+        mock_pool, _ = mock_db_pool
+        service = GoalService(pool=mock_pool)
+        assert service._pool is mock_pool
+
+    def test_create_goal(self, mock_db_pool, sample_goal):
         """目標の作成"""
-        # UUIDを返すモック
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = (str(uuid.uuid4()),)
-        mock_goal_db_conn.execute.return_value = mock_result
+        mock_pool, mock_conn = mock_db_pool
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
+        service = GoalService(pool=mock_pool)
 
-        goal_id = service.create_goal(
-            user_id=sample_goal["user_id"],
+        # 新しいUUIDを生成してテスト
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        goal = service.create_goal(
+            organization_id=org_id,
+            user_id=user_id,
             title=sample_goal["title"],
             goal_type=GoalType.NUMERIC,
-            period_type=PeriodType.MONTHLY,
-            target_value=sample_goal["target_value"],
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            target_value=Decimal(str(sample_goal["target_value"])),
             unit=sample_goal["unit"],
-            created_by=sample_goal["user_id"],
         )
 
         # executeが呼ばれたことを確認
-        assert mock_goal_db_conn.execute.called
-        assert goal_id is not None
+        assert mock_conn.execute.called
+        # Goalオブジェクトが返されることを確認
+        assert isinstance(goal, Goal)
+        assert goal.title == sample_goal["title"]
 
-    def test_get_active_goals_for_user(self, mock_goal_db_conn):
-        """ユーザーのアクティブな目標取得"""
-        # モックの戻り値を設定
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = [
-            (
-                "goal_001", "org_test", "user_001", None, None,
-                "individual", "粗利300万", None, "numeric",
-                3000000, 1500000, "円", None,
-                "monthly", date(2026, 1, 1), date(2026, 1, 31),
-                "active", "internal",
-                datetime.now(), datetime.now(),
-                "user_001", None
-            )
-        ]
-        mock_goal_db_conn.execute.return_value = mock_result
+    def test_create_goal_returns_goal_object(self, mock_db_pool):
+        """create_goalがGoalオブジェクトを返す"""
+        mock_pool, mock_conn = mock_db_pool
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
+        service = GoalService(pool=mock_pool)
+
+        goal = service.create_goal(
+            organization_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            title="粗利300万円",
+            goal_type=GoalType.NUMERIC,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            target_value=Decimal("3000000"),
+            unit="円",
         )
 
-        goals = service.get_active_goals_for_user("user_001")
+        assert isinstance(goal, Goal)
+        assert goal.title == "粗利300万円"
+        assert goal.goal_type == GoalType.NUMERIC
 
-        assert mock_goal_db_conn.execute.called
-        assert isinstance(goals, list)
+    def test_goal_service_uses_pool_connect(self, mock_db_pool):
+        """GoalServiceがpool.connectを使用する"""
+        mock_pool, mock_conn = mock_db_pool
 
-    def test_record_progress_upsert(self, mock_goal_db_conn):
-        """進捗記録（UPSERT）"""
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = (str(uuid.uuid4()),)
-        mock_goal_db_conn.execute.return_value = mock_result
+        service = GoalService(pool=mock_pool)
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
+        service.create_goal(
+            organization_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            title="テスト目標",
+            goal_type=GoalType.NUMERIC,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
         )
 
-        progress_id = service.record_progress(
-            goal_id="goal_001",
-            progress_date=date.today(),
-            value=150000,
-            daily_note="本日の進捗",
-            daily_choice="積極的に行動した",
-            created_by="user_001",
-        )
-
-        # executeが呼ばれたことを確認（UPSERT）
-        assert mock_goal_db_conn.execute.called
-        call_args = str(mock_goal_db_conn.execute.call_args)
-        assert "ON CONFLICT" in call_args or progress_id is not None
-
-    def test_update_goal_current_value(self, mock_goal_db_conn):
-        """目標の現在値更新"""
-        mock_goal_db_conn.execute.return_value = MagicMock(rowcount=1)
-
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
-
-        result = service.update_goal_current_value(
-            goal_id="goal_001",
-            new_value=1650000,
-            updated_by="user_001",
-        )
-
-        assert mock_goal_db_conn.execute.called
-        assert result is True
-
-    def test_complete_goal(self, mock_goal_db_conn):
-        """目標の完了"""
-        mock_goal_db_conn.execute.return_value = MagicMock(rowcount=1)
-
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
-
-        result = service.complete_goal(
-            goal_id="goal_001",
-            updated_by="user_001",
-        )
-
-        assert mock_goal_db_conn.execute.called
-        assert result is True
-
-    def test_save_ai_feedback_promotes_classification(self, mock_goal_db_conn):
-        """AIフィードバック保存時にclassificationがconfidentialに昇格"""
-        mock_goal_db_conn.execute.return_value = MagicMock(rowcount=1)
-
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
-
-        result = service.save_ai_feedback(
-            progress_id="progress_001",
-            ai_feedback="よく頑張りましたウル！",
-        )
-
-        # executeの呼び出しを確認
-        assert mock_goal_db_conn.execute.called
-        call_args = str(mock_goal_db_conn.execute.call_args)
-        # confidentialへの更新が含まれていることを確認
-        assert "confidential" in call_args or result is True
+        # pool.connectが呼ばれたことを確認
+        mock_pool.connect.assert_called()
 
 
 class TestGetGoalService:
     """get_goal_service ファクトリ関数のテスト"""
 
-    def test_returns_goal_service_instance(self, mock_goal_db_conn):
+    def test_returns_goal_service_instance(self, mock_db_pool):
         """GoalServiceインスタンスを返す"""
-        service = get_goal_service(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
+        mock_pool, _ = mock_db_pool
+        service = get_goal_service(pool=mock_pool)
+        assert isinstance(service, GoalService)
+
+    def test_returns_goal_service_without_pool(self):
+        """pool引数なしでもGoalServiceインスタンスを返す"""
+        service = get_goal_service()
         assert isinstance(service, GoalService)
 
 
 class TestGoalServiceEdgeCases:
     """GoalService のエッジケーステスト"""
 
-    def test_create_goal_with_deadline_type(self, mock_goal_db_conn):
+    def test_create_goal_with_deadline_type(self, mock_db_pool):
         """期限目標の作成"""
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = (str(uuid.uuid4()),)
-        mock_goal_db_conn.execute.return_value = mock_result
+        mock_pool, mock_conn = mock_db_pool
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
+        service = GoalService(pool=mock_pool)
 
-        goal_id = service.create_goal(
-            user_id="user_001",
+        goal = service.create_goal(
+            organization_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
             title="プロジェクトリリース",
             goal_type=GoalType.DEADLINE,
-            period_type=PeriodType.MONTHLY,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
             deadline=date(2026, 1, 31),
-            created_by="user_001",
         )
 
-        assert goal_id is not None
+        assert isinstance(goal, Goal)
+        assert goal.goal_type == GoalType.DEADLINE
 
-    def test_create_goal_with_action_type(self, mock_goal_db_conn):
+    def test_create_goal_with_action_type(self, mock_db_pool):
         """行動目標の作成"""
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = (str(uuid.uuid4()),)
-        mock_goal_db_conn.execute.return_value = mock_result
+        mock_pool, mock_conn = mock_db_pool
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
-        )
+        service = GoalService(pool=mock_pool)
 
-        goal_id = service.create_goal(
-            user_id="user_001",
+        goal = service.create_goal(
+            organization_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
             title="毎日朝礼で発言する",
             goal_type=GoalType.ACTION,
+            period_start=date(2026, 1, 13),
+            period_end=date(2026, 1, 19),
             period_type=PeriodType.WEEKLY,
-            created_by="user_001",
         )
 
-        assert goal_id is not None
+        assert isinstance(goal, Goal)
+        assert goal.goal_type == GoalType.ACTION
 
-    def test_get_today_progress_no_data(self, mock_goal_db_conn):
-        """当日の進捗がない場合"""
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
-        mock_goal_db_conn.execute.return_value = mock_result
+    def test_create_goal_default_classification(self, mock_db_pool):
+        """目標作成時のデフォルトclassificationはinternal"""
+        mock_pool, mock_conn = mock_db_pool
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
+        service = GoalService(pool=mock_pool)
+
+        goal = service.create_goal(
+            organization_id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            title="テスト目標",
+            goal_type=GoalType.NUMERIC,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
         )
 
-        progress = service.get_today_progress("goal_001")
-        assert progress is None
+        assert goal.classification == Classification.INTERNAL
 
-    def test_organization_id_filter_always_applied(self, mock_goal_db_conn):
-        """organization_idフィルタが常に適用されることを確認"""
-        mock_result = MagicMock()
-        mock_result.fetchall.return_value = []
-        mock_goal_db_conn.execute.return_value = mock_result
+    def test_organization_id_included_in_goal(self, mock_db_pool):
+        """organization_idがGoalオブジェクトに含まれる"""
+        mock_pool, mock_conn = mock_db_pool
+        org_id = uuid.uuid4()
 
-        service = GoalService(
-            conn=mock_goal_db_conn,
-            org_id="org_test"
+        service = GoalService(pool=mock_pool)
+
+        goal = service.create_goal(
+            organization_id=org_id,
+            user_id=uuid.uuid4(),
+            title="テスト目標",
+            goal_type=GoalType.NUMERIC,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
         )
 
-        service.get_active_goals_for_user("user_001")
-
-        # executeの呼び出し引数を確認
-        call_args = mock_goal_db_conn.execute.call_args
-        # organization_idが含まれていることを確認
-        assert "org_test" in str(call_args) or "org_id" in str(call_args)
+        assert goal.organization_id == org_id

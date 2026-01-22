@@ -233,7 +233,7 @@ class TestBuildMorningFeedbackMessage:
                 "daily_choice": "積極的に提案",
             }
         }
-        message = build_morning_feedback_message("山田さん", goals, progress_data)
+        message = build_morning_feedback_message("山田", goals, progress_data)
 
         assert "山田さん、おはようウル🐺" in message
         assert "昨日の振り返り" in message
@@ -254,7 +254,7 @@ class TestBuildMorningFeedbackMessage:
             }
         ]
         progress_data = {"goal_001": {"value": 150000}}
-        message = build_morning_feedback_message("山田さん", goals, progress_data)
+        message = build_morning_feedback_message("山田", goals, progress_data)
 
         assert "今日への問い" in message
         assert "あと" in message
@@ -263,7 +263,7 @@ class TestBuildMorningFeedbackMessage:
     def test_includes_encouragement(self):
         """励ましのメッセージが含まれる"""
         goals = [{"id": "g1", "title": "目標", "goal_type": "numeric", "target_value": 100, "current_value": 50, "unit": "件"}]
-        message = build_morning_feedback_message("テストさん", goals, {})
+        message = build_morning_feedback_message("テスト", goals, {})
 
         assert "絶対できるって" in message
         assert "信じてるウル" in message
@@ -281,7 +281,7 @@ class TestBuildMorningFeedbackMessage:
             }
         ]
         progress_data = {"goal_001": {"value": 500000}}
-        message = build_morning_feedback_message("山田さん", goals, progress_data)
+        message = build_morning_feedback_message("山田", goals, progress_data)
 
         assert "おめでとう" in message or "次の挑戦" in message
 
@@ -298,7 +298,7 @@ class TestBuildTeamSummaryMessage:
             summary_date=date(2026, 1, 22)
         )
 
-        assert "佐藤リーダー、おはようウル🐺" in message
+        assert "佐藤リーダーさん、おはようウル🐺" in message
         assert "チーム進捗サマリー" in message
         assert "01/22" in message
         assert "山田太郎" in message

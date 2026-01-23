@@ -481,7 +481,7 @@ git diff --stat HEAD~5
 
 ## 直近の主な成果
 
-- **2026-01-23**: v10.18.0（PR #33）
+- **2026-01-23**: v10.18.0（PR #33）✅完了
   - **Phase 2 A1: パターン検知機能完成**
     - 高頻度質問検知（FrequentQuestionDetector）: 類似質問の繰り返しを検出
     - 停滞タスク検知（StagnantTaskDetector）: 進捗のないタスクを検出
@@ -491,7 +491,11 @@ git diff --stat HEAD~5
     - 監査ログの動的機密区分（最大分類を使用）
     - occurrence_timestamps肥大化防止（最大500件）
     - 100件のユニットテスト
-    - **DBマイグレーション待ち**: `migrations/phase_2_a1_pattern_detection.sql`
+    - ✅DBマイグレーション完了（2026-01-23 22:19 JST）
+      - `question_patterns` テーブル作成（21カラム、7インデックス）
+      - `soulkun_insights` テーブル作成（26カラム、8インデックス）
+      - `soulkun_weekly_reports` テーブル作成（20カラム、4インデックス）
+      - `notification_logs` CHECK制約更新（pattern_alert, weekly_report追加）
 
 - **2026-01-23**: v10.17.2（PR #31）
   - タスク要約品質の完全修正

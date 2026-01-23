@@ -447,6 +447,15 @@ git diff --stat HEAD~5
 
 ## 直近の主な成果
 
+- **2026-01-23**: v10.17.0
+  - タスク要約機能の根本的修正（PR #29）
+    - `lib/text_utils.py`に`prepare_task_display_text()`を追加（途切れ防止ロジック）
+    - `remind-tasks/main.py`の`[:50]`直接切り詰めバグを修正（3箇所）
+    - `sync-chatwork-tasks/main.py`にAI要約失敗時のフォールバック処理を追加
+    - 「タスク内容なし」時の本文フォールバック処理を追加
+    - 23件のユニットテストを追加（`tests/test_text_utils_lib.py`）
+    - 本番デプロイ完了（remind-tasks: rev00034、sync-chatwork-tasks: rev00041）
+
 - **2026-01-23**: v10.16.3
   - `gh pr checks`が正しく動作するよう修正（PR #26）
     - GitHub Actionsワークフロー完了後にcommit statusを設定するステップを追加

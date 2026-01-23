@@ -2802,15 +2802,43 @@ def update_task_status_in_db(task_id, status):
 
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
-    """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）"""
+    """
+    ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
+
+    ★★★ v10.18.1: summary生成機能追加 ★★★
+    タスク作成時にsummaryを自動生成して保存
+    """
     try:
+        # =====================================================
+        # v10.18.1: summary生成
+        # =====================================================
+        summary = None
+        if body:
+            try:
+                # generate_task_summaryを使用（AI要約 + フォールバック）
+                summary = generate_task_summary(body)
+                print(f"📝 要約を生成: {summary[:30]}..." if summary and len(summary) > 30 else f"📝 要約を生成: {summary}")
+            except Exception as e:
+                print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
+                # フォールバック: prepare_task_display_textを使用
+                try:
+                    if USE_TEXT_UTILS_LIB:
+                        clean_body = lib_clean_chatwork_tags(body)
+                        summary = lib_prepare_task_display_text(clean_body, max_length=40)
+                    else:
+                        clean_body = clean_task_body(body)
+                        summary = prepare_task_display_text(clean_body, max_length=40)
+                except Exception as fallback_e:
+                    print(f"⚠️ フォールバックもエラー: {fallback_e}")
+                    summary = body[:40] if len(body) > 40 else body
+
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -2820,10 +2848,12 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "assigned_to": assigned_to_account_id,
                     "body": body,
                     "limit_time": limit_time,
-                    "status": "open"
+                    "status": "open",
+                    "summary": summary
                 }
             )
-        print(f"✅ タスクをDBに保存: task_id={task_id}")
+        summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
+        print(f"✅ タスクをDBに保存: task_id={task_id}, summary={summary_preview}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")
@@ -7639,14 +7669,17 @@ def sync_chatwork_tasks(request):
                         skip_tracking = True
                 
                 # DBに存在するか確認（期限変更検知のためlimit_timeも取得）
+                # ★★★ v10.18.1: bodyとsummaryも取得（summary更新判定用）★★★
                 cursor.execute("""
-                    SELECT task_id, status, limit_time, assigned_by_name FROM chatwork_tasks WHERE task_id = %s
+                    SELECT task_id, status, limit_time, assigned_by_name, body, summary FROM chatwork_tasks WHERE task_id = %s
                 """, (task_id,))
                 existing = cursor.fetchone()
-                
+
                 if existing:
                     old_limit_time = existing[2]
                     db_assigned_by_name = existing[3]
+                    old_body = existing[4]
+                    old_summary = existing[5]
                     
                     # ★ 期限変更検知（P1-030）
                     if old_limit_time is not None and limit_datetime is not None and old_limit_time != limit_datetime:
@@ -7662,6 +7695,47 @@ def sync_chatwork_tasks(request):
                             print(f"⚠️ 期限変更検知処理エラー（同期は続行）: {e}")
                     
                     # 既存タスクの更新
+                    # ★★★ v10.18.1: summaryの更新判定 ★★★
+                    # bodyが変更された場合、またはsummaryがNULL/低品質の場合に再生成
+                    new_summary = old_summary
+                    should_regenerate_summary = False
+
+                    # 条件1: bodyが変更された
+                    if old_body != body:
+                        should_regenerate_summary = True
+                        print(f"📝 bodyが変更されたためsummary再生成: task_id={task_id}")
+
+                    # 条件2: summaryがNULLまたは空
+                    if not old_summary or old_summary.strip() == "":
+                        should_regenerate_summary = True
+                        print(f"📝 summaryがNULLのため生成: task_id={task_id}")
+
+                    # 条件3: summaryが低品質（挨拶で始まる、途中で途切れている等）
+                    if old_summary and USE_TEXT_UTILS_LIB:
+                        try:
+                            if not lib_validate_summary(old_summary, body):
+                                should_regenerate_summary = True
+                                print(f"📝 summaryが低品質のため再生成: task_id={task_id}, old_summary={old_summary[:20]}...")
+                        except:
+                            pass
+
+                    if should_regenerate_summary:
+                        try:
+                            new_summary = generate_task_summary(body)
+                            print(f"📝 UPDATE用要約生成: {new_summary[:30]}..." if new_summary and len(new_summary) > 30 else f"📝 UPDATE用要約生成: {new_summary}")
+                        except Exception as e:
+                            print(f"⚠️ UPDATE用要約生成エラー: {e}")
+                            # フォールバック
+                            try:
+                                if USE_TEXT_UTILS_LIB:
+                                    clean_body = lib_clean_chatwork_tags(body)
+                                    new_summary = lib_prepare_task_display_text(clean_body, max_length=40)
+                                else:
+                                    clean_body = clean_task_body(body)
+                                    new_summary = prepare_task_display_text(clean_body, max_length=40)
+                            except:
+                                new_summary = body[:40] if len(body) > 40 else body
+
                     cursor.execute("""
                         UPDATE chatwork_tasks
                         SET status = 'open',
@@ -7669,9 +7743,10 @@ def sync_chatwork_tasks(request):
                             limit_time = %s,
                             last_synced_at = CURRENT_TIMESTAMP,
                             room_name = %s,
-                            assigned_to_name = %s
+                            assigned_to_name = %s,
+                            summary = %s
                         WHERE task_id = %s
-                    """, (body, limit_datetime, room_name, assigned_to_name, task_id))
+                    """, (body, limit_datetime, room_name, assigned_to_name, new_summary, task_id))
                     # ★★★ v10.4.0: UPDATEをコミット ★★★
                     conn.commit()
                 else:

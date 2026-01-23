@@ -16,6 +16,22 @@ import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
 
+# =====================================================
+# v10.18.1: summary生成用ライブラリ
+# =====================================================
+try:
+    from lib import (
+        clean_chatwork_tags,
+        prepare_task_display_text,
+        extract_task_subject,
+        validate_summary,
+    )
+    USE_TEXT_UTILS_LIB = True
+    print("✅ lib/text_utils.py loaded for summary generation")
+except ImportError as e:
+    print(f"⚠️ lib/text_utils.py not available: {e}")
+    USE_TEXT_UTILS_LIB = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -800,12 +816,15 @@ SYSTEM_CAPABILITIES = {
 
     "goal_progress_report": {
         "name": "目標進捗報告",
-        "description": "今日の目標に対する進捗を報告する。「今日は10万円売り上げた」「今日1件成約した」「今日は〇〇をやった」などの報告に対応。",
+        "description": "今日の目標に対する進捗を報告する。数値（売上・件数・金額）を含むメッセージは積極的にこのアクションを選択。「今日は25万売り上げた」「今日1件成約した」「今日の売上は50万円」などの報告に対応。",
         "category": "goal",
         "enabled": True,
         "trigger_examples": [
+            "今日は25万売り上げた",
             "今日は10万円売り上げた",
             "今日1件成約した",
+            "今日の売上は50万円",
+            "今日10件達成した",
             "今日の進捗を報告",
             "今日〇〇をやった",
         ],
@@ -2013,8 +2032,47 @@ def get_user_primary_department(conn, chatwork_account_id):
 
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
-    """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）"""
+    """
+    ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
+
+    ★★★ v10.18.1: summary生成機能追加 ★★★
+    タスク作成時にsummaryを自動生成して保存
+    """
     try:
+        # =====================================================
+        # v10.18.1: summary生成
+        # =====================================================
+        summary = None
+        if USE_TEXT_UTILS_LIB and body:
+            try:
+                # 1. まず【件名】形式を探す
+                subject = extract_task_subject(body)
+                if subject and len(subject) <= 40:
+                    summary = subject
+                    print(f"📝 件名を抽出: {summary}")
+                else:
+                    # 2. タグを除去して整形
+                    clean_body = clean_chatwork_tags(body)
+                    summary = prepare_task_display_text(clean_body, max_length=40)
+                    print(f"📝 要約を生成: {summary}")
+
+                # 3. バリデーション（挨拶のみ等は除外）
+                if summary and not validate_summary(summary, body):
+                    print(f"⚠️ 要約がバリデーション失敗、再生成: {summary}")
+                    clean_body = clean_chatwork_tags(body)
+                    summary = prepare_task_display_text(clean_body, max_length=40)
+                    if summary == "（タスク内容なし）":
+                        # 最終フォールバック
+                        summary = body[:40] if len(body) > 40 else body
+            except Exception as e:
+                print(f"⚠️ summary生成エラー（続行）: {e}")
+                # フォールバック: bodyの先頭40文字
+                summary = body[:40] if body and len(body) > 40 else body
+        else:
+            # lib未使用時のフォールバック
+            if body:
+                summary = body[:40] if len(body) > 40 else body
+
         pool = get_pool()
         with pool.begin() as conn:
             # Phase 3.5: 担当者のメイン部署を取得
@@ -2023,8 +2081,8 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO chatwork_tasks
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id)
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -2035,10 +2093,12 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "body": body,
                     "limit_time": limit_time,
                     "status": "open",
-                    "department_id": department_id
+                    "department_id": department_id,
+                    "summary": summary
                 }
             )
-        print(f"✅ タスクをDBに保存: task_id={task_id}, department_id={department_id}")
+        summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
+        print(f"✅ タスクをDBに保存: task_id={task_id}, department_id={department_id}, summary={summary_preview}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")
@@ -4081,11 +4141,8 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
                 pass
 
         # user_id を取得（account_id から users テーブルを検索）
-        conn = get_db_connection()
-        if not conn:
-            return {"success": False, "message": "❌ データベースに接続できなかったウル...もう一度試してほしいウル🐺"}
-
-        try:
+        pool = get_pool()
+        with pool.connect() as conn:
             # account_id から user_id と organization_id を取得
             user_result = conn.execute(
                 text("""
@@ -4171,9 +4228,6 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
 
             return {"success": True, "message": response}
 
-        finally:
-            conn.close()
-
     except Exception as e:
         print(f"❌ handle_goal_registration エラー: {e}")
         import traceback
@@ -4203,11 +4257,8 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
         daily_note = params.get("daily_note", "")
         daily_choice = params.get("daily_choice", "")
 
-        conn = get_db_connection()
-        if not conn:
-            return {"success": False, "message": "❌ データベースに接続できなかったウル...🐺"}
-
-        try:
+        pool = get_pool()
+        with pool.connect() as conn:
             # ユーザー情報を取得
             user_result = conn.execute(
                 text("""
@@ -4368,9 +4419,6 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
 
             return {"success": True, "message": response}
 
-        finally:
-            conn.close()
-
     except Exception as e:
         print(f"❌ handle_goal_progress_report エラー: {e}")
         import traceback
@@ -4394,11 +4442,8 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
         from decimal import Decimal
         from sqlalchemy import text
 
-        conn = get_db_connection()
-        if not conn:
-            return {"success": False, "message": "❌ データベースに接続できなかったウル...🐺"}
-
-        try:
+        pool = get_pool()
+        with pool.connect() as conn:
             # ユーザー情報を取得
             user_result = conn.execute(
                 text("""
@@ -4510,9 +4555,6 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
                 response += f"✨ {len(goals_result)}個の目標を追いかけてるウル！{user_name}さん、頑張ってるウル🐺"
 
             return {"success": True, "message": response}
-
-        finally:
-            conn.close()
 
     except Exception as e:
         print(f"❌ handle_goal_status_check エラー: {e}")
@@ -4724,7 +4766,12 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
    - 経費精算、各種手続きに関する質問
    - 会社の制度、福利厚生に関する質問
    - 「何日？」「どうやって？」「ルールは？」のような制度への質問
-8. それ以外 → general_chat
+8. ★★★ 目標に関する発言 → goal系アクション ★★★
+   - 「今日は〇〇した」「今日〇〇円売り上げた」「今日〇〇件達成」など進捗報告 → goal_progress_report
+   - 「目標を設定したい」「目標を登録したい」「KPIを設定」など目標設定 → goal_registration
+   - 「目標の進捗は？」「達成率を教えて」など目標確認 → goal_status_check
+   ★★★ 特に数値＋売上/件数/達成などの組み合わせは goal_progress_report を優先 ★★★
+9. それ以外 → general_chat
 
 【具体例】
 - 「崇樹のタスク教えて」→ chatwork_task_search（タスク検索）
@@ -4733,7 +4780,12 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
 - 「崇樹にタスク追加して」→ chatwork_task_create（タスク作成）
 - 「有給休暇は何日？」→ query_company_knowledge（会社知識検索）
 - 「経費精算のルールは？」→ query_company_knowledge（会社知識検索）
-- 「就業規則を教えて」→ query_company_knowledge（会社知識検索）"""
+- 「就業規則を教えて」→ query_company_knowledge（会社知識検索）
+- 「今日は25万売り上げた」→ goal_progress_report（目標進捗報告）★★★
+- 「今日10件成約した」→ goal_progress_report（目標進捗報告）★★★
+- 「今日の売上は50万円」→ goal_progress_report（目標進捗報告）★★★
+- 「目標を設定したい」→ goal_registration（目標登録）
+- 「目標の進捗を教えて」→ goal_status_check（目標確認）"""
 
     try:
         response = httpx.post(
@@ -4814,7 +4866,11 @@ def execute_action(command, sender_name, room_id=None, account_id=None, context=
                 if context is None:
                     context = {}
                 context["action"] = action
-                return handler(params, room_id, account_id, sender_name, context)
+                result = handler(params, room_id, account_id, sender_name, context)
+                # dictが返された場合はmessageキーを取り出す（goal系ハンドラー対応）
+                if isinstance(result, dict):
+                    return result.get("message", "🤔 応答の生成に失敗したウル...")
+                return result
             except Exception as e:
                 print(f"❌ ハンドラー実行エラー: {e}")
                 return "🤔 処理中にエラーが発生したウル...もう一度試してほしいウル！"
@@ -5290,27 +5346,40 @@ def should_show_guide(room_id, account_id):
     try:
         pool = get_pool()
         with pool.connect() as conn:
+            # DMルームの場合は案内を表示しない
+            dm_check = conn.execute(
+                sqlalchemy.text("""
+                    SELECT 1 FROM dm_room_cache
+                    WHERE dm_room_id = :room_id
+                    LIMIT 1
+                """),
+                {"room_id": room_id}
+            ).fetchone()
+
+            if dm_check:
+                return False  # DMルームでは案内不要
+
             result = conn.execute(
                 sqlalchemy.text("""
-                    SELECT last_conversation_at 
-                    FROM conversation_timestamps 
+                    SELECT last_conversation_at
+                    FROM conversation_timestamps
                     WHERE room_id = :room_id AND account_id = :account_id
                 """),
                 {"room_id": room_id, "account_id": account_id}
             ).fetchone()
-            
+
             if not result:
                 return True  # 会話履歴がない場合は表示
-            
+
             last_conversation_at = result[0]
             if not last_conversation_at:
                 return True
-            
+
             # 最終会話から1時間以上経過しているか
             one_hour_ago = datetime.now(timezone.utc) - timedelta(hours=1)
             if last_conversation_at.replace(tzinfo=timezone.utc) < one_hour_ago:
                 return True
-            
+
             return False
     except Exception as e:
         print(f"案内表示判定エラー: {e}")

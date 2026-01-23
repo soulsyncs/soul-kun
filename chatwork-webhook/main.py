@@ -736,6 +736,120 @@ SYSTEM_CAPABILITIES = {
         "required_data": [],
         "limitation_message": "タスクの削除"
     },
+
+    # =====================================================
+    # ===== Phase 2.5: 目標達成支援 =====
+    # =====================================================
+
+    "goal_registration": {
+        "name": "目標登録",
+        "description": "今月の目標や個人目標を登録する。「〇〇を達成したい」「今月の目標は△△」「目標を設定したい」などの要望に対応。数値目標（粗利300万円）、期限目標（月末までに完了）、行動目標（毎日〇〇）のいずれも登録可能。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "今月の目標を設定して",
+            "粗利300万円を目標にする",
+            "今月は10件獲得を目指す",
+            "目標を登録したい",
+            "月末までにプロジェクトを完了する",
+            "毎日日報を書くことを目標にする",
+        ],
+        "params_schema": {
+            "goal_title": {
+                "type": "string",
+                "description": "目標のタイトル（概要）",
+                "required": True,
+                "note": "【必須】目標が何かを50文字以内で要約。例: 「粗利300万円」「プロジェクト納品」「毎日日報を書く」"
+            },
+            "goal_type": {
+                "type": "string",
+                "description": "目標タイプ: numeric（数値目標）、deadline（期限目標）、action（行動目標）",
+                "required": True,
+                "note": "【必須】粗利〇〇円、〇〇件などの数値があれば numeric、〇〇までに完了なら deadline、毎日〇〇なら action"
+            },
+            "target_value": {
+                "type": "number",
+                "description": "目標値（数値目標の場合）。300万円なら 3000000、10件なら 10",
+                "required": False,
+                "note": "numeric の場合は必須。単位は unit で指定"
+            },
+            "unit": {
+                "type": "string",
+                "description": "単位: 円、件、人、%など",
+                "required": False,
+                "note": "numeric の場合に指定。例: 「円」「件」「人」"
+            },
+            "period_type": {
+                "type": "string",
+                "description": "期間タイプ: monthly（月次）、weekly（週次）、quarterly（四半期）、yearly（年次）",
+                "required": False,
+                "default": "monthly",
+                "note": "省略時は月次（今月）"
+            },
+            "deadline": {
+                "type": "date",
+                "description": "期限（YYYY-MM-DD形式）。期限目標の場合に指定",
+                "required": False,
+                "note": "「月末まで」「3月31日まで」などを日付に変換"
+            }
+        },
+        "handler": "handle_goal_registration",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "sender_name"]
+    },
+
+    "goal_progress_report": {
+        "name": "目標進捗報告",
+        "description": "今日の目標に対する進捗を報告する。「今日は10万円売り上げた」「今日1件成約した」「今日は〇〇をやった」などの報告に対応。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "今日は10万円売り上げた",
+            "今日1件成約した",
+            "今日の進捗を報告",
+            "今日〇〇をやった",
+        ],
+        "params_schema": {
+            "progress_value": {
+                "type": "number",
+                "description": "今日の実績値（数値目標の場合）",
+                "required": False,
+                "note": "10万円なら 100000、1件なら 1"
+            },
+            "daily_note": {
+                "type": "string",
+                "description": "今日やったことの報告",
+                "required": False,
+                "note": "ユーザーが報告した内容をそのまま"
+            },
+            "daily_choice": {
+                "type": "string",
+                "description": "今日どんな行動を選んだか",
+                "required": False,
+                "note": "選択理論に基づく振り返り"
+            }
+        },
+        "handler": "handle_goal_progress_report",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "sender_name"]
+    },
+
+    "goal_status_check": {
+        "name": "目標確認",
+        "description": "現在の目標と進捗状況を確認する。「目標を確認」「今の進捗は？」「達成率は？」などの質問に対応。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "目標を確認して",
+            "今の進捗を教えて",
+            "達成率は？",
+            "今月の目標は何だっけ",
+        ],
+        "params_schema": {},
+        "handler": "handle_goal_status_check",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "sender_name"]
+    },
 }
 
 
@@ -2319,7 +2433,7 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
                     organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
                     notification_type VARCHAR(50) NOT NULL,
                     target_type VARCHAR(50) NOT NULL,
-                    target_id BIGINT,
+                    target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
                     notification_date DATE NOT NULL,
                     sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                     status VARCHAR(20) NOT NULL,
@@ -3902,6 +4016,514 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
         traceback.print_exc()
         return {"success": False, "message": "..."}
 
+
+# =====================================================
+# ===== Phase 2.5: 目標達成支援ハンドラー =====
+# =====================================================
+
+def handle_goal_registration(params, room_id, account_id, sender_name, context=None):
+    """
+    目標登録ハンドラー（Phase 2.5）
+
+    goals テーブルに目標を登録する。
+    ソウルくんのキャラクターで応答。
+    """
+    print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
+    print(f"   params: {params}")
+
+    try:
+        from datetime import date, datetime, timedelta
+        from decimal import Decimal
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        goal_title = params.get("goal_title", "")
+        goal_type = params.get("goal_type", "action")  # numeric, deadline, action
+        target_value = params.get("target_value")
+        unit = params.get("unit")
+        period_type = params.get("period_type", "monthly")
+        deadline = params.get("deadline")
+
+        if not goal_title:
+            return {
+                "success": False,
+                "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
+            }
+
+        # 期間を計算
+        today = date.today()
+        if period_type == "weekly":
+            period_start = today - timedelta(days=today.weekday())
+            period_end = period_start + timedelta(days=6)
+        elif period_type == "monthly":
+            period_start = today.replace(day=1)
+            if today.month == 12:
+                period_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                period_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
+        elif period_type == "quarterly":
+            quarter = (today.month - 1) // 3
+            period_start = today.replace(month=quarter * 3 + 1, day=1)
+            if quarter == 3:
+                period_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
+            else:
+                period_end = today.replace(month=(quarter + 1) * 3 + 1, day=1) - timedelta(days=1)
+        else:  # yearly
+            period_start = today.replace(month=1, day=1)
+            period_end = today.replace(month=12, day=31)
+
+        # deadlineがある場合はそれを使用
+        if deadline:
+            try:
+                if isinstance(deadline, str):
+                    period_end = datetime.strptime(deadline, "%Y-%m-%d").date()
+            except:
+                pass
+
+        # user_id を取得（account_id から users テーブルを検索）
+        conn = get_db_connection()
+        if not conn:
+            return {"success": False, "message": "❌ データベースに接続できなかったウル...もう一度試してほしいウル🐺"}
+
+        try:
+            # account_id から user_id と organization_id を取得
+            user_result = conn.execute(
+                text("""
+                    SELECT id, organization_id, name FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not user_result:
+                # ユーザーが見つからない場合はエラー（登録誘導）
+                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 まだソウルくんに登録されていないみたいウル！\n\n管理者に連絡して、ユーザー登録をお願いしてウル🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = user_result[1]
+            user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合もエラー
+            if not org_id:
+                print(f"⚠️ organization_idがNULL: user_id={user_id}")
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
+
+            # 目標を登録
+            goal_id = str(uuid4())
+
+            insert_query = text("""
+                INSERT INTO goals (
+                    id, organization_id, user_id, goal_level, title, description,
+                    goal_type, target_value, current_value, unit, deadline,
+                    period_type, period_start, period_end, status, classification,
+                    created_by, updated_by, created_at, updated_at
+                ) VALUES (
+                    :id, :organization_id, :user_id, 'individual', :title, NULL,
+                    :goal_type, :target_value, 0, :unit, :deadline,
+                    :period_type, :period_start, :period_end, 'active', 'internal',
+                    :user_id, :user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+            """)
+
+            conn.execute(insert_query, {
+                "id": goal_id,
+                "organization_id": org_id,
+                "user_id": user_id,
+                "title": goal_title,
+                "goal_type": goal_type,
+                "target_value": float(target_value) if target_value else None,
+                "unit": unit,
+                "deadline": period_end if goal_type == "deadline" else None,
+                "period_type": period_type,
+                "period_start": period_start,
+                "period_end": period_end,
+            })
+            conn.commit()
+
+            print(f"✅ 目標登録完了: goal_id={goal_id}, title={goal_title}, user_id={user_id}")
+
+            # 応答メッセージを組み立て
+            response = f"✅ 目標を登録したウル！🎯\n\n"
+            response += f"📌 目標: {goal_title}\n"
+
+            if goal_type == "numeric" and target_value:
+                formatted_value = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
+                response += f"🎯 目標値: {formatted_value}{unit or ''}\n"
+            elif goal_type == "deadline":
+                response += f"⏰ 期限: {period_end.strftime('%Y年%m月%d日')}\n"
+            elif goal_type == "action":
+                response += f"🔄 タイプ: 行動目標\n"
+
+            response += f"📅 期間: {period_start.strftime('%m/%d')}〜{period_end.strftime('%m/%d')}\n"
+            response += f"\n"
+            response += f"{user_name}さんなら絶対達成できるって、ソウルくんは信じてるウル💪🐺\n"
+            response += f"\n"
+            response += f"毎日17時に進捗を聞くから、一緒に頑張っていこうウル✨"
+
+            return {"success": True, "message": response}
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        print(f"❌ handle_goal_registration エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": "❌ 目標の登録に失敗したウル...もう一度試してほしいウル🐺"
+        }
+
+
+def handle_goal_progress_report(params, room_id, account_id, sender_name, context=None):
+    """
+    目標進捗報告ハンドラー（Phase 2.5）
+
+    goal_progress テーブルに進捗を記録する。
+    """
+    print(f"📊 handle_goal_progress_report 開始: room_id={room_id}, account_id={account_id}")
+    print(f"   params: {params}")
+
+    try:
+        from datetime import date, datetime
+        from decimal import Decimal
+        from uuid import uuid4
+        from sqlalchemy import text
+
+        progress_value = params.get("progress_value")
+        daily_note = params.get("daily_note", "")
+        daily_choice = params.get("daily_choice", "")
+
+        conn = get_db_connection()
+        if not conn:
+            return {"success": False, "message": "❌ データベースに接続できなかったウル...🐺"}
+
+        try:
+            # ユーザー情報を取得
+            user_result = conn.execute(
+                text("""
+                    SELECT id, organization_id, name FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not user_result:
+                return {
+                    "success": False,
+                    "message": "🤔 まだ目標を登録していないみたいウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = user_result[1]
+            user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合はエラー
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
+
+            # アクティブな目標を取得
+            goals_result = conn.execute(
+                text("""
+                    SELECT id, title, goal_type, target_value, current_value, unit, period_end
+                    FROM goals
+                    WHERE user_id = :user_id AND organization_id = :organization_id
+                      AND status = 'active'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """),
+                {"user_id": user_id, "organization_id": org_id}
+            ).fetchone()
+
+            if not goals_result:
+                return {
+                    "success": False,
+                    "message": "🤔 アクティブな目標が見つからないウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
+                }
+
+            goal_id = str(goals_result[0])
+            goal_title = goals_result[1]
+            goal_type = goals_result[2]
+            target_value = Decimal(str(goals_result[3])) if goals_result[3] else None
+            current_value = Decimal(str(goals_result[4])) if goals_result[4] else Decimal(0)
+            unit = goals_result[5] or ""
+            period_end = goals_result[6]
+
+            today = date.today()
+
+            # 累計値を計算
+            cumulative_value = None
+            if progress_value is not None and goal_type == "numeric":
+                progress_decimal = Decimal(str(progress_value))
+
+                # 既存の累計を取得
+                prev_result = conn.execute(
+                    text("""
+                        SELECT COALESCE(SUM(value), 0) as total
+                        FROM goal_progress
+                        WHERE goal_id = :goal_id AND organization_id = :organization_id
+                          AND progress_date < :today
+                    """),
+                    {"goal_id": goal_id, "organization_id": org_id, "today": today}
+                ).fetchone()
+
+                prev_total = Decimal(str(prev_result[0])) if prev_result else Decimal(0)
+                cumulative_value = prev_total + progress_decimal
+
+            # 進捗を記録（UPSERT）
+            progress_id = str(uuid4())
+
+            conn.execute(
+                text("""
+                    INSERT INTO goal_progress (
+                        id, goal_id, organization_id, progress_date, value,
+                        cumulative_value, daily_note, daily_choice, classification,
+                        created_by, updated_by, created_at, updated_at
+                    ) VALUES (
+                        :id, :goal_id, :organization_id, :progress_date, :value,
+                        :cumulative_value, :daily_note, :daily_choice, 'internal',
+                        :user_id, :user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                    ON CONFLICT (goal_id, progress_date)
+                    DO UPDATE SET
+                        value = EXCLUDED.value,
+                        cumulative_value = EXCLUDED.cumulative_value,
+                        daily_note = EXCLUDED.daily_note,
+                        daily_choice = EXCLUDED.daily_choice,
+                        updated_at = CURRENT_TIMESTAMP,
+                        updated_by = EXCLUDED.created_by
+                """),
+                {
+                    "id": progress_id,
+                    "goal_id": goal_id,
+                    "organization_id": org_id,
+                    "progress_date": today,
+                    "value": float(progress_value) if progress_value is not None else None,
+                    "cumulative_value": float(cumulative_value) if cumulative_value is not None else None,
+                    "daily_note": daily_note or None,
+                    "daily_choice": daily_choice or None,
+                    "user_id": user_id,
+                }
+            )
+
+            # 目標のcurrent_valueを更新
+            if cumulative_value is not None:
+                conn.execute(
+                    text("""
+                        UPDATE goals
+                        SET current_value = :cumulative_value, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = :goal_id AND organization_id = :organization_id
+                    """),
+                    {"goal_id": goal_id, "organization_id": org_id, "cumulative_value": float(cumulative_value)}
+                )
+
+            conn.commit()
+
+            print(f"✅ 進捗記録完了: goal_id={goal_id}, value={progress_value}, cumulative={cumulative_value}")
+
+            # 応答メッセージを組み立て
+            response = f"✅ 進捗を記録したウル！📊\n\n"
+            response += f"📌 目標: {goal_title}\n"
+
+            if goal_type == "numeric" and progress_value is not None and target_value:
+                formatted_today = f"{int(progress_value):,}" if progress_value == int(progress_value) else f"{progress_value:,.2f}"
+                formatted_cumulative = f"{int(cumulative_value):,}" if cumulative_value == int(cumulative_value) else f"{cumulative_value:,.2f}"
+                formatted_target = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
+
+                achievement_rate = float(cumulative_value / target_value * 100) if target_value else 0
+                remaining = target_value - cumulative_value
+
+                response += f"📈 今日の実績: +{formatted_today}{unit}\n"
+                response += f"📊 累計: {formatted_cumulative}{unit} / {formatted_target}{unit}\n"
+                response += f"🎯 達成率: {achievement_rate:.1f}%\n"
+
+                if achievement_rate >= 100:
+                    response += f"\n🎉🎉🎉 目標達成おめでとうウル！！！ 🎉🎉🎉\n"
+                    response += f"{user_name}さん、すごいウル！ソウルくんも嬉しいウル🐺✨"
+                elif achievement_rate >= 80:
+                    response += f"\nあと{int(remaining):,}{unit}で達成ウル！もう少しウル💪🐺"
+                elif achievement_rate >= 50:
+                    response += f"\n半分超えたウル！この調子で頑張ろうウル🐺✨"
+                else:
+                    response += f"\nまだまだこれからウル！{user_name}さんなら絶対できるウル💪🐺"
+
+            else:
+                if daily_note:
+                    response += f"📝 報告: {daily_note}\n"
+                response += f"\n今日も頑張ったウル！{user_name}さん、素敵ウル🐺✨"
+
+            return {"success": True, "message": response}
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        print(f"❌ handle_goal_progress_report エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": "❌ 進捗の記録に失敗したウル...もう一度試してほしいウル🐺"
+        }
+
+
+def handle_goal_status_check(params, room_id, account_id, sender_name, context=None):
+    """
+    目標確認ハンドラー（Phase 2.5）
+
+    現在の目標と進捗状況を返す。
+    """
+    print(f"📋 handle_goal_status_check 開始: room_id={room_id}, account_id={account_id}")
+
+    try:
+        from datetime import date
+        from decimal import Decimal
+        from sqlalchemy import text
+
+        conn = get_db_connection()
+        if not conn:
+            return {"success": False, "message": "❌ データベースに接続できなかったウル...🐺"}
+
+        try:
+            # ユーザー情報を取得
+            user_result = conn.execute(
+                text("""
+                    SELECT id, organization_id, name FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not user_result:
+                return {
+                    "success": False,
+                    "message": "🤔 まだ目標を登録していないみたいウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = user_result[1]
+            user_name = user_result[2] or sender_name or "ユーザー"
+
+            # organization_idがNULLの場合はエラー
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                }
+            org_id = str(org_id)
+
+            # アクティブな目標を全て取得
+            goals_result = conn.execute(
+                text("""
+                    SELECT id, title, goal_type, target_value, current_value, unit,
+                           period_start, period_end, deadline
+                    FROM goals
+                    WHERE user_id = :user_id AND organization_id = :organization_id
+                      AND status = 'active'
+                    ORDER BY created_at DESC
+                """),
+                {"user_id": user_id, "organization_id": org_id}
+            ).fetchall()
+
+            if not goals_result:
+                return {
+                    "success": False,
+                    "message": "🤔 アクティブな目標が見つからないウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
+                }
+
+            today = date.today()
+
+            # 応答メッセージを組み立て
+            response = f"{user_name}さんの目標状況ウル🐺\n\n"
+
+            for i, goal in enumerate(goals_result, 1):
+                goal_id = str(goal[0])
+                goal_title = goal[1]
+                goal_type = goal[2]
+                target_value = Decimal(str(goal[3])) if goal[3] else None
+                current_value = Decimal(str(goal[4])) if goal[4] else Decimal(0)
+                unit = goal[5] or ""
+                period_start = goal[6]
+                period_end = goal[7]
+                deadline = goal[8]
+
+                days_remaining = (period_end - today).days if period_end else 0
+
+                response += f"【目標{i}】{goal_title}\n"
+
+                if goal_type == "numeric" and target_value:
+                    achievement_rate = float(current_value / target_value * 100) if target_value else 0
+                    formatted_current = f"{int(current_value):,}" if current_value == int(current_value) else f"{current_value:,.2f}"
+                    formatted_target = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
+
+                    if achievement_rate >= 100:
+                        status_emoji = "🎉"
+                    elif achievement_rate >= 80:
+                        status_emoji = "📈"
+                    elif achievement_rate >= 50:
+                        status_emoji = "📊"
+                    else:
+                        status_emoji = "⚠️"
+
+                    response += f"├ 進捗: {formatted_current}{unit} / {formatted_target}{unit}\n"
+                    response += f"├ 達成率: {achievement_rate:.1f}% {status_emoji}\n"
+                elif goal_type == "deadline":
+                    response += f"├ タイプ: 期限目標\n"
+                    response += f"├ 期限: {period_end.strftime('%Y年%m月%d日') if period_end else '未設定'}\n"
+                else:
+                    response += f"├ タイプ: 行動目標\n"
+
+                response += f"└ 残り日数: {days_remaining}日\n\n"
+
+            if len(goals_result) == 1:
+                goal = goals_result[0]
+                goal_type = goal[2]
+                target_value = Decimal(str(goal[3])) if goal[3] else None
+                current_value = Decimal(str(goal[4])) if goal[4] else Decimal(0)
+
+                if goal_type == "numeric" and target_value:
+                    achievement_rate = float(current_value / target_value * 100) if target_value else 0
+                    if achievement_rate >= 100:
+                        response += f"🎉 すごい！目標達成済みウル！次の目標を設定してもいいかもウル🐺✨"
+                    elif achievement_rate >= 80:
+                        response += f"💪 あともう少しで達成ウル！{user_name}さんなら絶対できるウル🐺"
+                    else:
+                        response += f"✨ 一緒に頑張っていこうウル！ソウルくんは{user_name}さんを応援してるウル🐺"
+                else:
+                    response += f"✨ 今日も目標に向かって頑張ろうウル🐺"
+            else:
+                response += f"✨ {len(goals_result)}個の目標を追いかけてるウル！{user_name}さん、頑張ってるウル🐺"
+
+            return {"success": True, "message": response}
+
+        finally:
+            conn.close()
+
+    except Exception as e:
+        print(f"❌ handle_goal_status_check エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": "❌ 目標の確認に失敗したウル...もう一度試してほしいウル🐺"
+        }
+
+
 HANDLERS = {
     "handle_chatwork_task_create": handle_chatwork_task_create,
     "handle_chatwork_task_complete": handle_chatwork_task_complete,
@@ -3921,6 +4543,10 @@ HANDLERS = {
     "handle_proposal_decision": handle_proposal_decision,
     # v10.13.0: Phase 3 ナレッジ検索
     "handle_query_company_knowledge": handle_query_company_knowledge,
+    # v10.15.0: Phase 2.5 目標達成支援
+    "handle_goal_registration": handle_goal_registration,
+    "handle_goal_progress_report": handle_goal_progress_report,
+    "handle_goal_status_check": handle_goal_status_check,
 }
 
 

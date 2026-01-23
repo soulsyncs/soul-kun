@@ -93,6 +93,9 @@
 | バージョン | 日付 | 内容 |
 |-----------|------|------|
 | v10.15.0 | 2026-01-23 | Phase 2.5 Week 1: DBテーブル設計・マイグレーション・ORMモデル作成 |
+| v10.15.1 | 2026-01-23 | Phase 2.5 Week 2: 目標管理サービス・ChatWork目標登録ハンドラー |
+| v10.15.2 | 2026-01-23 | Phase 2.5 Week 3: 目標通知サービス・Cloud Function追加 |
+| v10.15.3 | 2026-01-23 | Phase 2.5 Week 4: テスト作成・3日連続未回答通知・アクセス権限・Schedulerドキュメント |
 
 ## ■ v10.15.0 Week 1 実装内容
 
@@ -137,14 +140,127 @@
 | `check_reminder_type` | goal_reminders | daily_check, morning_feedback, team_summary, daily_reminder |
 | `check_audit_log_classification` | audit_logs | public, internal, confidential, restricted |
 
-## ■ 次のステップ（Week 2以降）
+## ■ v10.15.1 Week 2 実装内容
+
+### 作成されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `lib/goal.py` | 目標管理サービス（GoalService, Goal, GoalProgress等） |
+| `lib/__init__.py` | 共通ライブラリエクスポート（v1.3.0→v1.4.0） |
+
+### 追加された機能
+
+| 機能 | 説明 |
+|------|------|
+| `GoalService` | 目標のCRUD操作、進捗記録、AIフィードバック保存 |
+| `GoalLevel` | 目標レベル（company/department/individual） |
+| `GoalType` | 目標タイプ（numeric/deadline/action） |
+| `GoalStatus` | 目標ステータス（active/completed/cancelled） |
+| `parse_goal_type_from_text()` | テキストから目標タイプを自動判定 |
+| `calculate_period_from_type()` | 期間タイプから開始・終了日を計算 |
+
+### ChatWorkハンドラー追加
+
+| ハンドラー | 機能 |
+|-----------|------|
+| `handle_goal_registration` | 目標登録対話 |
+| `handle_goal_progress_report` | 進捗報告 |
+| `handle_goal_status_check` | 目標ステータス確認 |
+
+## ■ v10.15.2 Week 3 実装内容
+
+### 作成されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `lib/goal_notification.py` | 目標通知サービス（17時・18時・8時の通知処理） |
+
+### 通知タイプ
+
+| 通知タイプ | 時刻 | 説明 |
+|-----------|------|------|
+| `goal_daily_check` | 17:00 | 進捗確認（全スタッフ宛DM） |
+| `goal_daily_reminder` | 18:00 | 未回答リマインド（17時未回答者のみ） |
+| `goal_morning_feedback` | 08:00 | 個人フィードバック + チームサマリー |
+| `goal_team_summary` | 08:00 | チームリーダー・部長向けサマリー |
+
+### Cloud Function追加
+
+| 関数名 | スケジュール | 説明 |
+|--------|-------------|------|
+| `goal_daily_check` | 0 17 * * * | 17時進捗確認送信 |
+| `goal_daily_reminder` | 0 18 * * * | 18時未回答リマインド |
+| `goal_morning_feedback` | 0 8 * * * | 8時朝フィードバック |
+
+### 冪等性設計
+
+- `notification_logs`テーブルを活用
+- UPSERT仕様で二重送信防止
+- 受信者単位で管理（チームサマリーも）
+
+## ■ v10.15.3 Week 4 実装内容
+
+### 作成されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `tests/test_goal.py` | 目標管理サービス（lib/goal.py）の包括的テスト |
+| `tests/test_goal_notification.py` | 目標通知サービス（lib/goal_notification.py）の包括的テスト |
+| `migrations/phase_2-5_scheduler_setup.md` | Cloud Scheduler設定ガイド |
+
+### 更新されたファイル
+
+| ファイル | 内容 |
+|---------|------|
+| `lib/goal_notification.py` | 3日連続未回答通知・アクセス権限チェック機能追加 |
+| `lib/__init__.py` | 新規エクスポート追加 |
+| `remind-tasks/main.py` | `goal_consecutive_unanswered_check` Cloud Function追加 |
+| `tests/conftest.py` | 目標関連テストフィクスチャ追加 |
+
+### 追加された機能
+
+| 機能 | 説明 |
+|------|------|
+| `goal_consecutive_unanswered` | 09:00 3日連続未回答アラート（チームリーダー・部長宛） |
+| `check_consecutive_unanswered_users()` | 連続未回答者検出ロジック |
+| `can_view_goal()` | 目標閲覧権限チェック |
+| `get_viewable_user_ids()` | 閲覧可能なユーザーID一覧取得 |
+
+### テストカバレッジ
+
+| テストファイル | テストクラス数 | テストケース数 |
+|--------------|--------------|--------------|
+| `test_goal.py` | 9 | 35+ |
+| `test_goal_notification.py` | 15 | 50+ |
+
+### Cloud Scheduler設定
+
+| ジョブ名 | 時刻 (JST) | 説明 |
+|---------|-----------|------|
+| `goal-daily-check` | 17:00 | 進捗確認（全スタッフへのDM） |
+| `goal-daily-reminder` | 18:00 | 未回答リマインド（17時未回答者へのDM） |
+| `goal-morning-feedback` | 08:00 | 朝フィードバック + チームサマリー |
+| `goal-consecutive-unanswered` | 09:00 | 3日連続未回答アラート |
+
+### アクセス権限設計
+
+| 役職 | 閲覧範囲 |
+|------|---------|
+| 一般スタッフ | 自分の目標のみ |
+| チームリーダー | 自部署の目標 |
+| 部長 | 自部署+配下部署の目標 |
+| 経営 | 全社の目標 |
+| 代表 | 全社の目標 |
+
+## ■ 進捗状況
 
 | Week | タスク | 状態 |
 |------|--------|------|
 | Week 1 | DBテーブル作成・ORMモデル | ✅ 完了 |
-| Week 2 | ChatWork目標登録機能 | 📋 未着手 |
-| Week 3 | 17時進捗確認・18時リマインド・8時フィードバック | 📋 未着手 |
-| Week 4 | チームサマリー・テスト | 📋 未着手 |
+| Week 2 | ChatWork目標登録機能 | ✅ 完了 |
+| Week 3 | 17時進捗確認・18時リマインド・8時フィードバック | ✅ 完了 |
+| Week 4 | テスト・3日連続未回答・アクセス権限・Scheduler設定 | ✅ 完了 |
 
 ---
 

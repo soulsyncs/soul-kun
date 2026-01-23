@@ -7121,7 +7121,7 @@ def log_deadline_alert_for_manual_task(
                 organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
                 notification_type VARCHAR(50) NOT NULL,
                 target_type VARCHAR(50) NOT NULL,
-                target_id BIGINT,
+                target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
                 notification_date DATE NOT NULL,
                 sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                 status VARCHAR(20) NOT NULL,

@@ -14,8 +14,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# lib/ - Python distutils default, but we use lib/ for shared code
+# Use !lib/*.py to include our shared library files
+# lib/
 lib64/
+!lib/
 parts/
 sdist/
 var/

@@ -3277,7 +3277,7 @@ def ensure_overdue_tables():
                 print("✅ metadataカラム確認/追加完了")
             except Exception as e:
                 print(f"⚠️ metadataカラム追加エラー（無視）: {e}")
-            # ★★★ v10.5.0: check_notification_type制約を更新（task_escalation追加）★★★
+            # ★★★ v10.14.2: check_notification_type制約を更新（goal通知追加）★★★
             try:
                 with pool.begin() as conn:
                     conn.execute(sqlalchemy.text("""
@@ -3287,12 +3287,34 @@ def ensure_overdue_tables():
                         ALTER TABLE notification_logs ADD CONSTRAINT check_notification_type
                         CHECK (notification_type IN (
                             'task_reminder', 'task_overdue', 'task_escalation',
-                            'deadline_alert', 'escalation_alert', 'dm_unavailable'
+                            'deadline_alert', 'escalation_alert', 'dm_unavailable',
+                            'goal_daily_check', 'goal_daily_reminder', 'goal_morning_feedback',
+                            'goal_team_summary', 'goal_consecutive_unanswered'
                         ))
                     """))
-                print("✅ check_notification_type制約更新完了")
+                print("✅ check_notification_type制約更新完了（goal通知対応）")
             except Exception as e:
                 print(f"⚠️ check_notification_type制約更新エラー（無視）: {e}")
+            # ★★★ v10.14.2: target_idをBIGINT→TEXTに変更（UUID対応）★★★
+            try:
+                with pool.begin() as conn:
+                    # target_idの型を確認
+                    result = conn.execute(sqlalchemy.text("""
+                        SELECT data_type FROM information_schema.columns
+                        WHERE table_name = 'notification_logs' AND column_name = 'target_id'
+                    """))
+                    row = result.fetchone()
+                    if row and row[0] == 'bigint':
+                        # BIGINTの場合はTEXTに変更（既存データはTEXTに自動キャスト）
+                        conn.execute(sqlalchemy.text("""
+                            ALTER TABLE notification_logs
+                            ALTER COLUMN target_id TYPE TEXT USING target_id::TEXT
+                        """))
+                        print("✅ target_idカラムをBIGINT→TEXTに変更完了（UUID対応）")
+                    else:
+                        print("✅ target_idカラム確認完了（TEXT）")
+            except Exception as e:
+                print(f"⚠️ target_idカラム変更エラー（無視）: {e}")
         else:
             with pool.begin() as conn:
                 conn.execute(sqlalchemy.text("""
@@ -3301,7 +3323,7 @@ def ensure_overdue_tables():
                         organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
                         notification_type VARCHAR(50) NOT NULL,
                         target_type VARCHAR(50) NOT NULL,
-                        target_id BIGINT,
+                        target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
                         notification_date DATE NOT NULL,
                         sent_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
                         status VARCHAR(20) NOT NULL,
@@ -6296,3 +6318,406 @@ def cleanup_old_data(request):
         "status": "ok" if not results["errors"] else "partial",
         "results": results
     })
+
+
+# =====================================================
+# ★★★ v10.15.0: Phase 2.5 目標達成支援 ★★★
+# =====================================================
+#
+# 以下の Cloud Functions は Cloud Scheduler から呼び出される:
+#   - goal_daily_check:    17:00 JST 毎日
+#   - goal_daily_reminder: 18:00 JST 毎日
+#   - goal_morning_feedback: 08:00 JST 毎日
+#
+# Cloud Scheduler 設定例:
+#   gcloud scheduler jobs create http goal-daily-check \
+#     --schedule="0 17 * * *" \
+#     --time-zone="Asia/Tokyo" \
+#     --uri="https://REGION-PROJECT.cloudfunctions.net/goal_daily_check" \
+#     --http-method=POST
+# =====================================================
+
+# 目標通知サービスをインポート（遅延インポートで循環参照回避）
+def _get_goal_notification_module():
+    """目標通知モジュールの遅延インポート"""
+    import sys
+    import os
+
+    # lib/ パスを追加
+    lib_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib')
+    if lib_path not in sys.path:
+        sys.path.insert(0, lib_path)
+
+    from lib.goal_notification import (
+        scheduled_daily_check,
+        scheduled_daily_reminder,
+        scheduled_morning_feedback,
+    )
+    return scheduled_daily_check, scheduled_daily_reminder, scheduled_morning_feedback
+
+
+# デフォルトの組織ID（ソウルシンクス - 本番UUID）
+# 環境変数DEFAULT_ORG_IDから取得、未設定の場合はNone
+DEFAULT_ORG_ID = os.getenv("DEFAULT_ORG_ID")
+
+
+def _validate_org_id(org_id):
+    """
+    組織IDがUUID形式かどうかを検証する
+
+    Args:
+        org_id: 検証する組織ID
+
+    Returns:
+        bool: UUIDとして有効ならTrue
+    """
+    import uuid
+    if not org_id:
+        return False
+    try:
+        uuid.UUID(str(org_id))
+        return True
+    except (ValueError, AttributeError):
+        return False
+
+
+def _send_chatwork_message_wrapper(room_id, message):
+    """
+    ChatWorkメッセージ送信のラッパー関数
+
+    既存の send_reminder_with_test_guard を使用して
+    テストモード対応・レート制限対応を行う
+    """
+    return send_reminder_with_test_guard(int(room_id), message)
+
+
+@functions_framework.http
+def goal_daily_check(request):
+    """
+    Cloud Function: 17:00 目標進捗確認
+
+    全スタッフにその日の振り返りを問いかけるDMを送信。
+    1ユーザーが複数目標を持っていても、1通にまとめて送信。
+
+    Cloud Scheduler から毎日17:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== 🎯 Phase 2.5: 17時進捗確認 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_check",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_check",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
+            }), 400
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        scheduled_daily_check, _, _ = _get_goal_notification_module()
+
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
+        pool = get_pool()
+        with pool.connect() as conn:
+            results = scheduled_daily_check(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== 🎯 17時進捗確認 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_daily_check",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_daily_check",
+            "error": sanitize_error(e),
+        }), 500
+
+
+@functions_framework.http
+def goal_daily_reminder(request):
+    """
+    Cloud Function: 18:00 未回答リマインド
+
+    17時の進捗確認に未回答のスタッフにリマインドDMを送信。
+
+    Cloud Scheduler から毎日18:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== 🔔 Phase 2.5: 18時未回答リマインド 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_reminder",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_daily_reminder",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
+            }), 400
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        _, scheduled_daily_reminder, _ = _get_goal_notification_module()
+
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
+        pool = get_pool()
+        with pool.connect() as conn:
+            results = scheduled_daily_reminder(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== 🔔 18時未回答リマインド 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_daily_reminder",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_daily_reminder",
+            "error": sanitize_error(e),
+        }), 500
+
+
+@functions_framework.http
+def goal_morning_feedback(request):
+    """
+    Cloud Function: 08:00 朝フィードバック
+
+    以下を送信:
+    1. 個人フィードバック: 昨日進捗報告したスタッフへのフィードバックDM
+    2. チームサマリー: チームリーダー・部長へのチーム進捗サマリーDM
+
+    Cloud Scheduler から毎日08:00 JSTに呼び出される想定。
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== ☀️ Phase 2.5: 8時朝フィードバック 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_morning_feedback",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_morning_feedback",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
+            }), 400
+
+        print(f"組織ID: {org_id}")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュール取得
+        _, _, scheduled_morning_feedback = _get_goal_notification_module()
+
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
+        pool = get_pool()
+        with pool.connect() as conn:
+            results = scheduled_morning_feedback(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== ☀️ 8時朝フィードバック 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_morning_feedback",
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_morning_feedback",
+            "error": sanitize_error(e),
+        }), 500
+
+
+@functions_framework.http
+def goal_consecutive_unanswered_check(request):
+    """
+    Cloud Function: 3日連続未回答チェック
+
+    3日連続で進捗報告がないスタッフを検出し、
+    そのスタッフのチームリーダー・部長にアラートを送信。
+
+    Cloud Scheduler から毎日09:00 JSTに呼び出される想定。
+    （8時の朝フィードバック後に実行）
+
+    リクエストボディ（オプション）:
+        {
+            "org_id": "xxx",  // 省略時はデフォルト組織
+            "consecutive_days": 3,  // 省略時は3日
+            "dry_run": true   // 省略時は環境変数DRY_RUNに従う
+        }
+    """
+    print("=" * 60)
+    print("=== ⚠️ Phase 2.5: 連続未回答チェック 開始 (v10.15.0) ===")
+    print(f"DRY_RUN: {DRY_RUN}")
+    print("=" * 60)
+
+    try:
+        # リクエストパラメータ取得
+        request_json = request.get_json(silent=True) or {}
+        org_id = request_json.get("org_id", DEFAULT_ORG_ID)
+        consecutive_days = request_json.get("consecutive_days", 3)
+        dry_run = request_json.get("dry_run", DRY_RUN)
+
+        # 組織IDのUUID検証
+        if not org_id:
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_consecutive_unanswered",
+                "error": "Missing org_id. Set DEFAULT_ORG_ID environment variable or pass org_id in request body.",
+            }), 400
+        if not _validate_org_id(org_id):
+            return jsonify({
+                "status": "error",
+                "notification_type": "goal_consecutive_unanswered",
+                "error": f"Invalid org_id format. Must be a valid UUID. Received: {org_id[:20]}...",
+            }), 400
+
+        print(f"組織ID: {org_id}")
+        print(f"連続未回答日数: {consecutive_days}日")
+        print(f"ドライランモード: {dry_run}")
+
+        # 目標通知モジュールから連続未回答チェック関数を取得
+        import sys
+        import os
+        lib_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'lib')
+        if lib_path not in sys.path:
+            sys.path.insert(0, lib_path)
+
+        from lib.goal_notification import scheduled_consecutive_unanswered_check
+
+        # DB接続を取得（CLAUDE.md鉄則#10: トランザクション内でAPI呼び出しをしないため、beginではなくconnectを使用）
+        pool = get_pool()
+        with pool.connect() as conn:
+            results = scheduled_consecutive_unanswered_check(
+                conn=conn,
+                org_id=org_id,
+                send_message_func=_send_chatwork_message_wrapper,
+                consecutive_days=consecutive_days,
+                dry_run=dry_run,
+            )
+
+        print("=" * 60)
+        print(f"📊 送信結果: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}")
+        print("=== ⚠️ 連続未回答チェック 完了 ===")
+        print("=" * 60)
+
+        return jsonify({
+            "status": "ok",
+            "notification_type": "goal_consecutive_unanswered",
+            "consecutive_days": consecutive_days,
+            "results": results,
+        })
+
+    except Exception as e:
+        print(f"❌ エラー: {e}")
+        traceback.print_exc()
+        # CLAUDE.md鉄則#8: エラーメッセージに機密情報を含めない
+        from lib.goal_notification import sanitize_error
+        return jsonify({
+            "status": "error",
+            "notification_type": "goal_consecutive_unanswered",
+            "error": sanitize_error(e),
+        }), 500

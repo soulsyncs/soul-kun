@@ -19,20 +19,24 @@ v10.17.1: 件名抽出・名前除去・行中挨拶除去のテスト追加
 import pytest
 import sys
 import os
+import importlib.util
 
-# libをインポートパスに追加（CI環境対応）
+# プロジェクトルートを取得
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 
-# lib.text_utilsから直接インポート（lib/__init__.pyの依存関係を回避）
-from lib.text_utils import (
-    prepare_task_display_text,
-    clean_chatwork_tags,
-    remove_greetings,
-    validate_summary,
-    is_greeting_only,
-)
+# lib/text_utils.pyを直接読み込む（lib/__init__.pyを経由しない）
+# これによりCI環境でsqlalchemy等の依存関係がなくてもテスト可能
+text_utils_path = os.path.join(project_root, 'lib', 'text_utils.py')
+spec = importlib.util.spec_from_file_location("text_utils", text_utils_path)
+text_utils = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(text_utils)
+
+# モジュールから関数を取得
+prepare_task_display_text = text_utils.prepare_task_display_text
+clean_chatwork_tags = text_utils.clean_chatwork_tags
+remove_greetings = text_utils.remove_greetings
+validate_summary = text_utils.validate_summary
+is_greeting_only = text_utils.is_greeting_only
 
 
 class TestPrepareTaskDisplayText:

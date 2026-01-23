@@ -12,6 +12,8 @@ Soul-kun 共通ライブラリ
 - document_processor: ドキュメント処理（Phase 3）
 - pinecone_client: Pineconeベクター検索（Phase 3）
 - embedding: エンベディング生成（Phase 3）
+- detection: 検出基盤（Phase 2進化版 A1）
+- insights: インサイト管理（Phase 2進化版 A1）
 
 使用例（Flask/Cloud Functions）:
     from lib import get_secret, get_db_pool, ChatworkClient
@@ -22,13 +24,17 @@ Soul-kun 共通ライブラリ
 Phase 3 ナレッジ検索:
     from lib import GoogleDriveClient, DocumentProcessor, PineconeClient, EmbeddingClient
 
+Phase 2進化版 A1 パターン検出:
+    from lib.detection import PatternDetector, DetectionContext
+    from lib.insights import InsightService, WeeklyReportService
+
 Phase 4対応:
     - 全モジュールがorganization_id（テナントID）を認識
     - sync/async両方をサポート
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.5.0"  # v10.17.0: prepare_task_display_text追加
+__version__ = "1.6.0"  # v10.18.0: Phase 2進化版 A1 パターン検出基盤追加
 
 # 設定
 from lib.config import (
@@ -180,6 +186,62 @@ from lib.goal_notification import (
     get_viewable_user_ids,
 )
 
+# v10.18.0: Phase 2進化版 A1 検出基盤
+from lib.detection import (
+    # 定数
+    DetectionParameters,
+    QuestionCategory,
+    CATEGORY_KEYWORDS,
+    PatternStatus,
+    InsightStatus,
+    WeeklyReportStatus,
+    InsightType,
+    SourceType,
+    NotificationType,
+    Importance,
+    ErrorCode,
+    IdempotencyKeyPrefix,
+    LogMessages,
+    # 例外
+    DetectionBaseException,
+    DetectionError,
+    PatternSaveError,
+    InsightCreateError,
+    NotificationError,
+    DatabaseError,
+    ValidationError,
+    AuthenticationError,
+    AuthorizationError,
+    wrap_database_error,
+    wrap_detection_error,
+    # データクラス
+    InsightData,
+    DetectionContext,
+    DetectionResult,
+    PatternData,
+    # 基底クラス
+    BaseDetector,
+    # 検出器
+    PatternDetector,
+    # ユーティリティ
+    validate_uuid,
+    truncate_text,
+)
+
+# v10.18.0: Phase 2進化版 A1 インサイト管理
+from lib.insights import (
+    # InsightService関連
+    InsightFilter,
+    InsightSummary,
+    InsightRecord,
+    InsightService,
+    # WeeklyReportService関連
+    WeeklyReportRecord,
+    ReportInsightItem,
+    GeneratedReport,
+    WeeklyReportService,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -275,4 +337,46 @@ __all__ = [
     "check_consecutive_unanswered_users",
     "can_view_goal",
     "get_viewable_user_ids",
+    # v10.18.0: Phase 2進化版 A1 Detection
+    "DetectionParameters",
+    "QuestionCategory",
+    "CATEGORY_KEYWORDS",
+    "PatternStatus",
+    "InsightStatus",
+    "WeeklyReportStatus",
+    "InsightType",
+    "SourceType",
+    "NotificationType",
+    "Importance",
+    "ErrorCode",
+    "IdempotencyKeyPrefix",
+    "LogMessages",
+    "DetectionBaseException",
+    "DetectionError",
+    "PatternSaveError",
+    "InsightCreateError",
+    "NotificationError",
+    "DatabaseError",
+    "ValidationError",
+    "AuthenticationError",
+    "AuthorizationError",
+    "wrap_database_error",
+    "wrap_detection_error",
+    "InsightData",
+    "DetectionContext",
+    "DetectionResult",
+    "PatternData",
+    "BaseDetector",
+    "PatternDetector",
+    "validate_uuid",
+    "truncate_text",
+    # v10.18.0: Phase 2進化版 A1 Insights
+    "InsightFilter",
+    "InsightSummary",
+    "InsightRecord",
+    "InsightService",
+    "WeeklyReportRecord",
+    "ReportInsightItem",
+    "GeneratedReport",
+    "WeeklyReportService",
 ]

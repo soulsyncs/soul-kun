@@ -3921,9 +3921,12 @@ def report_unassigned_overdue_tasks(tasks):
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
 
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
@@ -4180,9 +4183,12 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
-        # ★★★ v10.11.0: clean_task_body()を使用してタスク本文をクリーンアップ ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         # room_nameを取得（なければ「（不明）」）
         room_name = task.get("room_name") or "（不明）"
@@ -4462,9 +4468,12 @@ def send_escalation_to_requester(requester_id, tasks):
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
 
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         room_name = task.get("room_name") or "（不明）"
@@ -4524,9 +4533,12 @@ def send_escalation_to_admin(tasks):
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
 
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         room_name = task.get("room_name") or "（不明）"

@@ -63,11 +63,12 @@ jobs:
   # 2. 禁止パターン検出（直接切り詰め防止）
   # =====================================================
   #
-  # 検出対象: タスク表示用の直接切り詰め（[:40]形式）
+  # 検出対象: タスク表示用の直接切り詰め（[:30], [:40]形式）
   # 検出対象外:
   #   - ログ出力用（[:500]など大きな数字）
   #   - エラーメッセージ（str(e)[:50]）
-  #   - ローカル関数定義内のフォールバック
+  #   - summary_preview（ログ出力用）
+  #   - フォールバック関数内の定義
   #
   forbidden-patterns-check:
     name: Check for forbidden patterns
@@ -86,24 +87,80 @@ jobs:
             "sync-chatwork-tasks/main.py"
           )
 
-          # 禁止パターン: clean_body[:40] + "..." 形式（タスク表示用の直接切り詰め）
-          # 許可パターン:
-          #   - [:500] などの大きな数字（ログ出力用）
-          #   - str(e)[:50] （エラーメッセージ）
-          #   - prepare_task_display_text を使用している場合
+          # =====================================================
+          # 禁止パターン（v10.17.1強化）
+          # =====================================================
+          # 検出対象:
+          #   - body[:30], body[:40] + "..." 形式
+          #   - task["body"][:30] + "..." 形式
+          #   - task_body[:30] + "..." 形式
+          #   - clean_task_name[:30] + "..." 形式
+          #   - clean_body[:40] + "..." 形式
+          #
+          # 除外パターン:
+          #   - summary[:30]（ログ出力用なのでOK）
+          #   - summary_preview（ログ出力用なのでOK）
+          #   - current_summary[:50]（ログ/監査用なのでOK）
+          #   - text[:max_length]（フォールバック関数内なのでOK）
+          # =====================================================
+
           ERRORS_FOUND=0
 
           for file in "${TARGET_FILES[@]}"; do
             if [ -f "$file" ]; then
               echo "Checking $file..."
 
-              # clean_body[:40] + "..." パターンを検出（タスク表示用の危険な切り詰め）
-              # これは prepare_task_display_text() を使うべき箇所
+              # パターン1: body[:30] + "..." 形式（変数名がbodyで始まる）
+              # ただし、"summary" を含む行は除外
+              if grep -n 'body\[:3[0-9]\].*\.\.\.' "$file" | grep -v "summary" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous body truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン2: task["body"][:30] + "..." 形式
+              if grep -n 'task\["body"\]\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task[\"body\"] truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン3: task_info["body"][:30] + "..." 形式
+              if grep -n 'task_info\["body"\]\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task_info[\"body\"] truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン4: task_body[:30] パターン（f-string内）
+              if grep -n 'task_body\[:3[0-9]\]' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task_body truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン5: clean_task_name[:30] + "..." 形式
+              if grep -n 'clean_task_name\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous clean_task_name truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン6: clean_body[:4x] + "..." 形式（元々のチェック）
               if grep -n 'clean_body\[:4[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
                 if [ -s /tmp/matches.txt ]; then
-                  echo "❌ Found dangerous truncation pattern in $file:"
+                  echo "❌ Found dangerous clean_body truncation pattern in $file:"
                   cat /tmp/matches.txt
-                  echo "   → Use prepare_task_display_text() instead"
                   ERRORS_FOUND=1
                 fi
               fi
@@ -113,7 +170,7 @@ jobs:
           if [ $ERRORS_FOUND -eq 1 ]; then
             echo ""
             echo "❌ Forbidden patterns found!"
-            echo "   Use prepare_task_display_text() instead of direct [:40] truncation."
+            echo "   Use prepare_task_display_text() instead of direct truncation."
             exit 1
           fi
 

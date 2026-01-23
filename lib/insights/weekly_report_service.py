@@ -981,7 +981,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                 """), {
                     "org_id": str(self._org_id),
                     "notification_type": NotificationType.WEEKLY_REPORT.value,
-                    "target_id": f"weekly_report:{week_start.isoformat()}",
+                    "target_id": f"weekly_report:{week_start.isoformat()}:{self._org_id}",
                     "notification_date": week_start,
                     "channel": sent_via,
                     "channel_target": str(chatwork_room_id) if chatwork_room_id else None,

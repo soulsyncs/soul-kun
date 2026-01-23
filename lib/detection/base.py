@@ -406,31 +406,38 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
             notification_sent = False
             if is_new_insight and insight_data.importance in (Importance.CRITICAL, Importance.HIGH):
                 try:
-                    # notification_logsに即時通知を登録（冪等性確保のためON CONFLICT DO NOTHING）
+                    # notification_logsに即時通知を登録
+                    # スキーマ準拠: notification_date(DATE), sent_at, status, channel, channel_target
+                    # UNIQUE制約: (organization_id, target_type, target_id, notification_date, notification_type)
                     self._conn.execute(text("""
                         INSERT INTO notification_logs (
                             organization_id,
                             notification_type,
                             target_type,
                             target_id,
-                            scheduled_at,
+                            notification_date,
+                            sent_at,
                             status,
-                            created_at
+                            channel,
+                            channel_target
                         ) VALUES (
                             :org_id,
                             :notification_type,
                             :target_type,
                             :target_id,
-                            CURRENT_TIMESTAMP,
+                            CURRENT_DATE,
+                            NOW(),
                             'pending',
-                            CURRENT_TIMESTAMP
+                            NULL,
+                            NULL
                         )
-                        ON CONFLICT DO NOTHING
+                        ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                        DO NOTHING
                     """), {
                         "org_id": str(insight_data.organization_id),
                         "notification_type": NotificationType.PATTERN_ALERT.value,
                         "target_type": "system",
-                        "target_id": f"pattern_alert:{insight_id}:{insight_data.organization_id}",
+                        "target_id": str(insight_id),  # インサイトIDをそのまま使用
                     })
 
                     notification_sent = True

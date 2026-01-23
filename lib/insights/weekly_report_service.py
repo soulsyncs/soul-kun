@@ -381,8 +381,10 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             list[ReportInsightItem]: インサイト項目のリスト
         """
         try:
-            # 週の終了日は23:59:59まで含める
-            end_datetime = datetime.combine(week_end, datetime.max.time())
+            # 週の終了日は翌日00:00:00を排他上限として使用
+            # （Codex LOW指摘対応: タイムゾーン非考慮問題を回避）
+            # created_at < week_end + 1 day で週末23:59:59.999999まで含める
+            end_exclusive = week_end + timedelta(days=1)
 
             # 機密情報漏洩防止: confidential/restricted は週次レポートに含めない
             # （Codex HIGH指摘対応: 送信先が広い場合のリスク軽減）
@@ -399,7 +401,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                 FROM soulkun_insights
                 WHERE organization_id = :org_id
                   AND created_at >= :week_start
-                  AND created_at <= :week_end
+                  AND created_at < :week_end_exclusive
                   AND status IN ('new', 'acknowledged')
                   AND classification IN ('public', 'internal')
                 ORDER BY
@@ -413,7 +415,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             """), {
                 "org_id": str(self._org_id),
                 "week_start": week_start,
-                "week_end": end_datetime,
+                "week_end_exclusive": end_exclusive,
             })
 
             return [

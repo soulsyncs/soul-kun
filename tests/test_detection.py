@@ -780,6 +780,19 @@ class TestPatternDetectorHash:
             is_hex = False
         assert is_hex
 
+    def test_hash_case_insensitive(self, detector):
+        """大文字小文字は同じハッシュになる（Codex MEDIUM対応）"""
+        # 英字の大文字小文字
+        hash_lower = detector._generate_hash("test question")
+        hash_upper = detector._generate_hash("TEST QUESTION")
+        hash_mixed = detector._generate_hash("Test Question")
+        assert hash_lower == hash_upper == hash_mixed
+
+        # 日本語は変わらない（casefoldでも変化なし）
+        hash_jp1 = detector._generate_hash("週報の出し方")
+        hash_jp2 = detector._generate_hash("週報の出し方")
+        assert hash_jp1 == hash_jp2
+
 
 # ================================================================
 # __init__.py のテスト（インポートテスト）

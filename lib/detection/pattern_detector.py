@@ -586,8 +586,12 @@ class PatternDetector(BaseDetector):
         Returns:
             ハッシュ文字列（64文字）
         """
+        # 大文字小文字を吸収（Codex MEDIUM指摘対応）
+        # 「週報の出し方」と「週報の出し方」が同一パターンとして認識されるように
+        normalized_lower = normalized_question.casefold()
+
         # SHA256ハッシュを生成
-        hash_bytes = hashlib.sha256(normalized_question.encode('utf-8')).digest()
+        hash_bytes = hashlib.sha256(normalized_lower.encode('utf-8')).digest()
         return hash_bytes.hex()[:64]
 
     # ================================================================

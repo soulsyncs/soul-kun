@@ -411,6 +411,8 @@ class InsightService:
         )
 
         try:
+            # 冪等性確保: ON CONFLICT DO NOTHINGで重複時は挿入をスキップ
+            # （Codex MEDIUM指摘対応: リトライや並行実行でIntegrityError防止）
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_insights (
                     organization_id,
@@ -445,6 +447,9 @@ class InsightService:
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (organization_id, source_type, source_id)
+                    WHERE source_id IS NOT NULL
+                DO NOTHING
                 RETURNING id
             """), {
                 "organization_id": str(self._org_id),
@@ -463,6 +468,31 @@ class InsightService:
             })
 
             row = result.fetchone()
+
+            # 重複によりDO NOTHINGが実行された場合、既存レコードのIDを取得
+            if row is None and source_id is not None:
+                existing_result = self._conn.execute(text("""
+                    SELECT id FROM soulkun_insights
+                    WHERE organization_id = :org_id
+                      AND source_type = :source_type
+                      AND source_id = :source_id
+                """), {
+                    "org_id": str(self._org_id),
+                    "source_type": source_type.value,
+                    "source_id": str(source_id),
+                })
+                existing_row = existing_result.fetchone()
+                if existing_row:
+                    self._logger.info(
+                        "Insight already exists (idempotent)",
+                        extra={
+                            "organization_id": str(self._org_id),
+                            "insight_id": str(existing_row[0]),
+                            "source_id": str(source_id),
+                        }
+                    )
+                    return UUID(str(existing_row[0]))
+
             if row is None:
                 raise InsightCreateError(
                     message="Failed to get inserted insight ID",

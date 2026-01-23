@@ -912,6 +912,17 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
         )
 
         try:
+            # レポートの週開始日を取得（冪等性キー用）
+            week_result = self._conn.execute(text("""
+                SELECT week_start FROM soulkun_weekly_reports
+                WHERE organization_id = :org_id AND id = :report_id
+            """), {
+                "org_id": str(self._org_id),
+                "report_id": str(report_id),
+            })
+            week_row = week_result.fetchone()
+            week_start = week_row[0] if week_row else date.today()
+
             result = self._conn.execute(text("""
                 UPDATE soulkun_weekly_reports
                 SET
@@ -935,7 +946,44 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                 "chatwork_message_id": chatwork_message_id,
             })
 
-            return result.rowcount > 0
+            updated = result.rowcount > 0
+
+            # 冪等性確保: notification_logsに記録（Codex HIGH指摘対応）
+            # 二重通知を防止するため、ON CONFLICT DO NOTHINGを使用
+            if updated:
+                self._conn.execute(text("""
+                    INSERT INTO notification_logs (
+                        organization_id,
+                        notification_type,
+                        target_type,
+                        target_id,
+                        notification_date,
+                        status,
+                        channel,
+                        channel_target
+                    )
+                    VALUES (
+                        :org_id,
+                        :notification_type,
+                        'report',
+                        :target_id,
+                        :notification_date,
+                        'success',
+                        :channel,
+                        :channel_target
+                    )
+                    ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                    DO NOTHING
+                """), {
+                    "org_id": str(self._org_id),
+                    "notification_type": NotificationType.WEEKLY_REPORT.value,
+                    "target_id": str(report_id),
+                    "notification_date": week_start,
+                    "channel": sent_via,
+                    "channel_target": str(chatwork_room_id) if chatwork_room_id else None,
+                })
+
+            return updated
 
         except Exception as e:
             raise wrap_database_error(e, "mark report as sent")

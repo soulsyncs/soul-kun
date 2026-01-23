@@ -565,7 +565,20 @@ class InsightService:
             if row is None:
                 return None
 
-            return self._row_to_record(row)
+            record = self._row_to_record(row)
+
+            # 鉄則3: confidential以上の閲覧操作は監査ログ記録（Codex MEDIUM指摘対応）
+            if record and _should_audit(record.classification):
+                self._log_audit(
+                    action="read",
+                    resource_type="soulkun_insight",
+                    resource_id=insight_id,
+                    classification=record.classification,
+                    user_id=None,  # 閲覧者情報が引数にないため
+                    details={"insight_type": record.insight_type}
+                )
+
+            return record
 
         except Exception as e:
             raise wrap_database_error(e, "get insight")
@@ -699,7 +712,27 @@ class InsightService:
                 LIMIT :limit OFFSET :offset
             """), params)
 
-            return [self._row_to_record(row) for row in result.fetchall()]
+            records = [self._row_to_record(row) for row in result.fetchall()]
+
+            # 鉄則3: confidential以上の閲覧操作は監査ログ記録（Codex MEDIUM指摘対応）
+            confidential_records = [
+                r for r in records
+                if r and _should_audit(r.classification)
+            ]
+            if confidential_records:
+                self._log_audit(
+                    action="read_list",
+                    resource_type="soulkun_insight",
+                    resource_id=None,
+                    classification=Classification.CONFIDENTIAL,
+                    user_id=None,
+                    details={
+                        "count": len(confidential_records),
+                        "insight_ids": [str(r.id) for r in confidential_records[:10]],
+                    }
+                )
+
+            return records
 
         except Exception as e:
             raise wrap_database_error(e, "get insights")

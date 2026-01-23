@@ -374,6 +374,31 @@ class PatternDetector(BaseDetector):
                         }
                     )
 
+                    # 閾値=1の場合、新規パターン作成時に即座にインサイト生成
+                    # （Codex MEDIUM指摘対応: 境界値での検出漏れ防止）
+                    if self._pattern_threshold <= 1:
+                        # 作成したパターンを取得してインサイト生成
+                        pattern_data = await self._find_existing_pattern(
+                            question_hash=question_hash,
+                            department_id=department_id
+                        )
+                        if pattern_data and not await self.insight_exists_for_source(pattern_data.id):
+                            insight_data = self._create_insight_data(
+                                self._pattern_to_dict(pattern_data)
+                            )
+                            insight_id = await self.save_insight(insight_data)
+                            insight_created = True
+
+                            self._logger.info(
+                                LogMessages.PATTERN_THRESHOLD_REACHED,
+                                extra={
+                                    "pattern_id": str(pattern_data.id),
+                                    "window_occurrence_count": 1,
+                                    "total_occurrence_count": 1,
+                                    "insight_id": str(insight_id),
+                                }
+                            )
+
             # 結果を作成
             duration_ms = (time.time() - start_time) * 1000
             result = DetectionResult(
@@ -452,7 +477,11 @@ class PatternDetector(BaseDetector):
         # 6. メンション除去（[To:xxxxx]形式）
         text = re.sub(r'\[To:\d+\]', '', text)
 
-        # 7. 絵文字の除去（オプション - 現在は保持）
+        # 7. メンション除去後の空白再正規化（Codex LOW指摘対応）
+        # メンション除去で生じる余分な空白を1つに
+        text = re.sub(r'\s+', ' ', text).strip()
+
+        # 8. 絵文字の除去（オプション - 現在は保持）
         # text = self._remove_emojis(text)
 
         return text

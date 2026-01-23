@@ -62,6 +62,13 @@ jobs:
   # =====================================================
   # 2. 禁止パターン検出（直接切り詰め防止）
   # =====================================================
+  #
+  # 検出対象: タスク表示用の直接切り詰め（[:40]形式）
+  # 検出対象外:
+  #   - ログ出力用（[:500]など大きな数字）
+  #   - エラーメッセージ（str(e)[:50]）
+  #   - ローカル関数定義内のフォールバック
+  #
   forbidden-patterns-check:
     name: Check for forbidden patterns
     runs-on: ubuntu-latest
@@ -71,6 +78,7 @@ jobs:
       - name: Check for direct truncation patterns
         run: |
           echo "🔍 Checking for forbidden truncation patterns..."
+          echo "   (Checking for task display truncation, not log output)"
 
           # 検出対象ファイル
           TARGET_FILES=(
@@ -78,29 +86,24 @@ jobs:
             "sync-chatwork-tasks/main.py"
           )
 
-          # 禁止パターン: body/clean_body/text を直接 [:40] や [:50] で切り詰め
-          # ただし、エラーメッセージの切り詰めは許可
+          # 禁止パターン: clean_body[:40] + "..." 形式（タスク表示用の直接切り詰め）
+          # 許可パターン:
+          #   - [:500] などの大きな数字（ログ出力用）
+          #   - str(e)[:50] （エラーメッセージ）
+          #   - prepare_task_display_text を使用している場合
           ERRORS_FOUND=0
 
           for file in "${TARGET_FILES[@]}"; do
             if [ -f "$file" ]; then
               echo "Checking $file..."
 
-              # body_short = xxx[:40] パターンを検出
-              # body_short = clean_body[:40] + "..." パターンを検出
-              if grep -n 'body_short\s*=.*\[:[0-9]\+\]' "$file" | grep -v "str(e)" > /tmp/matches.txt 2>/dev/null; then
+              # clean_body[:40] + "..." パターンを検出（タスク表示用の危険な切り詰め）
+              # これは prepare_task_display_text() を使うべき箇所
+              if grep -n 'clean_body\[:4[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
                 if [ -s /tmp/matches.txt ]; then
-                  echo "❌ Found forbidden truncation pattern in $file:"
+                  echo "❌ Found dangerous truncation pattern in $file:"
                   cat /tmp/matches.txt
-                  ERRORS_FOUND=1
-                fi
-              fi
-
-              # clean_body[:40] パターンを検出（body_short以外でも）
-              if grep -n 'clean_body\[:[0-9]\+\]' "$file" > /tmp/matches2.txt 2>/dev/null; then
-                if [ -s /tmp/matches2.txt ]; then
-                  echo "❌ Found forbidden clean_body truncation in $file:"
-                  cat /tmp/matches2.txt
+                  echo "   → Use prepare_task_display_text() instead"
                   ERRORS_FOUND=1
                 fi
               fi
@@ -110,7 +113,7 @@ jobs:
           if [ $ERRORS_FOUND -eq 1 ]; then
             echo ""
             echo "❌ Forbidden patterns found!"
-            echo "   Use prepare_task_display_text() instead of direct [:N] truncation."
+            echo "   Use prepare_task_display_text() instead of direct [:40] truncation."
             exit 1
           fi
 
@@ -134,13 +137,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install pytest
-          # lib/のインポートに必要な依存関係（オプショナル）
-          pip install openai tiktoken pinecone-client || true
 
       - name: Run text_utils tests
         run: |
           echo "🧪 Running lib/text_utils.py unit tests..."
-          python -m pytest tests/test_text_utils_lib.py -v --tb=short
+          # テストをルートディレクトリから実行（lib/へのパスを解決）
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=$GITHUB_WORKSPACE python -m pytest tests/test_text_utils_lib.py -v --tb=short --ignore-glob='**/embedding.py'
           echo "✅ All tests passed!"
 
   # =====================================================

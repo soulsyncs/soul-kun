@@ -2,6 +2,7 @@
 lib/text_utils.py のユニットテスト
 
 v10.17.0: prepare_task_display_text() 追加対応
+v10.17.1: 件名抽出・名前除去・行中挨拶除去のテスト追加
 
 テスト対象:
 1. prepare_task_display_text() - 新規追加関数
@@ -11,15 +12,20 @@ v10.17.0: prepare_task_display_text() 追加対応
 
 実行方法:
     pytest tests/test_text_utils_lib.py -v
+    # または
+    PYTHONPATH=. python -m pytest tests/test_text_utils_lib.py -v
 """
 
 import pytest
 import sys
 import os
 
-# libをインポートパスに追加
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# libをインポートパスに追加（CI環境対応）
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 
+# lib.text_utilsから直接インポート（lib/__init__.pyの依存関係を回避）
 from lib.text_utils import (
     prepare_task_display_text,
     clean_chatwork_tags,

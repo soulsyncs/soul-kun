@@ -152,7 +152,7 @@ def get_recent_questions(conn, org_id: str, hours_back: int = 1) -> list[dict]:
             u.id as user_id,
             ud.department_id
         FROM room_messages rm
-        LEFT JOIN users u ON u.chatwork_id = rm.account_id::text
+        LEFT JOIN users u ON u.chatwork_account_id = rm.account_id::text
             AND u.organization_id = :org_id
         LEFT JOIN user_departments ud ON ud.user_id = u.id
             AND ud.is_primary = true

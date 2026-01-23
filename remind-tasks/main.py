@@ -385,20 +385,19 @@ def clean_task_body(body: str) -> str:
 
 def prepare_task_display_text(text: str, max_length: int = 40) -> str:
     """
-    報告用のタスク表示テキストを整形する
+    報告用のタスク表示テキストを整形する（フォールバック版）
 
-    ★★★ v10.9.0: 40文字 + 途切れ防止徹底 ★★★
-
-    変更点:
-    - デフォルト15文字 → 40文字に変更（AI要約と統一）
-    - 途切れ防止: 単語の途中で切らない
+    ★★★ v10.17.1: lib/text_utils.py と同等の機能を提供 ★★★
 
     処理内容:
     1. 改行を半角スペースに置換（1行にまとめる）
-    2. 定型挨拶文を削除（お疲れ様です、ccなど）
-    3. 連続スペースを1つに
-    4. 先頭・末尾の空白を除去
-    5. max_length文字以内で完結させる（途切れ防止）
+    2. 【件名】があれば優先抽出
+    3. 名前パターン（○○さん）を除去
+    4. 行中の挨拶パターンを除去
+    5. 定型挨拶文を削除
+    6. 連続スペースを1つに
+    7. 先頭・末尾の空白を除去
+    8. max_length文字以内で完結させる（途切れ防止）
 
     Args:
         text: 元のテキスト（summaryまたはclean_task_body()後のbody）
@@ -414,42 +413,116 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
         # 1. 改行を半角スペースに置換（1行にまとめる）
         text = text.replace('\n', ' ').replace('\r', ' ')
 
-        # 2. 定型挨拶文を削除
-        greeting_patterns = [
-            r'^お疲れ様です[！!。]?\s*',
-            r'^おつかれさまです[！!。]?\s*',
-            r'^お疲れさまです[！!。]?\s*',
-            r'^いつもお世話になっております[。]?\s*',
-            r'^お世話になっております[。]?\s*',
-            r'^おはようございます[！!。]?\s*',
-            r'^こんにちは[！!。]?\s*',
-            r'^こんばんは[！!。]?\s*',
-            r'^cc\s+',
-            r'^CC\s+',
-            r'^Re:\s*',
-            r'^RE:\s*',
-            r'^Fwd:\s*',
-            r'^FW:\s*',
+        # 2. 【件名】があれば優先抽出（★v10.17.1追加）
+        subject_match = re.search(r'【([^】]+)】', text)
+        if subject_match:
+            subject = subject_match.group(1).strip()
+            # 件名が十分な長さで、チェックボックス記号を除去
+            subject_clean = re.sub(r'^[□■☐☑✓✔]+\s*', '', subject)
+            if len(subject_clean) >= 5:
+                # 件名が十分な情報を持っている場合はそれを使用
+                if len(subject_clean) <= max_length:
+                    return f"【{subject_clean}】"
+                else:
+                    return f"【{subject_clean[:max_length-2]}】"
+
+        # 3. 名前パターンを除去（★v10.17.1追加、★v10.17.2修正: 誤除去防止）
+        # 「○○（読み仮名）さん」形式を除去（括弧内がカタカナの場合のみ）
+        text = re.sub(
+            r'^.{1,25}[\(（][ァ-ヶー\s　]+[\)）][\s　]*(さん|様|くん|ちゃん)[\s　]+',
+            '', text
+        )
+        # シンプルな名前パターン: "田中さん " で始まる場合（挨拶が続く場合のみ）
+        text = re.sub(r'^[^\s]{1,10}(さん|様|くん|ちゃん)[\s　]+(?=お疲れ|ありがとう|いつも|よろしく)', '', text)
+        # 勤務時間パターン付き名前を除去（アンダースコア + 曜日パターンが必須）
+        text = re.sub(
+            r'^.{1,20}[\s　]*_[\s　]*[月火水木金土日]+[0-9：:～\-（）\(\)変動あり\s]+さん[\s　]*',
+            '', text
+        )
+
+        # 4. 行中・行頭の挨拶パターンを除去（★v10.17.1追加）
+        inline_greetings = [
+            r'^お疲れ様です[。！!]?\s*',
+            r'^お疲れさまです[。！!]?\s*',
+            r'^ありがとうございます[。！!]?\s*',
+            r'^いつもお世話になっております[。！!]?\s*',
+            r'^よろしくお願いします[。！!]?\s*',
+            r'^よろしくお願いいたします[。！!]?\s*',
+            r'\s+お疲れ様です[。！!]?\s*',
+            r'\s+お疲れさまです[。！!]?\s*',
+            r'\s+いつもお世話になっております[。！!]?\s*',
+            r'\s+ありがとうございます[。！!]?\s*',
+            r'\s+よろしくお願いします[。！!]?\s*',
+            r'\s+よろしくお願いいたします[。！!]?\s*',
         ]
-        for pattern in greeting_patterns:
+        for pattern in inline_greetings:
+            text = re.sub(pattern, ' ', text, flags=re.IGNORECASE)
+
+        # 5. 定型挨拶文を削除（lib/text_utils.py GREETING_PATTERNS と同期）
+        greeting_patterns = [
+            # 開始の挨拶
+            r'^お疲れ様です[。！!]?\s*',
+            r'^お疲れさまです[。！!]?\s*',
+            r'^おつかれさまです[。！!]?\s*',
+            r'^お疲れ様でした[。！!]?\s*',
+            r'^いつもお世話になっております[。！!]?\s*',
+            r'^いつもお世話になります[。！!]?\s*',
+            r'^お世話になっております[。！!]?\s*',
+            r'^お世話になります[。！!]?\s*',
+            r'^こんにちは[。！!]?\s*',
+            r'^おはようございます[。！!]?\s*',
+            r'^こんばんは[。！!]?\s*',
+            # お詫び・断り
+            r'^夜分に申し訳ございません[。！!]?\s*',
+            r'^夜分遅くに失礼いたします[。！!]?\s*',
+            r'^夜分遅くに失礼します[。！!]?\s*',
+            r'^お忙しいところ恐れ入りますが[、,]?\s*',
+            r'^お忙しいところ申し訳ございませんが[、,]?\s*',
+            r'^お忙しいところ恐縮ですが[、,]?\s*',
+            r'^突然のご連絡失礼いたします[。！!]?\s*',
+            r'^突然のご連絡失礼します[。！!]?\s*',
+            r'^ご連絡が遅くなり申し訳ございません[。！!]?\s*',
+            r'^ご連絡遅くなりまして申し訳ございません[。！!]?\s*',
+            r'^大変遅くなってしまい申し訳[ございませんありません。！!]*\s*',
+            # メール形式ヘッダー
+            r'^[Rr][Ee]:\s*',
+            r'^[Ff][Ww][Dd]?:\s*',
+            r'^[Cc][Cc]:\s*',
+        ]
+        # 複数回試行（ネストした挨拶対応）
+        for _ in range(3):
+            original = text
+            for pattern in greeting_patterns:
+                text = re.sub(pattern, '', text, flags=re.IGNORECASE)
+            if text == original:
+                break
+
+        # 終了の挨拶を除去
+        closing_patterns = [
+            r'よろしくお願い(いた)?します[。！!]?\s*$',
+            r'お願い(いた)?します[。！!]?\s*$',
+            r'ご確認(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
+            r'以上、?よろしくお願い(いた)?します[。！!]?\s*$',
+            r'以上です[。！!]?\s*$',
+        ]
+        for pattern in closing_patterns:
             text = re.sub(pattern, '', text, flags=re.IGNORECASE)
 
-        # 3. 連続スペースを1つに
+        # 6. 連続スペースを1つに
         text = re.sub(r'\s{2,}', ' ', text)
 
-        # 4. 先頭・末尾の空白を除去
+        # 7. 先頭・末尾の空白を除去
         text = text.strip()
 
         # 空になった場合
         if not text:
             return "（タスク内容なし）"
 
-        # 5. max_length文字以内で完結させる（途切れ防止）
+        # 8. max_length文字以内で完結させる（途切れ防止）
         if len(text) <= max_length:
             return text
 
         # 途切れ防止: 自然な位置で切る
-        # 優先順位: 句点 > 読点 > 助詞 > 動作語
         truncated = text[:max_length]
 
         # 句点(。)で終わる位置を探す
@@ -1830,7 +1903,13 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
             }
         )
         
-        return f"✅ タスク「{task_body[:30]}{'...' if len(task_body) > 30 else ''}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
+        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
+        task_display = (
+            lib_prepare_task_display_text(task_body, max_length=30)
+            if USE_TEXT_UTILS_LIB else
+            prepare_task_display_text(task_body, max_length=30)
+        )
+        return f"✅ タスク「{task_display}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
     else:
         return f"❌ タスクの完了に失敗したウル...\nもう一度試してみてほしいウル！"
 
@@ -1896,8 +1975,12 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
             except:
                 pass
         
-        # タスク内容を短く表示（30文字まで）
-        body_short = body[:30] + "..." if len(body) > 30 else body
+        # タスク内容を短く表示（v10.17.1: 直接切り詰めを廃止）
+        body_short = (
+            lib_prepare_task_display_text(body, max_length=30)
+            if USE_TEXT_UTILS_LIB else
+            prepare_task_display_text(body, max_length=30)
+        )
         response += f"{i}. {body_short} {limit_str}\n"
     
     response += f"\nこの{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"
@@ -3921,9 +4004,12 @@ def report_unassigned_overdue_tasks(tasks):
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
 
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
@@ -4180,9 +4266,12 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
-        # ★★★ v10.11.0: clean_task_body()を使用してタスク本文をクリーンアップ ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         # room_nameを取得（なければ「（不明）」）
         room_name = task.get("room_name") or "（不明）"
@@ -4462,9 +4551,12 @@ def send_escalation_to_requester(requester_id, tasks):
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
 
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         room_name = task.get("room_name") or "（不明）"
@@ -4524,9 +4616,12 @@ def send_escalation_to_admin(tasks):
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
 
-        # ★★★ v10.11.0: clean_task_body()を使用 ★★★
+        # ★★★ v10.17.1: lib/prepare_task_display_text()で途切れ防止 ★★★
         clean_body = clean_task_body(task["body"])
-        body_short = clean_body[:40] + "..." if len(clean_body) > 40 else clean_body
+        if USE_TEXT_UTILS_LIB:
+            body_short = lib_prepare_task_display_text(clean_body, max_length=40)
+        else:
+            body_short = prepare_task_display_text(clean_body, max_length=40)
 
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         room_name = task.get("room_name") or "（不明）"
@@ -4617,7 +4712,12 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     assignee_name = task_info.get("assigned_to_name", "担当者")
     assignee_id = task_info.get("assigned_to_account_id")
     requester_name = task_info.get("assigned_by_name", "依頼者")
-    body_short = (task_info["body"][:30] + "...") if len(task_info["body"]) > 30 else task_info["body"]
+    # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
+    body_short = (
+        lib_prepare_task_display_text(task_info["body"], max_length=30)
+        if USE_TEXT_UTILS_LIB else
+        prepare_task_display_text(task_info["body"], max_length=30)
+    )
     
     # ① 管理部への即時報告
     admin_message = f"""[info][title]📝 タスク期限変更の検知[/title]

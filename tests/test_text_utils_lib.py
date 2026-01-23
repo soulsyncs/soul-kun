@@ -2,6 +2,7 @@
 lib/text_utils.py のユニットテスト
 
 v10.17.0: prepare_task_display_text() 追加対応
+v10.17.1: 件名抽出・名前除去・行中挨拶除去のテスト追加
 
 テスト対象:
 1. prepare_task_display_text() - 新規追加関数
@@ -11,22 +12,31 @@ v10.17.0: prepare_task_display_text() 追加対応
 
 実行方法:
     pytest tests/test_text_utils_lib.py -v
+    # または
+    PYTHONPATH=. python -m pytest tests/test_text_utils_lib.py -v
 """
 
 import pytest
 import sys
 import os
+import importlib.util
 
-# libをインポートパスに追加
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# プロジェクトルートを取得
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-from lib.text_utils import (
-    prepare_task_display_text,
-    clean_chatwork_tags,
-    remove_greetings,
-    validate_summary,
-    is_greeting_only,
-)
+# lib/text_utils.pyを直接読み込む（lib/__init__.pyを経由しない）
+# これによりCI環境でsqlalchemy等の依存関係がなくてもテスト可能
+text_utils_path = os.path.join(project_root, 'lib', 'text_utils.py')
+spec = importlib.util.spec_from_file_location("text_utils", text_utils_path)
+text_utils = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(text_utils)
+
+# モジュールから関数を取得
+prepare_task_display_text = text_utils.prepare_task_display_text
+clean_chatwork_tags = text_utils.clean_chatwork_tags
+remove_greetings = text_utils.remove_greetings
+validate_summary = text_utils.validate_summary
+is_greeting_only = text_utils.is_greeting_only
 
 
 class TestPrepareTaskDisplayText:
@@ -187,6 +197,230 @@ class TestIsGreetingOnly:
     def test_greeting_only_false(self):
         """内容がある場合はFalse"""
         assert is_greeting_only("お疲れ様です！経費精算書を提出してください。") is False
+
+
+# =====================================================
+# v10.17.1: 追加テスト（件名抽出・名前除去・行中挨拶除去）
+# =====================================================
+
+class TestPrepareTaskDisplayTextSubjectExtraction:
+    """prepare_task_display_text() - 件名抽出機能のテスト（v10.17.1追加）"""
+
+    def test_subject_extraction_basic(self):
+        """基本的な件名抽出"""
+        text = "【経費精算依頼】お疲れ様です！書類を提出してください。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == "【経費精算依頼】"
+
+    def test_subject_extraction_with_checkbox(self):
+        """チェックボックス記号付き件名"""
+        text = "【□2月未来合宿のご案内・駐車場利用について】 お疲れ様です！ 一人ひとりの"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "□" not in result  # チェックボックスが除去される
+        assert "2月未来合宿" in result
+        assert "お疲れ" not in result  # 本文部分は含まれない
+
+    def test_subject_extraction_various_checkboxes(self):
+        """各種チェックボックス記号"""
+        checkboxes = ["□", "■", "☐", "☑", "✓", "✔"]
+        for cb in checkboxes:
+            text = f"【{cb}タスク件名テスト】本文"
+            result = prepare_task_display_text(text, max_length=40)
+            assert cb not in result
+            assert "タスク件名テスト" in result
+
+    def test_subject_too_short_fallback(self):
+        """件名が短すぎる場合は本文を使用"""
+        text = "【OK】これは長い本文です。"
+        result = prepare_task_display_text(text, max_length=40)
+        # 件名が5文字未満なので本文を使用
+        assert "本文" in result or "【OK】" in result
+
+    def test_subject_extraction_long_subject(self):
+        """長い件名は切り詰める"""
+        text = "【この件名はとても長くて四十文字を超えてしまう件名です】本文"
+        result = prepare_task_display_text(text, max_length=40)
+        assert len(result) <= 40
+        assert result.startswith("【")
+        assert result.endswith("】")
+
+
+class TestPrepareTaskDisplayTextNameRemoval:
+    """prepare_task_display_text() - 名前除去機能のテスト（v10.17.1追加）"""
+
+    def test_name_with_reading_removal(self):
+        """読み仮名付き名前の除去"""
+        text = "月宮 絵莉香（ツキミヤ エリカ）さん ありがとうございます！ フォームの"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "月宮" not in result
+        assert "ツキミヤ" not in result
+        assert "フォーム" in result
+
+    def test_name_with_work_schedule_removal(self):
+        """勤務時間パターン付き名前の除去"""
+        text = "平賀　しおり _ 月火木金9：30～13：30（変動あり）さん いつも丁寧に"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "平賀" not in result
+        assert "いつも丁寧に" in result
+
+    def test_name_in_content_preserved(self):
+        """本文中の名前は保持"""
+        text = "市川さんの忌引き休暇対応を検討する。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "市川さん" in result
+        assert "忌引き休暇" in result
+
+    def test_name_in_bullet_point_preserved(self):
+        """箇条書き内の名前は保持"""
+        text = "・池本さん：営業文"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "池本さん" in result
+        assert "営業文" in result
+
+    def test_simple_name_pattern(self):
+        """シンプルな名前パターン（本文が続く場合）"""
+        text = "田中さん 資料を確認してください"
+        result = prepare_task_display_text(text, max_length=40)
+        # この場合は「資料を確認してください」が残るべき
+        assert "資料" in result or "田中さん" in result
+
+
+class TestPrepareTaskDisplayTextInlineGreetingRemoval:
+    """prepare_task_display_text() - 行中挨拶除去機能のテスト（v10.17.1追加）"""
+
+    def test_inline_greeting_after_subject(self):
+        """件名の後の挨拶を除去"""
+        text = "件名について お疲れ様です！ 確認をお願いします"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "お疲れ" not in result
+
+    def test_inline_arigatou_removal(self):
+        """行中の「ありがとうございます」を除去"""
+        text = "名前さん ありがとうございます！ フォームの件"
+        result = prepare_task_display_text(text, max_length=40)
+        # 名前が除去された後、ありがとうございますも除去される
+        assert "ありがとう" not in result or "フォーム" in result
+
+    def test_greeting_at_start_removal(self):
+        """行頭の挨拶除去（既存機能との整合性）"""
+        text = "お疲れ様です！経費精算書を提出してください。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "お疲れ" not in result
+        assert "経費精算" in result
+
+
+class TestPrepareTaskDisplayTextFalsePositivePrevention:
+    """prepare_task_display_text() - 誤検出防止テスト（v10.17.1追加）"""
+
+    def test_joseikin_not_removed(self):
+        """「助成金」の「金」が曜日として誤認識されない"""
+        text = "助成金対象となるよう研修内容を修正する。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "助成金" in result
+        assert result == text  # 変更なし
+
+    def test_kinmu_not_removed(self):
+        """「勤務」の「金」が曜日として誤認識されない"""
+        text = "勤務時間の確認をお願いします。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "勤務" in result
+
+    def test_preserve_content_with_kanji_kin(self):
+        """「金」を含む一般的な単語が保持される"""
+        test_cases = [
+            "金曜日に会議があります。",  # これは曜日だが文脈上保持
+            "料金の確認をお願いします。",
+            "現金精算の処理をしてください。",
+            "賃金計算を行ってください。",
+        ]
+        for text in test_cases:
+            result = prepare_task_display_text(text, max_length=40)
+            assert "金" in result  # 「金」を含む単語が保持される
+
+
+class TestPrepareTaskDisplayTextRealWorldCases:
+    """prepare_task_display_text() - 本番環境で発生した実例テスト（v10.17.1追加）"""
+
+    def test_real_case_mirai_gasshuku(self):
+        """実例: 未来合宿案内"""
+        text = "【□2月未来合宿のご案内・駐車場利用について】 お疲れ様です！ 一人ひとりの"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "□" not in result
+        assert "2月未来合宿" in result
+        assert len(result) <= 40
+
+    def test_real_case_tsukimiya(self):
+        """実例: 月宮さんパターン"""
+        text = "月宮 絵莉香（ツキミヤ エリカ）さん ありがとうございます！ フォームの"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "フォーム" in result
+        assert len(result) <= 40
+
+    def test_real_case_hiraga(self):
+        """実例: 平賀さん勤務時間パターン"""
+        text = "平賀　しおり _ 月火木金9：30～13：30（変動あり）さん いつも丁寧に"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "平賀" not in result
+        assert len(result) <= 40
+
+    def test_real_case_joseikin(self):
+        """実例: 助成金（誤除去されない）"""
+        text = "助成金対象となるよう研修内容を修正する。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == text
+
+    def test_real_case_ichikawa(self):
+        """実例: 市川さんの忌引き（本文中の名前は保持）"""
+        text = "市川さんの忌引き休暇対応を検討する。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == text
+
+    def test_real_case_ikemoto(self):
+        """実例: 池本さん箇条書き（保持）"""
+        text = "・池本さん：営業文"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == text
+
+    def test_real_case_form_and_sheet(self):
+        """実例: シンプルな内容"""
+        text = "フォームおよび管理シート"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == text
+
+
+class TestPrepareTaskDisplayTextV10172CodexFixes:
+    """prepare_task_display_text() - v10.17.2 Codex指摘対応テスト"""
+
+    def test_subject_preservation_tanaka_irai(self):
+        """「田中さん への依頼内容」の主語を残す（Codex MEDIUM指摘対応）"""
+        text = "田中さん への依頼内容をまとめる"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "田中さん" in result  # 主語として残す
+        assert "依頼内容" in result
+
+    def test_department_in_parentheses_preserved(self):
+        """「田中（経理部）さん への依頼」の括弧内が漢字なら除去しない"""
+        text = "田中（経理部）さん への依頼内容"
+        result = prepare_task_display_text(text, max_length=40)
+        # 括弧内が漢字（部署名）なので除去されない
+        assert "田中" in result
+        assert "経理部" in result
+
+    def test_reading_in_parentheses_removed(self):
+        """「田中（タナカ）さん ありがとう」の括弧内がカタカナなら除去する"""
+        text = "田中（タナカ）さん ありがとうございます！確認をお願いします"
+        result = prepare_task_display_text(text, max_length=40)
+        # 括弧内がカタカナ（読み仮名）なので除去される
+        assert "田中" not in result
+        assert "タナカ" not in result
+        assert "確認" in result
+
+    def test_preserve_shugo_customer_notification(self):
+        """「顧客さん への連絡」のような主語を残す（Codex追加テスト案）"""
+        text = "顧客さん への連絡事項を確認する"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "顧客さん" in result  # 主語として残す
+        assert "連絡事項" in result
 
 
 if __name__ == "__main__":

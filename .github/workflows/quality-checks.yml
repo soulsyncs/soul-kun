@@ -1,0 +1,221 @@
+name: Quality Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  # =====================================================
+  # 1. lib/コピーの同期チェック
+  # =====================================================
+  lib-sync-check:
+    name: Check lib/ copies are in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check text_utils.py sync
+        run: |
+          echo "🔍 Checking lib/text_utils.py copies are in sync..."
+
+          # メインのlib/text_utils.pyが存在するか確認
+          if [ ! -f "lib/text_utils.py" ]; then
+            echo "❌ lib/text_utils.py not found"
+            exit 1
+          fi
+
+          # remind-tasks/lib/text_utils.pyとの差分チェック
+          if [ -f "remind-tasks/lib/text_utils.py" ]; then
+            if ! diff -q "lib/text_utils.py" "remind-tasks/lib/text_utils.py" > /dev/null 2>&1; then
+              echo "❌ lib/text_utils.py and remind-tasks/lib/text_utils.py are OUT OF SYNC!"
+              echo ""
+              echo "Differences:"
+              diff "lib/text_utils.py" "remind-tasks/lib/text_utils.py" | head -50
+              exit 1
+            else
+              echo "✅ remind-tasks/lib/text_utils.py is in sync"
+            fi
+          else
+            echo "⚠️ remind-tasks/lib/text_utils.py not found (may be intentional)"
+          fi
+
+          # sync-chatwork-tasks/lib/text_utils.pyとの差分チェック
+          if [ -f "sync-chatwork-tasks/lib/text_utils.py" ]; then
+            if ! diff -q "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" > /dev/null 2>&1; then
+              echo "❌ lib/text_utils.py and sync-chatwork-tasks/lib/text_utils.py are OUT OF SYNC!"
+              echo ""
+              echo "Differences:"
+              diff "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" | head -50
+              exit 1
+            else
+              echo "✅ sync-chatwork-tasks/lib/text_utils.py is in sync"
+            fi
+          else
+            echo "⚠️ sync-chatwork-tasks/lib/text_utils.py not found (may be intentional)"
+          fi
+
+          echo ""
+          echo "✅ All lib/text_utils.py copies are in sync!"
+
+  # =====================================================
+  # 2. 禁止パターン検出（直接切り詰め防止）
+  # =====================================================
+  #
+  # 検出対象: タスク表示用の直接切り詰め（[:30], [:40]形式）
+  # 検出対象外:
+  #   - ログ出力用（[:500]など大きな数字）
+  #   - エラーメッセージ（str(e)[:50]）
+  #   - summary_preview（ログ出力用）
+  #   - フォールバック関数内の定義
+  #
+  forbidden-patterns-check:
+    name: Check for forbidden patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check for direct truncation patterns
+        run: |
+          echo "🔍 Checking for forbidden truncation patterns..."
+          echo "   (Checking for task display truncation, not log output)"
+
+          # 検出対象ファイル
+          TARGET_FILES=(
+            "remind-tasks/main.py"
+            "sync-chatwork-tasks/main.py"
+          )
+
+          # =====================================================
+          # 禁止パターン（v10.17.1強化）
+          # =====================================================
+          # 検出対象:
+          #   - body[:30], body[:40] + "..." 形式
+          #   - task["body"][:30] + "..." 形式
+          #   - task_body[:30] + "..." 形式
+          #   - clean_task_name[:30] + "..." 形式
+          #   - clean_body[:40] + "..." 形式
+          #
+          # 除外パターン:
+          #   - summary[:30]（ログ出力用なのでOK）
+          #   - summary_preview（ログ出力用なのでOK）
+          #   - current_summary[:50]（ログ/監査用なのでOK）
+          #   - text[:max_length]（フォールバック関数内なのでOK）
+          # =====================================================
+
+          ERRORS_FOUND=0
+
+          for file in "${TARGET_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+
+              # パターン1: body[:30] + "..." 形式（変数名がbodyで始まる）
+              # ただし、"summary" を含む行は除外
+              if grep -n 'body\[:3[0-9]\].*\.\.\.' "$file" | grep -v "summary" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous body truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン2: task["body"][:30] + "..." 形式
+              if grep -n 'task\["body"\]\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task[\"body\"] truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン3: task_info["body"][:30] + "..." 形式
+              if grep -n 'task_info\["body"\]\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task_info[\"body\"] truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン4: task_body[:30] パターン（f-string内）
+              if grep -n 'task_body\[:3[0-9]\]' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous task_body truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン5: clean_task_name[:30] + "..." 形式
+              if grep -n 'clean_task_name\[:3[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous clean_task_name truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン6: clean_body[:4x] + "..." 形式（元々のチェック）
+              if grep -n 'clean_body\[:4[0-9]\].*\.\.\.' "$file" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found dangerous clean_body truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+            fi
+          done
+
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo ""
+            echo "❌ Forbidden patterns found!"
+            echo "   Use prepare_task_display_text() instead of direct truncation."
+            exit 1
+          fi
+
+          echo "✅ No forbidden truncation patterns found!"
+
+  # =====================================================
+  # 3. ユニットテスト実行
+  # =====================================================
+  unit-tests:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+
+      - name: Run text_utils tests
+        run: |
+          echo "🧪 Running lib/text_utils.py unit tests..."
+          # テストをルートディレクトリから実行（lib/へのパスを解決）
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=$GITHUB_WORKSPACE python -m pytest tests/test_text_utils_lib.py -v --tb=short --ignore-glob='**/embedding.py'
+          echo "✅ All tests passed!"
+
+  # =====================================================
+  # 最終ステータス
+  # =====================================================
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lib-sync-check, forbidden-patterns-check, unit-tests]
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All quality checks passed!"
+          echo ""
+          echo "Checks completed:"
+          echo "  - lib/ copies sync check"
+          echo "  - Forbidden patterns check"
+          echo "  - Unit tests"

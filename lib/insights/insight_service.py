@@ -511,12 +511,17 @@ class InsightService:
                 original_exception=e
             )
 
-    async def get_insight(self, insight_id: UUID) -> Optional[InsightRecord]:
+    async def get_insight(
+        self,
+        insight_id: UUID,
+        user_id: Optional[UUID] = None,
+    ) -> Optional[InsightRecord]:
         """
         インサイトを取得
 
         Args:
             insight_id: インサイトID
+            user_id: 閲覧者のユーザーID（監査ログ用、オプション）
 
         Returns:
             InsightRecord: インサイトレコード（存在しない場合はNone）
@@ -574,7 +579,7 @@ class InsightService:
                     resource_type="soulkun_insight",
                     resource_id=insight_id,
                     classification=record.classification,
-                    user_id=None,  # 閲覧者情報が引数にないため
+                    user_id=user_id,
                     details={"insight_type": record.insight_type}
                 )
 
@@ -590,6 +595,7 @@ class InsightService:
         offset: int = 0,
         order_by: str = "created_at",
         order_desc: bool = True,
+        user_id: Optional[UUID] = None,
     ) -> list[InsightRecord]:
         """
         インサイト一覧を取得
@@ -600,6 +606,7 @@ class InsightService:
             offset: オフセット（デフォルト: 0）
             order_by: ソートカラム（デフォルト: created_at）
             order_desc: 降順ソート（デフォルト: True）
+            user_id: 閲覧者のユーザーID（監査ログ用、オプション）
 
         Returns:
             list[InsightRecord]: インサイトレコードのリスト
@@ -725,7 +732,7 @@ class InsightService:
                     resource_type="soulkun_insight",
                     resource_id=None,
                     classification=Classification.CONFIDENTIAL,
-                    user_id=None,
+                    user_id=user_id,
                     details={
                         "count": len(confidential_records),
                         "insight_ids": [str(r.id) for r in confidential_records[:10]],

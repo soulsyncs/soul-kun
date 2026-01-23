@@ -951,6 +951,8 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             # 冪等性確保: notification_logsに記録（Codex HIGH指摘対応）
             # 二重通知を防止するため、ON CONFLICT DO NOTHINGを使用
             if updated:
+                # target_type='system'を使用（設計書の既存定義に合わせる: Codex MEDIUM指摘対応）
+                # target_id には週開始日とレポートIDを組み合わせて冪等性を確保
                 self._conn.execute(text("""
                     INSERT INTO notification_logs (
                         organization_id,
@@ -965,7 +967,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                     VALUES (
                         :org_id,
                         :notification_type,
-                        'report',
+                        'system',
                         :target_id,
                         :notification_date,
                         'success',
@@ -977,7 +979,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                 """), {
                     "org_id": str(self._org_id),
                     "notification_type": NotificationType.WEEKLY_REPORT.value,
-                    "target_id": str(report_id),
+                    "target_id": f"weekly_report:{report_id}",
                     "notification_date": week_start,
                     "channel": sent_via,
                     "channel_target": str(chatwork_room_id) if chatwork_room_id else None,

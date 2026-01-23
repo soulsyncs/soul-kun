@@ -713,6 +713,7 @@ class PatternDetector(BaseDetector):
                         addressed_at = NULL,
                         addressed_action = NULL,
                         dismissed_reason = NULL,
+                        updated_by = :user_id,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :pattern_id
                       AND organization_id = :org_id
@@ -771,6 +772,7 @@ class PatternDetector(BaseDetector):
                             THEN sample_questions
                             ELSE array_append(sample_questions, :sample)
                         END,
+                        updated_by = :user_id,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :pattern_id
                       AND organization_id = :org_id

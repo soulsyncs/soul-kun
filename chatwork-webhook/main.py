@@ -1067,38 +1067,110 @@ def clean_chatwork_message(body):
 
 def is_mention_or_reply_to_soulkun(body):
     """ソウルくんへのメンションまたは返信かどうかを判断
-    
+
     堅牢なエラーハンドリング版
     """
     # Noneチェック
     if body is None:
         return False
-    
+
     # 型チェック
     if not isinstance(body, str):
         try:
             body = str(body)
         except:
             return False
-    
+
     # 空文字チェック
     if not body:
         return False
-    
+
     try:
         # メンションパターン
         if f"[To:{MY_ACCOUNT_ID}]" in body:
             return True
-        
+
         # 返信ボタンパターン: [rp aid=10909425 to=...]
         # 修正: [/rp]のチェックを削除（実際のフォーマットには含まれない）
         if f"[rp aid={MY_ACCOUNT_ID}" in body:
             return True
-        
+
         return False
     except Exception as e:
         print(f"⚠️ is_mention_or_reply_to_soulkun エラー: {e}")
         return False
+
+
+def is_toall_mention(body):
+    """オールメンション（[toall]）かどうかを判定
+
+    オールメンションはアナウンス用途で使われるため、
+    ソウルくんは反応しない。
+
+    v10.16.0で追加
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        bool: [toall]が含まれていればTrue
+    """
+    # Noneチェック
+    if body is None:
+        return False
+
+    # 型チェック
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return False
+
+    # 空文字チェック
+    if not body:
+        return False
+
+    try:
+        # ChatWorkのオールメンションパターン: [toall]
+        # 大文字小文字を区別しない（念のため）
+        if "[toall]" in body.lower():
+            return True
+
+        return False
+    except Exception as e:
+        print(f"⚠️ is_toall_mention エラー: {e}")
+        return False
+
+
+def should_ignore_toall(body):
+    """TO ALLメンションを無視すべきか判定
+
+    判定ロジック:
+    - [toall]がなければ → 無視しない（通常処理）
+    - [toall]があっても、ソウルくんへの直接メンションがあれば → 無視しない（反応する）
+    - [toall]のみの場合 → 無視する
+
+    v10.16.1で追加（v10.16.0からの改善）
+    - 「TO ALL + ソウルくん直接メンション」の場合は反応するように変更
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        bool: 無視すべきならTrue、反応すべきならFalse
+    """
+    # TO ALLでなければ無視しない
+    if not is_toall_mention(body):
+        return False
+
+    # TO ALLでも、ソウルくんへの直接メンションがあれば反応する
+    # 大文字小文字を無視（[To:ID]でも[to:ID]でもマッチ）
+    if body and f"[to:{MY_ACCOUNT_ID}]" in body.lower():
+        print(f"📌 TO ALL + ソウルくん直接メンションのため反応する")
+        return False
+
+    # TO ALLのみなので無視
+    return True
 
 
 # ===== データベース操作関数 =====
@@ -5049,10 +5121,14 @@ def chatwork_webhook(request):
             print(f"⏭️ ボットの返信パターンを無視")
             return jsonify({"status": "ok", "message": "Ignored bot reply pattern"})
 
-        # オールメンション（TO ALL）の場合、ソウルくんへの直接メンションがなければ無視
-        # ChatWorkでは[toall]を使うと全員にmention_to_meイベントが発火するため
-        if "[toall]" in body and f"[To:{MY_ACCOUNT_ID}]" not in body:
-            print(f"⏭️ オールメンションのみ（ソウルくん宛ではない）のため無視")
+        # =====================================================
+        # v10.16.1: オールメンション（toall）の判定改善
+        # =====================================================
+        # - TO ALLのみ → 無視
+        # - TO ALL + ソウルくん直接メンション → 反応する
+        # =====================================================
+        if should_ignore_toall(body):
+            print(f"⏭️ オールメンション（toall）のみのため無視")
             return jsonify({"status": "ok", "message": "Ignored toall mention without direct mention to Soul-kun"})
 
         # 返信検出
@@ -7438,11 +7514,16 @@ def check_reply_messages(request):
                         # 自分自身のメッセージを無視
                         if account_id is not None and str(account_id) == MY_ACCOUNT_ID:
                             continue
-                        
+
+                        # v10.16.1: オールメンション（toall）の判定改善
+                        if should_ignore_toall(body):
+                            print(f"   ⏭️ オールメンション（toall）のみのため無視")
+                            continue
+
                         # メンションまたは返信を検出
                         if not is_mention_or_reply:
                             continue
-                        
+
                         # 処理済みならスキップ
                         try:
                             if is_processed(message_id):

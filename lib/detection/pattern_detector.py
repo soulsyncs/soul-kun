@@ -321,12 +321,17 @@ class PatternDetector(BaseDetector):
 
             if existing_pattern:
                 # 5a. 既存パターンを更新（再活性化含む: Codex MEDIUM1指摘対応）
-                pattern_data = await self._update_pattern(
-                    pattern_id=existing_pattern.id,
-                    user_id=user_id,
-                    sample_question=question,
-                    reactivate=(existing_pattern.status != PatternStatus.ACTIVE)
-                )
+                # dry_runモードではDBを更新しない（Codex MEDIUM指摘対応）
+                if context is None or not context.dry_run:
+                    pattern_data = await self._update_pattern(
+                        pattern_id=existing_pattern.id,
+                        user_id=user_id,
+                        sample_question=question,
+                        reactivate=(existing_pattern.status != PatternStatus.ACTIVE)
+                    )
+                else:
+                    # dry_runモードでは既存パターンをそのまま使用
+                    pattern_data = existing_pattern
 
                 # 6. 閾値チェック & インサイト作成
                 # ウィンドウ期間内の発生回数で判定（Codex MEDIUM2指摘対応）
@@ -679,6 +684,7 @@ class PatternDetector(BaseDetector):
                         dismissed_reason = NULL,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :pattern_id
+                      AND organization_id = :org_id
                     RETURNING
                         id,
                         organization_id,
@@ -695,6 +701,7 @@ class PatternDetector(BaseDetector):
                         status
                 """), {
                     "pattern_id": str(pattern_id),
+                    "org_id": str(self.org_id),
                     "user_id": str(user_id),
                     "sample": sample_question[:500],  # 500文字に制限
                     "max_samples": self._max_sample_questions,
@@ -735,6 +742,7 @@ class PatternDetector(BaseDetector):
                         END,
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = :pattern_id
+                      AND organization_id = :org_id
                     RETURNING
                         id,
                         organization_id,
@@ -751,6 +759,7 @@ class PatternDetector(BaseDetector):
                         status
                 """), {
                     "pattern_id": str(pattern_id),
+                    "org_id": str(self.org_id),
                     "user_id": str(user_id),
                     "sample": sample_question[:500],  # 500文字に制限
                     "max_samples": self._max_sample_questions,

@@ -512,7 +512,7 @@ class InsightService:
 
         # フィルタ条件の組み立て
         where_clauses = ["organization_id = :org_id"]
-        params: dict[str, Any] = {"org_id": str(filter.organization_id)}
+        params: dict[str, Any] = {"org_id": str(self._org_id)}
 
         if filter.department_id:
             where_clauses.append("department_id = :department_id")
@@ -622,7 +622,7 @@ class InsightService:
         """
         # フィルタ条件の組み立て
         where_clauses = ["organization_id = :org_id"]
-        params: dict[str, Any] = {"org_id": str(filter.organization_id)}
+        params: dict[str, Any] = {"org_id": str(self._org_id)}
 
         if filter.department_id:
             where_clauses.append("department_id = :department_id")

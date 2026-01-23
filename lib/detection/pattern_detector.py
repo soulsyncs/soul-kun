@@ -971,24 +971,27 @@ class PatternDetector(BaseDetector):
         # ウィンドウ期間内の発生回数を使用（Codex MEDIUM2指摘対応）
         window_occurrence_count = detection_data.get("window_occurrence_count", 0)
         total_occurrence_count = detection_data.get("occurrence_count", 0)
-        unique_users = len(detection_data.get("asked_by_user_ids", []))
+        # asked_by_user_ids は累計のため、ウィンドウ内のユニーク数とは不一致
+        # （Codex MEDIUM指摘対応: 明確に累計であることを示す）
+        unique_users_all_time = len(detection_data.get("asked_by_user_ids", []))
         normalized_question = detection_data.get("normalized_question", "")
         sample_questions = detection_data.get("sample_questions", [])
         category = detection_data.get("question_category", "other")
 
-        # 重要度を判定（ウィンドウ内の発生回数で判定）
+        # 重要度を判定（ウィンドウ内の発生回数のみで判定）
+        # unique_users は累計のため重要度判定には使用しない（Codex MEDIUM指摘対応）
         importance = Importance.from_occurrence_count(
             occurrence_count=window_occurrence_count,
-            unique_users=unique_users
+            unique_users=0  # 累計ユーザー数は使用しない
         )
 
         # タイトルを生成（30文字 + "..."）
         title = f"「{truncate_text(normalized_question, 30)}」の質問が頻出しています"
 
-        # 説明を生成
+        # 説明を生成（ユーザー数は累計であることを明示）
         description = (
-            f"過去{self._pattern_window_days}日間で{window_occurrence_count}回、"
-            f"{unique_users}人の社員から同じ質問がありました。\n\n"
+            f"過去{self._pattern_window_days}日間で{window_occurrence_count}回質問されました。"
+            f"（累計{unique_users_all_time}人の社員が質問）\n\n"
             f"**カテゴリ**: {category}\n\n"
             f"**サンプル質問**:\n"
         )
@@ -1008,7 +1011,7 @@ class PatternDetector(BaseDetector):
         evidence = {
             "window_occurrence_count": window_occurrence_count,
             "total_occurrence_count": total_occurrence_count,
-            "unique_users": unique_users,
+            "unique_users_all_time": unique_users_all_time,  # 累計であることを明示
             "sample_questions": sample_questions[:5],
             "category": category,
             "pattern_id": str(detection_data.get("id", "")),

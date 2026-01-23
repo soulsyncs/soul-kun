@@ -136,7 +136,11 @@ CREATE TABLE IF NOT EXISTS question_patterns (
     -- - hr_related: 人事関連（評価、昇給等）
     -- - project: プロジェクト関連
     -- - other: その他
-    question_category VARCHAR(50) NOT NULL,
+    question_category VARCHAR(50) NOT NULL
+        CHECK (question_category IN (
+            'business_process', 'company_rule', 'technical',
+            'hr_related', 'project', 'other'
+        )),
 
     -- 類似度判定用ハッシュ（SHA256の先頭64文字）
     -- 同じ意味の質問を同一パターンとして認識するために使用
@@ -308,14 +312,22 @@ CREATE TABLE IF NOT EXISTS soulkun_insights (
     -- - personalization_risk: 属人化リスクを検出
     -- - bottleneck: ボトルネックを検出
     -- - emotion_change: 感情変化を検出
-    insight_type VARCHAR(50) NOT NULL,
+    insight_type VARCHAR(50) NOT NULL
+        CHECK (insight_type IN (
+            'pattern_detected', 'personalization_risk',
+            'bottleneck', 'emotion_change'
+        )),
 
     -- ソースの種類（システム内部用）
     -- - a1_pattern: A1パターン検出
     -- - a2_personalization: A2属人化検出（将来）
     -- - a3_bottleneck: A3ボトルネック検出（将来）
     -- - a4_emotion: A4感情変化検出（将来）
-    source_type VARCHAR(50) NOT NULL,
+    source_type VARCHAR(50) NOT NULL
+        CHECK (source_type IN (
+            'a1_pattern', 'a2_personalization',
+            'a3_bottleneck', 'a4_emotion'
+        )),
 
     -- ソースデータのID（元データへの参照）
     -- 例: question_patterns.id

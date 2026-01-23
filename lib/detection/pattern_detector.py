@@ -209,6 +209,7 @@ class PatternDetector(BaseDetector):
         pattern_threshold: int = DetectionParameters.PATTERN_THRESHOLD,
         pattern_window_days: int = DetectionParameters.PATTERN_WINDOW_DAYS,
         max_sample_questions: int = DetectionParameters.MAX_SAMPLE_QUESTIONS,
+        max_occurrence_timestamps: int = DetectionParameters.MAX_OCCURRENCE_TIMESTAMPS,
     ) -> None:
         """
         PatternDetectorを初期化
@@ -219,6 +220,7 @@ class PatternDetector(BaseDetector):
             pattern_threshold: パターン検出の閾値（デフォルト: 5）
             pattern_window_days: 検出対象期間（デフォルト: 30日）
             max_sample_questions: サンプル質問の最大数（デフォルト: 5）
+            max_occurrence_timestamps: タイムスタンプ配列の最大保持件数（デフォルト: 500）
         """
         super().__init__(
             conn=conn,
@@ -230,6 +232,7 @@ class PatternDetector(BaseDetector):
         self._pattern_threshold = pattern_threshold
         self._pattern_window_days = pattern_window_days
         self._max_sample_questions = max_sample_questions
+        self._max_occurrence_timestamps = max_occurrence_timestamps
 
     # ================================================================
     # プロパティ
@@ -249,6 +252,11 @@ class PatternDetector(BaseDetector):
     def max_sample_questions(self) -> int:
         """サンプル質問の最大数を取得"""
         return self._max_sample_questions
+
+    @property
+    def max_occurrence_timestamps(self) -> int:
+        """タイムスタンプ配列の最大保持件数を取得"""
+        return self._max_occurrence_timestamps
 
     # ================================================================
     # メイン検出メソッド
@@ -694,12 +702,17 @@ class PatternDetector(BaseDetector):
                     SET
                         occurrence_count = occurrence_count + 1,
                         -- ウィンドウ期間内のタイムスタンプのみ保持し、新しいタイムスタンプを追加
+                        -- 最大件数でキャップして配列肥大化を防止（Codex LOW指摘対応）
                         occurrence_timestamps = (
                             SELECT COALESCE(array_agg(ts ORDER BY ts), ARRAY[]::timestamptz[])
-                            FROM unnest(
-                                array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
-                            ) AS ts
-                            WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                            FROM (
+                                SELECT ts FROM unnest(
+                                    array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
+                                ) AS ts
+                                WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                                ORDER BY ts DESC
+                                LIMIT :max_timestamps
+                            ) AS limited
                         ),
                         last_asked_at = CURRENT_TIMESTAMP,
                         asked_by_user_ids = CASE
@@ -743,6 +756,7 @@ class PatternDetector(BaseDetector):
                     "max_samples": self._max_sample_questions,
                     "active_status": PatternStatus.ACTIVE.value,
                     "window_days": self._pattern_window_days,
+                    "max_timestamps": self._max_occurrence_timestamps,
                 })
 
                 self._logger.info(
@@ -758,12 +772,17 @@ class PatternDetector(BaseDetector):
                     SET
                         occurrence_count = occurrence_count + 1,
                         -- ウィンドウ期間内のタイムスタンプのみ保持し、新しいタイムスタンプを追加
+                        -- 最大件数でキャップして配列肥大化を防止（Codex LOW指摘対応）
                         occurrence_timestamps = (
                             SELECT COALESCE(array_agg(ts ORDER BY ts), ARRAY[]::timestamptz[])
-                            FROM unnest(
-                                array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
-                            ) AS ts
-                            WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                            FROM (
+                                SELECT ts FROM unnest(
+                                    array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
+                                ) AS ts
+                                WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                                ORDER BY ts DESC
+                                LIMIT :max_timestamps
+                            ) AS limited
                         ),
                         last_asked_at = CURRENT_TIMESTAMP,
                         asked_by_user_ids = CASE
@@ -801,6 +820,7 @@ class PatternDetector(BaseDetector):
                     "sample": sample_question[:500],  # 500文字に制限
                     "max_samples": self._max_sample_questions,
                     "window_days": self._pattern_window_days,
+                    "max_timestamps": self._max_occurrence_timestamps,
                 })
 
             row = result.fetchone()

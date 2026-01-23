@@ -757,11 +757,23 @@ class InsightService:
                 if r and _should_audit(r.classification)
             ]
             if confidential_records:
+                # 取得結果の最大機密区分で監査ログを記録（Codex MEDIUM Review #12指摘対応）
+                # restrictedを含む場合はrestrictedで記録し、過小記録を防止
+                classification_order = [
+                    Classification.PUBLIC,
+                    Classification.INTERNAL,
+                    Classification.CONFIDENTIAL,
+                    Classification.RESTRICTED,
+                ]
+                max_classification = max(
+                    (r.classification for r in confidential_records),
+                    key=lambda c: classification_order.index(c)
+                )
                 self._log_audit(
                     action="read_list",
                     resource_type="soulkun_insight",
                     resource_id=None,
-                    classification=Classification.CONFIDENTIAL,
+                    classification=max_classification,
                     user_id=user_id,
                     details={
                         "count": len(confidential_records),

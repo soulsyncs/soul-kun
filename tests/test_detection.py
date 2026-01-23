@@ -97,6 +97,10 @@ class TestDetectionParameters:
         """週次レポート送信曜日のデフォルト値（月曜=0）"""
         assert DetectionParameters.WEEKLY_REPORT_DAY == 0
 
+    def test_max_occurrence_timestamps_default(self):
+        """occurrence_timestamps最大保持件数のデフォルト値（Codex LOW指摘対応）"""
+        assert DetectionParameters.MAX_OCCURRENCE_TIMESTAMPS == 500
+
 
 class TestQuestionCategory:
     """QuestionCategoryのテスト"""

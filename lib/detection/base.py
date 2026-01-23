@@ -32,6 +32,7 @@ from lib.detection.constants import (
     Importance,
     InsightStatus,
     InsightType,
+    NotificationType,
     SourceType,
 )
 from lib.detection.exceptions import (
@@ -362,10 +363,12 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
             })
 
             row = result.fetchone()
+            is_new_insight = False
 
             if row is not None:
                 # 新規挿入成功
                 insight_id = UUID(str(row[0]))
+                is_new_insight = True
             elif insight_data.source_id is not None:
                 # 重複検出 - 既存のインサイトを取得
                 self._logger.debug(
@@ -398,11 +401,65 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                     details={"insight_type": insight_data.insight_type.value}
                 )
 
+            # 重要度critical/highの場合は即時通知（Codex HIGH指摘対応）
+            # constants.py:200-206で明記されている仕様を実装
+            notification_sent = False
+            if is_new_insight and insight_data.importance in (Importance.CRITICAL, Importance.HIGH):
+                try:
+                    # notification_logsに即時通知を登録（冪等性確保のためON CONFLICT DO NOTHING）
+                    self._conn.execute(text("""
+                        INSERT INTO notification_logs (
+                            organization_id,
+                            notification_type,
+                            target_type,
+                            target_id,
+                            scheduled_at,
+                            status,
+                            created_at
+                        ) VALUES (
+                            :org_id,
+                            :notification_type,
+                            :target_type,
+                            :target_id,
+                            CURRENT_TIMESTAMP,
+                            'pending',
+                            CURRENT_TIMESTAMP
+                        )
+                        ON CONFLICT DO NOTHING
+                    """), {
+                        "org_id": str(insight_data.organization_id),
+                        "notification_type": NotificationType.PATTERN_ALERT.value,
+                        "target_type": "system",
+                        "target_id": f"pattern_alert:{insight_id}:{insight_data.organization_id}",
+                    })
+
+                    notification_sent = True
+                    self._logger.info(
+                        "Immediate notification scheduled for high-priority insight",
+                        extra={
+                            "organization_id": str(self._org_id),
+                            "insight_id": str(insight_id),
+                            "importance": insight_data.importance.value,
+                            "notification_type": NotificationType.PATTERN_ALERT.value,
+                        }
+                    )
+                except Exception as notify_err:
+                    # 通知登録の失敗はインサイト作成自体をブロックしない
+                    self._logger.warning(
+                        "Failed to schedule immediate notification (non-blocking)",
+                        extra={
+                            "organization_id": str(self._org_id),
+                            "insight_id": str(insight_id),
+                            "error": str(notify_err),
+                        }
+                    )
+
             self._logger.info(
                 "Insight saved successfully",
                 extra={
                     "organization_id": str(self._org_id),
                     "insight_id": str(insight_id),
+                    "notification_scheduled": notification_sent,
                 }
             )
 

@@ -38,6 +38,11 @@ class DetectionParameters:
     # パターンの具体例として管理者に表示
     MAX_SAMPLE_QUESTIONS: Final[int] = 5
 
+    # occurrence_timestampsの最大保持件数
+    # 高頻度質問での配列肥大化を防止（Codex LOW指摘対応）
+    # 30日間ウィンドウで1日10件を想定し、余裕を持たせた値
+    MAX_OCCURRENCE_TIMESTAMPS: Final[int] = 500
+
     # 類似度の閾値（0.0-1.0）
     # この値以上の類似度を持つ質問を同一パターンとして認識
     # 注意: 現在はハッシュベースなので未使用（将来Embedding導入時に使用）

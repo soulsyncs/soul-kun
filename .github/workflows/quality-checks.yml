@@ -1,0 +1,161 @@
+name: Quality Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches: [main]
+
+jobs:
+  # =====================================================
+  # 1. lib/コピーの同期チェック
+  # =====================================================
+  lib-sync-check:
+    name: Check lib/ copies are in sync
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check text_utils.py sync
+        run: |
+          echo "🔍 Checking lib/text_utils.py copies are in sync..."
+
+          # メインのlib/text_utils.pyが存在するか確認
+          if [ ! -f "lib/text_utils.py" ]; then
+            echo "❌ lib/text_utils.py not found"
+            exit 1
+          fi
+
+          # remind-tasks/lib/text_utils.pyとの差分チェック
+          if [ -f "remind-tasks/lib/text_utils.py" ]; then
+            if ! diff -q "lib/text_utils.py" "remind-tasks/lib/text_utils.py" > /dev/null 2>&1; then
+              echo "❌ lib/text_utils.py and remind-tasks/lib/text_utils.py are OUT OF SYNC!"
+              echo ""
+              echo "Differences:"
+              diff "lib/text_utils.py" "remind-tasks/lib/text_utils.py" | head -50
+              exit 1
+            else
+              echo "✅ remind-tasks/lib/text_utils.py is in sync"
+            fi
+          else
+            echo "⚠️ remind-tasks/lib/text_utils.py not found (may be intentional)"
+          fi
+
+          # sync-chatwork-tasks/lib/text_utils.pyとの差分チェック
+          if [ -f "sync-chatwork-tasks/lib/text_utils.py" ]; then
+            if ! diff -q "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" > /dev/null 2>&1; then
+              echo "❌ lib/text_utils.py and sync-chatwork-tasks/lib/text_utils.py are OUT OF SYNC!"
+              echo ""
+              echo "Differences:"
+              diff "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" | head -50
+              exit 1
+            else
+              echo "✅ sync-chatwork-tasks/lib/text_utils.py is in sync"
+            fi
+          else
+            echo "⚠️ sync-chatwork-tasks/lib/text_utils.py not found (may be intentional)"
+          fi
+
+          echo ""
+          echo "✅ All lib/text_utils.py copies are in sync!"
+
+  # =====================================================
+  # 2. 禁止パターン検出（直接切り詰め防止）
+  # =====================================================
+  forbidden-patterns-check:
+    name: Check for forbidden patterns
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Check for direct truncation patterns
+        run: |
+          echo "🔍 Checking for forbidden truncation patterns..."
+
+          # 検出対象ファイル
+          TARGET_FILES=(
+            "remind-tasks/main.py"
+            "sync-chatwork-tasks/main.py"
+          )
+
+          # 禁止パターン: body/clean_body/text を直接 [:40] や [:50] で切り詰め
+          # ただし、エラーメッセージの切り詰めは許可
+          ERRORS_FOUND=0
+
+          for file in "${TARGET_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+
+              # body_short = xxx[:40] パターンを検出
+              # body_short = clean_body[:40] + "..." パターンを検出
+              if grep -n 'body_short\s*=.*\[:[0-9]\+\]' "$file" | grep -v "str(e)" > /tmp/matches.txt 2>/dev/null; then
+                if [ -s /tmp/matches.txt ]; then
+                  echo "❌ Found forbidden truncation pattern in $file:"
+                  cat /tmp/matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # clean_body[:40] パターンを検出（body_short以外でも）
+              if grep -n 'clean_body\[:[0-9]\+\]' "$file" > /tmp/matches2.txt 2>/dev/null; then
+                if [ -s /tmp/matches2.txt ]; then
+                  echo "❌ Found forbidden clean_body truncation in $file:"
+                  cat /tmp/matches2.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+            fi
+          done
+
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo ""
+            echo "❌ Forbidden patterns found!"
+            echo "   Use prepare_task_display_text() instead of direct [:N] truncation."
+            exit 1
+          fi
+
+          echo "✅ No forbidden truncation patterns found!"
+
+  # =====================================================
+  # 3. ユニットテスト実行
+  # =====================================================
+  unit-tests:
+    name: Run unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest
+          # lib/のインポートに必要な依存関係（オプショナル）
+          pip install openai tiktoken pinecone-client || true
+
+      - name: Run text_utils tests
+        run: |
+          echo "🧪 Running lib/text_utils.py unit tests..."
+          python -m pytest tests/test_text_utils_lib.py -v --tb=short
+          echo "✅ All tests passed!"
+
+  # =====================================================
+  # 最終ステータス
+  # =====================================================
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-latest
+    needs: [lib-sync-check, forbidden-patterns-check, unit-tests]
+    steps:
+      - name: All checks passed
+        run: |
+          echo "✅ All quality checks passed!"
+          echo ""
+          echo "Checks completed:"
+          echo "  - lib/ copies sync check"
+          echo "  - Forbidden patterns check"
+          echo "  - Unit tests"

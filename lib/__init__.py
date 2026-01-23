@@ -28,7 +28,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.4.0"  # v10.15.0: Phase 2.5 goal notification追加
+__version__ = "1.5.0"  # v10.17.0: prepare_task_display_text追加
 
 # 設定
 from lib.config import (
@@ -105,6 +105,7 @@ from lib.embedding import (
 )
 
 # v10.14.1: テキスト処理ユーティリティ
+# v10.17.0: prepare_task_display_text追加
 from lib.text_utils import (
     # パターン定義
     GREETING_PATTERNS,
@@ -118,6 +119,7 @@ from lib.text_utils import (
     validate_summary,
     clean_chatwork_tags,
     validate_and_get_reason,
+    prepare_task_display_text,  # v10.17.0追加
 )
 
 # v10.14.1: 監査ログ
@@ -223,6 +225,7 @@ __all__ = [
     "embed_text_sync",
     "get_embedding_client",
     # v10.14.1: Text Utils
+    # v10.17.0: prepare_task_display_text追加
     "GREETING_PATTERNS",
     "CLOSING_PATTERNS",
     "GREETING_STARTS",
@@ -233,6 +236,7 @@ __all__ = [
     "validate_summary",
     "clean_chatwork_tags",
     "validate_and_get_reason",
+    "prepare_task_display_text",  # v10.17.0追加
     # v10.14.1: Audit
     "AuditAction",
     "AuditResourceType",

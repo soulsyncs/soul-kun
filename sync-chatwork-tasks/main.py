@@ -7467,13 +7467,25 @@ def sync_chatwork_tasks(request):
                     conn.commit()
                 else:
                     # 新規タスクの挿入
-                    # ★★★ v10.5.0: タスク要約を生成 ★★★
+                    # ★★★ v10.17.0: タスク要約を生成（エラー時も必ずフォールバック） ★★★
                     summary = None
                     try:
                         summary = generate_task_summary(body)
                         print(f"📝 要約生成: {summary[:30]}..." if summary and len(summary) > 30 else f"📝 要約生成: {summary}")
                     except Exception as e:
-                        print(f"⚠️ 要約生成エラー（タスク登録は続行）: {e}")
+                        print(f"⚠️ 要約生成エラー: {e}")
+                        # ★★★ v10.17.0: フォールバック処理 ★★★
+                        # AI要約が失敗しても、品質の高いフォールバックを保証
+                        try:
+                            from lib import clean_chatwork_tags, prepare_task_display_text
+                            clean_body = clean_chatwork_tags(body)
+                            summary = prepare_task_display_text(clean_body, max_length=40)
+                            print(f"📝 フォールバック要約: {summary}")
+                        except Exception as fallback_e:
+                            print(f"⚠️ フォールバックもエラー: {fallback_e}")
+                            # 最終手段: デフォルトメッセージ
+                            summary = "（タスク内容を確認してください）"
+                            print(f"📝 デフォルト要約使用: {summary}")
 
                     cursor.execute("""
                         INSERT INTO chatwork_tasks

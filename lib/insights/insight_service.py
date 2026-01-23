@@ -36,6 +36,11 @@ from lib.detection.exceptions import (
 )
 
 
+def _should_audit(classification: Classification) -> bool:
+    """機密区分がconfidential以上の場合はTrue"""
+    return classification in {Classification.CONFIDENTIAL, Classification.RESTRICTED}
+
+
 # ================================================================
 # データクラス
 # ================================================================
@@ -264,6 +269,85 @@ class InsightService:
         return self._org_id
 
     # ================================================================
+    # 監査ログ（鉄則3: confidential以上の操作を記録）
+    # ================================================================
+
+    def _log_audit(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: Optional[UUID],
+        classification: Classification,
+        user_id: Optional[UUID] = None,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """
+        監査ログを記録（SQLAlchemy Connection対応版）
+
+        鉄則3に基づき、confidential以上の操作を audit_logs に記録します。
+        記録に失敗しても本処理は継続します（non-blocking）。
+
+        Args:
+            action: アクション（create, update, read, delete等）
+            resource_type: リソースタイプ（soulkun_insight等）
+            resource_id: リソースID
+            classification: 機密区分
+            user_id: 実行ユーザーID
+            details: 詳細情報
+        """
+        try:
+            self._conn.execute(text("""
+                INSERT INTO audit_logs (
+                    organization_id,
+                    user_id,
+                    action,
+                    resource_type,
+                    resource_id,
+                    classification,
+                    details,
+                    created_at
+                ) VALUES (
+                    :organization_id,
+                    :user_id,
+                    :action,
+                    :resource_type,
+                    :resource_id,
+                    :classification,
+                    :details,
+                    CURRENT_TIMESTAMP
+                )
+            """), {
+                "organization_id": str(self._org_id),
+                "user_id": str(user_id) if user_id else None,
+                "action": action,
+                "resource_type": resource_type,
+                "resource_id": str(resource_id) if resource_id else None,
+                "classification": classification.value,
+                "details": json.dumps(details) if details else None,
+            })
+
+            self._logger.info(
+                "Audit log recorded",
+                extra={
+                    "organization_id": str(self._org_id),
+                    "action": action,
+                    "resource_type": resource_type,
+                    "resource_id": str(resource_id) if resource_id else None,
+                }
+            )
+        except Exception as e:
+            # 監査ログの記録失敗は本処理を止めない（non-blocking）
+            self._logger.warning(
+                "Failed to record audit log (non-blocking)",
+                extra={
+                    "organization_id": str(self._org_id),
+                    "action": action,
+                    "resource_type": resource_type,
+                    "error": str(e),
+                }
+            )
+
+    # ================================================================
     # CRUD操作
     # ================================================================
 
@@ -394,6 +478,20 @@ class InsightService:
                     "insight_id": str(insight_id),
                 }
             )
+
+            # 鉄則3: confidential以上の操作は監査ログ記録
+            if _should_audit(classification):
+                self._log_audit(
+                    action="create",
+                    resource_type="soulkun_insight",
+                    resource_id=insight_id,
+                    classification=classification,
+                    user_id=created_by,
+                    details={
+                        "insight_type": insight_type.value,
+                        "importance": importance.value,
+                    }
+                )
 
             return insight_id
 
@@ -703,6 +801,18 @@ class InsightService:
         )
 
         try:
+            # 鉄則3: 監査ログ用に機密区分を事前取得
+            classification_result = self._conn.execute(text("""
+                SELECT classification
+                FROM soulkun_insights
+                WHERE organization_id = :org_id AND id = :insight_id
+            """), {
+                "org_id": str(self._org_id),
+                "insight_id": str(insight_id),
+            })
+            classification_row = classification_result.fetchone()
+            classification = Classification(classification_row[0]) if classification_row else None
+
             result = self._conn.execute(text("""
                 UPDATE soulkun_insights
                 SET
@@ -722,7 +832,20 @@ class InsightService:
                 "current_status": InsightStatus.NEW.value,
             })
 
-            return result.rowcount > 0
+            updated = result.rowcount > 0
+
+            # 鉄則3: confidential以上の操作は監査ログ記録
+            if updated and classification and _should_audit(classification):
+                self._log_audit(
+                    action="acknowledge",
+                    resource_type="soulkun_insight",
+                    resource_id=insight_id,
+                    classification=classification,
+                    user_id=user_id,
+                    details={}
+                )
+
+            return updated
 
         except Exception as e:
             raise wrap_database_error(e, "acknowledge insight")
@@ -764,6 +887,18 @@ class InsightService:
         )
 
         try:
+            # 鉄則3: 監査ログ用に機密区分を事前取得
+            classification_result = self._conn.execute(text("""
+                SELECT classification
+                FROM soulkun_insights
+                WHERE organization_id = :org_id AND id = :insight_id
+            """), {
+                "org_id": str(self._org_id),
+                "insight_id": str(insight_id),
+            })
+            classification_row = classification_result.fetchone()
+            classification = Classification(classification_row[0]) if classification_row else None
+
             result = self._conn.execute(text("""
                 UPDATE soulkun_insights
                 SET
@@ -786,7 +921,20 @@ class InsightService:
                 "status_acknowledged": InsightStatus.ACKNOWLEDGED.value,
             })
 
-            return result.rowcount > 0
+            updated = result.rowcount > 0
+
+            # 鉄則3: confidential以上の操作は監査ログ記録
+            if updated and classification and _should_audit(classification):
+                self._log_audit(
+                    action="address",
+                    resource_type="soulkun_insight",
+                    resource_id=insight_id,
+                    classification=classification,
+                    user_id=user_id,
+                    details={"addressed_action": action}
+                )
+
+            return updated
 
         except Exception as e:
             raise wrap_database_error(e, "address insight")
@@ -828,6 +976,18 @@ class InsightService:
         )
 
         try:
+            # 鉄則3: 監査ログ用に機密区分を事前取得
+            classification_result = self._conn.execute(text("""
+                SELECT classification
+                FROM soulkun_insights
+                WHERE organization_id = :org_id AND id = :insight_id
+            """), {
+                "org_id": str(self._org_id),
+                "insight_id": str(insight_id),
+            })
+            classification_row = classification_result.fetchone()
+            classification = Classification(classification_row[0]) if classification_row else None
+
             result = self._conn.execute(text("""
                 UPDATE soulkun_insights
                 SET
@@ -848,7 +1008,20 @@ class InsightService:
                 "status_acknowledged": InsightStatus.ACKNOWLEDGED.value,
             })
 
-            return result.rowcount > 0
+            updated = result.rowcount > 0
+
+            # 鉄則3: confidential以上の操作は監査ログ記録
+            if updated and classification and _should_audit(classification):
+                self._log_audit(
+                    action="dismiss",
+                    resource_type="soulkun_insight",
+                    resource_id=insight_id,
+                    classification=classification,
+                    user_id=user_id,
+                    details={"dismissed_reason": reason}
+                )
+
+            return updated
 
         except Exception as e:
             raise wrap_database_error(e, "dismiss insight")

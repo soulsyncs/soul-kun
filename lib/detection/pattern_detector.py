@@ -1078,13 +1078,18 @@ class PatternDetector(BaseDetector):
         頻出パターンのTop Nを取得
 
         Args:
-            limit: 取得件数（デフォルト: 10）
+            limit: 取得件数（デフォルト: 10、最大: 1000）
             min_occurrence: 最小発生回数（デフォルト: 1）
             category: カテゴリフィルタ（オプション）
 
         Returns:
             PatternData のリスト
         """
+        # API経由での過剰取得を防止（Codex LOW指摘対応）
+        MAX_LIMIT = 1000
+        if limit > MAX_LIMIT:
+            limit = MAX_LIMIT
+
         try:
             query = """
                 SELECT

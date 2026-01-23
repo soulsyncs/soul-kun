@@ -620,6 +620,9 @@ BEGIN
         'goal_morning_feedback',
         'goal_team_summary',
         'goal_consecutive_unanswered',
+        'goal_reminder',
+        -- Phase C: 会議系（将来用）
+        'meeting_reminder',
         -- Phase 2 A1: パターン検出（新規追加）
         'pattern_alert',
         'weekly_report'
@@ -641,6 +644,7 @@ ALTER TABLE notification_logs
     DROP CONSTRAINT IF EXISTS check_notification_type;
 
 -- 5-2. 新しいCHECK制約を追加（既存の値 + 新規の値）
+-- 注意: 将来のPhase追加に備え、goal_reminderとmeeting_reminderも許可
 ALTER TABLE notification_logs
     ADD CONSTRAINT check_notification_type
     CHECK (notification_type IN (
@@ -657,9 +661,12 @@ ALTER TABLE notification_logs
         'goal_morning_feedback',
         'goal_team_summary',
         'goal_consecutive_unanswered',
+        'goal_reminder',              -- 設計書に記載（将来用）
+        -- Phase C: 会議系（将来用）
+        'meeting_reminder',           -- 設計書に記載（将来用）
         -- Phase 2 A1: パターン検出（新規追加）
-        'pattern_alert',      -- 頻出パターン検出アラート（critical/high）
-        'weekly_report'       -- 週次レポート
+        'pattern_alert',              -- 頻出パターン検出アラート（critical/high）
+        'weekly_report'               -- 週次レポート
     ));
 
 -- 5-3. コメント追加

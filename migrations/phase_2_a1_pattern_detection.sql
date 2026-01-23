@@ -148,8 +148,13 @@ CREATE TABLE IF NOT EXISTS question_patterns (
     -- ================================================================
     -- 統計データ
     -- ================================================================
-    -- 発生回数（この質問パターンが何回出現したか）
+    -- 発生回数（この質問パターンが何回出現したか - 全期間）
     occurrence_count INT NOT NULL DEFAULT 1 CHECK (occurrence_count >= 1),
+
+    -- 各発生日時のタイムスタンプ配列（Codex MEDIUM2指摘対応）
+    -- ウィンドウ期間（デフォルト30日）内の発生のみを保持
+    -- 閾値チェックはこの配列の要素数で行う
+    occurrence_timestamps TIMESTAMPTZ[] NOT NULL DEFAULT '{}',
 
     -- 最初に質問された日時
     first_asked_at TIMESTAMPTZ NOT NULL,
@@ -182,6 +187,10 @@ CREATE TABLE IF NOT EXISTS question_patterns (
     -- 例: 「週報マニュアルを作成し、全社メールで周知」
     addressed_action TEXT,
 
+    -- 無視理由（statusがdismissedの場合）
+    -- 例: 「季節限定の質問のため」
+    dismissed_reason TEXT,
+
     -- ================================================================
     -- 機密区分（鉄則: 4段階の機密区分を必ず設定）
     -- ================================================================
@@ -203,12 +212,26 @@ CREATE TABLE IF NOT EXISTS question_patterns (
     -- ================================================================
     -- 制約
     -- ================================================================
-    -- 同一組織内で同じハッシュのパターンは1つだけ
-    CONSTRAINT uq_question_patterns_org_hash
-        UNIQUE(organization_id, question_hash)
+    -- 注意: 部署別のユニーク制約はCREATE UNIQUE INDEXで作成（NULLの扱いのため）
+    -- 下記のインデックス作成セクションを参照
+    CONSTRAINT chk_occurrence_count CHECK (occurrence_count >= 1)
 );
 
 -- 2-2. question_patternsテーブルのインデックス作成
+
+-- ================================================================
+-- 部署別パターンのユニーク制約（Codex HIGH1指摘対応）
+-- ================================================================
+-- 同一組織・同一部署内で同じハッシュのパターンは1つだけ
+-- NULLの部署IDも含めてユニーク性を保証するため、COALESCEを使用
+-- '00000000-0000-0000-0000-000000000000' は「部署未指定」を表すセンチネル値
+CREATE UNIQUE INDEX IF NOT EXISTS uq_question_patterns_org_dept_hash
+    ON question_patterns(
+        organization_id,
+        COALESCE(department_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        question_hash
+    );
+
 -- 組織IDと発生回数でのソート（頻出パターンの取得用）
 CREATE INDEX IF NOT EXISTS idx_question_patterns_org_count
     ON question_patterns(organization_id, occurrence_count DESC);
@@ -393,8 +416,20 @@ CREATE INDEX IF NOT EXISTS idx_soulkun_insights_org_department
     ON soulkun_insights(organization_id, department_id)
     WHERE department_id IS NOT NULL;
 
+-- ================================================================
+-- 重複インサイト防止のユニーク制約（Codex HIGH2指摘対応）
+-- ================================================================
+-- 同一ソースから重複してインサイトが作成されることを防止
+-- レース条件（並行実行）による重複作成をDB側で防ぐ
+-- source_id が NULL の場合は制約の対象外（部分ユニークインデックス）
+CREATE UNIQUE INDEX IF NOT EXISTS uq_soulkun_insights_source
+    ON soulkun_insights(organization_id, source_type, source_id)
+    WHERE source_id IS NOT NULL;
+
 -- ソースタイプとソースIDでの検索（重複チェック用）
-CREATE INDEX IF NOT EXISTS idx_soulkun_insights_source
+-- 注意: 上記のユニークインデックスが検索にも使用されるため、
+--       別途通常のインデックスは不要だが、明示性のため残す
+CREATE INDEX IF NOT EXISTS idx_soulkun_insights_source_search
     ON soulkun_insights(organization_id, source_type, source_id)
     WHERE source_id IS NOT NULL;
 

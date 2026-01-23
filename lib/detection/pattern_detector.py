@@ -75,7 +75,8 @@ class PatternData:
         question_category: カテゴリ
         question_hash: 類似度判定用ハッシュ
         normalized_question: 正規化された質問文
-        occurrence_count: 発生回数
+        occurrence_count: 発生回数（全期間）
+        occurrence_timestamps: 各発生日時のリスト（ウィンドウ期間内のみ）
         first_asked_at: 最初に質問された日時
         last_asked_at: 最後に質問された日時
         asked_by_user_ids: 質問した人のリスト
@@ -90,11 +91,36 @@ class PatternData:
     question_hash: str
     normalized_question: str
     occurrence_count: int
+    occurrence_timestamps: list[datetime]
     first_asked_at: datetime
     last_asked_at: datetime
     asked_by_user_ids: list[UUID]
     sample_questions: list[str]
     status: PatternStatus
+
+    @property
+    def window_occurrence_count(self) -> int:
+        """
+        ウィンドウ期間内の発生回数を取得
+
+        occurrence_timestampsの要素数を返す
+        （DBで既にウィンドウ期間外のタイムスタンプは除去済み）
+        """
+        return len(self.occurrence_timestamps)
+
+    def get_window_occurrence_count(self, window_days: int = 30) -> int:
+        """
+        指定したウィンドウ期間内の発生回数を取得
+
+        Args:
+            window_days: ウィンドウ期間（日数）
+
+        Returns:
+            ウィンドウ期間内の発生回数
+        """
+        from datetime import timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=window_days)
+        return sum(1 for ts in self.occurrence_timestamps if ts >= cutoff)
 
     @classmethod
     def from_row(cls, row: tuple) -> "PatternData":
@@ -103,10 +129,27 @@ class PatternData:
 
         Args:
             row: データベースの行（タプル）
+                列順: id, organization_id, department_id, question_category,
+                      question_hash, normalized_question, occurrence_count,
+                      occurrence_timestamps, first_asked_at, last_asked_at,
+                      asked_by_user_ids, sample_questions, status
 
         Returns:
             PatternData: パターンデータ
         """
+        # occurrence_timestampsの処理
+        raw_timestamps = row[7] or []
+        occurrence_timestamps = []
+        for ts in raw_timestamps:
+            if isinstance(ts, datetime):
+                occurrence_timestamps.append(ts)
+            elif isinstance(ts, str):
+                # ISO形式の文字列から変換
+                try:
+                    occurrence_timestamps.append(datetime.fromisoformat(ts.replace('Z', '+00:00')))
+                except (ValueError, AttributeError):
+                    pass
+
         return cls(
             id=UUID(str(row[0])),
             organization_id=UUID(str(row[1])),
@@ -115,11 +158,12 @@ class PatternData:
             question_hash=row[4],
             normalized_question=row[5],
             occurrence_count=row[6],
-            first_asked_at=row[7],
-            last_asked_at=row[8],
-            asked_by_user_ids=[UUID(str(uid)) for uid in (row[9] or [])],
-            sample_questions=row[10] or [],
-            status=PatternStatus(row[11]),
+            occurrence_timestamps=occurrence_timestamps,
+            first_asked_at=row[8],
+            last_asked_at=row[9],
+            asked_by_user_ids=[UUID(str(uid)) for uid in (row[10] or [])],
+            sample_questions=row[11] or [],
+            status=PatternStatus(row[12]),
         )
 
 
@@ -265,23 +309,29 @@ class PatternDetector(BaseDetector):
             # 3. 類似度ハッシュを生成
             question_hash = self._generate_hash(normalized)
 
-            # 4. 既存パターンを検索
-            existing_pattern = await self._find_existing_pattern(question_hash)
+            # 4. 既存パターンを検索（部署別: Codex HIGH1指摘対応）
+            existing_pattern = await self._find_existing_pattern(
+                question_hash=question_hash,
+                department_id=department_id
+            )
 
             pattern_data: Optional[PatternData] = None
             insight_created = False
             insight_id: Optional[UUID] = None
 
             if existing_pattern:
-                # 5a. 既存パターンを更新
+                # 5a. 既存パターンを更新（再活性化含む: Codex MEDIUM1指摘対応）
                 pattern_data = await self._update_pattern(
                     pattern_id=existing_pattern.id,
                     user_id=user_id,
-                    sample_question=question
+                    sample_question=question,
+                    reactivate=(existing_pattern.status != PatternStatus.ACTIVE)
                 )
 
                 # 6. 閾値チェック & インサイト作成
-                if pattern_data.occurrence_count >= self._pattern_threshold:
+                # ウィンドウ期間内の発生回数で判定（Codex MEDIUM2指摘対応）
+                window_count = pattern_data.window_occurrence_count
+                if window_count >= self._pattern_threshold:
                     if not await self.insight_exists_for_source(pattern_data.id):
                         if context is None or not context.dry_run:
                             insight_data = self._create_insight_data(
@@ -294,7 +344,8 @@ class PatternDetector(BaseDetector):
                                 LogMessages.PATTERN_THRESHOLD_REACHED,
                                 extra={
                                     "pattern_id": str(pattern_data.id),
-                                    "occurrence_count": pattern_data.occurrence_count,
+                                    "window_occurrence_count": window_count,
+                                    "total_occurrence_count": pattern_data.occurrence_count,
                                     "insight_id": str(insight_id),
                                 }
                             )
@@ -329,6 +380,7 @@ class PatternDetector(BaseDetector):
                     "category": category.value,
                     "is_new_pattern": existing_pattern is None,
                     "occurrence_count": pattern_data.occurrence_count if pattern_data else 1,
+                    "window_occurrence_count": pattern_data.window_occurrence_count if pattern_data else 1,
                 }
             )
 
@@ -508,18 +560,29 @@ class PatternDetector(BaseDetector):
 
     async def _find_existing_pattern(
         self,
-        question_hash: str
+        question_hash: str,
+        department_id: Optional[UUID] = None
     ) -> Optional[PatternData]:
         """
         既存パターンを検索
 
+        部署別でパターンを検索する（Codex HIGH1指摘対応）
+        対応済み/無視済みのパターンも検索対象とする（Codex MEDIUM1指摘対応）
+
         Args:
             question_hash: 質問のハッシュ
+            department_id: 部署ID（NULLの場合は部署未指定パターンを検索）
 
         Returns:
             PatternData: 既存パターン（存在しない場合はNone）
         """
+        # センチネル値: 部署未指定を表すUUID
+        SENTINEL_UUID = "00000000-0000-0000-0000-000000000000"
+
         try:
+            # 部署IDのCOALESCE処理（DBのユニークインデックスと同じロジック）
+            dept_id_for_query = str(department_id) if department_id else SENTINEL_UUID
+
             result = self.conn.execute(text("""
                 SELECT
                     id,
@@ -529,6 +592,7 @@ class PatternDetector(BaseDetector):
                     question_hash,
                     normalized_question,
                     occurrence_count,
+                    occurrence_timestamps,
                     first_asked_at,
                     last_asked_at,
                     asked_by_user_ids,
@@ -536,13 +600,14 @@ class PatternDetector(BaseDetector):
                     status
                 FROM question_patterns
                 WHERE organization_id = :org_id
+                  AND COALESCE(department_id, :sentinel::uuid) = :dept_id::uuid
                   AND question_hash = :hash
-                  AND status = :status
                 LIMIT 1
             """), {
                 "org_id": str(self.org_id),
+                "dept_id": dept_id_for_query,
+                "sentinel": SENTINEL_UUID,
                 "hash": question_hash,
-                "status": PatternStatus.ACTIVE.value,
             })
 
             row = result.fetchone()
@@ -557,61 +622,140 @@ class PatternDetector(BaseDetector):
         self,
         pattern_id: UUID,
         user_id: UUID,
-        sample_question: str
+        sample_question: str,
+        reactivate: bool = False
     ) -> PatternData:
         """
         既存パターンを更新
 
         - occurrence_count をインクリメント
+        - occurrence_timestamps に現在時刻を追加し、ウィンドウ期間外のものを削除
+          （Codex MEDIUM2指摘対応: 30日間ウィンドウの実装）
         - last_asked_at を更新
         - asked_by_user_ids にユーザーを追加（重複なし）
         - sample_questions にサンプルを追加（最大数まで）
+        - reactivate=Trueの場合、ステータスをactiveに戻し関連フィールドをリセット
+          （Codex MEDIUM1指摘対応: 対応済み/無視済みパターンの再活性化）
 
         Args:
             pattern_id: パターンID
             user_id: 質問したユーザーID
             sample_question: 元の質問文
+            reactivate: 再活性化フラグ（対応済み/無視済みパターンを復活させる）
 
         Returns:
             PatternData: 更新後のパターンデータ
         """
         try:
-            result = self.conn.execute(text("""
-                UPDATE question_patterns
-                SET
-                    occurrence_count = occurrence_count + 1,
-                    last_asked_at = CURRENT_TIMESTAMP,
-                    asked_by_user_ids = CASE
-                        WHEN :user_id::uuid = ANY(asked_by_user_ids)
-                        THEN asked_by_user_ids
-                        ELSE array_append(asked_by_user_ids, :user_id::uuid)
-                    END,
-                    sample_questions = CASE
-                        WHEN array_length(sample_questions, 1) >= :max_samples
-                        THEN sample_questions
-                        ELSE array_append(sample_questions, :sample)
-                    END,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = :pattern_id
-                RETURNING
-                    id,
-                    organization_id,
-                    department_id,
-                    question_category,
-                    question_hash,
-                    normalized_question,
-                    occurrence_count,
-                    first_asked_at,
-                    last_asked_at,
-                    asked_by_user_ids,
-                    sample_questions,
-                    status
-            """), {
-                "pattern_id": str(pattern_id),
-                "user_id": str(user_id),
-                "sample": sample_question[:500],  # 500文字に制限
-                "max_samples": self._max_sample_questions,
-            })
+            # 再活性化時はステータスと関連フィールドをリセット
+            if reactivate:
+                result = self.conn.execute(text("""
+                    UPDATE question_patterns
+                    SET
+                        occurrence_count = occurrence_count + 1,
+                        -- ウィンドウ期間内のタイムスタンプのみ保持し、新しいタイムスタンプを追加
+                        occurrence_timestamps = (
+                            SELECT COALESCE(array_agg(ts ORDER BY ts), ARRAY[]::timestamptz[])
+                            FROM unnest(
+                                array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
+                            ) AS ts
+                            WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                        ),
+                        last_asked_at = CURRENT_TIMESTAMP,
+                        asked_by_user_ids = CASE
+                            WHEN :user_id::uuid = ANY(asked_by_user_ids)
+                            THEN asked_by_user_ids
+                            ELSE array_append(asked_by_user_ids, :user_id::uuid)
+                        END,
+                        sample_questions = CASE
+                            WHEN array_length(sample_questions, 1) >= :max_samples
+                            THEN sample_questions
+                            ELSE array_append(sample_questions, :sample)
+                        END,
+                        -- 再活性化: ステータスと関連フィールドをリセット
+                        status = :active_status,
+                        addressed_at = NULL,
+                        addressed_action = NULL,
+                        dismissed_reason = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :pattern_id
+                    RETURNING
+                        id,
+                        organization_id,
+                        department_id,
+                        question_category,
+                        question_hash,
+                        normalized_question,
+                        occurrence_count,
+                        occurrence_timestamps,
+                        first_asked_at,
+                        last_asked_at,
+                        asked_by_user_ids,
+                        sample_questions,
+                        status
+                """), {
+                    "pattern_id": str(pattern_id),
+                    "user_id": str(user_id),
+                    "sample": sample_question[:500],  # 500文字に制限
+                    "max_samples": self._max_sample_questions,
+                    "active_status": PatternStatus.ACTIVE.value,
+                    "window_days": self._pattern_window_days,
+                })
+
+                self._logger.info(
+                    "Pattern reactivated",
+                    extra={
+                        "pattern_id": str(pattern_id),
+                        "reason": "same_question_asked_again",
+                    }
+                )
+            else:
+                result = self.conn.execute(text("""
+                    UPDATE question_patterns
+                    SET
+                        occurrence_count = occurrence_count + 1,
+                        -- ウィンドウ期間内のタイムスタンプのみ保持し、新しいタイムスタンプを追加
+                        occurrence_timestamps = (
+                            SELECT COALESCE(array_agg(ts ORDER BY ts), ARRAY[]::timestamptz[])
+                            FROM unnest(
+                                array_append(occurrence_timestamps, CURRENT_TIMESTAMP)
+                            ) AS ts
+                            WHERE ts > (CURRENT_TIMESTAMP - :window_days * interval '1 day')
+                        ),
+                        last_asked_at = CURRENT_TIMESTAMP,
+                        asked_by_user_ids = CASE
+                            WHEN :user_id::uuid = ANY(asked_by_user_ids)
+                            THEN asked_by_user_ids
+                            ELSE array_append(asked_by_user_ids, :user_id::uuid)
+                        END,
+                        sample_questions = CASE
+                            WHEN array_length(sample_questions, 1) >= :max_samples
+                            THEN sample_questions
+                            ELSE array_append(sample_questions, :sample)
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = :pattern_id
+                    RETURNING
+                        id,
+                        organization_id,
+                        department_id,
+                        question_category,
+                        question_hash,
+                        normalized_question,
+                        occurrence_count,
+                        occurrence_timestamps,
+                        first_asked_at,
+                        last_asked_at,
+                        asked_by_user_ids,
+                        sample_questions,
+                        status
+                """), {
+                    "pattern_id": str(pattern_id),
+                    "user_id": str(user_id),
+                    "sample": sample_question[:500],  # 500文字に制限
+                    "max_samples": self._max_sample_questions,
+                    "window_days": self._pattern_window_days,
+                })
 
             row = result.fetchone()
             if row is None:
@@ -647,6 +791,9 @@ class PatternDetector(BaseDetector):
         """
         新規パターンを作成
 
+        部署別のユニーク制約に対応（Codex HIGH1指摘対応）
+        レース条件が発生した場合は既存パターンを更新する
+
         Args:
             category: カテゴリ
             question_hash: 類似度判定用ハッシュ
@@ -656,9 +803,12 @@ class PatternDetector(BaseDetector):
             sample_question: 元の質問文
 
         Returns:
-            UUID: 作成されたパターンのID
+            UUID: 作成または更新されたパターンのID
         """
         try:
+            # INSERT ... ON CONFLICT DO NOTHING を使用
+            # 部署別のユニーク制約（COALESCE式）にはON CONFLICT(columns) DO UPDATE
+            # が直接使えないため、競合時は別途更新処理を行う
             result = self.conn.execute(text("""
                 INSERT INTO question_patterns (
                     organization_id,
@@ -667,6 +817,7 @@ class PatternDetector(BaseDetector):
                     question_hash,
                     normalized_question,
                     occurrence_count,
+                    occurrence_timestamps,
                     first_asked_at,
                     last_asked_at,
                     asked_by_user_ids,
@@ -683,6 +834,7 @@ class PatternDetector(BaseDetector):
                     :hash,
                     :normalized,
                     1,
+                    ARRAY[CURRENT_TIMESTAMP],
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP,
                     ARRAY[:user_id::uuid],
@@ -693,21 +845,7 @@ class PatternDetector(BaseDetector):
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
-                ON CONFLICT (organization_id, question_hash) DO UPDATE
-                SET
-                    occurrence_count = question_patterns.occurrence_count + 1,
-                    last_asked_at = CURRENT_TIMESTAMP,
-                    asked_by_user_ids = CASE
-                        WHEN :user_id::uuid = ANY(question_patterns.asked_by_user_ids)
-                        THEN question_patterns.asked_by_user_ids
-                        ELSE array_append(question_patterns.asked_by_user_ids, :user_id::uuid)
-                    END,
-                    sample_questions = CASE
-                        WHEN array_length(question_patterns.sample_questions, 1) >= :max_samples
-                        THEN question_patterns.sample_questions
-                        ELSE array_append(question_patterns.sample_questions, :sample)
-                    END,
-                    updated_at = CURRENT_TIMESTAMP
+                ON CONFLICT DO NOTHING
                 RETURNING id
             """), {
                 "org_id": str(self.org_id),
@@ -719,17 +857,48 @@ class PatternDetector(BaseDetector):
                 "sample": sample_question[:500],  # 500文字に制限
                 "status": PatternStatus.ACTIVE.value,
                 "classification": Classification.INTERNAL.value,
-                "max_samples": self._max_sample_questions,
             })
 
             row = result.fetchone()
-            if row is None:
+
+            if row is not None:
+                # 正常に挿入された
+                return UUID(str(row[0]))
+
+            # 競合が発生した場合（レース条件）
+            # 既存パターンを取得して更新する
+            self._logger.debug(
+                "Pattern insert conflict, finding existing pattern",
+                extra={
+                    "question_hash": question_hash[:16],
+                    "department_id": str(department_id) if department_id else None,
+                }
+            )
+
+            existing_pattern = await self._find_existing_pattern(
+                question_hash=question_hash,
+                department_id=department_id
+            )
+
+            if existing_pattern is None:
+                # 競合したはずなのに見つからない（理論上ありえない）
                 raise PatternSaveError(
-                    message="Failed to create pattern - no ID returned",
-                    details={"question_hash": question_hash[:16]}
+                    message="Pattern conflict occurred but existing pattern not found",
+                    details={
+                        "question_hash": question_hash[:16],
+                        "department_id": str(department_id) if department_id else None,
+                    }
                 )
 
-            return UUID(str(row[0]))
+            # 既存パターンを更新
+            updated_pattern = await self._update_pattern(
+                pattern_id=existing_pattern.id,
+                user_id=user_id,
+                sample_question=sample_question,
+                reactivate=(existing_pattern.status != PatternStatus.ACTIVE)
+            )
+
+            return updated_pattern.id
 
         except PatternSaveError:
             raise
@@ -753,15 +922,17 @@ class PatternDetector(BaseDetector):
         Returns:
             InsightData: インサイトデータ
         """
-        occurrence_count = detection_data.get("occurrence_count", 0)
+        # ウィンドウ期間内の発生回数を使用（Codex MEDIUM2指摘対応）
+        window_occurrence_count = detection_data.get("window_occurrence_count", 0)
+        total_occurrence_count = detection_data.get("occurrence_count", 0)
         unique_users = len(detection_data.get("asked_by_user_ids", []))
         normalized_question = detection_data.get("normalized_question", "")
         sample_questions = detection_data.get("sample_questions", [])
         category = detection_data.get("question_category", "other")
 
-        # 重要度を判定
+        # 重要度を判定（ウィンドウ内の発生回数で判定）
         importance = Importance.from_occurrence_count(
-            occurrence_count=occurrence_count,
+            occurrence_count=window_occurrence_count,
             unique_users=unique_users
         )
 
@@ -770,7 +941,7 @@ class PatternDetector(BaseDetector):
 
         # 説明を生成
         description = (
-            f"過去{self._pattern_window_days}日間で{occurrence_count}回、"
+            f"過去{self._pattern_window_days}日間で{window_occurrence_count}回、"
             f"{unique_users}人の社員から同じ質問がありました。\n\n"
             f"**カテゴリ**: {category}\n\n"
             f"**サンプル質問**:\n"
@@ -789,7 +960,8 @@ class PatternDetector(BaseDetector):
 
         # 根拠データを生成
         evidence = {
-            "occurrence_count": occurrence_count,
+            "window_occurrence_count": window_occurrence_count,
+            "total_occurrence_count": total_occurrence_count,
             "unique_users": unique_users,
             "sample_questions": sample_questions[:5],
             "category": category,
@@ -830,6 +1002,8 @@ class PatternDetector(BaseDetector):
             "question_hash": pattern.question_hash,
             "normalized_question": pattern.normalized_question,
             "occurrence_count": pattern.occurrence_count,
+            "window_occurrence_count": pattern.window_occurrence_count,
+            "occurrence_timestamps": pattern.occurrence_timestamps,
             "first_asked_at": pattern.first_asked_at,
             "last_asked_at": pattern.last_asked_at,
             "asked_by_user_ids": pattern.asked_by_user_ids,
@@ -908,6 +1082,7 @@ class PatternDetector(BaseDetector):
                     question_hash,
                     normalized_question,
                     occurrence_count,
+                    occurrence_timestamps,
                     first_asked_at,
                     last_asked_at,
                     asked_by_user_ids,

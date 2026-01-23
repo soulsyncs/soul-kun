@@ -525,6 +525,7 @@ class TestPatternData:
         """基本的な作成"""
         pattern_id = uuid4()
         org_id = uuid4()
+        now = datetime.now()
         data = PatternData(
             id=pattern_id,
             organization_id=org_id,
@@ -533,8 +534,9 @@ class TestPatternData:
             question_hash="abc123",
             normalized_question="週報の出し方を教えてください",
             occurrence_count=5,
-            first_asked_at=datetime.now(),
-            last_asked_at=datetime.now(),
+            occurrence_timestamps=[now],
+            first_asked_at=now,
+            last_asked_at=now,
             asked_by_user_ids=[uuid4()],
             sample_questions=["週報の出し方は？"],
             status=PatternStatus.ACTIVE
@@ -548,6 +550,7 @@ class TestPatternData:
         pattern_id = uuid4()
         org_id = uuid4()
         dept_id = uuid4()
+        now = datetime.now()
         data = PatternData(
             id=pattern_id,
             organization_id=org_id,
@@ -556,14 +559,92 @@ class TestPatternData:
             question_hash="abc123",
             normalized_question="VPNの接続方法",
             occurrence_count=3,
-            first_asked_at=datetime.now(),
-            last_asked_at=datetime.now(),
+            occurrence_timestamps=[now],
+            first_asked_at=now,
+            last_asked_at=now,
             asked_by_user_ids=[uuid4()],
             sample_questions=["VPNに繋がらない"],
             status=PatternStatus.ACTIVE
         )
         assert data.department_id == dept_id
         assert data.question_category == QuestionCategory.TECHNICAL
+
+    def test_window_occurrence_count(self):
+        """ウィンドウ期間内の発生回数（window_occurrence_count）"""
+        pattern_id = uuid4()
+        org_id = uuid4()
+        now = datetime.now()
+        timestamps = [now, now, now, now, now]  # 5回
+        data = PatternData(
+            id=pattern_id,
+            organization_id=org_id,
+            department_id=None,
+            question_category=QuestionCategory.BUSINESS_PROCESS,
+            question_hash="abc123",
+            normalized_question="テスト",
+            occurrence_count=10,  # 全期間は10回
+            occurrence_timestamps=timestamps,  # ウィンドウ内は5回
+            first_asked_at=now,
+            last_asked_at=now,
+            asked_by_user_ids=[uuid4()],
+            sample_questions=["テスト"],
+            status=PatternStatus.ACTIVE
+        )
+        assert data.window_occurrence_count == 5
+        assert data.occurrence_count == 10
+
+    def test_get_window_occurrence_count_with_old_timestamps(self):
+        """古いタイムスタンプを含むウィンドウ発生回数のテスト"""
+        from datetime import timedelta, timezone
+
+        pattern_id = uuid4()
+        org_id = uuid4()
+        now = datetime.now(timezone.utc)
+        old_timestamp = now - timedelta(days=40)  # 40日前（ウィンドウ外）
+        recent_timestamp = now - timedelta(days=10)  # 10日前（ウィンドウ内）
+
+        timestamps = [old_timestamp, recent_timestamp, now]
+        data = PatternData(
+            id=pattern_id,
+            organization_id=org_id,
+            department_id=None,
+            question_category=QuestionCategory.BUSINESS_PROCESS,
+            question_hash="abc123",
+            normalized_question="テスト",
+            occurrence_count=3,
+            occurrence_timestamps=timestamps,
+            first_asked_at=old_timestamp,
+            last_asked_at=now,
+            asked_by_user_ids=[uuid4()],
+            sample_questions=["テスト"],
+            status=PatternStatus.ACTIVE
+        )
+        # 30日間のウィンドウでは2件（recent_timestamp と now）
+        assert data.get_window_occurrence_count(window_days=30) == 2
+        # 50日間のウィンドウでは3件（全て）
+        assert data.get_window_occurrence_count(window_days=50) == 3
+
+    def test_empty_occurrence_timestamps(self):
+        """空のタイムスタンプ配列"""
+        pattern_id = uuid4()
+        org_id = uuid4()
+        now = datetime.now()
+        data = PatternData(
+            id=pattern_id,
+            organization_id=org_id,
+            department_id=None,
+            question_category=QuestionCategory.BUSINESS_PROCESS,
+            question_hash="abc123",
+            normalized_question="テスト",
+            occurrence_count=1,
+            occurrence_timestamps=[],  # 空
+            first_asked_at=now,
+            last_asked_at=now,
+            asked_by_user_ids=[uuid4()],
+            sample_questions=["テスト"],
+            status=PatternStatus.ACTIVE
+        )
+        assert data.window_occurrence_count == 0
 
 
 class TestPatternDetectorNormalization:

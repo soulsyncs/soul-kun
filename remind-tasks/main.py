@@ -13,6 +13,20 @@ import json
 from functools import lru_cache
 import traceback
 
+# ★★★ v10.17.0: lib/テキスト処理ユーティリティ ★★★
+try:
+    from lib import (
+        clean_chatwork_tags as lib_clean_chatwork_tags,
+        prepare_task_display_text as lib_prepare_task_display_text,
+        remove_greetings as lib_remove_greetings,
+        validate_summary as lib_validate_summary,
+    )
+    USE_TEXT_UTILS_LIB = True
+    print("✅ lib/text_utils をロードしました")
+except ImportError as e:
+    USE_TEXT_UTILS_LIB = False
+    print(f"⚠️ lib/text_utils が見つかりません。ローカル関数を使用: {e}")
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -5483,11 +5497,21 @@ def remind_tasks(request):
                 }
 
             # タスク表示名を作成（要約 or クリーンな本文）
+            # ★★★ v10.17.0: prepare_task_display_text()を使用して途切れ防止 ★★★
             if summary:
-                task_display = summary
+                # 要約がある場合も、念のため整形を適用
+                if USE_TEXT_UTILS_LIB:
+                    task_display = lib_prepare_task_display_text(summary, max_length=40)
+                else:
+                    task_display = prepare_task_display_text(summary, max_length=40)
             else:
-                clean_body = clean_task_body(body)
-                task_display = clean_body[:50] if len(clean_body) <= 50 else clean_body[:47] + "..."
+                # 要約がない場合、本文をクリーニングして整形
+                if USE_TEXT_UTILS_LIB:
+                    clean_body = lib_clean_chatwork_tags(body)
+                    task_display = lib_prepare_task_display_text(clean_body, max_length=40)
+                else:
+                    clean_body = clean_task_body(body)
+                    task_display = prepare_task_display_text(clean_body, max_length=40)
 
             task_info = {
                 'task_id': task_id,
@@ -5825,8 +5849,13 @@ def process_overdue_tasks_v2():
                 continue
 
             # タスク内容を整形
-            source_text = summary if summary else clean_task_body(body)
-            task_display = prepare_task_display_text(source_text, max_length=40)
+            # ★★★ v10.17.0: lib/使用時はそちらを優先 ★★★
+            if USE_TEXT_UTILS_LIB:
+                clean_body = lib_clean_chatwork_tags(body)
+                task_display = lib_prepare_task_display_text(summary if summary else clean_body, max_length=40)
+            else:
+                clean_body = clean_task_body(body)
+                task_display = prepare_task_display_text(summary if summary else clean_body, max_length=40)
 
             # ルーム名を整形
             room_display = room_name if room_name else "不明"
@@ -6052,8 +6081,13 @@ def process_completed_tasks_summary():
 
             # タスク内容を15文字以内に整形（v10.8.0: AI要約対応）
             # summary優先、なければbodyをクリーニング後に整形
-            source_text = summary if summary else clean_task_body(body)
-            task_display = prepare_task_display_text(source_text, max_length=40)
+            # ★★★ v10.17.0: lib/使用時はそちらを優先 ★★★
+            if USE_TEXT_UTILS_LIB:
+                clean_body = lib_clean_chatwork_tags(body)
+                task_display = lib_prepare_task_display_text(summary if summary else clean_body, max_length=40)
+            else:
+                clean_body = clean_task_body(body)
+                task_display = prepare_task_display_text(summary if summary else clean_body, max_length=40)
 
             # ルーム名を整形（長い場合は切り詰め）
             room_display = room_name if room_name else "不明"

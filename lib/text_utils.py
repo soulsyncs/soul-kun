@@ -25,7 +25,7 @@ Soul-kun テキスト処理ユーティリティ
 import re
 from typing import Tuple, Optional
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"  # v10.17.0: prepare_task_display_text追加
 
 # =====================================================
 # 挨拶パターン定義
@@ -429,6 +429,101 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
     return True, None
 
 
+def prepare_task_display_text(text: str, max_length: int = 40) -> str:
+    """
+    報告用のタスク表示テキストを整形する
+
+    ★★★ v10.17.0: lib/共通化 ★★★
+
+    処理内容:
+    1. 改行を半角スペースに置換（1行にまとめる）
+    2. 定型挨拶文を削除
+    3. 連続スペースを1つに
+    4. 先頭・末尾の空白を除去
+    5. max_length文字以内で完結させる（途切れ防止）
+
+    途切れ防止の優先順位:
+    1. 句点(。)で終わる位置
+    2. 読点(、)で終わる位置
+    3. 助詞の後（を、に、で、と、が、は、の、へ、も）
+    4. 動作語の後（確認、依頼、報告、対応、作成、提出、...）
+    5. 最終手段: max_length-2文字 + 「対応」
+
+    Args:
+        text: 元のテキスト（summaryまたはclean_chatwork_tags()後のbody）
+        max_length: 最大文字数（デフォルト40）
+
+    Returns:
+        整形済みテキスト（途中で途切れない）
+
+    Example:
+        >>> prepare_task_display_text("お疲れ様です！経費精算書を提出してください。よろしくお願いします。")
+        "経費精算書を提出してください。"
+    """
+    if not text:
+        return "（タスク内容なし）"
+
+    try:
+        # 1. 改行を半角スペースに置換（1行にまとめる）
+        text = text.replace('\n', ' ').replace('\r', ' ')
+
+        # 2. 定型挨拶文を削除（remove_greetings を使用）
+        text = remove_greetings(text)
+
+        # 3. 連続スペースを1つに
+        text = re.sub(r'\s{2,}', ' ', text)
+
+        # 4. 先頭・末尾の空白を除去
+        text = text.strip()
+
+        # 空になった場合
+        if not text:
+            return "（タスク内容なし）"
+
+        # 5. max_length文字以内で完結させる（途切れ防止）
+        if len(text) <= max_length:
+            return text
+
+        # 途切れ防止: 自然な位置で切る
+        truncated = text[:max_length]
+
+        # 句点(。)で終わる位置を探す
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] == '。':
+                return truncated[:i + 1]
+
+        # 読点(、)で終わる位置を探す
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] == '、':
+                return truncated[:i + 1]
+
+        # 助詞の後で切る
+        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
+        for i in range(max_length - 1, max_length // 2, -1):
+            if truncated[i] in particles:
+                return truncated[:i + 1]
+
+        # 動作語の後で切る
+        action_words = [
+            '確認', '依頼', '報告', '対応', '作成', '提出', '送付', '連絡',
+            '相談', '検討', '準備', '完了', '実施', '設定', '登録', '更新',
+            '共有', '調整'
+        ]
+        for i in range(max_length - 2, max_length // 2, -1):
+            for action in action_words:
+                if i + len(action) <= len(truncated) and truncated[i:i+len(action)] == action:
+                    cut_pos = i + len(action)
+                    if cut_pos <= max_length:
+                        return truncated[:cut_pos]
+
+        # 最終手段: max_length-2文字 + 動作語で終わらせる
+        return truncated[:max_length - 2] + "対応"
+
+    except Exception as e:
+        print(f"⚠️ prepare_task_display_text エラー: {e}")
+        return text[:max_length] if len(text) > max_length else text
+
+
 # =====================================================
 # エクスポート
 # =====================================================
@@ -445,4 +540,5 @@ __all__ = [
     "validate_summary",
     "clean_chatwork_tags",
     "validate_and_get_reason",
+    "prepare_task_display_text",  # v10.17.0追加
 ]

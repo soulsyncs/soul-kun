@@ -20,10 +20,10 @@ Version: 1.0
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+import json
 from typing import Any, Generic, Optional, TypeVar
 from uuid import UUID
 
-import sqlalchemy
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
@@ -304,6 +304,8 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
         )
 
         try:
+            # ON CONFLICT DO NOTHINGで重複時は挿入をスキップ（Codex MEDIUM指摘対応）
+            # uq_soulkun_insights_source制約で並行実行の重複を防止
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_insights (
                     organization_id,
@@ -338,6 +340,9 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (organization_id, source_type, source_id)
+                    WHERE source_id IS NOT NULL
+                DO NOTHING
                 RETURNING id
             """), {
                 "organization_id": str(insight_data.organization_id),
@@ -349,20 +354,48 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                 "title": insight_data.title[:200],  # タイトルは200文字以内
                 "description": insight_data.description,
                 "recommended_action": insight_data.recommended_action,
-                "evidence": sqlalchemy.types.JSON().bind_processor(None)(insight_data.evidence) if insight_data.evidence else "{}",
+                "evidence": json.dumps(insight_data.evidence) if insight_data.evidence else "{}",
                 "status": InsightStatus.NEW.value,
                 "classification": insight_data.classification.value,
                 "created_by": None,  # システム生成
             })
 
             row = result.fetchone()
-            if row is None:
+
+            if row is not None:
+                # 新規挿入成功
+                insight_id = UUID(str(row[0]))
+            elif insight_data.source_id is not None:
+                # 重複検出 - 既存のインサイトを取得
+                self._logger.debug(
+                    "Insight already exists, fetching existing",
+                    extra={
+                        "organization_id": str(self._org_id),
+                        "source_id": str(insight_data.source_id),
+                    }
+                )
+                existing = self._conn.execute(text("""
+                    SELECT id FROM soulkun_insights
+                    WHERE organization_id = :org_id
+                      AND source_type = :source_type
+                      AND source_id = :source_id
+                """), {
+                    "org_id": str(insight_data.organization_id),
+                    "source_type": insight_data.source_type.value,
+                    "source_id": str(insight_data.source_id),
+                })
+                existing_row = existing.fetchone()
+                if existing_row is None:
+                    raise InsightCreateError(
+                        message="Conflict occurred but existing insight not found",
+                        details={"insight_type": insight_data.insight_type.value}
+                    )
+                insight_id = UUID(str(existing_row[0]))
+            else:
                 raise InsightCreateError(
                     message="Failed to get inserted insight ID",
                     details={"insight_type": insight_data.insight_type.value}
                 )
-
-            insight_id = UUID(str(row[0]))
 
             self._logger.info(
                 "Insight saved successfully",

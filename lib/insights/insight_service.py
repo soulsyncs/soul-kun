@@ -14,6 +14,7 @@ Version: 1.0
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -326,8 +327,6 @@ class InsightService:
         )
 
         try:
-            import sqlalchemy
-
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_insights (
                     organization_id,
@@ -373,7 +372,7 @@ class InsightService:
                 "title": title[:200],
                 "description": description,
                 "recommended_action": recommended_action,
-                "evidence": sqlalchemy.types.JSON().bind_processor(None)(evidence or {}),
+                "evidence": json.dumps(evidence or {}),
                 "status": InsightStatus.NEW.value,
                 "classification": classification.value,
                 "created_by": str(created_by) if created_by else None,

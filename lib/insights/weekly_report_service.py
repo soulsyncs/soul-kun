@@ -13,6 +13,7 @@ Version: 1.0
 
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
+import json
 from typing import Any, Optional
 from uuid import UUID
 
@@ -575,8 +576,6 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             UUID: 作成されたレポートのID
         """
         try:
-            import sqlalchemy
-
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_weekly_reports (
                     organization_id,
@@ -607,7 +606,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                 "week_start": week_start,
                 "week_end": week_end,
                 "report_content": content,
-                "insights_summary": sqlalchemy.types.JSON().bind_processor(None)(summary),
+                "insights_summary": json.dumps(summary),
                 "included_insight_ids": [str(uid) for uid in insight_ids],
                 "status": WeeklyReportStatus.DRAFT.value,
                 "classification": Classification.INTERNAL.value,

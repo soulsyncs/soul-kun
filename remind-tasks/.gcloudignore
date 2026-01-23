@@ -1,0 +1,24 @@
+# Cloud Functions deploy ignore file
+# Do NOT include .gitignore behavior - start fresh
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# OS files
+.DS_Store
+
+# Test files (keep for local testing, but don't deploy)
+# *_test.py
+
+# Backup files
+*.backup
+
+# Environment files
+.env
+.env.*
+*.yaml
+
+# Explicitly include lib/ directory (must NOT be ignored)
+!lib/
+!lib/*

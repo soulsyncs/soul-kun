@@ -384,6 +384,8 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             # 週の終了日は23:59:59まで含める
             end_datetime = datetime.combine(week_end, datetime.max.time())
 
+            # 機密情報漏洩防止: confidential/restricted は週次レポートに含めない
+            # （Codex HIGH指摘対応: 送信先が広い場合のリスク軽減）
             result = self._conn.execute(text("""
                 SELECT
                     id,
@@ -399,6 +401,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                   AND created_at >= :week_start
                   AND created_at <= :week_end
                   AND status IN ('new', 'acknowledged')
+                  AND classification IN ('public', 'internal')
                 ORDER BY
                     CASE importance
                         WHEN 'critical' THEN 1

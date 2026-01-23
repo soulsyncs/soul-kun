@@ -305,7 +305,8 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
 
         try:
             # ON CONFLICT DO NOTHINGで重複時は挿入をスキップ（Codex MEDIUM指摘対応）
-            # uq_soulkun_insights_source制約で並行実行の重複を防止
+            # 部分ユニークインデックス uq_soulkun_insights_source に対応した構文を使用
+            # （Codex CRITICAL指摘対応: ON CONFLICT ON CONSTRAINT は部分インデックスに使えない）
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_insights (
                     organization_id,
@@ -340,7 +341,8 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
-                ON CONFLICT ON CONSTRAINT uq_soulkun_insights_source
+                ON CONFLICT (organization_id, source_type, source_id)
+                    WHERE source_id IS NOT NULL
                 DO NOTHING
                 RETURNING id
             """), {

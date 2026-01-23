@@ -447,6 +447,15 @@ git diff --stat HEAD~5
 
 ## 直近の主な成果
 
+- **2026-01-23**: v10.17.2（PR #31）
+  - タスク要約品質の完全修正
+    - **remind-tasks/main.py**: 全11箇所の直接切り詰め`[:30]`を`prepare_task_display_text()`に置換
+    - **sync-chatwork-tasks/main.py**: 全8箇所の直接切り詰めを修正、フォールバック関数追加
+    - **名前除去パターン改善**: 括弧内がカタカナの場合のみ除去（部署名を誤削除しない）
+    - **CI強化**: `[:30]`パターン検出を追加（品質ゲート）
+    - ユニットテスト50件（27件追加）
+    - 本番デプロイ完了（remind-tasks: rev00037、sync-chatwork-tasks: rev00042）
+
 - **2026-01-23**: v10.17.0
   - タスク要約機能の根本的修正（PR #29）
     - `lib/text_utils.py`に`prepare_task_display_text()`を追加（途切れ防止ロジック）

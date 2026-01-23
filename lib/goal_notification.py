@@ -1,7 +1,10 @@
 """
 Phase 2.5: 目標達成支援 - 通知サービス
 
-★★★ v10.14.3: アクセス制御改善・監査ログ対応 ★★★
+★★★ v10.17.1: テストガード機能追加 ★★★
+- GOAL_TEST_MODE環境変数でテストモードを有効化
+- テスト時は許可されたルームIDのみに送信（管理部チャット、カズさんDM等）
+- 全スケジュール関数にテストガードチェックを追加
 
 このモジュールは以下の通知機能を提供します:
 - 17:00 進捗確認 (goal_daily_check)
@@ -21,6 +24,7 @@ Phase 2.5: 目標達成支援 - 通知サービス
     )
 """
 
+import os
 import re
 import logging
 from datetime import date, datetime, timedelta
@@ -34,6 +38,81 @@ import pytz
 JST = pytz.timezone('Asia/Tokyo')
 
 logger = logging.getLogger(__name__)
+
+
+# =====================================================
+# ===== ★★★ v10.17.1: テストガード設定 ★★★ =====
+# =====================================================
+#
+# **最重要**: テスト送信は以下のみに限定すること
+# 1. 管理部チャット（room_id: 405315911）→ チームサマリー等
+# 2. カズさん（菊地雅克）へのDM → 個人通知テスト
+#
+# 他のグループチャットや個人に送信したら、業務に迷惑がかかる
+# =====================================================
+
+# テストモードフラグ（本番稼働時はFalseに変更）
+# 環境変数 GOAL_TEST_MODE=true で有効化
+GOAL_TEST_MODE = os.environ.get("GOAL_TEST_MODE", "").lower() in ("true", "1", "yes")
+
+# カズさん（菊地雅克）のChatWork account_id
+KAZU_CHATWORK_ACCOUNT_ID = "1728974"
+
+# テスト送信許可リスト: ChatWork room_id
+# - 管理部チャット: 405315911
+# - カズさんとのDMルームは GOAL_TEST_ROOM_IDS 環境変数で追加設定
+GOAL_TEST_ALLOWED_ROOM_IDS = {
+    405315911,  # 管理部チャット
+}
+
+# 環境変数からテスト許可ルームIDを追加
+# 例: GOAL_TEST_ROOM_IDS="123456,789012" で複数指定可能
+_test_room_ids_env = os.environ.get("GOAL_TEST_ROOM_IDS", "")
+if _test_room_ids_env:
+    for _room_id in _test_room_ids_env.split(","):
+        try:
+            GOAL_TEST_ALLOWED_ROOM_IDS.add(int(_room_id.strip()))
+        except ValueError:
+            pass
+
+
+def is_goal_test_send_allowed(chatwork_room_id: str) -> bool:
+    """
+    目標通知のテスト送信が許可されているか確認
+
+    GOAL_TEST_MODE=True の場合:
+    - chatwork_room_id が GOAL_TEST_ALLOWED_ROOM_IDS に含まれる → True
+    - それ以外 → False（送信しない）
+
+    GOAL_TEST_MODE=False の場合:
+    - 常にTrue（本番モード）
+
+    Args:
+        chatwork_room_id: ChatWork ルームID
+
+    Returns:
+        送信許可かどうか
+    """
+    if not GOAL_TEST_MODE:
+        return True  # 本番モードは全て許可
+
+    try:
+        room_id_int = int(chatwork_room_id)
+        return room_id_int in GOAL_TEST_ALLOWED_ROOM_IDS
+    except (ValueError, TypeError):
+        return False
+
+
+def log_goal_test_mode_status():
+    """起動時にテストモードの状態をログ出力"""
+    if GOAL_TEST_MODE:
+        logger.warning("=" * 50)
+        logger.warning("⚠️ GOAL_TEST_MODE 有効")
+        logger.warning(f"   許可ルームID: {GOAL_TEST_ALLOWED_ROOM_IDS}")
+        logger.warning(f"   上記以外への送信はブロックされます")
+        logger.warning("=" * 50)
+    else:
+        logger.info("📢 GOAL_TEST_MODE=False: 本番モード（全ユーザーに送信）")
 
 
 # =====================================================
@@ -991,8 +1070,9 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
     import sqlalchemy
 
     logger.info(f"=== 17時進捗確認 開始 (org={org_id}) ===")
+    log_goal_test_mode_status()  # テストモード状態をログ出力
 
-    results = {'success': 0, 'skipped': 0, 'failed': 0}
+    results = {'success': 0, 'skipped': 0, 'failed': 0, 'blocked': 0}
 
     # アクティブな目標を持つユーザーを取得（テナント分離: users, goalsの両方でorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
@@ -1015,6 +1095,12 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
         user_id = str(user[0])
         user_name = user[1]
         chatwork_room_id = user[2]
+
+        # ★★★ テストガード: 許可されていないルームへの送信をブロック ★★★
+        if not is_goal_test_send_allowed(chatwork_room_id):
+            logger.info(f"🚫 [TEST_GUARD] 送信をブロック: {user_name}さん (room_id={chatwork_room_id})")
+            results['blocked'] = results.get('blocked', 0) + 1
+            continue
 
         # ユーザーのアクティブな目標を取得
         goals_result = conn.execute(sqlalchemy.text("""
@@ -1056,7 +1142,7 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
 
         results[status] = results.get(status, 0) + 1
 
-    logger.info(f"=== 17時進捗確認 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    logger.info(f"=== 17時進捗確認 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}, blocked={results.get('blocked', 0)} ===")
     return results
 
 
@@ -1076,8 +1162,9 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
     import sqlalchemy
 
     logger.info(f"=== 18時未回答リマインド 開始 (org={org_id}) ===")
+    log_goal_test_mode_status()  # テストモード状態をログ出力
 
-    results = {'success': 0, 'skipped': 0, 'failed': 0}
+    results = {'success': 0, 'skipped': 0, 'failed': 0, 'blocked': 0}
 
     # アクティブな目標を持つユーザーを取得（テナント分離: users, goalsの両方でorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
@@ -1101,6 +1188,12 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
         user_name = user[1]
         chatwork_room_id = user[2]
 
+        # ★★★ テストガード: 許可されていないルームへの送信をブロック ★★★
+        if not is_goal_test_send_allowed(chatwork_room_id):
+            logger.info(f"🚫 [TEST_GUARD] 送信をブロック: {user_name}さん (room_id={chatwork_room_id})")
+            results['blocked'] = results.get('blocked', 0) + 1
+            continue
+
         # 送信
         status, error = send_daily_reminder_to_user(
             conn=conn,
@@ -1114,7 +1207,7 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
 
         results[status] = results.get(status, 0) + 1
 
-    logger.info(f"=== 18時未回答リマインド 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    logger.info(f"=== 18時未回答リマインド 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}, blocked={results.get('blocked', 0)} ===")
     return results
 
 
@@ -1134,8 +1227,9 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
     import sqlalchemy
 
     logger.info(f"=== 8時朝フィードバック 開始 (org={org_id}) ===")
+    log_goal_test_mode_status()  # テストモード状態をログ出力
 
-    results = {'success': 0, 'skipped': 0, 'failed': 0}
+    results = {'success': 0, 'skipped': 0, 'failed': 0, 'blocked': 0}
     today = datetime.now(JST).date()  # CLAUDE.md: サーバーはUTCなのでJSTで日付取得
     yesterday = today - timedelta(days=1)
 
@@ -1167,6 +1261,12 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         user_id = str(user[0])
         user_name = user[1]
         chatwork_room_id = user[2]
+
+        # ★★★ テストガード: 許可されていないルームへの送信をブロック ★★★
+        if not is_goal_test_send_allowed(chatwork_room_id):
+            logger.info(f"🚫 [TEST_GUARD] 送信をブロック: {user_name}さん (room_id={chatwork_room_id})")
+            results['blocked'] = results.get('blocked', 0) + 1
+            continue
 
         # ユーザーの目標を取得
         goals_result = conn.execute(sqlalchemy.text("""
@@ -1261,6 +1361,12 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         department_id = str(leader[3])
         department_name = leader[4]
 
+        # ★★★ テストガード: 許可されていないルームへの送信をブロック ★★★
+        if not is_goal_test_send_allowed(chatwork_room_id):
+            logger.info(f"🚫 [TEST_GUARD] チームサマリー送信をブロック: {leader_name}さん (room_id={chatwork_room_id})")
+            results['blocked'] = results.get('blocked', 0) + 1
+            continue
+
         # 部署メンバーの進捗を取得（テナント分離: 全テーブルでorg_idフィルタ）
         members_result = conn.execute(sqlalchemy.text("""
             SELECT
@@ -1324,7 +1430,7 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
 
         results[status] = results.get(status, 0) + 1
 
-    logger.info(f"=== 8時朝フィードバック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    logger.info(f"=== 8時朝フィードバック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}, blocked={results.get('blocked', 0)} ===")
     return results
 
 
@@ -1631,8 +1737,9 @@ def scheduled_consecutive_unanswered_check(
     import sqlalchemy
 
     logger.info(f"=== {consecutive_days}日連続未回答チェック 開始 (org={org_id}) ===")
+    log_goal_test_mode_status()  # テストモード状態をログ出力
 
-    results = {'success': 0, 'skipped': 0, 'failed': 0}
+    results = {'success': 0, 'skipped': 0, 'failed': 0, 'blocked': 0}
 
     # 連続未回答ユーザーを取得
     unanswered_users = check_consecutive_unanswered_users(conn, org_id, consecutive_days)
@@ -1689,6 +1796,12 @@ def scheduled_consecutive_unanswered_check(
             leader_name = leader[1]
             chatwork_room_id = leader[2]
 
+            # ★★★ テストガード: 許可されていないルームへの送信をブロック ★★★
+            if not is_goal_test_send_allowed(chatwork_room_id):
+                logger.info(f"🚫 [TEST_GUARD] 連続未回答アラート送信をブロック: {leader_name}さん (room_id={chatwork_room_id})")
+                results['blocked'] = results.get('blocked', 0) + 1
+                continue
+
             # 自分自身は除外
             members_to_notify = [
                 m for m in dept_data['members']
@@ -1712,7 +1825,7 @@ def scheduled_consecutive_unanswered_check(
 
             results[status] = results.get(status, 0) + 1
 
-    logger.info(f"=== {consecutive_days}日連続未回答チェック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']} ===")
+    logger.info(f"=== {consecutive_days}日連続未回答チェック 完了: success={results['success']}, skipped={results['skipped']}, failed={results['failed']}, blocked={results.get('blocked', 0)} ===")
     return results
 
 
@@ -1929,6 +2042,12 @@ def get_viewable_user_ids(
 # =====================================================
 
 __all__ = [
+    # テストガード（v10.17.1追加）
+    'GOAL_TEST_MODE',
+    'GOAL_TEST_ALLOWED_ROOM_IDS',
+    'KAZU_CHATWORK_ACCOUNT_ID',
+    'is_goal_test_send_allowed',
+    'log_goal_test_mode_status',
     # 通知タイプ
     'GoalNotificationType',
     # エラーサニタイズ

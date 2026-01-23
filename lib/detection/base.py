@@ -340,8 +340,7 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
-                ON CONFLICT (organization_id, source_type, source_id)
-                    WHERE source_id IS NOT NULL
+                ON CONFLICT ON CONSTRAINT uq_soulkun_insights_source
                 DO NOTHING
                 RETURNING id
             """), {

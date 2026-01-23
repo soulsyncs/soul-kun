@@ -576,6 +576,7 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             UUID: 作成されたレポートのID
         """
         try:
+            # ON CONFLICT DO NOTHINGで同週の重複を防止（Codex MEDIUM指摘対応）
             result = self._conn.execute(text("""
                 INSERT INTO soulkun_weekly_reports (
                     organization_id,
@@ -600,6 +601,8 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
                     CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP
                 )
+                ON CONFLICT ON CONSTRAINT uq_soulkun_weekly_reports_org_week
+                DO NOTHING
                 RETURNING id
             """), {
                 "organization_id": str(self._org_id),
@@ -613,13 +616,27 @@ _ご不明な点があれば、お気軽にお声がけくださいウル！_
             })
 
             row = result.fetchone()
-            if row is None:
+
+            if row is not None:
+                # 新規挿入成功
+                return UUID(str(row[0]))
+
+            # 重複検出 - 既存のレポートを取得
+            existing = self._conn.execute(text("""
+                SELECT id FROM soulkun_weekly_reports
+                WHERE organization_id = :org_id
+                  AND week_start = :week_start
+            """), {
+                "org_id": str(self._org_id),
+                "week_start": week_start,
+            })
+            existing_row = existing.fetchone()
+            if existing_row is None:
                 raise DatabaseError(
-                    message="Failed to get inserted report ID",
+                    message="Conflict occurred but existing report not found",
                     details={"week_start": week_start.isoformat()}
                 )
-
-            return UUID(str(row[0]))
+            return UUID(str(existing_row[0]))
 
         except DatabaseError:
             raise

@@ -1927,9 +1927,9 @@ def can_view_goal(
                 return True
             result = conn.execute(sqlalchemy.text("""
                 SELECT 1 FROM departments
-                WHERE id = :goal_dept_id
+                WHERE id = CAST(:goal_dept_id AS UUID)
                   AND parent_department_id = ANY(:viewer_dept_ids::uuid[])
-                  AND organization_id = CAST(:org_id AS UUID)
+                  AND organization_id = CAST(:org_id AS TEXT)
             """), {'goal_dept_id': goal_dept_id, 'viewer_dept_ids': viewer_dept_ids, 'org_id': org_id})
             if result.fetchone() is not None:
                 return True
@@ -1993,7 +1993,7 @@ def get_viewable_user_ids(
     if max_level >= 5:
         result = conn.execute(sqlalchemy.text("""
             SELECT id FROM users
-            WHERE organization_id = CAST(:org_id AS UUID)
+            WHERE organization_id = CAST(:org_id AS TEXT)
         """), {'org_id': org_id})
         return [str(row[0]) for row in result.fetchall()]
 

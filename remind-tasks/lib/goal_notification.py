@@ -639,9 +639,9 @@ def send_daily_check_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE organization_id = CAST(:org_id AS UUID)
           AND target_type = 'user'
-          AND CAST(target_id AS TEXT) = CAST(:user_id AS TEXT)
+          AND target_id = CAST(:user_id AS UUID)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -701,10 +701,10 @@ def send_daily_reminder_to_user(
     # Phase 1a: 17時の進捗確認に回答済みか確認（ビジネスロジック）
     result = conn.execute(sqlalchemy.text("""
         SELECT id FROM goal_progress gp
-        JOIN goals g ON gp.goal_id = g.id AND CAST(gp.organization_id AS TEXT) = CAST(g.organization_id AS TEXT)
-        WHERE CAST(g.user_id AS TEXT) = CAST(:user_id AS TEXT)
-          AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(gp.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
+        WHERE g.user_id = CAST(:user_id AS UUID)
+          AND g.organization_id = CAST(:org_id AS UUID)
+          AND gp.organization_id = CAST(:org_id AS UUID)
           AND gp.progress_date = :today
     """), {
         'user_id': user_id,
@@ -768,9 +768,9 @@ def send_daily_reminder_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE organization_id = CAST(:org_id AS UUID)
           AND target_type = 'user'
-          AND CAST(target_id AS TEXT) = CAST(:user_id AS TEXT)
+          AND target_id = CAST(:user_id AS UUID)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -880,9 +880,9 @@ def send_morning_feedback_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE organization_id = CAST(:org_id AS UUID)
           AND target_type = 'user'
-          AND CAST(target_id AS TEXT) = CAST(:user_id AS TEXT)
+          AND target_id = CAST(:user_id AS UUID)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -998,9 +998,9 @@ def send_team_summary_to_leader(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE organization_id = CAST(:org_id AS UUID)
           AND target_type = 'user'
-          AND CAST(target_id AS TEXT) = CAST(:recipient_id AS TEXT)
+          AND target_id = CAST(:recipient_id AS UUID)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -1081,9 +1081,9 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
             u.name AS user_name,
             u.chatwork_room_id
         FROM users u
-        JOIN goals g ON CAST(g.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(g.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-        WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN goals g ON g.user_id = u.id AND g.organization_id = CAST(:org_id AS UUID)
+        WHERE u.organization_id = CAST(:org_id AS TEXT)
+          AND g.organization_id = CAST(:org_id AS UUID)
           AND g.status = 'active'
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -1106,8 +1106,8 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
         goals_result = conn.execute(sqlalchemy.text("""
             SELECT id, title, goal_type, target_value, current_value, unit, deadline
             FROM goals
-            WHERE CAST(user_id AS TEXT) = CAST(:user_id AS TEXT)
-              AND CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            WHERE user_id = CAST(:user_id AS UUID)
+              AND organization_id = CAST(:org_id AS UUID)
               AND status = 'active'
             ORDER BY created_at
         """), {'user_id': user_id, 'org_id': org_id})
@@ -1173,9 +1173,9 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
             u.name AS user_name,
             u.chatwork_room_id
         FROM users u
-        JOIN goals g ON CAST(g.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(g.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-        WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN goals g ON g.user_id = u.id AND g.organization_id = CAST(:org_id AS UUID)
+        WHERE u.organization_id = CAST(:org_id AS TEXT)
+          AND g.organization_id = CAST(:org_id AS UUID)
           AND g.status = 'active'
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -1245,11 +1245,11 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             u.name AS user_name,
             u.chatwork_room_id
         FROM users u
-        JOIN goal_progress gp ON CAST(gp.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-        JOIN goals g ON gp.goal_id = g.id AND CAST(g.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(g.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-        WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(gp.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN goal_progress gp ON gp.organization_id = CAST(:org_id AS UUID)
+        JOIN goals g ON gp.goal_id = g.id AND g.user_id = u.id AND g.organization_id = CAST(:org_id AS UUID)
+        WHERE u.organization_id = CAST(:org_id AS TEXT)
+          AND g.organization_id = CAST(:org_id AS UUID)
+          AND gp.organization_id = CAST(:org_id AS UUID)
           AND gp.progress_date = :yesterday
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id, 'yesterday': yesterday})
@@ -1272,8 +1272,8 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         goals_result = conn.execute(sqlalchemy.text("""
             SELECT id, title, goal_type, target_value, current_value, unit, deadline
             FROM goals
-            WHERE CAST(user_id AS TEXT) = CAST(:user_id AS TEXT)
-              AND CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            WHERE user_id = CAST(:user_id AS UUID)
+              AND organization_id = CAST(:org_id AS UUID)
               AND status = 'active'
             ORDER BY created_at
         """), {'user_id': user_id, 'org_id': org_id})
@@ -1295,10 +1295,10 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
         progress_result = conn.execute(sqlalchemy.text("""
             SELECT gp.goal_id, gp.value, gp.cumulative_value, gp.daily_note, gp.daily_choice
             FROM goal_progress gp
-            JOIN goals g ON gp.goal_id = g.id AND CAST(gp.organization_id AS TEXT) = CAST(g.organization_id AS TEXT)
-            WHERE CAST(g.user_id AS TEXT) = CAST(:user_id AS TEXT)
-              AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(gp.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
+            WHERE g.user_id = CAST(:user_id AS UUID)
+              AND g.organization_id = CAST(:org_id AS UUID)
+              AND gp.organization_id = CAST(:org_id AS UUID)
               AND gp.progress_date = :yesterday
         """), {'user_id': user_id, 'org_id': org_id, 'yesterday': yesterday})
 
@@ -1341,12 +1341,12 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             d.id AS department_id,
             d.name AS department_name
         FROM users u
-        JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-        JOIN departments d ON ud.department_id = d.id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
+        JOIN user_departments ud ON ud.user_id = u.id
+        JOIN departments d ON ud.department_id = d.id AND d.organization_id = CAST(:org_id AS TEXT)
         JOIN roles r ON ud.role_id = r.id
-        WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(d.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE u.organization_id = CAST(:org_id AS TEXT)
+          
+          AND d.organization_id = CAST(:org_id AS TEXT)
           AND r.name IN ('チームリーダー', '部長', '経営', '代表')
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
@@ -1379,12 +1379,12 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
                 g.current_value,
                 g.unit
             FROM users u
-            JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            JOIN goals g ON CAST(g.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(g.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(ud.department_id AS TEXT) = CAST(:department_id AS TEXT)
-              AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN goals g ON g.user_id = u.id AND g.organization_id = CAST(:org_id AS UUID)
+            WHERE u.organization_id = CAST(:org_id AS TEXT)
+              
+              AND ud.department_id = CAST(:department_id AS UUID)
+              AND g.organization_id = CAST(:org_id AS UUID)
               AND g.status = 'active'
             ORDER BY u.name, g.created_at
         """), {'department_id': department_id, 'org_id': org_id})
@@ -1510,11 +1510,11 @@ def check_consecutive_unanswered_users(
                 ud.department_id,
                 d.name AS department_name
             FROM users u
-            JOIN goals g ON CAST(g.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(g.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            LEFT JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            LEFT JOIN departments d ON ud.department_id = d.id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-            WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN goals g ON g.user_id = u.id AND g.organization_id = CAST(:org_id AS UUID)
+            LEFT JOIN user_departments ud ON ud.user_id = u.id
+            LEFT JOIN departments d ON ud.department_id = d.id AND d.organization_id = CAST(:org_id AS TEXT)
+            WHERE u.organization_id = CAST(:org_id AS TEXT)
+              AND g.organization_id = CAST(:org_id AS UUID)
               AND g.status = 'active'
               AND u.chatwork_room_id IS NOT NULL
         ),
@@ -1523,9 +1523,9 @@ def check_consecutive_unanswered_users(
                 g.user_id,
                 MAX(gp.progress_date) AS last_response_date
             FROM goal_progress gp
-            JOIN goals g ON gp.goal_id = g.id AND CAST(gp.organization_id AS TEXT) = CAST(g.organization_id AS TEXT)
-            WHERE CAST(g.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(gp.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
+            WHERE g.organization_id = CAST(:org_id AS UUID)
+              AND gp.organization_id = CAST(:org_id AS UUID)
             GROUP BY g.user_id
         )
         SELECT
@@ -1663,9 +1663,9 @@ def send_consecutive_unanswered_alert_to_leader(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        WHERE organization_id = CAST(:org_id AS UUID)
           AND target_type = 'user'
-          AND CAST(target_id AS TEXT) = CAST(:leader_id AS TEXT)
+          AND target_id = CAST(:leader_id AS UUID)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -1776,11 +1776,11 @@ def scheduled_consecutive_unanswered_check(
                 u.name AS user_name,
                 u.chatwork_room_id
             FROM users u
-            JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
+            JOIN user_departments ud ON ud.user_id = u.id
             JOIN roles r ON ud.role_id = r.id
-            WHERE CAST(ud.department_id AS TEXT) = CAST(:department_id AS TEXT)
-              AND CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            WHERE ud.department_id = CAST(:department_id AS UUID)
+              AND u.organization_id = CAST(:org_id AS TEXT)
+              
               AND r.name IN ('チームリーダー', '部長', '経営', '代表')
               AND u.chatwork_room_id IS NOT NULL
         """), {'department_id': dept_id, 'org_id': org_id})
@@ -1872,12 +1872,12 @@ def can_view_goal(
             ud.department_id,
             d.path AS dept_path
         FROM users u
-        JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
+        JOIN user_departments ud ON ud.user_id = u.id
         JOIN roles r ON ud.role_id = r.id
-        JOIN departments d ON d.id = ud.department_id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-        WHERE CAST(u.id AS TEXT) = CAST(:viewer_id AS TEXT)
-          AND CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = CAST(:org_id AS TEXT)
+        WHERE u.id = CAST(:viewer_id AS UUID)
+          AND u.organization_id = CAST(:org_id AS TEXT)
+          
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
     viewer_roles = result.fetchall()
@@ -1899,9 +1899,8 @@ def can_view_goal(
             ud.department_id,
             d.path AS dept_path
         FROM user_departments ud
-        JOIN departments d ON d.id = ud.department_id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-        WHERE CAST(ud.user_id AS TEXT) = CAST(:goal_user_id AS TEXT)
-          AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = CAST(:org_id AS TEXT)
+        WHERE ud.user_id = CAST(:goal_user_id AS UUID)
     """), {'goal_user_id': goal_user_id, 'org_id': org_id})
 
     goal_user_depts = result.fetchall()
@@ -1928,9 +1927,9 @@ def can_view_goal(
                 return True
             result = conn.execute(sqlalchemy.text("""
                 SELECT 1 FROM departments
-                WHERE id = CAST(:goal_dept_id AS TEXT)
+                WHERE id = CAST(:goal_dept_id AS UUID)
                   AND parent_department_id = ANY(:viewer_dept_ids::uuid[])
-                  AND CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+                  AND organization_id = CAST(:org_id AS TEXT)
             """), {'goal_dept_id': goal_dept_id, 'viewer_dept_ids': viewer_dept_ids, 'org_id': org_id})
             if result.fetchone() is not None:
                 return True
@@ -1973,12 +1972,12 @@ def get_viewable_user_ids(
             ud.department_id,
             d.path AS dept_path
         FROM users u
-        JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
+        JOIN user_departments ud ON ud.user_id = u.id
         JOIN roles r ON ud.role_id = r.id
-        JOIN departments d ON d.id = ud.department_id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-        WHERE CAST(u.id AS TEXT) = CAST(:viewer_id AS TEXT)
-          AND CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-          AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+        JOIN departments d ON d.id = ud.department_id AND d.organization_id = CAST(:org_id AS TEXT)
+        WHERE u.id = CAST(:viewer_id AS UUID)
+          AND u.organization_id = CAST(:org_id AS TEXT)
+          
     """), {'viewer_id': viewer_user_id, 'org_id': org_id})
 
     viewer_roles = result.fetchall()
@@ -1994,7 +1993,7 @@ def get_viewable_user_ids(
     if max_level >= 5:
         result = conn.execute(sqlalchemy.text("""
             SELECT id FROM users
-            WHERE CAST(organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            WHERE organization_id = CAST(:org_id AS TEXT)
         """), {'org_id': org_id})
         return [str(row[0]) for row in result.fetchall()]
 
@@ -2004,10 +2003,10 @@ def get_viewable_user_ids(
         result = conn.execute(sqlalchemy.text("""
             SELECT DISTINCT u.id
             FROM users u
-            JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            JOIN departments d ON d.id = ud.department_id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-            WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN departments d ON d.id = ud.department_id AND d.organization_id = CAST(:org_id AS TEXT)
+            WHERE u.organization_id = CAST(:org_id AS TEXT)
+              
               AND EXISTS (
                   SELECT 1 FROM unnest(:viewer_paths::ltree[]) AS vp
                   WHERE d.path <@ vp
@@ -2021,10 +2020,10 @@ def get_viewable_user_ids(
         result = conn.execute(sqlalchemy.text("""
             SELECT DISTINCT u.id
             FROM users u
-            JOIN user_departments ud ON CAST(ud.user_id AS TEXT) = CAST(u.id AS TEXT) AND CAST(ud.organization_id AS TEXT) = CAST(u.organization_id AS TEXT)
-            JOIN departments d ON d.id = ud.department_id AND CAST(d.organization_id AS TEXT) = CAST(ud.organization_id AS TEXT)
-            WHERE CAST(u.organization_id AS TEXT) = CAST(:org_id AS TEXT)
-              AND CAST(ud.organization_id AS TEXT) = CAST(:org_id AS TEXT)
+            JOIN user_departments ud ON ud.user_id = u.id
+            JOIN departments d ON d.id = ud.department_id AND d.organization_id = CAST(:org_id AS TEXT)
+            WHERE u.organization_id = CAST(:org_id AS TEXT)
+              
               AND (
                   ud.department_id = ANY(:viewer_dept_ids::uuid[])
                   OR

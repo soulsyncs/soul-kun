@@ -263,10 +263,9 @@ else
         --time-zone="Asia/Tokyo" \
         --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/pattern-detection" \
         --http-method=POST \
-        --headers="Content-Type=application/json" \
+        --update-headers="Content-Type=application/json" \
         --message-body='{"hours_back": 1}' \
-        --attempt-deadline=300s \
-        --description="Phase 2 A1: パターン検知（毎時実行）"
+        --attempt-deadline=300s
 fi
 
 # 週次レポート: 毎週月曜 9:00 JST
@@ -292,10 +291,9 @@ else
         --time-zone="Asia/Tokyo" \
         --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/weekly-report" \
         --http-method=POST \
-        --headers="Content-Type=application/json" \
+        --update-headers="Content-Type=application/json" \
         --message-body='{"room_id": 405315911}' \
-        --attempt-deadline=300s \
-        --description="Phase 2 A1: 週次レポート（毎週月曜9:00）"
+        --attempt-deadline=300s
 fi
 
 echo "✅ Cloud Scheduler 設定完了"

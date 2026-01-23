@@ -639,9 +639,9 @@ def send_daily_check_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE organization_id = CAST(:org_id AS UUID)
+        WHERE organization_id = CAST(:org_id AS TEXT)
           AND target_type = 'user'
-          AND target_id = CAST(:user_id AS UUID)
+          AND target_id = CAST(:user_id AS TEXT)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -768,9 +768,9 @@ def send_daily_reminder_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE organization_id = CAST(:org_id AS UUID)
+        WHERE organization_id = CAST(:org_id AS TEXT)
           AND target_type = 'user'
-          AND target_id = CAST(:user_id AS UUID)
+          AND target_id = CAST(:user_id AS TEXT)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -880,9 +880,9 @@ def send_morning_feedback_to_user(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE organization_id = CAST(:org_id AS UUID)
+        WHERE organization_id = CAST(:org_id AS TEXT)
           AND target_type = 'user'
-          AND target_id = CAST(:user_id AS UUID)
+          AND target_id = CAST(:user_id AS TEXT)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -998,9 +998,9 @@ def send_team_summary_to_leader(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE organization_id = CAST(:org_id AS UUID)
+        WHERE organization_id = CAST(:org_id AS TEXT)
           AND target_type = 'user'
-          AND target_id = CAST(:recipient_id AS UUID)
+          AND target_id = CAST(:recipient_id AS TEXT)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {
@@ -1663,9 +1663,9 @@ def send_consecutive_unanswered_alert_to_leader(
             error_message = :error_message,
             retry_count = retry_count + 1,
             updated_at = NOW()
-        WHERE organization_id = CAST(:org_id AS UUID)
+        WHERE organization_id = CAST(:org_id AS TEXT)
           AND target_type = 'user'
-          AND target_id = CAST(:leader_id AS UUID)
+          AND target_id = CAST(:leader_id AS TEXT)
           AND notification_date = :today
           AND notification_type = :notification_type
     """), {

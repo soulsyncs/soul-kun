@@ -388,5 +388,40 @@ class TestPrepareTaskDisplayTextRealWorldCases:
         assert result == text
 
 
+class TestPrepareTaskDisplayTextV10172CodexFixes:
+    """prepare_task_display_text() - v10.17.2 Codex指摘対応テスト"""
+
+    def test_subject_preservation_tanaka_irai(self):
+        """「田中さん への依頼内容」の主語を残す（Codex MEDIUM指摘対応）"""
+        text = "田中さん への依頼内容をまとめる"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "田中さん" in result  # 主語として残す
+        assert "依頼内容" in result
+
+    def test_department_in_parentheses_preserved(self):
+        """「田中（経理部）さん への依頼」の括弧内が漢字なら除去しない"""
+        text = "田中（経理部）さん への依頼内容"
+        result = prepare_task_display_text(text, max_length=40)
+        # 括弧内が漢字（部署名）なので除去されない
+        assert "田中" in result
+        assert "経理部" in result
+
+    def test_reading_in_parentheses_removed(self):
+        """「田中（タナカ）さん ありがとう」の括弧内がカタカナなら除去する"""
+        text = "田中（タナカ）さん ありがとうございます！確認をお願いします"
+        result = prepare_task_display_text(text, max_length=40)
+        # 括弧内がカタカナ（読み仮名）なので除去される
+        assert "田中" not in result
+        assert "タナカ" not in result
+        assert "確認" in result
+
+    def test_preserve_shugo_customer_notification(self):
+        """「顧客さん への連絡」のような主語を残す（Codex追加テスト案）"""
+        text = "顧客さん への連絡事項を確認する"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "顧客さん" in result  # 主語として残す
+        assert "連絡事項" in result
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

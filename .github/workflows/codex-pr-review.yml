@@ -1,12 +1,26 @@
 name: Codex pull request review
 
+# ============================================================
+# コスト削減のため、ラベルトリガーに変更（2026-01-23）
+#
+# 【旧】pushごとに自動実行 → 1PRで10回以上実行 → 月$500-700
+# 【新】ラベル付与時のみ実行 → 1PRで1-2回実行 → 月$30-50
+#
+# 使い方:
+#   1. PRに「codex-review」ラベルを付ける
+#   2. Codexレビューが実行される
+#   3. レビュー完了後、ラベルは自動削除される（再実行可能）
+# ============================================================
+
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [labeled]
 
 jobs:
   codex:
     runs-on: ubuntu-latest
+    # 「codex-review」ラベルが付いた時のみ実行
+    if: github.event.label.name == 'codex-review'
     permissions:
       contents: read
       pull-requests: write
@@ -156,3 +170,25 @@ jobs:
               description: 'Codex review completed',
               target_url: context.payload.pull_request.html_url
             });
+
+      # レビュー完了後、ラベルを削除して再実行可能にする
+      - name: Remove codex-review label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.payload.pull_request.number,
+                name: 'codex-review'
+              });
+              console.log('Removed codex-review label for re-run capability');
+            } catch (error) {
+              // ラベルが既に削除されている場合は無視
+              if (error.status !== 404) {
+                throw error;
+              }
+              console.log('Label already removed, skipping');
+            }

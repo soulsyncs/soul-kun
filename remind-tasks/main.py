@@ -5498,12 +5498,20 @@ def remind_tasks(request):
 
             # タスク表示名を作成（要約 or クリーンな本文）
             # ★★★ v10.17.0: prepare_task_display_text()を使用して途切れ防止 ★★★
+            # ★★★ v10.17.0-fix: 「タスク内容なし」時のフォールバック追加 ★★★
             if summary:
                 # 要約がある場合も、念のため整形を適用
                 if USE_TEXT_UTILS_LIB:
                     task_display = lib_prepare_task_display_text(summary, max_length=40)
+                    # 要約が挨拶のみ等で空になった場合、本文にフォールバック
+                    if task_display == "（タスク内容なし）":
+                        clean_body = lib_clean_chatwork_tags(body)
+                        task_display = lib_prepare_task_display_text(clean_body, max_length=40)
                 else:
                     task_display = prepare_task_display_text(summary, max_length=40)
+                    if task_display == "（タスク内容なし）":
+                        clean_body = clean_task_body(body)
+                        task_display = prepare_task_display_text(clean_body, max_length=40)
             else:
                 # 要約がない場合、本文をクリーニングして整形
                 if USE_TEXT_UTILS_LIB:
@@ -5850,12 +5858,18 @@ def process_overdue_tasks_v2():
 
             # タスク内容を整形
             # ★★★ v10.17.0: lib/使用時はそちらを優先 ★★★
+            # ★★★ v10.17.0-fix: 「タスク内容なし」時のフォールバック追加 ★★★
             if USE_TEXT_UTILS_LIB:
                 clean_body = lib_clean_chatwork_tags(body)
                 task_display = lib_prepare_task_display_text(summary if summary else clean_body, max_length=40)
+                # 要約が挨拶のみ等で空になった場合、本文にフォールバック
+                if task_display == "（タスク内容なし）" and summary:
+                    task_display = lib_prepare_task_display_text(clean_body, max_length=40)
             else:
                 clean_body = clean_task_body(body)
                 task_display = prepare_task_display_text(summary if summary else clean_body, max_length=40)
+                if task_display == "（タスク内容なし）" and summary:
+                    task_display = prepare_task_display_text(clean_body, max_length=40)
 
             # ルーム名を整形
             room_display = room_name if room_name else "不明"
@@ -6082,12 +6096,18 @@ def process_completed_tasks_summary():
             # タスク内容を15文字以内に整形（v10.8.0: AI要約対応）
             # summary優先、なければbodyをクリーニング後に整形
             # ★★★ v10.17.0: lib/使用時はそちらを優先 ★★★
+            # ★★★ v10.17.0-fix: 「タスク内容なし」時のフォールバック追加 ★★★
             if USE_TEXT_UTILS_LIB:
                 clean_body = lib_clean_chatwork_tags(body)
                 task_display = lib_prepare_task_display_text(summary if summary else clean_body, max_length=40)
+                # 要約が挨拶のみ等で空になった場合、本文にフォールバック
+                if task_display == "（タスク内容なし）" and summary:
+                    task_display = lib_prepare_task_display_text(clean_body, max_length=40)
             else:
                 clean_body = clean_task_body(body)
                 task_display = prepare_task_display_text(summary if summary else clean_body, max_length=40)
+                if task_display == "（タスク内容なし）" and summary:
+                    task_display = prepare_task_display_text(clean_body, max_length=40)
 
             # ルーム名を整形（長い場合は切り詰め）
             room_display = room_name if room_name else "不明"

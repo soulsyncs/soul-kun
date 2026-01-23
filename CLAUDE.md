@@ -147,6 +147,7 @@ idempotency_key = f"{message_type}:{resource_id}:{organization_id}"
 - Phase 1: タスク管理基盤 ✅完了
 - Phase 1-B: タスク検知・監視 ✅完了（v10.1.4）
 - Phase 2: AI応答・評価機能 ✅完了
+- Phase 2 A1: パターン検知 ✅完了（v10.18.0）
 - Phase 2.5: 目標達成支援 🔄実装中
 - Phase 3: ナレッジ検索 ✅完了（v10.13.3）
 - Phase 3.5: 組織階層連携 ✅完了（2026-01-19）
@@ -423,12 +424,13 @@ git diff --stat HEAD~5
 
 【完了済みフェーズ】
 ✅ Phase 1: タスク管理基盤
+✅ Phase 1-B: タスク検知・監視
 ✅ Phase 2: AI応答・評価機能
+✅ Phase 2 A1: パターン検知（高頻度質問・停滞タスク検知）
 ✅ Phase 3: ナレッジ検索（Google Drive連携）
 ✅ Phase 3.5: 組織階層連携（役職ドロップダウン）
 
 【進行中】
-🔄 Phase 1-B: タスク検知・監視
 🔄 Phase 2.5: 目標達成支援
 
 【未着手】
@@ -469,6 +471,7 @@ git diff --stat HEAD~5
 | 1 | タスク管理基盤 | ✅ 完了 | 2025-12 | ChatWork連携、リマインド |
 | 1-B | タスク検知・監視 | ✅ 完了 | 2026-01 | v10.1.4で完了、notification_logs |
 | 2 | AI応答・評価機能 | ✅ 完了 | 2025-12 | GPT-4連携 |
+| 2 A1 | パターン検知 | ✅ 完了 | 2026-01-23 | v10.18.0、高頻度質問・停滞タスク検知 |
 | 2.5 | 目標達成支援 | 🔄 進行中 | - | KPI管理 |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
@@ -477,6 +480,18 @@ git diff --stat HEAD~5
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ## 直近の主な成果
+
+- **2026-01-23**: v10.18.0（PR #33）
+  - **Phase 2 A1: パターン検知機能完成**
+    - 高頻度質問検知（FrequentQuestionDetector）: 類似質問の繰り返しを検出
+    - 停滞タスク検知（StagnantTaskDetector）: 進捗のないタスクを検出
+    - インサイト管理API（InsightService）: 検知結果の一覧・詳細・既読管理
+    - 週次レポート（WeeklyReportService）: インサイトの週次サマリー生成
+    - 重要度CRITICAL/HIGHの即時通知（notification_logs連携）
+    - 監査ログの動的機密区分（最大分類を使用）
+    - occurrence_timestamps肥大化防止（最大500件）
+    - 100件のユニットテスト
+    - **DBマイグレーション待ち**: `migrations/phase_2_a1_pattern_detection.sql`
 
 - **2026-01-23**: v10.17.2（PR #31）
   - タスク要約品質の完全修正

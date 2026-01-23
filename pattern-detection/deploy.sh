@@ -280,7 +280,7 @@ if [ -z "$WEEKLY_JOB_EXISTS" ]; then
         --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/weekly-report" \
         --http-method=POST \
         --headers="Content-Type=application/json" \
-        --message-body='{"room_id": 405315911}' \
+        --message-body='{"room_id": 417892193}' \
         --attempt-deadline=300s \
         --description="Phase 2 A1: 週次レポート（毎週月曜9:00）"
 else
@@ -292,7 +292,7 @@ else
         --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/weekly-report" \
         --http-method=POST \
         --update-headers="Content-Type=application/json" \
-        --message-body='{"room_id": 405315911}' \
+        --message-body='{"room_id": 417892193}' \
         --attempt-deadline=300s
 fi
 

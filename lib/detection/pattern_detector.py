@@ -396,9 +396,11 @@ class PatternDetector(BaseDetector):
             duration_ms = (time.time() - start_time) * 1000
             self.log_error("Detection failed", e)
 
+            # セキュリティ: 例外メッセージをサニタイズ（機密情報漏洩防止）
+            # 詳細は log_error() でログに記録済み
             return DetectionResult(
                 success=False,
-                error_message=str(e),
+                error_message="パターン検出中に内部エラーが発生しました",
                 details={"duration_ms": duration_ms}
             )
 
@@ -1053,9 +1055,11 @@ class PatternDetector(BaseDetector):
                 results.append(result)
             except Exception as e:
                 self.log_error("Batch detection failed for question", e)
+                # セキュリティ: 例外メッセージをサニタイズ（機密情報漏洩防止）
+                # 詳細は log_error() でログに記録済み
                 results.append(DetectionResult(
                     success=False,
-                    error_message=str(e)
+                    error_message="バッチ検出中に内部エラーが発生しました"
                 ))
 
         return results

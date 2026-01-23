@@ -581,6 +581,61 @@ COMMENT ON COLUMN soulkun_weekly_reports.insights_summary IS
 -- 目的: A1パターン検出で使用する新しいnotification_typeを追加
 -- 追加値: pattern_alert, weekly_report
 
+-- ================================================================
+-- 5-0. 【重要】既存データの事前確認（Codex HIGH指摘対応）
+-- ================================================================
+-- 新しいCHECK制約に含まれないnotification_typeの値が存在すると
+-- マイグレーションが失敗します。事前に確認してください。
+--
+-- 許可される値:
+--   Phase 1-B: task_reminder, task_overdue, task_escalation,
+--              deadline_alert, escalation_alert, dm_unavailable
+--   Phase 2.5: goal_daily_check, goal_daily_reminder, goal_morning_feedback,
+--              goal_team_summary, goal_consecutive_unanswered
+--   Phase 2 A1: pattern_alert, weekly_report（新規追加）
+-- ================================================================
+
+-- 5-0a. 許可されていないnotification_typeの値を確認
+-- 期待値: 0件（ゼロ件でなければマイグレーションを中止してください）
+DO $$
+DECLARE
+    invalid_count INTEGER;
+    invalid_types TEXT;
+BEGIN
+    -- 許可されていない値をカウント
+    SELECT COUNT(*), string_agg(DISTINCT notification_type, ', ')
+    INTO invalid_count, invalid_types
+    FROM notification_logs
+    WHERE notification_type NOT IN (
+        -- Phase 1-B: タスク管理
+        'task_reminder',
+        'task_overdue',
+        'task_escalation',
+        'deadline_alert',
+        'escalation_alert',
+        'dm_unavailable',
+        -- Phase 2.5: 目標達成支援
+        'goal_daily_check',
+        'goal_daily_reminder',
+        'goal_morning_feedback',
+        'goal_team_summary',
+        'goal_consecutive_unanswered',
+        -- Phase 2 A1: パターン検出（新規追加）
+        'pattern_alert',
+        'weekly_report'
+    );
+
+    IF invalid_count > 0 THEN
+        RAISE EXCEPTION '【マイグレーション中止】notification_logsに未許可のnotification_type値が%件あります: %
+対処方法:
+1. 値を許可リストに追加する（CHECK制約を編集）
+2. または既存データを更新する: UPDATE notification_logs SET notification_type = ''適切な値'' WHERE notification_type IN (''不正な値'');',
+            invalid_count, invalid_types;
+    END IF;
+
+    RAISE NOTICE 'notification_type事前チェック: OK（未許可の値は0件）';
+END $$;
+
 -- 5-1. 既存のCHECK制約を削除
 ALTER TABLE notification_logs
     DROP CONSTRAINT IF EXISTS check_notification_type;

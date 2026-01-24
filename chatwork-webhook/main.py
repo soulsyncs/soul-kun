@@ -4151,7 +4151,18 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
         # =====================================================
         # goal_titleが空または漠然としている場合は対話フローを開始
         # 具体的な目標が指定されている場合は直接登録（後方互換性維持）
-        if not goal_title or goal_title in ["目標を設定したい", "目標を登録したい", "目標設定", "KPI設定"]:
+        # v10.19.2: OpenRouterが生成する「新規目標の設定」などにも対応
+        vague_goal_titles = [
+            "目標を設定したい", "目標を登録したい", "目標設定", "KPI設定",
+            "新規目標の設定", "新規目標", "目標の設定", "目標登録",
+            "今月の目標", "個人目標", "目標を立てたい", "目標を決めたい"
+        ]
+        is_vague_goal = (
+            not goal_title or
+            goal_title in vague_goal_titles or
+            (goal_title and "目標" in goal_title and "設定" in goal_title)
+        )
+        if is_vague_goal:
             if USE_GOAL_SETTING_LIB:
                 print("   → 目標設定対話フローを開始")
                 pool = get_pool()

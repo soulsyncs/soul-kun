@@ -187,7 +187,7 @@ soul-kun/
 │       ├── schemas/         # Pydanticスキーマ
 │       ├── api/v1/          # APIルーター
 │       └── services/        # ビジネスロジック
-├── chatwork-webhook/        # 既存Cloud Function
+├── chatwork-webhook/        # 既存Cloud Function（※下記「コード構造」参照）
 ├── sync-chatwork-tasks/     # 既存Cloud Function
 ├── remind-tasks/            # 既存Cloud Function
 ├── docs/                    # 設計書
@@ -239,6 +239,89 @@ async with pool.connect() as conn:
 client = ChatworkAsyncClient()
 await client.send_message(room_id=12345, message="Hello!")
 ```
+
+### chatwork-webhook/main.py 構造（v10.23.3）
+
+**現在の状況**: 8920行の巨大ファイル（Phase 4前に分割予定）
+
+```
+chatwork-webhook/main.py
+│
+├── [1-350] インポート・設定
+│   ├── Flask/GCP imports
+│   ├── lib/ imports（text_utils, goal_setting, memory, mvv_context）
+│   ├── モデル設定（Gemini 3 Flash）
+│   └── Phase 3 ナレッジ検索設定
+│
+├── [350-1000] SYSTEM_CAPABILITIES（機能カタログ）
+│   └── AI司令塔が参照する全機能定義
+│
+├── [1000-1700] DB・認証・基盤ユーティリティ
+│   ├── get_pool(), get_db_connection()
+│   ├── verify_chatwork_webhook_signature()
+│   ├── get_or_create_person(), normalize_person_name()
+│   └── get_org_chart_overview()（Phase 3.5）
+│
+├── [1700-2300] タスク管理
+│   ├── create_chatwork_task(), complete_chatwork_task()
+│   ├── search_tasks_from_db()（※BUG-001修正済み）
+│   ├── save_chatwork_task_to_db()
+│   └── log_analytics_event()
+│
+├── [2300-4000] AIハンドラー関数
+│   ├── handle_chatwork_task_*()
+│   ├── handle_query_company_knowledge()
+│   └── HANDLER_MAP（アクション→ハンドラー対応表）
+│
+├── [4000-4800] Phase 2.5 目標達成支援ハンドラー
+│   ├── handle_goal_registration()
+│   ├── handle_goal_progress_report()
+│   └── handle_goal_status_check()
+│
+├── [4800-5500] 会話履歴・Memory統合
+│   ├── get_conversation_history(), save_conversation_history()
+│   └── process_memory_after_conversation()（Phase 2 B）
+│
+├── [5500-6200] メインWebhookハンドラー
+│   ├── chatwork_webhook()（エントリポイント）
+│   ├── ai_commander()（AI司令塔）
+│   ├── execute_action()
+│   └── get_ai_response()（MVV統合済み）
+│
+├── [6200-7100] ナレッジ管理 ⚠️ 分割候補
+│   ├── ensure_knowledge_tables()
+│   ├── save_knowledge(), delete_knowledge()
+│   ├── search_phase3_knowledge()（ハイブリッド検索）
+│   ├── integrated_knowledge_search()
+│   └── create_proposal(), approve_proposal()
+│
+├── [7100-7800] 遅延管理・エスカレーション
+│   ├── process_overdue_tasks()
+│   ├── send_overdue_reminder_to_dm()
+│   └── process_escalations()
+│
+├── [7800-8600] 他Cloud Function エンドポイント
+│   ├── check_reply_messages()
+│   ├── sync_chatwork_tasks()
+│   └── remind_tasks()
+│
+└── [8600-8920] cleanup_old_data()
+```
+
+### リファクタリング計画（Phase 4前に実施）
+
+**優先度順**:
+1. **ナレッジ管理** → `handlers/knowledge_handler.py`（~900行）
+2. **タスク管理** → `handlers/task_handler.py`（~600行）
+3. **目標達成支援** → `handlers/goal_handler.py`（~800行）
+4. **遅延管理** → `handlers/overdue_handler.py`（~700行）
+
+**目標**: main.py を 1500行以下に削減
+
+**注意**: 分割時は以下を確認
+- 関数間の依存関係（get_pool等の共通関数）
+- 定数の配置（ADMIN_ACCOUNT_ID等）
+- エラーハンドリングの一貫性
 
 ---
 
@@ -326,6 +409,17 @@ await client.send_message(room_id=12345, message="Hello!")
 |------|----------|------|--------|
 | **Quality Checks** | PR作成時に自動 | 禁止パターン検出、lib/同期チェック、ユニットテスト | 無料 |
 | **Codexレビュー** | `codex-review`ラベル付与時 | AI によるコードレビュー | $5-10/回 |
+
+**lib/同期チェック対象（v10.23.3拡張）**:
+| ファイル | コピー先 |
+|---------|----------|
+| `lib/text_utils.py` | remind-tasks, sync-chatwork-tasks, chatwork-webhook, check-reply-messages, cleanup-old-data, pattern-detection |
+| `lib/goal_setting.py` | chatwork-webhook |
+| `lib/mvv_context.py` | chatwork-webhook, report-generator |
+| `lib/report_generator.py` | chatwork-webhook, report-generator |
+| `lib/audit.py` | chatwork-webhook, sync-chatwork-tasks, pattern-detection |
+| `lib/memory/*` | chatwork-webhook/lib/memory/ |
+| `lib/detection/*` | pattern-detection/lib/detection/ |
 
 **注意**: Quality ChecksはPR作成時に自動実行されるが、Codexレビューは**ラベルを付けない限り実行されない**。
 

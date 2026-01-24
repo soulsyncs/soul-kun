@@ -9,7 +9,9 @@
 | v10.22.2 | 2026-01-24 | 組織論的行動指針 v2.0 大幅拡充（1240行）、プロンプト設計書への統合 |
 | v10.22.3 | 2026-01-24 | Phase 2C-1実装: lib/mvv_context.py新規作成、組織論的行動指針をget_ai_response()に統合 |
 | v10.22.4 | 2026-01-24 | 環境変数フラグ `DISABLE_MVV_CONTEXT` 追加（段階的デプロイ用）、import os修正 |
-| **v10.22.5** | **2026-01-24** | **目標設定終了コマンド追加、MVVコンテキスト本番有効化（rev 00115-nul）** |
+| v10.22.5 | 2026-01-24 | 目標設定終了コマンド追加、MVVコンテキスト本番有効化（rev 00115-nul） |
+| **v10.23.2** | **2026-01-24** | **Phase 2C-2完了: 日報・週報自動生成 + Phase 2.5連動 + MVV統合（PR #84）** |
+| **v10.23.3** | **2026-01-24** | **アーキテクチャ改善: lib/同期チェック拡張計画、chatwork-webhook/main.py構造文書化** |
 
 ## ■ Phase 2C 概要
 
@@ -44,7 +46,7 @@
 | 優先度 | 機能 | 実装時期 | 状態 |
 |--------|------|----------|------|
 | ⭐⭐⭐⭐⭐ | MVV・アチーブ連携 | Phase 2C-1 | ✅ **本番稼働中** |
-| ⭐⭐⭐⭐⭐ | 日報・週報自動生成 | Phase 2C-2 | 📋 未着手 |
+| ⭐⭐⭐⭐⭐ | 日報・週報自動生成 | Phase 2C-2 | ✅ **完了（v10.23.2）** |
 | ⭐⭐⭐⭐ | 会議前準備 | Phase C完了後 | 📋 未着手 |
 | ⭐⭐⭐⭐ | 提案書テンプレート | Phase 3拡張 | 📋 未着手 |
 | ⭐⭐⭐ | チーム能力分析 | Q2 | 📋 未着手 |
@@ -123,6 +125,63 @@
 |------------|------|
 | **[10_phase2c_mvv_secretary.md](10_phase2c_mvv_secretary.md)** | Phase 2C詳細設計書（約400行） |
 | **[11_organizational_theory_guidelines.md](11_organizational_theory_guidelines.md)** | 組織論的行動指針（約500行）【v10.22.1新設】 |
+
+## ■ v10.23.2 Phase 2C-2 日報・週報自動生成（2026-01-24）
+
+### 実装内容
+
+| コンポーネント | 内容 |
+|--------------|------|
+| **GoalProgressFetcher** | goalsテーブルから現在の目標を取得、WHY/WHAT/HOW抽出 |
+| **EncouragementGenerator** | MVV・組織論ベースの励ましメッセージ生成 |
+| **DailyReportGenerator拡張** | 目標進捗セクション追加（進捗バー、WHY、HOW、期限表示） |
+| **WeeklyReportGenerator拡張** | 週次目標進捗サマリー追加 |
+
+### Phase 2.5 + MVV統合
+
+| 機能 | 説明 |
+|------|------|
+| 選択理論の5つの基本欲求 | 達成状況に応じた言葉かけ |
+| 行動指針10箇条 | 成果と指針のマッチング表示 |
+| 進捗バー | `[████████░░] 80%` 形式で視覚化 |
+| フォールバック設計 | MVVモジュール利用不可でも動作 |
+
+### 変更ファイル
+
+| ファイル | 変更内容 |
+|---------|---------|
+| `lib/report_generator.py` | +535行（GoalProgressFetcher, EncouragementGenerator追加） |
+| `chatwork-webhook/lib/report_generator.py` | 同期 |
+| `report-generator/lib/report_generator.py` | 同期 |
+| `report-generator/lib/mvv_context.py` | 新規追加 |
+| `tests/test_report_generator.py` | +200行（37テストケース全パス） |
+
+### コミュニケーションスタイル統一完了
+
+| 機能 | スタイル | 状態 |
+|------|---------|------|
+| 通常会話 | MVV・組織論ベース | ✅ |
+| 目標設定 | WHY/WHAT/HOW対話 | ✅ |
+| 日報・週報 | MVV連動 + 目標進捗 | ✅ |
+
+## ■ v10.23.3 アーキテクチャ改善（2026-01-24）
+
+### 実装内容
+
+| 項目 | 内容 |
+|------|------|
+| **lib/同期チェック拡張** | 7モジュールに拡張（goal_setting, mvv_context, report_generator, audit, memory/, detection/） |
+| **コード構造文書化** | chatwork-webhook/main.py構造マップ（8920行の機能別ブロック） |
+| **リファクタリング計画** | Phase 4前の分割計画を文書化 |
+
+### 分割計画（Phase 4前に実施）
+
+| 優先度 | モジュール | 行数 | 分割先 |
+|--------|-----------|------|--------|
+| 1 | ナレッジ管理 | ~900 | `handlers/knowledge_handler.py` |
+| 2 | タスク管理 | ~600 | `handlers/task_handler.py` |
+| 3 | 目標達成支援 | ~800 | `handlers/goal_handler.py` |
+| 4 | 遅延管理 | ~700 | `handlers/overdue_handler.py` |
 
 ---
 

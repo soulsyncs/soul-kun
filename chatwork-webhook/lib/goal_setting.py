@@ -481,7 +481,14 @@ class GoalSettingDialogue:
         }
 
     def _create_session(self, conn) -> str:
-        """新規セッションを作成"""
+        """
+        新規セッションを作成
+
+        v10.19.4: セッションは最初から 'why' ステップで作成する。
+        'intro' は論理的なステップとしては存在せず、イントロメッセージ送信後は
+        すぐに WHY ステップに入る。これにより、ユーザーの最初の返信が
+        必ず WHY 回答として処理される。
+        """
         session_id = str(uuid4())
         conn.execute(
             text("""
@@ -490,7 +497,7 @@ class GoalSettingDialogue:
                     status, current_step, started_at, expires_at
                 ) VALUES (
                     :id, :org_id, :user_id, :room_id,
-                    'in_progress', 'intro', CURRENT_TIMESTAMP,
+                    'in_progress', 'why', CURRENT_TIMESTAMP,
                     CURRENT_TIMESTAMP + INTERVAL '24 hours'
                 )
             """),
@@ -938,13 +945,13 @@ class GoalSettingDialogue:
             session = self._get_active_session(conn)
 
             if session is None:
-                # 新規セッション開始
+                # 新規セッション開始（v10.19.4: セッションは最初から 'why' で作成）
                 session_id = self._create_session(conn)
 
-                # 導入メッセージを返す
+                # 導入メッセージを返す（WHY質問を含む）
                 intro_message = TEMPLATES["intro"].format(user_name=self.user_name)
 
-                # ログを記録
+                # ログを記録（履歴目的で 'intro' として記録）
                 self._log_interaction(
                     conn, session_id, "intro",
                     user_message or "目標を設定したい",
@@ -954,14 +961,15 @@ class GoalSettingDialogue:
                     step_attempt=1
                 )
 
-                # セッションをWHYステップに更新
-                self._update_session(conn, session_id, current_step="why")
+                # v10.19.4: _update_session() 呼び出しを削除
+                # セッションは最初から 'why' で作成されているため、
+                # ユーザーの次の返信は WHY 回答として処理される
 
                 return {
                     "success": True,
                     "message": intro_message,
                     "session_id": session_id,
-                    "step": "intro"
+                    "step": "why"  # v10.19.4: intro から why に変更
                 }
 
             # 既存セッションを継続

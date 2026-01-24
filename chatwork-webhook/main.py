@@ -4152,15 +4152,24 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
         # goal_titleが空または漠然としている場合は対話フローを開始
         # 具体的な目標が指定されている場合は直接登録（後方互換性維持）
         # v10.19.2: OpenRouterが生成する「新規目標の設定」などにも対応
+        # v10.19.4: AI司令塔が生成する「未定（相談中）」などにも対応
         vague_goal_titles = [
+            # 既存パターン
             "目標を設定したい", "目標を登録したい", "目標設定", "KPI設定",
             "新規目標の設定", "新規目標", "目標の設定", "目標登録",
-            "今月の目標", "個人目標", "目標を立てたい", "目標を決めたい"
+            "今月の目標", "個人目標", "目標を立てたい", "目標を決めたい",
+            # v10.19.4 追加: AI司令塔が生成しがちなパターン
+            "未定（相談中）", "未定", "相談中", "目標相談",
+            "目標の相談", "目標について相談", "検討中", "未定義",
         ]
         is_vague_goal = (
             not goal_title or
             goal_title in vague_goal_titles or
-            (goal_title and "目標" in goal_title and "設定" in goal_title)
+            (goal_title and "目標" in goal_title and "設定" in goal_title) or
+            # v10.19.4 追加: 部分一致チェック（未定・相談を含む場合）
+            (goal_title and ("未定" in goal_title or "相談" in goal_title)) or
+            # v10.19.4 追加: 極端に短いタイトルは不完全と判定
+            (goal_title and len(goal_title.strip()) < 3)
         )
         if is_vague_goal:
             if USE_GOAL_SETTING_LIB:
@@ -5306,16 +5315,24 @@ def chatwork_webhook(request):
 
         # =====================================================
         # v10.19.0: Phase 2.5 目標設定対話セッションのチェック
+        # v10.19.4: セッション処理の堅牢化（AI司令塔フォールバック防止）
         # =====================================================
         # アクティブな目標設定セッションがある場合は、
         # メッセージを目標設定対話フローにルーティングする
+        # セッションが存在する場合、例外が発生してもAI司令塔には渡さない
         # =====================================================
         if USE_GOAL_SETTING_LIB:
+            goal_session_handled = False
             try:
                 pool = get_pool()
-                if has_active_goal_session(pool, room_id, sender_account_id):
-                    print(f"🎯 アクティブな目標設定セッションを検出 - 対話フローにルーティング")
+                has_session = has_active_goal_session(pool, room_id, sender_account_id)
+                print(f"🎯 目標設定セッションチェック: room_id={room_id}, has_session={has_session}")
+
+                if has_session:
+                    goal_session_handled = True
+                    print(f"🎯 アクティブなセッションを検出 - 対話フローにルーティング")
                     result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
+
                     if result and result.get("success"):
                         response_message = result.get("message", "")
                         if response_message:
@@ -5323,10 +5340,33 @@ def chatwork_webhook(request):
                             send_chatwork_message(room_id, response_message, sender_account_id, show_guide)
                             update_conversation_timestamp(room_id, sender_account_id)
                             return jsonify({"status": "ok"})
+                        else:
+                            # 成功だがメッセージが空の場合（通常はないが念のため）
+                            print(f"⚠️ 目標設定処理成功だがメッセージが空")
+                            return jsonify({"status": "ok"})
+                    else:
+                        # result が None または success=False の場合
+                        # セッションがあるのでAI司令塔には渡さない
+                        error_msg = result.get("message") if result else None
+                        if not error_msg:
+                            error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
+                        print(f"⚠️ 目標設定処理失敗: {error_msg}")
+                        send_chatwork_message(room_id, error_msg, sender_account_id, False)
+                        return jsonify({"status": "ok"})
+
             except Exception as e:
-                print(f"⚠️ 目標設定セッションチェックエラー（続行）: {e}")
+                print(f"❌ 目標設定セッション処理で例外: {e}")
                 import traceback
                 traceback.print_exc()
+
+                # セッションがあった場合はAI司令塔に渡さない（v10.19.4）
+                if goal_session_handled:
+                    send_chatwork_message(
+                        room_id,
+                        "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺",
+                        sender_account_id, False
+                    )
+                    return jsonify({"status": "ok"})
 
         # =====================================================
         # v6.9.1: ローカルコマンド判定（API制限対策）

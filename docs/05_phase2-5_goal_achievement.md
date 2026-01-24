@@ -1309,13 +1309,734 @@ async def can_view_goal(user: User, goal: Goal) -> bool:
 
 ---
 
-## 13. 次のアクション
+## 13. 目標設定対話フロー（ChatWork一問一答）【v1.6追加】
 
-1. **カズさん承認** → この設計書の内容でOKか確認
-2. **DB作成** → goals, goal_progress, goal_remindersテーブル作成
+### 13.1 設計思想
+
+**アチーブメント社・選択理論に基づく目標設定の順序：**
+
+```
+【Step 1】WHY - なぜ達成したいのか（内発的動機）
+         ↓
+【Step 2】WHAT - 何を・いつまでに・どれくらい（結果目標）
+         ↓
+【Step 3】HOW - そのために何をするか（行動目標）
+```
+
+**なぜこの順番か：**
+
+| 理論 | 根拠 |
+|------|------|
+| 選択理論 | 「やりたいから」やる状態を作るには、まず願望（Want）を明確にする |
+| ナポレオン・ヒル | 「燃えるような願望」がなければ、目標は達成されない |
+| ソウルシンクスMVV | 「理想の未来のために何をすべきか考え、行動する」= まず理想の未来（WHY）を描く |
+
+### 13.2 対話フローの詳細
+
+#### Step 0: 導入（アジェンダ提示）
+
+**トリガー：**「目標を設定したい」「目標を立てたい」など
+
+**ソウルくんの応答：**
+
+```
+目標設定をサポートするウル！🐺
+
+{name}さんが達成したい目標、
+一緒に決めていこうウル✨
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📋 これから決める3つのこと
+
+① WHY - なぜ達成したいか
+② WHAT - 何を・いつまでに・どれくらい
+③ HOW - そのために何をするか
+━━━━━━━━━━━━━━━━━━━━━━━
+
+一つずつ質問するから、答えてほしいウル！
+
+{name}さんの答えを全部覚えて、
+毎日一緒に伴走するウル🐺
+
+達成したとき、一緒に喜びを分かち合おうウル💪
+
+じゃあ最初の質問ウル！
+```
+
+#### Step 1: WHY（なぜ達成したいか）
+
+**ソウルくんの質問：**
+
+```
+【① WHY】なぜ達成したいか
+
+まず教えてほしいウル🐺
+
+・どんな目標を考えてる？
+・それを達成したら、どんな気持ちになる？
+・誰が喜んでくれる？
+
+「なぜ達成したいか」が明確だと、
+困難があっても乗り越えられるウル✨
+```
+
+**評価基準：**
+
+| 評価項目 | OK基準 | NG例 |
+|---------|--------|------|
+| 内発的動機が見える | 「〜したい」「〜になりたい」がある | 「言われたから」「やらなきゃ」 |
+| 具体性 | 誰が・何が・どうなるかが見える | 「成長したい」「頑張りたい」だけ |
+| 方向性 | ソウルシンクスでの成長・貢献に繋がる | 「転職に有利」「副業で稼ぐ」 |
+
+#### Step 2: WHAT（何を・いつまでに・どれくらい）
+
+**ソウルくんの質問：**
+
+```
+【② WHAT】何を・いつまでに・どれくらい
+
+{WHYの回答を受けて}
+その想いがあれば絶対達成できるウル✨
+
+次は具体的に決めようウル🐺
+
+・何を達成する？
+・いつまでに？
+・どれくらい？
+
+例：「1月末までに粗利300万円」
+```
+
+**評価基準：**
+
+| 評価項目 | OK基準 | NG例 |
+|---------|--------|------|
+| 測定可能性 | 数値または明確な完了条件がある | 「頑張る」「もっとやる」 |
+| 期限 | いつまでかが明確 | 「いつか」「そのうち」 |
+| 現実性 | 努力すれば達成可能な範囲 | 明らかに不可能な目標 |
+
+#### Step 3: HOW（そのために何をするか）
+
+**ソウルくんの質問：**
+
+```
+【③ HOW】そのために何をするか
+
+「{結果目標}」ウル！
+
+最後は行動目標ウル🐺
+これを達成するために、何をするウル？
+
+・何を？
+・どれくらいの頻度で？
+・どれくらいの量？
+
+例：「毎日新規架電10件」「週3回訪問」
+
+毎日の行動が成果を作るウル✨
+```
+
+**評価基準：**
+
+| 評価項目 | OK基準 | NG例 |
+|---------|--------|------|
+| 結果目標との繋がり | 行動が結果に直結する | 関係ない行動（例：粗利目標に「本を読む」） |
+| 実行可能性 | 毎日/毎週続けられる | 現実的でない量・頻度 |
+| 具体性 | 何をどれだけかが明確 | 「頑張る」「意識する」 |
+
+#### Step 4: 完了（登録・伴走開始）
+
+**ソウルくんの応答：**
+
+```
+目標設定完了ウル！🎉
+
+━━━━━━━━━━━━━━━━━━━━━━━
+📋 {name}さんの目標
+
+【WHY】
+{why_content}
+
+【結果目標】
+{what_content}
+
+【行動目標】
+{how_content}
+━━━━━━━━━━━━━━━━━━━━━━━
+
+全部覚えたウル！
+毎日17時に「今日どうだった？」って聞くから、
+一緒に振り返ろうウル🐺
+
+{name}さんの可能性を、
+ソウルくんは誰よりも信じてるウル💪
+
+さあ、一緒に達成しようウル！✨
+```
+
+### 13.3 フィードバック（再質問）のパターン
+
+#### 抽象的すぎる場合
+
+```
+いい想いウル！🐺
+
+もう少し具体的に聞かせてほしいウル✨
+
+・具体的にどんな状態になりたい？
+・数字で表すとどれくらい？
+・いつまでに達成したい？
+
+例えば「○月末までに○○を○○にする」
+みたいに教えてくれると嬉しいウル🐺
+```
+
+#### 方向性が違う場合（転職・副業志向）
+
+```
+{name}さんの向上心、すごいウル！🐺
+
+ちょっと一緒に考えてみたいウル✨
+
+その目標を達成したら、
+ソウルシンクスでの{name}さんの価値も
+上がると思うウル！
+
+今の仕事でその力を発揮したら、
+どんな成果が出せそうウル？
+
+「プロとして期待を超える」って
+ソウルシンクスの大事にしてることウル🐺
+```
+
+#### 他責思考の場合
+
+```
+そう感じてるんだねウル🐺
+正直に教えてくれてありがとうウル。
+
+ソウルシンクスが大事にしてる考え方があるウル✨
+
+「自分が源。自ら考え、自ら動く」
+
+環境や周りを変えることは難しいウル。
+でも、{name}さん自身の行動は
+{name}さんが選べるウル🐺
+
+{name}さんができることって、何がありそうウル？
+```
+
+---
+
+## 14. 目標設定ログ・継続改善設計【v1.6追加】
+
+### 14.1 設計思想
+
+**目的：**
+- スタッフの相談内容をデータとして蓄積
+- 想定外のパターンを発見し、対応を改善
+- 目標設定の成功率を継続的に向上
+
+**カズさんへの相談フロー：**
+1. ログを定期分析（週次/月次）
+2. 新しいパターンや改善点を発見
+3. カズさんに報告・相談
+4. 承認後、プロンプト/回答パターンを更新
+
+### 14.2 データベース設計
+
+#### goal_setting_sessions（目標設定セッション）
+
+**目的：** 一問一答の途中状態を保持
+
+```sql
+CREATE TABLE goal_setting_sessions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id),
+
+    -- セッション状態
+    status VARCHAR(20) NOT NULL DEFAULT 'in_progress',
+    -- 'in_progress' | 'completed' | 'abandoned'
+    current_step VARCHAR(20) NOT NULL DEFAULT 'intro',
+    -- 'intro' | 'why' | 'what' | 'how' | 'complete'
+
+    -- 回答の一時保存
+    why_answer TEXT,      -- Step 1の回答
+    what_answer TEXT,     -- Step 2の回答
+    how_answer TEXT,      -- Step 3の回答
+
+    -- 完了時に作成されたgoal_id
+    goal_id UUID REFERENCES goals(id),
+
+    -- ChatWorkルーム（対話が行われているルーム）
+    chatwork_room_id VARCHAR(20),
+
+    -- タイミング
+    started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMPTZ,
+    last_activity_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    -- セッションタイムアウト（24時間で期限切れ）
+    expires_at TIMESTAMPTZ DEFAULT (CURRENT_TIMESTAMP + INTERVAL '24 hours'),
+
+    -- メタデータ
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- インデックス
+CREATE INDEX idx_goal_sessions_org ON goal_setting_sessions(organization_id);
+CREATE INDEX idx_goal_sessions_user ON goal_setting_sessions(user_id);
+CREATE INDEX idx_goal_sessions_status ON goal_setting_sessions(status)
+    WHERE status = 'in_progress';
+CREATE INDEX idx_goal_sessions_room ON goal_setting_sessions(chatwork_room_id, user_id)
+    WHERE status = 'in_progress';
+
+-- コメント
+COMMENT ON TABLE goal_setting_sessions IS '目標設定セッション管理（Phase 2.5 v1.6）';
+COMMENT ON COLUMN goal_setting_sessions.expires_at IS '24時間でタイムアウト。期限切れセッションは abandoned に更新';
+```
+
+#### goal_setting_logs（目標設定対話ログ）
+
+**目的：** 対話内容を蓄積し、継続改善に活用
+
+```sql
+CREATE TABLE goal_setting_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+
+    -- セッション管理
+    session_id UUID NOT NULL REFERENCES goal_setting_sessions(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+
+    -- ステップ管理
+    step VARCHAR(20) NOT NULL,
+    -- 'intro' | 'why' | 'what' | 'how' | 'complete'
+    step_attempt INT NOT NULL DEFAULT 1,
+    -- リトライ回数（1=初回、2=1回目の再質問後...）
+
+    -- 対話内容
+    user_message TEXT,          -- ユーザーの発言（原文）
+    ai_response TEXT,           -- ソウルくんの回答
+
+    -- AI評価
+    detected_pattern VARCHAR(50),
+    -- 'ok' | 'ng_career' | 'ng_abstract' | 'ng_other_blame' | 'ng_no_goal' | 'ng_too_high' | 'ng_mental_health' ...
+    evaluation_result JSONB,
+    -- {
+    --   "specificity_score": 0.8,      -- 具体性スコア（0-1）
+    --   "direction_score": 0.9,        -- 方向性スコア（0-1）
+    --   "connection_score": 0.7,       -- 結果目標との繋がりスコア（0-1）
+    --   "issues": ["abstract", "no_deadline"],
+    --   "recommendation": "ask_for_deadline"
+    -- }
+    feedback_given BOOLEAN DEFAULT FALSE,
+    -- フィードバック（再質問）を行ったか
+
+    -- 結果
+    result VARCHAR(20),
+    -- 'accepted' | 'retry' | 'abandoned'
+
+    -- 機密区分（目標設定の対話は internal 以上）
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',
+
+    -- メタデータ
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+
+    -- 制約
+    CONSTRAINT check_goal_log_classification
+        CHECK (classification IN ('public', 'internal', 'confidential', 'restricted'))
+);
+
+-- インデックス
+CREATE INDEX idx_goal_logs_org ON goal_setting_logs(organization_id);
+CREATE INDEX idx_goal_logs_session ON goal_setting_logs(session_id);
+CREATE INDEX idx_goal_logs_user ON goal_setting_logs(user_id);
+CREATE INDEX idx_goal_logs_pattern ON goal_setting_logs(detected_pattern);
+CREATE INDEX idx_goal_logs_created ON goal_setting_logs(created_at DESC);
+
+-- コメント
+COMMENT ON TABLE goal_setting_logs IS '目標設定対話ログ（Phase 2.5 v1.6）。継続改善のためのデータ蓄積用';
+COMMENT ON COLUMN goal_setting_logs.detected_pattern IS '検出されたパターンコード';
+COMMENT ON COLUMN goal_setting_logs.evaluation_result IS 'AI評価の詳細（JSONBで拡張可能）';
+```
+
+#### goal_setting_patterns（パターンマスタ）
+
+**目的：** 検出パターンの定義と推奨対応を管理
+
+```sql
+CREATE TABLE goal_setting_patterns (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- パターン定義
+    pattern_code VARCHAR(50) UNIQUE NOT NULL,
+    -- 'ok', 'ng_career', 'ng_abstract', 'ng_other_blame', ...
+    pattern_name VARCHAR(100) NOT NULL,
+    pattern_category VARCHAR(20) NOT NULL,
+    -- 'ok' | 'ng' | 'warning'
+
+    -- 対象ステップ
+    applicable_steps TEXT[],
+    -- ['why', 'what', 'how'] など
+
+    -- 検出条件（AI評価用のヒント）
+    detection_keywords TEXT[],
+    -- ['転職', '副業', '市場価値'] など
+    detection_description TEXT,
+    -- 「転職や副業に関する発言」など
+
+    -- 推奨対応
+    recommended_response TEXT,
+    -- 推奨の回答テンプレート
+    response_strategy TEXT,
+    -- 'redirect_to_company' | 'ask_for_specificity' | 'empathize_then_redirect' ...
+
+    -- 統計（定期更新）
+    occurrence_count INT DEFAULT 0,
+    success_rate DECIMAL(5, 2),
+    -- このパターン後の目標設定完了率
+    last_occurred_at TIMESTAMPTZ,
+
+    -- メタデータ
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 初期データ
+INSERT INTO goal_setting_patterns (pattern_code, pattern_name, pattern_category, applicable_steps, detection_keywords, detection_description, response_strategy) VALUES
+('ok', 'OK（適切）', 'ok', ARRAY['why', 'what', 'how'], NULL, '適切な回答', 'proceed'),
+('ng_abstract', '抽象的すぎる', 'ng', ARRAY['why', 'what', 'how'], ARRAY['成長', '頑張る', '良くなりたい'], '具体性に欠ける発言', 'ask_for_specificity'),
+('ng_career', '転職・副業志向', 'ng', ARRAY['why'], ARRAY['転職', '副業', '市場価値', 'どこでも通用'], '会社外でのキャリアを示唆', 'redirect_to_company'),
+('ng_other_blame', '他責思考', 'ng', ARRAY['why', 'what'], ARRAY['上司が', '会社が', '環境が', 'せいで'], '他者や環境のせいにする発言', 'empathize_then_self_focus'),
+('ng_no_goal', '目標がない', 'ng', ARRAY['why'], ARRAY['特にない', '今のまま', '考えてない'], '目標を持っていない', 'inspire_possibility'),
+('ng_too_high', '目標が高すぎる', 'warning', ARRAY['what'], NULL, '達成不可能な目標設定', 'suggest_milestone'),
+('ng_not_connected', '結果目標と繋がらない', 'ng', ARRAY['how'], NULL, '行動が結果目標と繋がっていない', 'connect_to_result'),
+('ng_mental_health', 'メンタルヘルス懸念', 'warning', ARRAY['why', 'what', 'how'], ARRAY['疲れた', 'しんどい', '辛い', 'やる気が出ない'], '精神的な不調を示唆', 'empathize_and_suggest_human'),
+('ng_private_only', 'プライベート目標のみ', 'warning', ARRAY['why', 'what'], ARRAY['ダイエット', '趣味', '旅行'], '仕事と関係ない目標のみ', 'add_work_goal');
+
+-- コメント
+COMMENT ON TABLE goal_setting_patterns IS '目標設定パターンマスタ（Phase 2.5 v1.6）';
+COMMENT ON COLUMN goal_setting_patterns.response_strategy IS '対応戦略コード。実装側でこのコードに応じた対応を行う';
+```
+
+### 14.3 継続改善フロー
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  【運用フェーズ】毎日                                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  スタッフが目標設定                                          │
+│        ↓                                                     │
+│  ソウルくんが対話（一問一答）                                │
+│        ↓                                                     │
+│  goal_setting_logs に自動記録                                │
+│  - user_message（原文）                                      │
+│  - detected_pattern（パターン分類）                          │
+│  - ai_response（ソウルくんの回答）                           │
+│  - result（結果：accepted / retry / abandoned）              │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+                            ↓
+┌─────────────────────────────────────────────────────────────┐
+│  【分析フェーズ】週次/月次                                   │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. ログを集計・分析                                         │
+│     - パターン別の発生件数                                   │
+│     - パターン別の目標設定完了率                             │
+│     - 新しいパターン（未分類）の発見                         │
+│     - 離脱が多いステップの特定                               │
+│                                                              │
+│  2. 改善点を特定                                             │
+│     - 完了率が低いパターンへの対応改善                       │
+│     - 新しいパターンへの対応追加                             │
+│     - 回答テンプレートの改善                                 │
+│                                                              │
+│  3. カズさんに報告・相談                                     │
+│     - 発見事項のレポート                                     │
+│     - 改善案の提案                                           │
+│     - 承認を得る                                             │
+│                                                              │
+│  4. 改善を実装                                               │
+│     - goal_setting_patterns の更新                           │
+│     - プロンプトの修正                                       │
+│     - 効果測定の準備                                         │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### 14.4 分析クエリ例
+
+```sql
+-- パターン別の発生件数と完了率
+SELECT
+    gsl.detected_pattern,
+    gsp.pattern_name,
+    COUNT(*) as occurrence_count,
+    COUNT(CASE WHEN gss.status = 'completed' THEN 1 END) as completed_count,
+    ROUND(
+        COUNT(CASE WHEN gss.status = 'completed' THEN 1 END)::DECIMAL
+        / COUNT(*)::DECIMAL * 100,
+        1
+    ) as completion_rate
+FROM goal_setting_logs gsl
+JOIN goal_setting_sessions gss ON gsl.session_id = gss.id
+LEFT JOIN goal_setting_patterns gsp ON gsl.detected_pattern = gsp.pattern_code
+WHERE gsl.created_at >= NOW() - INTERVAL '7 days'
+GROUP BY gsl.detected_pattern, gsp.pattern_name
+ORDER BY occurrence_count DESC;
+
+-- 離脱が多いステップの特定
+SELECT
+    current_step as abandoned_at_step,
+    COUNT(*) as abandoned_count
+FROM goal_setting_sessions
+WHERE status = 'abandoned'
+  AND created_at >= NOW() - INTERVAL '7 days'
+GROUP BY current_step
+ORDER BY abandoned_count DESC;
+
+-- 新しいパターン（未分類）の発見
+SELECT
+    user_message,
+    COUNT(*) as occurrence_count
+FROM goal_setting_logs
+WHERE detected_pattern = 'unknown'
+   OR detected_pattern IS NULL
+GROUP BY user_message
+ORDER BY occurrence_count DESC
+LIMIT 20;
+```
+
+---
+
+## 15. NGパターン対応方針【v1.6追加】
+
+### 15.1 絶対に守ること
+
+**最も大事なこと：**
+> ソウルシンクスが良くなるために、スタッフが適切な目標設定をする
+
+**絶対に守ること：**
+- 目標は会社の目的・目標に繋がっている
+- 「辞めたい」「転職したい」方向には絶対に導かない
+- 直接的に「会社のために」とは言わない
+- 間接的に、自然に、気づいたら会社の方向と一致している
+
+### 15.2 NGパターン一覧と対応
+
+#### 15.2.1 ng_career（転職・副業志向）
+
+**検出キーワード：** 転職、副業、市場価値、どこでも通用、独立
+
+**対応戦略：** redirect_to_company（会社での活躍に誘導）
+
+**対応例：**
+```
+{name}さんの向上心、すごいウル！🐺
+
+ちょっと一緒に考えてみたいウル✨
+
+その目標を達成したら、
+ソウルシンクスでの{name}さんの価値も
+上がると思うウル！
+
+今の仕事でその力を発揮したら、
+どんな成果が出せそうウル？
+
+「プロとして期待を超える」って
+ソウルシンクスの大事にしてることウル🐺
+```
+
+#### 15.2.2 ng_abstract（抽象的すぎる）
+
+**検出キーワード：** 成長したい、頑張りたい、良くなりたい
+
+**対応戦略：** ask_for_specificity（具体化を促す）
+
+**対応例：**
+```
+いい想いウル！🐺
+
+もう少し具体的に聞かせてほしいウル✨
+
+・具体的にどんな状態になりたい？
+・数字で表すとどれくらい？
+・いつまでに達成したい？
+
+例えば「○月末までに○○を○○にする」
+みたいに教えてくれると嬉しいウル🐺
+```
+
+#### 15.2.3 ng_other_blame（他責思考）
+
+**検出キーワード：** 上司が、会社が、環境が、〜のせいで
+
+**対応戦略：** empathize_then_self_focus（共感してから自分にフォーカス）
+
+**対応例：**
+```
+そう感じてるんだねウル🐺
+正直に教えてくれてありがとうウル。
+
+ソウルシンクスが大事にしてる考え方があるウル✨
+
+「自分が源。自ら考え、自ら動く」
+
+環境や周りを変えることは難しいウル。
+でも、{name}さん自身の行動は
+{name}さんが選べるウル🐺
+
+{name}さんができることって、何がありそうウル？
+```
+
+#### 15.2.4 ng_no_goal（目標がない）
+
+**検出キーワード：** 特にない、今のままでいい、考えてない
+
+**対応戦略：** inspire_possibility（可能性を引き出す）
+
+**対応例：**
+```
+今のままでいいって思えるの、
+実は満たされてる証拠かもしれないウル🐺
+
+ちょっとだけ聞かせてほしいウル！
+
+もし何でも叶うとしたら、
+どんな自分になってみたいウル？
+どんな未来だったらワクワクするウル？
+
+小さなことでいいウル✨
+「こうなったらいいな」を教えてほしいウル🐺
+```
+
+#### 15.2.5 ng_too_high（目標が高すぎる）
+
+**検出条件：** 明らかに達成不可能な数値目標
+
+**対応戦略：** suggest_milestone（マイルストーンを提案）
+
+**対応例：**
+```
+その目標、すごい挑戦ウル！🐺
+{name}さんの向上心、最高ウル✨
+
+一つ確認させてほしいウル！
+その目標、達成できるイメージは持ててるウル？
+
+もし「ちょっと厳しいかも」と感じてたら、
+まず「ここまでは絶対達成する」っていう
+確実な目標を決めてみないウル？
+
+その上で、さらに上を目指すのもアリウル🐺
+```
+
+#### 15.2.6 ng_not_connected（結果目標と繋がらない）
+
+**検出条件：** 行動目標が結果目標と直接繋がっていない
+
+**対応戦略：** connect_to_result（結果への繋がりを確認）
+
+**対応例：**
+```
+それも大事なことウル！📚
+
+ただ「{結果目標}」を達成するために、
+もっと直接的な行動も決めたいウル🐺
+
+{結果目標}を達成するには、
+何が必要ウル？
+・何件の商談が必要？
+・そのために何件のアプローチが必要？
+
+例えば「毎日新規架電10件」「週3回訪問」とか、
+成果に直結する行動を教えてほしいウル✨
+```
+
+#### 15.2.7 ng_mental_health（メンタルヘルス懸念）
+
+**検出キーワード：** 疲れた、しんどい、辛い、やる気が出ない
+
+**対応戦略：** empathize_and_suggest_human（共感して人間に繋ぐ）
+
+**対応例：**
+```
+{name}さん、正直に教えてくれてありがとうウル🐺
+
+無理に目標の話をしなくていいウル。
+今は休むことが大事な時かもしれないウル。
+
+もし話したいことがあったら、
+上司や人事の人にも相談してみてほしいウル。
+一人で抱え込まないでほしいウル✨
+
+ソウルくんはいつでもここにいるウル🐺
+```
+
+**⚠️ 重要：** このパターンが検出された場合、目標設定は中断し、人間（上司・人事）への相談を促す。AIだけで対応しない。
+
+#### 15.2.8 ng_private_only（プライベート目標のみ）
+
+**検出キーワード：** ダイエット、趣味、旅行
+
+**対応戦略：** add_work_goal（仕事の目標も追加）
+
+**対応例：**
+```
+健康って大事ウル！🐺
+
+{プライベート目標}を達成したら、
+仕事のパフォーマンスも上がりそうウル？✨
+
+ソウルくんは仕事の目標を一緒に追いかけるのが
+得意ウル🐺
+
+仕事で達成したい目標も一緒に決めてみないウル？
+プライベートと仕事、両方うまくいったら最高ウル💪
+```
+
+### 15.3 評価フロー
+
+```
+ユーザーの発言
+      ↓
+┌─────────────────────────────────────┐
+│  AI評価（GPT-4）                     │
+│  - キーワード検出                    │
+│  - 文脈理解                          │
+│  - スコアリング（具体性、方向性等） │
+└─────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────┐
+│  パターン判定                        │
+│  - ok → 次のステップへ              │
+│  - ng_* → 対応戦略に基づきフィードバック │
+│  - unknown → ログに記録、後で分析   │
+└─────────────────────────────────────┘
+      ↓
+┌─────────────────────────────────────┐
+│  ログ記録                            │
+│  - goal_setting_logs に保存          │
+│  - 継続改善のデータとして蓄積        │
+└─────────────────────────────────────┘
+```
+
+---
+
+## 16. 次のアクション
+
+1. ~~**カズさん承認** → この設計書の内容でOKか確認~~ ✅完了
+2. **DB作成** → goals, goal_progress, goal_reminders, goal_setting_sessions, goal_setting_logs, goal_setting_patterns テーブル作成
 3. **プロンプト設計** → ソウルくんの目標達成支援プロンプトを詳細化
 4. **ChatWork連携** → 目標登録・進捗確認の実装
 5. **Scheduler設定** → 17時・8時の自動送信設定
+6. **継続改善フロー** → 週次レポート、パターン分析の実装
 
 ---
 

@@ -27,7 +27,7 @@ CREATE TABLE IF NOT EXISTS goal_setting_sessions (
     goal_id UUID REFERENCES goals(id),
 
     -- ChatWorkルーム（対話が行われているルーム）
-    chatwork_room_id VARCHAR(20),
+    chatwork_room_id VARCHAR(50),
 
     -- タイミング
     started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

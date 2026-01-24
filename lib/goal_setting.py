@@ -424,9 +424,11 @@ class GoalSettingDialogue:
         result = conn.execute(
             text("""
                 SELECT COUNT(*) FROM goal_setting_logs
-                WHERE session_id = :session_id AND step = :step
+                WHERE session_id = :session_id
+                  AND organization_id = :org_id
+                  AND step = :step
             """),
-            {"session_id": session_id, "step": step}
+            {"session_id": session_id, "org_id": self.org_id, "step": step}
         ).fetchone()
         return (result[0] or 0) + 1
 
@@ -795,13 +797,11 @@ class GoalSettingDialogue:
     def _get_feedback_response(self, pattern: str, user_message: str,
                                session: Dict[str, Any]) -> str:
         """パターンに応じたフィードバックを返す"""
-        template_key = pattern.replace("ng_", "ng_")  # ng_xxx → ng_xxx
-
         # Noneチェック
         what_answer = session.get("what_answer") or ""
 
-        if template_key in TEMPLATES:
-            return TEMPLATES[template_key].format(
+        if pattern in TEMPLATES:
+            return TEMPLATES[pattern].format(
                 user_name=self.user_name,
                 user_answer=user_message[:50] if user_message else "",
                 what_answer=what_answer[:50]

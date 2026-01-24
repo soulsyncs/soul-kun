@@ -553,7 +553,8 @@ git status
 | 2 A2 | 属人化検出 | ✅ 完了 | 2026-01-24 | PR #49、BCPリスク可視化 |
 | 2 A3 | ボトルネック検出 | ✅ 完了 | 2026-01-24 | PR #51、期限超過・タスク集中検出 |
 | 2 A4 | 感情変化検出 | ✅ 完了 | 2026-01-24 | v10.20.0、PR #59、メンタルヘルス可視化 |
-| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.0 対話フロー完了、通知機能未デプロイ |
+| 2 B | 覚える能力 | ✅ 完了 | 2026-01-24 | PR #62、会話サマリー・嗜好学習・知識蓄積・検索 |
+| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.4 対話フロー完了、通知テストモード稼働中 |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化 |
@@ -561,6 +562,29 @@ git status
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ## 直近の主な成果
+
+- **2026-01-24**: Phase 2 B 覚える能力（PR #62）✅完了
+  - **Memory Framework**（8ファイル、8,303行）
+    - `base.py`: BaseMemoryクラス（LLM連携、OpenRouter API）
+    - `constants.py`: MemoryParameters、Enum、プロンプト定義
+    - `exceptions.py`: 10種のカスタム例外クラス
+    - `conversation_summary.py`: B1 会話サマリー記憶
+    - `user_preference.py`: B2 ユーザー嗜好学習
+    - `auto_knowledge.py`: B3 組織知識自動蓄積（A1パターン検出連携）
+    - `conversation_search.py`: B4 会話検索インデックス
+  - **DBマイグレーション完了**
+    - `conversation_summaries`: 会話サマリー（key_topics, mentioned_persons, mentioned_tasks）
+    - `user_preferences`: ユーザー嗜好（response_style, feature_usage等5タイプ）
+    - `organization_auto_knowledge`: 自動蓄積FAQ（draft→approved→rejected→archived）
+    - `conversation_index`: 会話検索（キーワード、エンティティ、embedding_id）
+    - 21インデックス、31 CHECK制約、4外部キー
+  - **テスト**: 82件のユニットテスト（全パス）
+  - **10の鉄則準拠**: organization_idフィルタ、機密区分、パラメータ化SQL
+
+- **2026-01-24**: v10.19.4 目標設定セッション検出修正（PR #61）✅完了
+  - **バグ修正**: 既存セッション検出時に'intro'→'why'ステップで開始するよう修正
+  - **変更ファイル**: lib/goal_setting.py、chatwork-webhook/lib/goal_setting.py、chatwork-webhook/main.py
+  - **テスト**: 102件のユニットテスト（全パス）
 
 - **2026-01-24**: v10.20.0 Phase 2 A4 感情変化検出（PR #59）✅完了
   - **Phase 2「気づく能力」完成**（A1〜A4全て完了）

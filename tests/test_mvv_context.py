@@ -595,19 +595,19 @@ class TestMVVQuestionDetection:
 
         # ビジョン
         assert "ビジョン" in info
-        assert "心で繋がる未来を創る" in info
+        assert "心で繋がる未来を目指します" in info
 
-        # バリュー
+        # バリュー = 行動指針10箇条
         assert "バリュー" in info
-        assert "あなた以上にあなたを信じる" in info
+        assert "行動指針10箇条" in info
 
         # スローガン
         assert "スローガン" in info
         assert "感謝で自分を満たし" in info
+        assert "さあ、自分の可能性に挑戦しよう" in info
 
         # 行動指針
-        assert "行動指針10箇条" in info
-        assert "理想の未来のために考え行動する" in info
+        assert "理想の未来のために何をすべきか考え、行動する" in info
 
     def test_get_full_mvv_info_includes_guidelines_count(self):
         """行動指針が10個含まれる"""

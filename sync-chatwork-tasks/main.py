@@ -2827,7 +2827,7 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                 print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
                 # フォールバック: prepare_task_display_textを使用
                 try:
-                    if USE_TEXT_UTILS_LIB:
+                    if USE_LIB:
                         clean_body = lib_clean_chatwork_tags(body)
                         summary = lib_prepare_task_display_text(clean_body, max_length=40)
                     else:
@@ -7728,7 +7728,7 @@ def sync_chatwork_tasks(request):
                         print(f"📝 summaryがNULLのため生成: task_id={task_id}")
 
                     # 条件3: summaryが低品質（挨拶で始まる、途中で途切れている等）
-                    if old_summary and USE_TEXT_UTILS_LIB:
+                    if old_summary and USE_LIB:
                         try:
                             if not lib_validate_summary(old_summary, body):
                                 should_regenerate_summary = True
@@ -7744,7 +7744,7 @@ def sync_chatwork_tasks(request):
                             print(f"⚠️ UPDATE用要約生成エラー: {e}")
                             # フォールバック
                             try:
-                                if USE_TEXT_UTILS_LIB:
+                                if USE_LIB:
                                     clean_body = lib_clean_chatwork_tags(body)
                                     new_summary = lib_prepare_task_display_text(clean_body, max_length=40)
                                 else:

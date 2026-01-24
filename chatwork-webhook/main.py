@@ -4,6 +4,7 @@ from google.cloud import secretmanager, firestore
 import httpx
 import re
 import time
+import os  # v10.22.4: 環境変数による機能制御用
 import asyncio  # v10.21.0: Memory Framework統合用
 from datetime import datetime, timedelta, timezone
 import pg8000

@@ -26,6 +26,10 @@ class DetectionParameters:
     これらの値は環境変数で上書き可能にする予定（Phase 2 A1 v1.1）
     """
 
+    # ================================================================
+    # A1パターン検出パラメータ
+    # ================================================================
+
     # パターン検出の閾値
     # この回数以上出現したパターンをインサイトとして登録
     PATTERN_THRESHOLD: Final[int] = 5
@@ -54,6 +58,25 @@ class DetectionParameters:
     # 週次レポート送信時刻（時:分）
     WEEKLY_REPORT_HOUR: Final[int] = 9
     WEEKLY_REPORT_MINUTE: Final[int] = 0
+
+    # ================================================================
+    # A2属人化検出パラメータ
+    # ================================================================
+
+    # 属人化判定の偏り閾値（80%以上の回答が1人に集中）
+    PERSONALIZATION_THRESHOLD: Final[float] = 0.8
+
+    # 属人化検出に必要な最小回答数
+    MIN_RESPONSES_FOR_PERSONALIZATION: Final[int] = 5
+
+    # 属人化検出の分析対象期間（日数）
+    PERSONALIZATION_WINDOW_DAYS: Final[int] = 30
+
+    # 高リスク判定の連続検出日数
+    HIGH_RISK_EXCLUSIVE_DAYS: Final[int] = 14
+
+    # 緊急リスク判定の連続検出日数
+    CRITICAL_RISK_EXCLUSIVE_DAYS: Final[int] = 30
 
 
 # ================================================================
@@ -328,6 +351,52 @@ class NotificationType(str, Enum):
 
     # A1パターン検出: 週次レポート
     WEEKLY_REPORT = "weekly_report"
+
+    # A2属人化検出: 属人化アラート
+    PERSONALIZATION_ALERT = "personalization_alert"
+
+
+# ================================================================
+# A2属人化検出: リスクレベル
+# ================================================================
+
+class PersonalizationRiskLevel(str, Enum):
+    """
+    属人化リスクのレベル
+
+    設計書: docs/07_phase2_a2_personalization_detection.md
+    """
+
+    # 緊急: 完全独占 + 30日以上継続
+    CRITICAL = "critical"
+
+    # 高リスク: 80%以上 + 14日以上継続
+    HIGH = "high"
+
+    # 中リスク: 60%以上 + 7日以上継続
+    MEDIUM = "medium"
+
+    # 低リスク: 監視継続
+    LOW = "low"
+
+
+# ================================================================
+# A2属人化検出: ステータス
+# ================================================================
+
+class PersonalizationStatus(str, Enum):
+    """
+    属人化リスクの対応ステータス
+    """
+
+    # アクティブ（検出中）
+    ACTIVE = "active"
+
+    # 対応済み（ナレッジ化等）
+    MITIGATED = "mitigated"
+
+    # 無視（対応不要と判断）
+    DISMISSED = "dismissed"
 
 
 # ================================================================

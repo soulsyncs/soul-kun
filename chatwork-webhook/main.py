@@ -139,6 +139,35 @@ else:
     print("⚠️ New date utils disabled by environment variable USE_NEW_DATE_UTILS=false")
     USE_NEW_DATE_UTILS = False
 
+# =====================================================
+# v10.24.0: ChatWork APIユーティリティ（リファクタリング）
+# =====================================================
+# utils/chatwork_utils.py に分割されたChatWork API関数
+# 環境変数 USE_NEW_CHATWORK_UTILS=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_CHATWORK_UTILS_ENV = os.environ.get("USE_NEW_CHATWORK_UTILS", "true").lower() == "true"
+
+if _USE_NEW_CHATWORK_UTILS_ENV:
+    try:
+        from utils.chatwork_utils import (
+            APICallCounter as _new_APICallCounter,
+            get_api_call_counter as _new_get_api_call_counter,
+            reset_api_call_counter as _new_reset_api_call_counter,
+            clear_room_members_cache as _new_clear_room_members_cache,
+            call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
+            get_room_members as _new_get_room_members,
+            get_room_members_cached as _new_get_room_members_cached,
+            is_room_member as _new_is_room_member,
+        )
+        USE_NEW_CHATWORK_UTILS = True
+        print("✅ utils/chatwork_utils.py loaded for ChatWork API")
+    except ImportError as e:
+        print(f"⚠️ utils/chatwork_utils.py not available (using fallback): {e}")
+        USE_NEW_CHATWORK_UTILS = False
+else:
+    print("⚠️ New ChatWork utils disabled by environment variable USE_NEW_CHATWORK_UTILS=false")
+    USE_NEW_CHATWORK_UTILS = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -1724,46 +1753,69 @@ def get_chatwork_account_id_by_name(name):
 
 # =====================================================
 # APIレート制限対策（v10.3.3）
+# v10.24.0: utils/chatwork_utils.py に分割
 # =====================================================
 
-class APICallCounter:
-    """APIコール数をカウントするクラス"""
+# 新しいモジュールを使用する場合はそちらのクラスを使用
+if USE_NEW_CHATWORK_UTILS:
+    APICallCounter = _new_APICallCounter
+else:
+    class APICallCounter:
+        """APIコール数をカウントするクラス（フォールバック）"""
 
-    def __init__(self):
-        self.count = 0
-        self.start_time = time.time()
+        def __init__(self):
+            self.count = 0
+            self.start_time = time.time()
 
-    def increment(self):
-        self.count += 1
+        def increment(self):
+            self.count += 1
 
-    def get_count(self):
-        return self.count
+        def get_count(self):
+            return self.count
 
-    def log_summary(self, function_name: str):
-        elapsed = time.time() - self.start_time
-        print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
+        def log_summary(self, function_name: str):
+            elapsed = time.time() - self.start_time
+            print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
 
 
-# グローバルAPIカウンター
+# グローバルAPIカウンター（フォールバック用）
 _api_call_counter = APICallCounter()
 
-# ルームメンバーキャッシュ（同一リクエスト内で有効）
+# ルームメンバーキャッシュ（フォールバック用、同一リクエスト内で有効）
 _room_members_cache = {}
 
 
 def get_api_call_counter():
-    """APIカウンターを取得"""
+    """
+    APIカウンターを取得
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_get_api_call_counter()
     return _api_call_counter
 
 
 def reset_api_call_counter():
-    """APIカウンターをリセット"""
+    """
+    APIカウンターをリセット
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_reset_api_call_counter()
     global _api_call_counter
     _api_call_counter = APICallCounter()
 
 
 def clear_room_members_cache():
-    """ルームメンバーキャッシュをクリア"""
+    """
+    ルームメンバーキャッシュをクリア
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_clear_room_members_cache()
     global _room_members_cache
     _room_members_cache = {}
 
@@ -1793,7 +1845,16 @@ def call_chatwork_api_with_retry(
 
     Returns:
         (response, success): レスポンスと成功フラグのタプル
+
+    v10.24.0: utils/chatwork_utils.py に分割
     """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_call_chatwork_api_with_retry(
+            method, url, headers, data, params, max_retries, initial_wait, timeout
+        )
+
+    # フォールバック: 旧実装
     wait_time = initial_wait
     counter = get_api_call_counter()
 
@@ -1849,7 +1910,15 @@ def get_room_members_cached(room_id):
     """
     ルームメンバーを取得（キャッシュあり）
     同一リクエスト内で同じルームを複数回参照する場合に効率的
+
+    v10.24.0: utils/chatwork_utils.py に分割
     """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+        return _new_get_room_members_cached(room_id, api_token)
+
+    # フォールバック: 旧実装
     room_id_str = str(room_id)
     if room_id_str in _room_members_cache:
         return _room_members_cache[room_id_str]
@@ -1860,8 +1929,18 @@ def get_room_members_cached(room_id):
 
 
 def get_room_members(room_id):
-    """ルームのメンバー一覧を取得（リトライ機構付き）"""
+    """
+    ルームのメンバー一覧を取得（リトライ機構付き）
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_get_room_members(room_id, api_token)
+
+    # フォールバック: 旧実装
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
 
     response, success = call_chatwork_api_with_retry(
@@ -1878,7 +1957,17 @@ def get_room_members(room_id):
 
 
 def is_room_member(room_id, account_id):
-    """指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）"""
+    """
+    指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+        return _new_is_room_member(room_id, account_id, api_token)
+
+    # フォールバック: 旧実装
     members = get_room_members_cached(room_id)
     member_ids = [m.get("account_id") for m in members]
     return int(account_id) in member_ids

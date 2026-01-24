@@ -1965,16 +1965,17 @@ def get_accessible_departments(conn, user_id, organization_id):
 
 
 def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_account_id=None, status="open",
-                          enable_dept_filter=False, organization_id=None):
+                          enable_dept_filter=False, organization_id=None, search_all_rooms=False):
     """DBからタスクを検索
 
     Args:
-        room_id: チャットルームID
+        room_id: チャットルームID（search_all_rooms=Trueの場合は無視）
         assigned_to_account_id: 担当者のChatWorkアカウントID
         assigned_by_account_id: 依頼者のChatWorkアカウントID
         status: タスクステータス（"open", "done", "all"）
         enable_dept_filter: True=部署フィルタを有効化（Phase 3.5対応）
         organization_id: 組織ID（部署フィルタ有効時に必要）
+        search_all_rooms: True=全ルームからタスクを検索（v10.22.0 BUG-001修正）
     """
     try:
         pool = get_pool()
@@ -1986,13 +1987,19 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                 if user_id and organization_id:
                     accessible_dept_ids = get_accessible_departments(conn, user_id, organization_id)
 
-            # クエリ構築
+            # クエリ構築（v10.22.0: room_id, room_nameを追加）
             query = """
-                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id
+                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name
                 FROM chatwork_tasks
-                WHERE room_id = :room_id
             """
-            params = {"room_id": room_id}
+            params = {}
+
+            # v10.22.0: search_all_rooms=Trueの場合はroom_idフィルタをスキップ
+            if search_all_rooms:
+                query += " WHERE 1=1"
+            else:
+                query += " WHERE room_id = :room_id"
+                params["room_id"] = room_id
 
             if assigned_to_account_id:
                 query += " AND assigned_to_account_id = :assigned_to"
@@ -2030,7 +2037,9 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                     "status": row[3],
                     "assigned_to_account_id": row[4],
                     "assigned_by_account_id": row[5],
-                    "department_id": row[6]  # Phase 3.5対応
+                    "department_id": row[6],  # Phase 3.5対応
+                    "room_id": row[7],        # v10.22.0追加
+                    "room_name": row[8]       # v10.22.0追加
                 }
                 for row in tasks
             ]
@@ -2892,21 +2901,25 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
 def handle_chatwork_task_search(params, room_id, account_id, sender_name, context=None):
     """
     タスク検索ハンドラー
-    
+
     params:
         person_name: 検索する人物名（"sender"の場合は質問者自身）
         status: タスクの状態（open/done/all）
         assigned_by: タスクを依頼した人物名
+
+    v10.22.0: BUG-001修正 - 自分のタスクを検索する場合は全ルームから検索
     """
     print(f"🔍 handle_chatwork_task_search 開始")
     print(f"   params: {params}")
-    
+
     person_name = params.get("person_name", "")
     status = params.get("status", "open")
     assigned_by = params.get("assigned_by", "")
-    
+
     # "sender" または "自分" の場合は質問者自身
-    if person_name.lower() in ["sender", "自分", "俺", "私", "僕", ""]:
+    # v10.22.0: 自分のタスク検索時は全ルームから検索
+    is_self_search = person_name.lower() in ["sender", "自分", "俺", "私", "僕", ""]
+    if is_self_search:
         assigned_to_account_id = account_id
         display_name = "あなた"
     else:
@@ -2915,46 +2928,82 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
         if not assigned_to_account_id:
             return f"🤔 {person_name}さんが見つからなかったウル...\n正確な名前を教えてほしいウル！"
         display_name = person_name
-    
+
     # assigned_byの解決
     assigned_by_account_id = None
     if assigned_by:
         assigned_by_account_id = get_chatwork_account_id_by_name(assigned_by)
-    
+
     # DBからタスクを検索
+    # v10.22.0: 自分のタスク検索時は全ルームから検索（BUG-001修正）
     tasks = search_tasks_from_db(
         room_id,
         assigned_to_account_id=assigned_to_account_id,
         assigned_by_account_id=assigned_by_account_id,
-        status=status
+        status=status,
+        search_all_rooms=is_self_search  # 自分のタスク→全ルーム検索
     )
-    
+
     if not tasks:
         status_text = "未完了の" if status == "open" else "完了済みの" if status == "done" else ""
         return f"📋 {display_name}の{status_text}タスクは見つからなかったウル！\nタスクがないか、まだ同期されていないかもウル🤔"
-    
+
     # タスク一覧を作成
     status_text = "未完了" if status == "open" else "完了済み" if status == "done" else "全て"
     response = f"📋 **{display_name}の{status_text}タスク**ウル！\n\n"
-    
-    for i, task in enumerate(tasks, 1):
-        body = task["body"]
-        limit_time = task.get("limit_time")
-        
-        # 期限の表示
-        limit_str = ""
-        if limit_time:
-            try:
-                limit_dt = datetime.fromtimestamp(limit_time, tz=timezone(timedelta(hours=9)))
-                limit_str = f"（期限: {limit_dt.strftime('%m/%d')}）"
-            except:
-                pass
-        
-        # タスク内容を短く表示（30文字まで）
-        body_short = body[:30] + "..." if len(body) > 30 else body
-        response += f"{i}. {body_short} {limit_str}\n"
-    
-    response += f"\nこの{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"
+
+    # v10.22.0: 全ルーム検索の場合はルーム別にグループ化
+    if is_self_search:
+        # ルーム別にグループ化
+        tasks_by_room = {}
+        for task in tasks:
+            room_name = task.get("room_name") or "不明なルーム"
+            if room_name not in tasks_by_room:
+                tasks_by_room[room_name] = []
+            tasks_by_room[room_name].append(task)
+
+        # ルーム別に表示
+        task_num = 1
+        for room_name, room_tasks in tasks_by_room.items():
+            response += f"📁 **{room_name}**\n"
+            for task in room_tasks:
+                body = task["body"]
+                limit_time = task.get("limit_time")
+
+                # 期限の表示
+                limit_str = ""
+                if limit_time:
+                    try:
+                        limit_dt = datetime.fromtimestamp(limit_time, tz=timezone(timedelta(hours=9)))
+                        limit_str = f"（期限: {limit_dt.strftime('%m/%d')}）"
+                    except:
+                        pass
+
+                # タスク内容を短く表示（30文字まで）
+                body_short = body[:30] + "..." if len(body) > 30 else body
+                response += f"  {task_num}. {body_short} {limit_str}\n"
+                task_num += 1
+            response += "\n"
+    else:
+        # 従来の表示（単一ルーム）
+        for i, task in enumerate(tasks, 1):
+            body = task["body"]
+            limit_time = task.get("limit_time")
+
+            # 期限の表示
+            limit_str = ""
+            if limit_time:
+                try:
+                    limit_dt = datetime.fromtimestamp(limit_time, tz=timezone(timedelta(hours=9)))
+                    limit_str = f"（期限: {limit_dt.strftime('%m/%d')}）"
+                except:
+                    pass
+
+            # タスク内容を短く表示（30文字まで）
+            body_short = body[:30] + "..." if len(body) > 30 else body
+            response += f"{i}. {body_short} {limit_str}\n"
+
+    response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"
     
     # 分析ログ記録
     log_analytics_event(

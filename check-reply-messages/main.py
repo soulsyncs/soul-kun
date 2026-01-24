@@ -834,12 +834,13 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
             except Exception as e:
                 print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
 
-        with pool.connect() as conn:
+        with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO chatwork_tasks
                     (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary, department_id)
                     VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary, :department_id)
+                    ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
                     "task_id": task_data["task_id"],
@@ -853,7 +854,7 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
                     "department_id": department_id,
                 }
             )
-            conn.commit()
+        print(f"✅ タスクをDBに保存: task_id={task_data['task_id']}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")

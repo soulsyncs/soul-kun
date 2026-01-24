@@ -553,7 +553,7 @@ git status
 | 2 A2 | 属人化検出 | ✅ 完了 | 2026-01-24 | PR #49、BCPリスク可視化 |
 | 2 A3 | ボトルネック検出 | ✅ 完了 | 2026-01-24 | PR #51、期限超過・タスク集中検出 |
 | 2 A4 | 感情変化検出 | 📋 未着手 | - | 従業員メンタル変化検出 |
-| 2.5 | 目標達成支援 | 🔄 進行中 | - | KPI管理 |
+| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.0 対話フロー完了、通知機能未デプロイ |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化 |
@@ -561,6 +561,33 @@ git status
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ## 直近の主な成果
+
+- **2026-01-24**: v10.19.0 Phase 2.5 目標設定対話フロー（PR #53, #55, #56）✅完了
+  - **目標設定対話機能**
+    - WHY（なぜ）→ WHAT（何を）→ HOW（どうやって）の3ステップ対話
+    - 選択理論/Achievement社メソッドに基づく設計
+    - 9種のNGパターン検出（ng_career, ng_abstract, ng_other_blame, ng_no_goal, ng_mental_health, ng_private_only, ng_too_high, ng_not_connected, unknown）
+    - MAX_RETRY_COUNT=3（3回NGで強制的に次ステップへ）
+    - 24時間セッションタイムアウト
+  - **新規ファイル**
+    - `lib/goal_setting.py`（909行）: 対話管理クラス・パターン検出
+    - `chatwork-webhook/lib/goal_setting.py`: Cloud Functions用コピー
+    - `migrations/20260124_goal_setting_tables.sql`: DBテーブル定義
+  - **DBテーブル**
+    - `goal_setting_sessions`: セッション管理（24時間TTL）
+    - `goal_setting_logs`: 対話ログ（パターン検出結果含む）
+    - `goal_setting_patterns`: パターンマスタ（10パターン初期登録）
+    - `goal_setting_pattern_stats`: 分析用ビュー
+  - **設計書更新**
+    - `docs/05_phase2-5_goal_achievement.md` v1.7
+    - chatwork_room_id VARCHAR(50)に拡張
+    - MAX_RETRY_COUNT=3 セクション追加
+  - **デプロイ**
+    - chatwork-webhook: revision 00098-yik
+    - max-instances=20, memory=512MB
+  - **テスト**
+    - 統合テスト: 全ステップの対話フロー確認
+    - パターン検出テスト: 11/11件パス
 
 - **2026-01-24**: Phase 2 A3 ボトルネック検出（PR #51）✅完了
   - 期限超過タスク検出（overdue_task）

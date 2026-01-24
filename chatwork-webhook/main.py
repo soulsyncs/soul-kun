@@ -4,6 +4,7 @@ from google.cloud import secretmanager, firestore
 import httpx
 import re
 import time
+import asyncio  # v10.21.0: Memory Framework統合用
 from datetime import datetime, timedelta, timezone
 import pg8000
 import sqlalchemy
@@ -59,6 +60,26 @@ try:
 except ImportError as e:
     print(f"⚠️ lib/goal_setting.py not available: {e}")
     USE_GOAL_SETTING_LIB = False
+
+# =====================================================
+# v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
+# =====================================================
+try:
+    from lib.memory import (
+        ConversationSummary,
+        UserPreference,
+        ConversationSearch,
+        MemoryParameters,
+    )
+    USE_MEMORY_FRAMEWORK = True
+    print("✅ lib/memory loaded for Memory Framework integration")
+except ImportError as e:
+    print(f"⚠️ lib/memory not available: {e}")
+    USE_MEMORY_FRAMEWORK = False
+
+# Memory Framework用定数
+MEMORY_SUMMARY_TRIGGER_COUNT = 10  # サマリー生成の閾値（会話数）
+MEMORY_DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"  # ソウルシンクスの組織ID
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -4702,6 +4723,158 @@ def save_conversation_history(room_id, account_id, history):
     except Exception as e:
         print(f"履歴保存エラー: {e}")
 
+
+# =====================================================
+# v10.21.0: Memory Framework統合（Phase 2 B）
+# =====================================================
+
+def process_memory_after_conversation(
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    user_message: str,
+    ai_response: str,
+    history: list
+):
+    """
+    会話完了後にMemory Framework処理を実行
+
+    B1: 会話サマリー - 会話が10件以上溜まったらサマリーを生成
+    B2: ユーザー嗜好 - 会話パターンからユーザーの好みを学習
+    B4: 会話検索 - 会話をインデックス化（検索可能に）
+
+    Args:
+        room_id: ChatWorkルームID
+        account_id: ユーザーのChatWorkアカウントID
+        sender_name: 送信者名
+        user_message: ユーザーのメッセージ
+        ai_response: AIの応答
+        history: 会話履歴
+
+    Note:
+        - エラーが発生しても会話処理には影響を与えない
+        - 会話数が閾値未満の場合は何もしない（負荷軽減）
+    """
+    if not USE_MEMORY_FRAMEWORK:
+        return
+
+    try:
+        print(f"🧠 Memory Framework処理開始 (room={room_id}, account={account_id})")
+
+        # 会話数が閾値未満なら何もしない
+        if len(history) < MEMORY_SUMMARY_TRIGGER_COUNT:
+            print(f"   会話数 {len(history)} < 閾値 {MEMORY_SUMMARY_TRIGGER_COUNT}, スキップ")
+            return
+
+        # ユーザー情報を取得
+        pool = get_pool()
+        with pool.connect() as conn:
+            # account_idからuser_idとorganization_idを取得
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT id, organization_id FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not result:
+                print(f"   ⚠️ ユーザー未登録: account_id={account_id}")
+                return
+
+            user_id = result[0]
+            org_id = result[1]
+
+            if not org_id:
+                print(f"   ⚠️ organization_id未設定: user_id={user_id}")
+                org_id = MEMORY_DEFAULT_ORG_ID
+
+            print(f"   ユーザー特定: user_id={user_id}, org_id={org_id}")
+
+            # OpenRouter APIキーを取得
+            openrouter_api_key = get_secret("openrouter-api-key")
+
+            # B1: 会話サマリー生成
+            try:
+                summary_service = ConversationSummary(
+                    conn=conn,
+                    org_id=org_id,
+                    openrouter_api_key=openrouter_api_key
+                )
+
+                # 会話履歴をMemory Frameworkの形式に変換
+                conversation_history = []
+                for msg in history:
+                    conversation_history.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", ""),
+                        "timestamp": datetime.now(timezone.utc)
+                    })
+
+                # 非同期関数を同期的に実行（Python 3.10+推奨）
+                result = asyncio.run(
+                    summary_service.generate_and_save(
+                        user_id=user_id,
+                        conversation_history=conversation_history,
+                        room_id=str(room_id)
+                    )
+                )
+
+                if result.success:
+                    print(f"   ✅ B1 会話サマリー生成完了: {result.message}")
+                else:
+                    print(f"   ⏭️ B1 会話サマリー: {result.message}")
+
+            except Exception as e:
+                print(f"   ⚠️ B1 会話サマリーエラー（続行）: {e}")
+
+            # B4: 会話検索インデックス
+            try:
+                search_service = ConversationSearch(
+                    conn=conn,
+                    org_id=org_id
+                )
+
+                # ユーザーメッセージをインデックス化
+                result = asyncio.run(
+                    search_service.save(
+                        user_id=user_id,
+                        message_text=user_message,
+                        message_type="user",
+                        message_time=datetime.now(timezone.utc),
+                        room_id=str(room_id)
+                    )
+                )
+
+                # AIレスポンスもインデックス化
+                if result.success:
+                    asyncio.run(
+                        search_service.save(
+                            user_id=user_id,
+                            message_text=ai_response,
+                            message_type="assistant",
+                            message_time=datetime.now(timezone.utc),
+                            room_id=str(room_id)
+                        )
+                    )
+
+                if result.success:
+                    print(f"   ✅ B4 会話インデックス完了")
+                else:
+                    print(f"   ⏭️ B4 会話インデックス: {result.message}")
+
+            except Exception as e:
+                print(f"   ⚠️ B4 会話インデックスエラー（続行）: {e}")
+
+        print(f"🧠 Memory Framework処理完了")
+
+    except Exception as e:
+        # Memory処理のエラーは会話に影響を与えない
+        print(f"⚠️ Memory Framework処理エラー（続行）: {e}")
+        traceback.print_exc()
+
+
 # ===== AI司令塔（AIの判断力を最大活用する設計） =====
 
 def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_name=None):
@@ -5453,6 +5626,18 @@ def chatwork_webhook(request):
         send_chatwork_message(room_id, ai_response, sender_account_id, show_guide)
         # タイムスタンプを更新
         update_conversation_timestamp(room_id, sender_account_id)
+
+        # v10.21.0: Memory Framework処理（会話記憶）
+        # ChatWork送信後に実行（ユーザー体験を優先）
+        process_memory_after_conversation(
+            room_id=room_id,
+            account_id=sender_account_id,
+            sender_name=sender_name,
+            user_message=clean_message,
+            ai_response=ai_response,
+            history=history
+        )
+
         return jsonify({"status": "ok"})
         
     except Exception as e:

@@ -21,6 +21,7 @@ from google import genai  # v10.8.1: Gemini APIでタスク要約
 
 # =====================================================
 # v10.14.1: lib/共通ライブラリからインポート
+# v10.18.1: user_utils追加（Phase 3.5対応）
 # =====================================================
 # デプロイ前に deploy.sh で soul-kun/lib/ からコピーされます
 # =====================================================
@@ -39,9 +40,11 @@ try:
         # Audit
         log_audit,
         log_audit_batch,
+        # User Utils (v10.18.1追加)
+        get_user_primary_department as lib_get_user_primary_department,
     )
     USE_LIB = True
-    print("✅ lib/ モジュールをロードしました (v10.17.1)")
+    print("✅ lib/ モジュールをロードしました (v10.18.1)")
 except ImportError as e:
     USE_LIB = False
     print(f"⚠️ lib/ モジュールが見つかりません。インライン関数を使用します: {e}")
@@ -2805,10 +2808,12 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
     """
     ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
 
-    ★★★ v10.18.1: summary生成機能追加 ★★★
+    ★★★ v10.18.1: summary生成機能追加、department_id追加（Phase 3.5対応） ★★★
     タスク作成時にsummaryを自動生成して保存
     """
     try:
+        pool = get_pool()
+
         # =====================================================
         # v10.18.1: summary生成
         # =====================================================
@@ -2832,13 +2837,24 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     print(f"⚠️ フォールバックもエラー: {fallback_e}")
                     summary = body[:40] if len(body) > 40 else body
 
-        pool = get_pool()
+        # =====================================================
+        # v10.18.1: department_id取得（Phase 3.5対応）
+        # =====================================================
+        department_id = None
+        if USE_LIB and assigned_to_account_id:
+            try:
+                department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
+                if department_id:
+                    print(f"📁 department_id取得成功: {department_id}")
+            except Exception as e:
+                print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
+
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO chatwork_tasks
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary)
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary, department_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary, :department_id)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -2849,7 +2865,8 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "body": body,
                     "limit_time": limit_time,
                     "status": "open",
-                    "summary": summary
+                    "summary": summary,
+                    "department_id": department_id,
                 }
             )
         summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
@@ -7771,13 +7788,30 @@ def sync_chatwork_tasks(request):
                             summary = "（タスク内容を確認してください）"
                             print(f"📝 デフォルト要約使用: {summary}")
 
+                    # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+                    department_id = None
+                    try:
+                        cursor.execute("""
+                            SELECT ud.department_id
+                            FROM user_departments ud
+                            JOIN users u ON ud.user_id = u.id
+                            WHERE u.chatwork_account_id = %s
+                              AND ud.is_primary = TRUE
+                              AND ud.ended_at IS NULL
+                            LIMIT 1
+                        """, (str(assigned_to_id),))
+                        dept_row = cursor.fetchone()
+                        department_id = str(dept_row[0]) if dept_row else None
+                    except Exception as e:
+                        print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
+
                     cursor.execute("""
                         INSERT INTO chatwork_tasks
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s)
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary))
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
 
                     # ★★★ v10.4.0: INSERTをコミットしてから通知処理を実行 ★★★
                     # 通知処理でエラーが発生してもタスクの登録は保持される

@@ -8026,14 +8026,45 @@ def sync_chatwork_tasks(request):
                     """, (body, limit_datetime, room_name, assigned_to_name, task_id))
                 else:
                     # 新規タスクの挿入
+                    # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
+                    summary = None
+                    if USE_TEXT_UTILS_LIB and body:
+                        try:
+                            summary = extract_task_subject(body)
+                            if not validate_summary(summary, body):
+                                summary = prepare_task_display_text(body, max_length=50)
+                            if not validate_summary(summary, body):
+                                cleaned = clean_chatwork_tags(body)
+                                summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                        except Exception as e:
+                            print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
+                            summary = body[:40] + "..." if body and len(body) > 40 else body
+
+                    # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+                    department_id = None
+                    try:
+                        cursor.execute("""
+                            SELECT ud.department_id
+                            FROM user_departments ud
+                            JOIN users u ON ud.user_id = u.id
+                            WHERE u.chatwork_account_id = %s
+                              AND ud.is_primary = TRUE
+                              AND ud.ended_at IS NULL
+                            LIMIT 1
+                        """, (str(assigned_to_id),))
+                        dept_row = cursor.fetchone()
+                        department_id = str(dept_row[0]) if dept_row else None
+                    except Exception as e:
+                        print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
+
                     cursor.execute("""
-                        INSERT INTO chatwork_tasks 
-                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status, 
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
-                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body, 
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
-            
+                        INSERT INTO chatwork_tasks
+                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
+
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
             

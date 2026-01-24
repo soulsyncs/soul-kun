@@ -540,7 +540,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-24 17:45 JST**
+**最終更新: 2026-01-24 18:15 JST**
 
 ## Phase一覧と状態
 
@@ -631,6 +631,24 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-24 18:10 JST**: BUG-001修正 v10.22.0（PR #71）✅
+  - **実施者**: Claude Code
+  - **問題**: 「自分のタスクを教えて」と聞くと、質問したチャットルームのタスクしか検索されず、他のルームにあるタスクが見つからない
+  - **原因**: `search_tasks_from_db()`が常に`WHERE room_id = :room_id`でフィルタしていた
+  - **修正内容**:
+    - `search_tasks_from_db()`に`search_all_rooms`パラメータを追加
+    - 自分のタスク検索時（`is_self_search=True`）は全ルームから検索
+    - 検索結果をルーム別にグループ化して表示
+    - `room_id`, `room_name`を検索結果に追加
+  - **変更ファイル**:
+    - `chatwork-webhook/main.py`: search_tasks_from_db(), handle_chatwork_task_search()
+    - `tests/test_task_search.py`: 9件のテスト追加
+  - **後方互換性**: `search_all_rooms=False`がデフォルト（既存動作に影響なし）
+  - **10の鉄則準拠**:
+    - ✅ SQLインジェクション対策: パラメータ化クエリ使用
+    - ✅ 後方互換性: キーワード引数で追加
+  - **デプロイ待ち**: chatwork-webhookを再デプロイ後に有効化
 
 - **2026-01-24 17:41 JST**: Memory Framework通常会話統合完了（PR #68）✅
   - **実施者**: Claude Code

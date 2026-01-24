@@ -554,7 +554,7 @@ git status
 | 2 A3 | ボトルネック検出 | ✅ 完了 | 2026-01-24 | PR #51、期限超過・タスク集中検出 |
 | 2 A4 | 感情変化検出 | ✅ 完了 | 2026-01-24 | v10.20.0、PR #59、メンタルヘルス可視化 |
 | 2 B | 覚える能力 | ✅ 完了 | 2026-01-24 | PR #62、会話サマリー・嗜好学習・知識蓄積・検索 |
-| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.4 対話フロー完了、通知テストモード稼働中 |
+| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.4 対話フロー完了、PR #64 Memory統合完了 |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化 |
@@ -562,6 +562,29 @@ git status
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ## 直近の主な成果
+
+- **2026-01-24**: Phase 2.5 + B Memory統合（PR #64）✅完了
+  - **GoalSettingContextEnricher**（lib/memory/goal_integration.py 396行）
+    - B1(会話サマリー) + B2(ユーザー嗜好) + 目標パターンを統合
+    - パーソナライズ推奨事項を自動生成（フィードバックスタイル、注力エリア、回避パターン）
+    - get_personalization_summary()でソウルくんが参照する簡潔な情報を出力
+  - **GoalSettingUserPatternAnalyzer**（lib/goal_setting.py +313行）
+    - ユーザーの目標設定パターンを分析・蓄積
+    - dominant_pattern（最頻出パターン）、completion_rate（完了率）、avg_retry_count（平均リトライ回数）
+    - WHY/WHAT/HOW各ステップの傾向分析
+  - **GoalHistoryProvider**（lib/goal_setting.py +199行）
+    - 過去の目標・達成状況を取得
+    - 類似目標の成功パターンを分析
+    - フィードバック改善に活用
+  - **パーソナライズドフィードバック**
+    - _personalize_feedback(): 過去パターンに基づくフィードバック調整
+    - _learn_from_interaction(): セッション完了時に嗜好を学習
+    - _update_preference_on_complete(): B2ユーザー嗜好にgoal_setting使用状況を記録
+  - **DBマイグレーション**
+    - `goal_setting_user_patterns`テーブル（13カラム、3インデックス、3 CHECK制約）
+    - UNIQUE(organization_id, user_id)
+  - **テスト**: 184件のユニットテスト（全パス）
+  - **10の鉄則準拠**: organization_idフィルタ、SQLインジェクション対策、フォールバック設計
 
 - **2026-01-24**: Phase 2 B 覚える能力（PR #62）✅完了
   - **Memory Framework**（8ファイル、8,303行）

@@ -28,3 +28,8 @@ from .audit import (
     log_audit,
     log_audit_batch,
 )
+
+# v10.18.1: user_utils追加（Phase 3.5対応）
+from .user_utils import (
+    get_user_primary_department,
+)

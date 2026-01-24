@@ -27,12 +27,14 @@ echo ""
 echo "📁 共通ライブラリをコピー中..."
 mkdir -p "$LIB_DST"
 
-# 必要なファイルをコピー
+# 必要なファイルをコピー（v10.18.1: user_utils.py追加）
 cp "$LIB_SRC/text_utils.py" "$LIB_DST/"
 cp "$LIB_SRC/audit.py" "$LIB_DST/"
+cp "$LIB_SRC/user_utils.py" "$LIB_DST/"
 
 echo "   ✅ text_utils.py"
 echo "   ✅ audit.py"
+echo "   ✅ user_utils.py (v10.18.1)"
 
 # __init__.py が最新か確認
 if [ -f "$LIB_DST/__init__.py" ]; then

@@ -25,6 +25,17 @@ except ImportError as e:
     USE_TEXT_UTILS_LIB = False
     print(f"⚠️ lib/text_utils が見つかりません: {e}")
 
+# ★★★ v10.18.1: ユーザーユーティリティ（Phase 3.5対応） ★★★
+try:
+    from lib import (
+        get_user_primary_department as lib_get_user_primary_department,
+    )
+    USE_USER_UTILS_LIB = True
+    print("✅ lib/user_utils をロードしました")
+except ImportError as e:
+    USE_USER_UTILS_LIB = False
+    print(f"⚠️ lib/user_utils が見つかりません: {e}")
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -545,13 +556,26 @@ def get_user_primary_department(chatwork_account_id):
 def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
     """ChatWorkタスクをデータベースに保存
 
-    v10.18.1: summary生成追加
+    v10.18.1: summary生成、department_id追加（Phase 3.5対応）
     """
     try:
-        # 担当者のメイン部署を取得（Phase 3.5対応）
+        pool = get_pool()
         assigned_to_account_id = task_data["account"]["account_id"]
-        department_id = get_user_primary_department(assigned_to_account_id)
         body = task_data["body"]
+
+        # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+        department_id = None
+        if USE_USER_UTILS_LIB and assigned_to_account_id:
+            try:
+                department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
+                if department_id:
+                    print(f"📁 department_id取得成功: {department_id}")
+            except Exception as e:
+                print(f"⚠️ lib department_id取得エラー、ローカル関数にフォールバック: {e}")
+                department_id = get_user_primary_department(assigned_to_account_id)
+        else:
+            # lib未使用時はローカル関数を使用
+            department_id = get_user_primary_department(assigned_to_account_id)
 
         # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
         summary = None
@@ -568,7 +592,6 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
                 print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
                 summary = body[:40] + "..." if body and len(body) > 40 else body
 
-        pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""

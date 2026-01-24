@@ -32,6 +32,19 @@ except ImportError as e:
     print(f"⚠️ lib/text_utils.py not available: {e}")
     USE_TEXT_UTILS_LIB = False
 
+# =====================================================
+# v10.18.1: ユーザーユーティリティ（Phase 3.5対応）
+# =====================================================
+try:
+    from lib import (
+        get_user_primary_department as lib_get_user_primary_department,
+    )
+    USE_USER_UTILS_LIB = True
+    print("✅ lib/user_utils.py loaded for department_id")
+except ImportError as e:
+    print(f"⚠️ lib/user_utils.py not available: {e}")
+    USE_USER_UTILS_LIB = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2074,9 +2087,21 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                 summary = body[:40] if len(body) > 40 else body
 
         pool = get_pool()
+
+        # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+        department_id = None
+        if USE_USER_UTILS_LIB and assigned_to_account_id:
+            try:
+                department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
+                if department_id:
+                    print(f"📁 department_id取得成功（lib）: {department_id}")
+            except Exception as e:
+                print(f"⚠️ lib department_id取得エラー、ローカル関数にフォールバック: {e}")
+
         with pool.begin() as conn:
-            # Phase 3.5: 担当者のメイン部署を取得
-            department_id = get_user_primary_department(conn, assigned_to_account_id)
+            # lib未使用時または lib取得失敗時はローカル関数を使用
+            if department_id is None and assigned_to_account_id:
+                department_id = get_user_primary_department(conn, assigned_to_account_id)
 
             conn.execute(
                 sqlalchemy.text("""

@@ -6,9 +6,9 @@
 
 | # | ファイル | 役割 | 行数 |
 |---|---------|------|------|
-| 1 | [00_README.md](00_README.md) | 目次・ナビゲーション | 309 |
+| 1 | [00_README.md](00_README.md) | 目次・ナビゲーション | 340 |
 | 2 | [01_philosophy_and_principles.md](01_philosophy_and_principles.md) | 設計原則・MVV | 177 |
-| 3 | [02_phase_overview.md](02_phase_overview.md) | Phase構成 | 419 |
+| 3 | [02_phase_overview.md](02_phase_overview.md) | Phase構成 | 480 |
 | 4 | [03_database_design.md](03_database_design.md) | DB設計 | 1198 |
 | 5 | [04_api_and_security.md](04_api_and_security.md) | API・セキュリティ | 1659 |
 | 6 | [05_phase_1b_task_detection.md](05_phase_1b_task_detection.md) | Phase 1-B詳細 | 557 |
@@ -16,8 +16,10 @@
 | 8 | [07_phase_c_meetings.md](07_phase_c_meetings.md) | Phase C詳細 | 88 |
 | 9 | [08_phase_4_and_bpaas.md](08_phase_4_and_bpaas.md) | Phase 4・BPaaS | 457 |
 | 10 | [09_implementation_standards.md](09_implementation_standards.md) | 実装規約 | 1600 |
-| 11 | [10_troubleshooting_and_faq.md](10_troubleshooting_and_faq.md) | トラブルシューティング | 121 |
-| 12 | [CHANGELOG.md](CHANGELOG.md) | 改訂履歴 | 154 |
+| 11 | **[10_phase2c_mvv_secretary.md](10_phase2c_mvv_secretary.md)** | **Phase 2C: MVV・ベテラン秘書【v10.22.0新設】** | **400** |
+| 12 | **[11_organizational_theory_guidelines.md](11_organizational_theory_guidelines.md)** | **組織論的行動指針【v10.22.2拡充】** | **1240** |
+| 13 | [12_troubleshooting_and_faq.md](10_troubleshooting_and_faq.md) | トラブルシューティング | 121 |
+| 13 | [CHANGELOG.md](CHANGELOG.md) | 改訂履歴 | 154 |
 
 ---
 
@@ -224,9 +226,11 @@ v10.1.3の設計は**85/100点**と高評価でしたが、4つの重大な懸�
 - 第2章：Phase構成
   - 2.1 Phase構成全体図
   - 2.2 各Phaseの概要
+  - **2.2.4 Phase 2C: MVV・アチーブ連携 + ベテラン秘書機能【v10.22.0追加】**
   - 2.2.5 Phase 3.5: 組織階層連携
   - 2.2.6 Phase 3.6: 組織図システム製品化
   - **2.2.7 Phase C: 会議系（議事録自動化）【v10.1追加】**
+  - **2.2.8 Phase C+: 会議前準備支援【v10.22.0追加】**
 
 ## 第3部：計画・管理
 - 第3章：タイムライン

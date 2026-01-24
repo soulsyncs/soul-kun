@@ -81,6 +81,27 @@ except ImportError as e:
 MEMORY_SUMMARY_TRIGGER_COUNT = 10  # サマリー生成の閾値（会話数）
 MEMORY_DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"  # ソウルシンクスの組織ID
 
+# =====================================================
+# v10.22.0: Phase 2C MVV・組織論的行動指針
+# =====================================================
+try:
+    from lib.mvv_context import (
+        MVVContext,
+        detect_ng_pattern,
+        analyze_basic_needs,
+        get_mvv_context,
+        should_flag_for_review,
+        ORGANIZATIONAL_THEORY_PROMPT,
+        RiskLevel,
+        AlertType,
+    )
+    USE_MVV_CONTEXT = True
+    print("✅ lib/mvv_context.py loaded for organizational theory guidelines")
+except ImportError as e:
+    print(f"⚠️ lib/mvv_context.py not available: {e}")
+    USE_MVV_CONTEXT = False
+    ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -5225,9 +5246,52 @@ def execute_action(command, sender_name, room_id=None, account_id=None, context=
 # ===== 多言語対応のAI応答生成（NEW） =====
 
 def get_ai_response(message, history, sender_name, context=None, response_language="ja"):
-    """通常会話用のAI応答生成（多言語対応）"""
+    """通常会話用のAI応答生成（多言語対応 + 組織論的行動指針）"""
     api_key = get_secret("openrouter-api-key")
-    
+
+    # v10.22.0: 組織論的行動指針コンテキストの生成
+    org_theory_context = ""
+    ng_pattern_alert = ""
+    basic_need_hint = ""
+
+    if USE_MVV_CONTEXT and response_language == "ja":
+        try:
+            # NGパターン検出
+            ng_result = detect_ng_pattern(message)
+            if ng_result.detected:
+                ng_pattern_alert = f"""
+【注意：センシティブなトピック検出】
+- パターン: {ng_result.pattern_type}
+- キーワード: {ng_result.matched_keyword}
+- 対応ヒント: {ng_result.response_hint}
+- 推奨アクション: {ng_result.action}
+このトピックには慎重に対応してください。まず受け止め、傾聴することが重要です。
+"""
+                # HIGH以上のリスクをログ出力
+                if ng_result.risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
+                    print(f"⚠️ NG Pattern Alert: {ng_result.pattern_type} (risk={ng_result.risk_level.value}) for user={sender_name}, keyword={ng_result.matched_keyword}")
+
+            # 基本欲求分析
+            need_result = analyze_basic_needs(message)
+            if need_result.primary_need and need_result.confidence > 0.3:
+                need_name_ja = {
+                    "survival": "生存（安心・安定）",
+                    "love": "愛・所属（繋がり）",
+                    "power": "力（成長・達成感）",
+                    "freedom": "自由（自己決定）",
+                    "fun": "楽しみ（やりがい）"
+                }
+                basic_need_hint = f"""
+【基本欲求分析】
+- 推定される欲求: {need_name_ja.get(need_result.primary_need.value, str(need_result.primary_need))}
+- 探る質問: {need_result.recommended_question}
+- アプローチ: {need_result.approach_hint}
+"""
+
+            org_theory_context = ORGANIZATIONAL_THEORY_PROMPT
+        except Exception as e:
+            print(f"⚠️ MVV context generation error: {e}")
+
     # 言語ごとのシステムプロンプト
     language_prompts = {
         "ja": f"""あなたは「ソウルくん」という名前の、株式会社ソウルシンクスの公式キャラクターです。
@@ -5237,11 +5301,25 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
 - 明るく元気で、誰にでも親しみやすい
 - 好奇心旺盛で、新しいことを学ぶのが大好き
 - 困っている人を見ると放っておけない優しさがある
+- 相手以上に相手の可能性を信じる
 
 【話し方】
 - 必ず語尾に「ウル」をつける
 - 絵文字を適度に使って親しみやすく
 - 相手の名前を呼んで親近感を出す
+- まず受け止める（「そう感じるウルね」）
+- 責めない、詰問しない
+
+【ソウルシンクスのMVV】
+- ミッション: 可能性の解放
+- ビジョン: 心で繋がる未来を創る
+- スローガン: 感謝で自分を満たし、満たした自分で相手を満たし、目の前のことに魂を込め、困っている人を助ける
+
+{org_theory_context}
+
+{ng_pattern_alert}
+
+{basic_need_hint}
 
 {f"【参考情報】{context}" if context else ""}
 

@@ -8,7 +8,18 @@ on:
 
 jobs:
   # =====================================================
-  # 1. lib/コピーの同期チェック
+  # 1. lib/コピーの同期チェック（v10.23.3拡張）
+  # =====================================================
+  #
+  # チェック対象:
+  #   - lib/text_utils.py
+  #   - lib/goal_setting.py
+  #   - lib/mvv_context.py
+  #   - lib/report_generator.py
+  #   - lib/audit.py
+  #   - lib/memory/* (ディレクトリ)
+  #   - lib/detection/* (ディレクトリ)
+  #
   # =====================================================
   lib-sync-check:
     name: Check lib/ copies are in sync
@@ -16,48 +27,130 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Check text_utils.py sync
+      - name: Check all lib/ copies are in sync
         run: |
-          echo "🔍 Checking lib/text_utils.py copies are in sync..."
+          echo "🔍 Checking all lib/ copies are in sync..."
+          echo ""
 
-          # メインのlib/text_utils.pyが存在するか確認
-          if [ ! -f "lib/text_utils.py" ]; then
-            echo "❌ lib/text_utils.py not found"
+          ERRORS_FOUND=0
+
+          # =====================================================
+          # 同期チェック関数
+          # =====================================================
+          check_sync() {
+            local source="$1"
+            local target="$2"
+
+            if [ ! -f "$source" ]; then
+              echo "⚠️ Source not found: $source"
+              return 0
+            fi
+
+            if [ -f "$target" ]; then
+              if ! diff -q "$source" "$target" > /dev/null 2>&1; then
+                echo "❌ OUT OF SYNC: $source ≠ $target"
+                echo "   First 20 lines of diff:"
+                diff "$source" "$target" | head -20
+                echo ""
+                return 1
+              else
+                echo "✅ $target"
+                return 0
+              fi
+            else
+              echo "⚠️ Target not found: $target (may be intentional)"
+              return 0
+            fi
+          }
+
+          # =====================================================
+          # 1. text_utils.py
+          # =====================================================
+          echo "📦 [1/7] text_utils.py"
+          check_sync "lib/text_utils.py" "remind-tasks/lib/text_utils.py" || ERRORS_FOUND=1
+          check_sync "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" || ERRORS_FOUND=1
+          check_sync "lib/text_utils.py" "chatwork-webhook/lib/text_utils.py" || ERRORS_FOUND=1
+          check_sync "lib/text_utils.py" "check-reply-messages/lib/text_utils.py" || ERRORS_FOUND=1
+          check_sync "lib/text_utils.py" "cleanup-old-data/lib/text_utils.py" || ERRORS_FOUND=1
+          check_sync "lib/text_utils.py" "pattern-detection/lib/text_utils.py" || ERRORS_FOUND=1
+          echo ""
+
+          # =====================================================
+          # 2. goal_setting.py
+          # =====================================================
+          echo "📦 [2/7] goal_setting.py"
+          check_sync "lib/goal_setting.py" "chatwork-webhook/lib/goal_setting.py" || ERRORS_FOUND=1
+          echo ""
+
+          # =====================================================
+          # 3. mvv_context.py
+          # =====================================================
+          echo "📦 [3/7] mvv_context.py"
+          check_sync "lib/mvv_context.py" "chatwork-webhook/lib/mvv_context.py" || ERRORS_FOUND=1
+          check_sync "lib/mvv_context.py" "report-generator/lib/mvv_context.py" || ERRORS_FOUND=1
+          echo ""
+
+          # =====================================================
+          # 4. report_generator.py
+          # =====================================================
+          echo "📦 [4/7] report_generator.py"
+          check_sync "lib/report_generator.py" "chatwork-webhook/lib/report_generator.py" || ERRORS_FOUND=1
+          check_sync "lib/report_generator.py" "report-generator/lib/report_generator.py" || ERRORS_FOUND=1
+          echo ""
+
+          # =====================================================
+          # 5. audit.py
+          # =====================================================
+          echo "📦 [5/7] audit.py"
+          check_sync "lib/audit.py" "chatwork-webhook/lib/audit.py" || ERRORS_FOUND=1
+          check_sync "lib/audit.py" "sync-chatwork-tasks/lib/audit.py" || ERRORS_FOUND=1
+          check_sync "lib/audit.py" "pattern-detection/lib/audit.py" || ERRORS_FOUND=1
+          echo ""
+
+          # =====================================================
+          # 6. memory/ ディレクトリ
+          # =====================================================
+          echo "📦 [6/7] memory/ directory"
+          for file in lib/memory/*.py; do
+            if [ -f "$file" ]; then
+              basename=$(basename "$file")
+              check_sync "$file" "chatwork-webhook/lib/memory/$basename" || ERRORS_FOUND=1
+            fi
+          done
+          echo ""
+
+          # =====================================================
+          # 7. detection/ ディレクトリ
+          # =====================================================
+          echo "📦 [7/7] detection/ directory"
+          for file in lib/detection/*.py; do
+            if [ -f "$file" ]; then
+              basename=$(basename "$file")
+              check_sync "$file" "pattern-detection/lib/detection/$basename" || ERRORS_FOUND=1
+            fi
+          done
+          echo ""
+
+          # =====================================================
+          # 結果
+          # =====================================================
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Some lib/ copies are OUT OF SYNC!"
+            echo ""
+            echo "To fix, run:"
+            echo "  cp lib/<file>.py <target>/lib/<file>.py"
+            echo ""
+            echo "Or for directories:"
+            echo "  cp -r lib/memory/* chatwork-webhook/lib/memory/"
+            echo "  cp -r lib/detection/* pattern-detection/lib/detection/"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
             exit 1
           fi
 
-          # remind-tasks/lib/text_utils.pyとの差分チェック
-          if [ -f "remind-tasks/lib/text_utils.py" ]; then
-            if ! diff -q "lib/text_utils.py" "remind-tasks/lib/text_utils.py" > /dev/null 2>&1; then
-              echo "❌ lib/text_utils.py and remind-tasks/lib/text_utils.py are OUT OF SYNC!"
-              echo ""
-              echo "Differences:"
-              diff "lib/text_utils.py" "remind-tasks/lib/text_utils.py" | head -50
-              exit 1
-            else
-              echo "✅ remind-tasks/lib/text_utils.py is in sync"
-            fi
-          else
-            echo "⚠️ remind-tasks/lib/text_utils.py not found (may be intentional)"
-          fi
-
-          # sync-chatwork-tasks/lib/text_utils.pyとの差分チェック
-          if [ -f "sync-chatwork-tasks/lib/text_utils.py" ]; then
-            if ! diff -q "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" > /dev/null 2>&1; then
-              echo "❌ lib/text_utils.py and sync-chatwork-tasks/lib/text_utils.py are OUT OF SYNC!"
-              echo ""
-              echo "Differences:"
-              diff "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" | head -50
-              exit 1
-            else
-              echo "✅ sync-chatwork-tasks/lib/text_utils.py is in sync"
-            fi
-          else
-            echo "⚠️ sync-chatwork-tasks/lib/text_utils.py not found (may be intentional)"
-          fi
-
-          echo ""
-          echo "✅ All lib/text_utils.py copies are in sync!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ All lib/ copies are in sync!"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # =====================================================
   # 2. 禁止パターン検出（直接切り詰め防止）
@@ -216,6 +309,6 @@ jobs:
           echo "✅ All quality checks passed!"
           echo ""
           echo "Checks completed:"
-          echo "  - lib/ copies sync check"
+          echo "  - lib/ copies sync check (7 modules, 20+ targets)"
           echo "  - Forbidden patterns check"
           echo "  - Unit tests"

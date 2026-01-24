@@ -1,9 +1,19 @@
 # Phase 2.5: 目標達成支援 - 詳細設計書
 
-**バージョン:** v1.5
+**バージョン:** v1.7
 **作成日:** 2026-01-22
-**更新日:** 2026-01-22
-**ステータス:** 設計中
+**更新日:** 2026-01-24
+**ステータス:** 実装完了
+
+**v1.7 変更点:**
+- chatwork_room_id を VARCHAR(50) に拡張（実運用で長いIDに対応）
+- MAX_RETRY_COUNT=3 を設計書に明記（リトライ上限）
+- 目標設定対話フロー（lib/goal_setting.py）実装完了
+
+**v1.6 変更点:**
+- 目標設定対話フロー（WHY→WHAT→HOW）の詳細設計を追加
+- goal_setting_sessions, goal_setting_logs, goal_setting_patternsテーブル設計
+- NGパターン検出とフィードバック設計
 
 **v1.5 変更点:**
 - AIフィードバック含む場合は classification を confidential に更新する運用を追加
@@ -1474,7 +1484,23 @@ async def can_view_goal(user: User, goal: Goal) -> bool:
 さあ、一緒に達成しようウル！✨
 ```
 
-### 13.3 フィードバック（再質問）のパターン
+### 13.3 リトライ上限
+
+**MAX_RETRY_COUNT = 3**
+
+同じステップで3回NGパターンが検出された場合、4回目は回答を受け入れて次のステップに進む。
+これにより、対話が無限ループすることを防ぐ。
+
+| 試行回数 | 動作 |
+|---------|------|
+| 1回目 | NGの場合、フィードバックして再質問 |
+| 2回目 | NGの場合、フィードバックして再質問 |
+| 3回目 | NGの場合、フィードバックして再質問 |
+| 4回目以降 | 回答を受け入れて次のステップへ |
+
+**例外:** `ng_mental_health`パターンの場合は即座にセッション中断（abandoned）
+
+### 13.4 フィードバック（再質問）のパターン
 
 #### 抽象的すぎる場合
 
@@ -1570,7 +1596,7 @@ CREATE TABLE goal_setting_sessions (
     goal_id UUID REFERENCES goals(id),
 
     -- ChatWorkルーム（対話が行われているルーム）
-    chatwork_room_id VARCHAR(20),
+    chatwork_room_id VARCHAR(50),  -- 実運用で長いIDに対応するため50に拡張
 
     -- タイミング
     started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

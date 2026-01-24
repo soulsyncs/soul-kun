@@ -1,13 +1,14 @@
 """
-Phase 2 A1/A2/A3: パターン検知・属人化検出・ボトルネック検出 Cloud Function
+Phase 2 A1/A2/A3/A4: パターン検知・属人化検出・ボトルネック検出・感情変化検出 Cloud Function
 
 このCloud Functionは、ソウルくんへの質問とタスクを分析し、
-頻出パターン、属人化リスク、ボトルネックを検出してインサイトを生成します。
+頻出パターン、属人化リスク、ボトルネック、感情変化を検出してインサイトを生成します。
 
 実行タイミング:
 - A1 パターン検知: 毎時実行（バッチ処理）
 - A2 属人化検出: 毎日 08:00 JST
 - A3 ボトルネック検出: 毎日 08:00 JST
+- A4 感情変化検出: 毎日 10:00 JST
 
 エンドポイント:
 - POST /pattern-detection
@@ -17,6 +18,8 @@ Phase 2 A1/A2/A3: パターン検知・属人化検出・ボトルネック検�
   - dry_run: true の場合、DBに書き込まない
 - POST /bottleneck-detection
   - dry_run: true の場合、DBに書き込まない
+- POST /emotion-detection
+  - dry_run: true の場合、DBに書き込まない
 - POST /weekly-report
   - room_id: 送信先ChatWorkルームID
 
@@ -24,11 +27,12 @@ Phase 2 A1/A2/A3: パターン検知・属人化検出・ボトルネック検�
 - docs/06_phase2_a1_pattern_detection.md
 - docs/07_phase2_a2_personalization_detection.md
 - docs/08_phase2_a3_bottleneck_detection.md
+- docs/09_phase2_a4_emotion_detection.md
 
 Author: Claude Code（経営参謀・SE・PM）
 Created: 2026-01-23
-Updated: 2026-01-24 (A2/A3追加)
-Version: 1.2
+Updated: 2026-01-24 (A2/A3/A4追加)
+Version: 1.3
 """
 
 import functions_framework
@@ -740,6 +744,121 @@ def bottleneck_detection(request: Request):
 
     except Exception as e:
         error_msg = f"ボトルネック検出エラー: {str(e)}"
+        print(f"❌ {error_msg}")
+        print(traceback.format_exc())
+
+        return jsonify({
+            "success": False,
+            "error": error_msg,
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 500
+
+
+@functions_framework.http
+def emotion_detection(request: Request):
+    """
+    感情変化検出のメインエントリポイント
+
+    従業員のメッセージから感情変化を検出し、メンタルヘルスリスクを早期に可視化
+
+    検出する感情変化:
+    - 急激な感情悪化（sudden_drop）
+    - 継続的なネガティブ（sustained_negative）
+    - 感情の不安定さ（high_volatility）
+    - 回復（recovery）
+
+    プライバシー配慮:
+    - 全データはCONFIDENTIAL分類
+    - 管理者のみ通知（本人には直接通知しない）
+    - メッセージ本文は保存しない（統計のみ）
+
+    リクエストパラメータ:
+    - dry_run: true の場合、DBに書き込まない
+    - org_id: 組織ID（デフォルト: ソウルシンクス）
+
+    レスポンス:
+    - success: 成功/失敗
+    - results: 検出結果のサマリー
+    - timestamp: 実行日時
+    """
+    from lib.detection.emotion_detector import EmotionDetector
+
+    start_time = datetime.now(timezone.utc)
+    print(f"🚀 感情変化検出開始: {start_time.isoformat()}")
+
+    try:
+        # リクエストパラメータを取得
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = {}
+
+        dry_run = data.get("dry_run", DRY_RUN)
+        org_id = data.get("org_id", DEFAULT_ORG_ID)
+
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in ("true", "1", "yes")
+
+        print(f"📋 パラメータ: dry_run={dry_run}, org_id={org_id}")
+
+        if dry_run:
+            print(f"🧪 DRY RUN モード: DBへの書き込みはスキップされます")
+            return jsonify({
+                "success": True,
+                "message": "DRY RUNモード - 感情変化検出をスキップしました",
+                "results": {"dry_run": True},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }), 200
+
+        # データベース接続
+        pool = get_db_pool()
+
+        with pool.connect() as conn:
+            org_uuid = UUID(org_id)
+
+            # 感情変化検出器を初期化
+            detector = EmotionDetector(conn, org_uuid)
+
+            # 検出を実行
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # 既存のループがある場合
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, detector.detect())
+                    result = future.result()
+            else:
+                # 新しいループを作成
+                result = asyncio.run(detector.detect())
+
+            # トランザクションをコミット
+            conn.commit()
+            print(f"✅ トランザクションコミット完了")
+
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        print(f"🏁 感情変化検出完了: {elapsed:.2f}秒")
+
+        return jsonify({
+            "success": result.success,
+            "message": f"{result.detected_count}件の感情変化アラートを検出しました",
+            "results": {
+                "detected_count": result.detected_count,
+                "insight_created": result.insight_created,
+                "insight_id": str(result.insight_id) if result.insight_id else None,
+                "details": result.details,
+            },
+            "elapsed_seconds": elapsed,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 200
+
+    except Exception as e:
+        error_msg = f"感情変化検出エラー: {str(e)}"
         print(f"❌ {error_msg}")
         print(traceback.format_exc())
 

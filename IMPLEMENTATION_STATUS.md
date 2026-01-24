@@ -311,7 +311,7 @@
 - chatwork-webhook/main.py: `search_tasks_from_db()`, `handle_chatwork_task_search()`
 - tests/test_task_search.py: 9件のテスト追加
 
-**デプロイ状況:** chatwork-webhook再デプロイ待ち
+**デプロイ状況:** ✅ 完了（revision 00109-dek, 2026-01-24 18:10 JST）
 
 ---
 

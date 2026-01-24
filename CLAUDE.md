@@ -540,7 +540,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-24 18:15 JST**
+**最終更新: 2026-01-24 18:20 JST**
 
 ## Phase一覧と状態
 
@@ -567,7 +567,7 @@ git status
 
 | 関数名 | 状態 | 用途 | 最終更新 |
 |--------|------|------|----------|
-| chatwork-webhook | ACTIVE | メインWebhook（v10.21.0 Memory統合） | 2026-01-24 17:41 |
+| chatwork-webhook | ACTIVE | メインWebhook（v10.22.0 BUG-001修正） | 2026-01-24 18:10 |
 | chatwork-main | ACTIVE | Chatwork API | 2026-01-24 11:18 |
 | remind-tasks | ACTIVE | タスクリマインド | 2026-01-24 11:22 |
 | sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-24 11:54 |
@@ -632,7 +632,7 @@ git status
 
 ## 直近の主な成果
 
-- **2026-01-24 18:10 JST**: BUG-001修正 v10.22.0（PR #71）✅
+- **2026-01-24 18:10 JST**: BUG-001修正 v10.22.0（PR #71）✅ **本番デプロイ完了**
   - **実施者**: Claude Code
   - **問題**: 「自分のタスクを教えて」と聞くと、質問したチャットルームのタスクしか検索されず、他のルームにあるタスクが見つからない
   - **原因**: `search_tasks_from_db()`が常に`WHERE room_id = :room_id`でフィルタしていた
@@ -648,7 +648,7 @@ git status
   - **10の鉄則準拠**:
     - ✅ SQLインジェクション対策: パラメータ化クエリ使用
     - ✅ 後方互換性: キーワード引数で追加
-  - **デプロイ待ち**: chatwork-webhookを再デプロイ後に有効化
+  - **デプロイ完了**: chatwork-webhook revision 00109-dek (2026-01-24 18:10 JST)
 
 - **2026-01-24 17:41 JST**: Memory Framework通常会話統合完了（PR #68）✅
   - **実施者**: Claude Code

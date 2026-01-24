@@ -69,6 +69,11 @@ from lib.detection.constants import (
     BottleneckType,
     BottleneckRiskLevel,
     BottleneckStatus,
+    # A4感情変化検出
+    EmotionAlertType,
+    EmotionRiskLevel,
+    EmotionStatus,
+    SentimentLabel,
     # その他
     ErrorCode,
     IdempotencyKeyPrefix,
@@ -133,6 +138,11 @@ from lib.detection.bottleneck_detector import (
     BottleneckDetector,
 )
 
+from lib.detection.emotion_detector import (
+    # 検出器
+    EmotionDetector,
+)
+
 # ================================================================
 # __all__ 定義
 # ================================================================
@@ -160,6 +170,11 @@ __all__ = [
     "BottleneckType",
     "BottleneckRiskLevel",
     "BottleneckStatus",
+    # A4感情変化検出
+    "EmotionAlertType",
+    "EmotionRiskLevel",
+    "EmotionStatus",
+    "SentimentLabel",
     # その他定数
     "ErrorCode",
     "IdempotencyKeyPrefix",
@@ -187,6 +202,7 @@ __all__ = [
     "PatternDetector",
     "PersonalizationDetector",
     "BottleneckDetector",
+    "EmotionDetector",
     # ユーティリティ
     "validate_uuid",
     "truncate_text",

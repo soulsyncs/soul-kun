@@ -100,6 +100,37 @@ class DetectionParameters:
     # 平均の何倍で集中と判定
     CONCENTRATION_RATIO_THRESHOLD: Final[float] = 2.0
 
+    # ================================================================
+    # A4感情変化検出パラメータ
+    # ================================================================
+
+    # 分析対象期間（直近N日間のメッセージを分析）
+    EMOTION_ANALYSIS_WINDOW_DAYS: Final[int] = 14
+
+    # ベースライン計算期間（過去N日間の平均を基準とする）
+    EMOTION_BASELINE_WINDOW_DAYS: Final[int] = 30
+
+    # 分析に必要な最小メッセージ数
+    MIN_MESSAGES_FOR_EMOTION: Final[int] = 5
+
+    # 急激な悪化の閾値（Criticalレベル）
+    SENTIMENT_DROP_CRITICAL: Final[float] = 0.4
+
+    # 中程度の悪化の閾値（Highレベル）
+    SENTIMENT_DROP_HIGH: Final[float] = 0.3
+
+    # 継続ネガティブ日数（Criticalレベル）
+    SUSTAINED_NEGATIVE_CRITICAL_DAYS: Final[int] = 7
+
+    # 継続ネガティブ日数（Highレベル）
+    SUSTAINED_NEGATIVE_HIGH_DAYS: Final[int] = 5
+
+    # ネガティブ判定の感情スコア閾値
+    NEGATIVE_SCORE_THRESHOLD: Final[float] = -0.2
+
+    # 非常にネガティブ判定の感情スコア閾値
+    VERY_NEGATIVE_SCORE_THRESHOLD: Final[float] = -0.5
+
 
 # ================================================================
 # 質問カテゴリ
@@ -380,6 +411,9 @@ class NotificationType(str, Enum):
     # A3ボトルネック検出: ボトルネックアラート
     BOTTLENECK_ALERT = "bottleneck_alert"
 
+    # A4感情変化検出: 感情変化アラート
+    EMOTION_ALERT = "emotion_alert"
+
 
 # ================================================================
 # A2属人化検出: リスクレベル
@@ -489,6 +523,127 @@ class BottleneckStatus(str, Enum):
 
     # 無視（対応不要と判断）
     DISMISSED = "dismissed"
+
+
+# ================================================================
+# A4感情変化検出: アラートタイプ
+# ================================================================
+
+class EmotionAlertType(str, Enum):
+    """
+    感情変化アラートの種類
+
+    設計書: docs/09_phase2_a4_emotion_detection.md
+    """
+
+    # 急激な感情悪化
+    SUDDEN_DROP = "sudden_drop"
+
+    # 継続的なネガティブ
+    SUSTAINED_NEGATIVE = "sustained_negative"
+
+    # 感情の不安定さ（高ボラティリティ）
+    HIGH_VOLATILITY = "high_volatility"
+
+    # 回復（ポジティブ変化）
+    RECOVERY = "recovery"
+
+
+# ================================================================
+# A4感情変化検出: リスクレベル
+# ================================================================
+
+class EmotionRiskLevel(str, Enum):
+    """
+    感情変化のリスクレベル
+
+    設計書: docs/09_phase2_a4_emotion_detection.md
+
+    プライバシー注意:
+    - 全てのデータはCONFIDENTIAL分類
+    - 管理者のみ通知（本人には通知しない）
+    """
+
+    # 緊急: 急激な悪化(0.4+) + 3日以上継続
+    #       または 非常にネガティブ(-0.5以下) + 7日以上継続
+    CRITICAL = "critical"
+
+    # 高リスク: 中程度の悪化(0.3+) + 2日以上継続
+    #           または ネガティブ(-0.3以下) + 5日以上継続
+    HIGH = "high"
+
+    # 中リスク: 悪化(0.2+)
+    #           または ネガティブ(-0.2以下) + 3日以上継続
+    MEDIUM = "medium"
+
+    # 低リスク: 軽微な変化
+    LOW = "low"
+
+
+# ================================================================
+# A4感情変化検出: ステータス
+# ================================================================
+
+class EmotionStatus(str, Enum):
+    """
+    感情変化アラートの対応ステータス
+    """
+
+    # アクティブ（検出中）
+    ACTIVE = "active"
+
+    # 解決済み（面談実施等）
+    RESOLVED = "resolved"
+
+    # 無視（対応不要と判断）
+    DISMISSED = "dismissed"
+
+
+# ================================================================
+# A4感情変化検出: 感情ラベル
+# ================================================================
+
+class SentimentLabel(str, Enum):
+    """
+    感情分析の結果ラベル
+    """
+
+    # 非常にポジティブ（スコア 0.6 以上）
+    VERY_POSITIVE = "very_positive"
+
+    # ポジティブ（スコア 0.2 以上）
+    POSITIVE = "positive"
+
+    # ニュートラル（スコア -0.2 〜 0.2）
+    NEUTRAL = "neutral"
+
+    # ネガティブ（スコア -0.5 以上 -0.2 未満）
+    NEGATIVE = "negative"
+
+    # 非常にネガティブ（スコア -0.5 未満）
+    VERY_NEGATIVE = "very_negative"
+
+    @classmethod
+    def from_score(cls, score: float) -> "SentimentLabel":
+        """
+        感情スコアからラベルを判定
+
+        Args:
+            score: 感情スコア（-1.0 〜 1.0）
+
+        Returns:
+            SentimentLabel: 対応するラベル
+        """
+        if score >= 0.6:
+            return cls.VERY_POSITIVE
+        elif score >= 0.2:
+            return cls.POSITIVE
+        elif score > -0.2:
+            return cls.NEUTRAL
+        elif score > -0.5:
+            return cls.NEGATIVE
+        else:
+            return cls.VERY_NEGATIVE
 
 
 # ================================================================

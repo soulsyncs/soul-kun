@@ -21,6 +21,8 @@ from lib.mvv_context import (
     get_mvv_context,
     should_flag_for_review,
     get_situation_response_guide,
+    is_mvv_question,
+    get_full_mvv_info,
     NGPatternResult,
     BasicNeedAnalysis,
     RiskLevel,
@@ -548,6 +550,71 @@ class TestIntegration:
         assert "3つの絶対原則" in full_context
         assert "検出されたパターン" in full_context
         assert "基本欲求分析" in full_context
+
+
+# ============================================================
+# 8. MVV質問検出テスト (v10.22.6)
+# ============================================================
+
+class TestMVVQuestionDetection:
+    """MVV質問検出のテスト"""
+
+    @pytest.mark.parametrize("message", [
+        "MVVって何？",
+        "MVVを教えて",
+        "ミッションとビジョンを教えて",
+        "会社の理念は？",
+        "企業理念について知りたい",
+        "ソウルシンクスのビジョンは？",
+        "行動指針って何？",
+        "スローガンを教えて",
+        "うちの会社の目標って何？",
+    ])
+    def test_mvv_question_detected(self, message):
+        """MVV関連の質問が検出される"""
+        assert is_mvv_question(message) is True
+
+    @pytest.mark.parametrize("message", [
+        "おはようございます",
+        "今日のタスクは？",
+        "ミーティングの予定を教えて",
+        "売上を報告します",
+        "プロジェクトの進捗は順調です",
+    ])
+    def test_non_mvv_question_not_detected(self, message):
+        """MVV関連でない質問は検出されない"""
+        assert is_mvv_question(message) is False
+
+    def test_get_full_mvv_info_contains_all_sections(self):
+        """完全なMVV情報に全セクションが含まれる"""
+        info = get_full_mvv_info()
+
+        # ミッション
+        assert "ミッション" in info
+        assert "可能性の解放" in info
+
+        # ビジョン
+        assert "ビジョン" in info
+        assert "心で繋がる未来を創る" in info
+
+        # バリュー
+        assert "バリュー" in info
+        assert "あなた以上にあなたを信じる" in info
+
+        # スローガン
+        assert "スローガン" in info
+        assert "感謝で自分を満たし" in info
+
+        # 行動指針
+        assert "行動指針10箇条" in info
+        assert "理想の未来のために考え行動する" in info
+
+    def test_get_full_mvv_info_includes_guidelines_count(self):
+        """行動指針が10個含まれる"""
+        info = get_full_mvv_info()
+        # 1〜10の番号が含まれているか
+        for i in range(1, 11):
+            assert f"{i}." in info
 
 
 if __name__ == "__main__":

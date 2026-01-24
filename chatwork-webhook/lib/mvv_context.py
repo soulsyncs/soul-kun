@@ -716,7 +716,98 @@ def get_situation_response_guide(situation: str) -> Optional[Dict]:
 
 
 # ============================================================
-# 10. エクスポート
+# 10. MVV質問検出と回答生成
+# ============================================================
+
+# MVV質問のキーワード
+MVV_QUESTION_KEYWORDS = [
+    "MVV", "mvv", "ミッション", "ビジョン", "バリュー",
+    "理念", "企業理念", "経営理念", "会社の理念",
+    "行動指針", "スローガン", "ソウルシンクスの",
+    "うちの会社の目標", "会社の目標", "会社の方針"
+]
+
+
+def is_mvv_question(message: str) -> bool:
+    """
+    MVVに関する質問かどうか判定
+
+    Args:
+        message: ユーザーからのメッセージ
+
+    Returns:
+        MVV関連の質問ならTrue
+    """
+    message_lower = message.lower()
+
+    # キーワードチェック
+    for keyword in MVV_QUESTION_KEYWORDS:
+        if keyword.lower() in message_lower:
+            # 質問形式かどうか追加チェック
+            question_indicators = ["?", "？", "教えて", "なに", "何", "とは", "って", "知りたい"]
+            for indicator in question_indicators:
+                if indicator in message:
+                    return True
+            # キーワードだけでも含まれていれば質問とみなす
+            return True
+
+    return False
+
+
+def get_full_mvv_info() -> str:
+    """
+    MVVの完全な情報を取得（質問への回答用）
+
+    Returns:
+        MVVの詳細情報（プロンプト用）
+    """
+    mvv = SOULSYNC_MVV
+    guidelines = BEHAVIORAL_GUIDELINES_10
+
+    # 行動指針10箇条をフォーマット
+    guidelines_text = "\n".join([
+        f"{g['number']}. {g['title']}（{g['theory']}）"
+        for g in guidelines
+    ])
+
+    return f"""
+【ソウルシンクスのMVV（ミッション・ビジョン・バリュー）について質問されています】
+
+以下の情報をもとに、わかりやすく説明してください。
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ ミッション（Mission）: {mvv['mission']['statement']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{mvv['mission']['description']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ ビジョン（Vision）: {mvv['vision']['statement']}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{mvv['vision']['description']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ バリュー（Value）
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. {mvv['values'][0]}
+2. {mvv['values'][1]}
+3. {mvv['values'][2]}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ スローガン
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{mvv['slogan']}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+■ 行動指針10箇条
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{guidelines_text}
+
+これらの情報を、ソウルくんらしく（語尾にウルをつけて）説明してください。
+""".strip()
+
+
+# ============================================================
+# 11. エクスポート
 # ============================================================
 
 __all__ = [
@@ -740,4 +831,6 @@ __all__ = [
     "get_mvv_context",
     "should_flag_for_review",
     "get_situation_response_guide",
+    "is_mvv_question",
+    "get_full_mvv_info",
 ]

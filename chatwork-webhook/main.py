@@ -231,6 +231,28 @@ else:
 # TaskHandlerインスタンス（後で初期化）
 _task_handler = None
 
+# =====================================================
+# v10.24.5: 遅延管理ハンドラー（handlers/overdue_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_OVERDUE_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_OVERDUE_HANDLER_ENV = os.environ.get("USE_NEW_OVERDUE_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_OVERDUE_HANDLER_ENV:
+    try:
+        from handlers.overdue_handler import OverdueHandler as _NewOverdueHandler
+        USE_NEW_OVERDUE_HANDLER = True
+        print("✅ handlers/overdue_handler.py loaded for Overdue management")
+    except ImportError as e:
+        print(f"⚠️ handlers/overdue_handler.py not available (using fallback): {e}")
+        USE_NEW_OVERDUE_HANDLER = False
+else:
+    print("⚠️ New Overdue handler disabled by environment variable USE_NEW_OVERDUE_HANDLER=false")
+    USE_NEW_OVERDUE_HANDLER = False
+
+# OverdueHandlerインスタンス（後で初期化）
+_overdue_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2055,6 +2077,21 @@ def _get_task_handler():
             use_text_utils=USE_TEXT_UTILS_LIB
         )
     return _task_handler
+
+
+def _get_overdue_handler():
+    """OverdueHandlerのシングルトンインスタンスを取得"""
+    global _overdue_handler
+    if _overdue_handler is None and USE_NEW_OVERDUE_HANDLER:
+        _overdue_handler = _NewOverdueHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            get_direct_room=get_direct_room,
+            get_overdue_days_func=get_overdue_days,
+            admin_room_id=str(ADMIN_ROOM_ID),
+            escalation_days=ESCALATION_DAYS
+        )
+    return _overdue_handler
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
@@ -6533,7 +6570,18 @@ def mark_as_processed(message_id, room_id):
 # =====================================================
 
 def ensure_overdue_tables():
-    """遅延管理用テーブルが存在しない場合は作成"""
+    """
+    遅延管理用テーブルが存在しない場合は作成
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+    """
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        handler.ensure_overdue_tables()
+        return
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -7834,14 +7882,24 @@ def process_overdue_tasks():
     """
     遅延タスクを処理：督促送信 + エスカレーション
     毎日8:30に実行（remind_tasksから呼び出し）
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
     """
-    global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok, _dm_unavailable_buffer
-    
-    print("=" * 50)
-    print("🔔 遅延タスク処理開始")
-    print("=" * 50)
-    
-    # ★★★ v6.8.4: 実行開始時にメモリキャッシュをリセット ★★★
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        # キャッシュリセット（ハンドラー呼び出し前）
+        global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok
+        _runtime_dm_cache = {}
+        _runtime_direct_rooms = None
+        _runtime_contacts_cache = None
+        _runtime_contacts_fetched_ok = None
+        print("✅ メモリキャッシュをリセット")
+        handler.process_overdue_tasks()
+        return
+
+    # フォールバック: 旧実装
+    global _dm_unavailable_buffer
     _runtime_dm_cache = {}
     _runtime_direct_rooms = None
     _runtime_contacts_cache = None
@@ -8236,19 +8294,28 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     """
     タスクの期限変更を検知して報告
     sync_chatwork_tasks内から呼び出される
-    
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+
     ★ v6.8.1変更点:
     - UPDATE文をPostgreSQL対応（サブクエリ方式）
     - DM見つからない時のフォールバック追加
     """
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        handler.detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
+        return
+
+    # フォールバック: 旧実装
     if old_limit == new_limit:
         return
-    
+
     if old_limit is None or new_limit is None:
         return
-    
+
     print(f"🔍 期限変更検知: task_id={task_id}, {old_limit} → {new_limit}")
-    
+
     pool = get_pool()
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     

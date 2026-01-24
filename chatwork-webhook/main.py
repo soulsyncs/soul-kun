@@ -103,6 +103,8 @@ else:
             ORGANIZATIONAL_THEORY_PROMPT,
             RiskLevel,
             AlertType,
+            is_mvv_question,
+            get_full_mvv_info,
         )
         USE_MVV_CONTEXT = True
         print("✅ lib/mvv_context.py loaded for organizational theory guidelines")
@@ -5298,6 +5300,16 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
 """
 
             org_theory_context = ORGANIZATIONAL_THEORY_PROMPT
+
+            # v10.22.6: MVV質問検出
+            if is_mvv_question(message):
+                mvv_info = get_full_mvv_info()
+                # contextに追加（既存contextがあれば連結）
+                if context:
+                    context = f"{mvv_info}\n\n{context}"
+                else:
+                    context = mvv_info
+                print(f"📖 MVV質問検出: user={sender_name}")
         except Exception as e:
             print(f"⚠️ MVV context generation error: {e}")
 

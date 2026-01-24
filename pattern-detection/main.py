@@ -590,9 +590,20 @@ def personalization_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            result = asyncio.get_event_loop().run_until_complete(
-                detector.detect()
-            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # 既存のループがある場合
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, detector.detect())
+                    result = future.result()
+            else:
+                # 新しいループを作成
+                result = asyncio.run(detector.detect())
 
             # トランザクションをコミット
             conn.commit()

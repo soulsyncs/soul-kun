@@ -62,6 +62,9 @@ from lib.detection.constants import (
     # 重要度・機密区分
     Importance,
     Classification,
+    # A2属人化検出
+    PersonalizationRiskLevel,
+    PersonalizationStatus,
     # その他
     ErrorCode,
     IdempotencyKeyPrefix,
@@ -116,6 +119,11 @@ from lib.detection.pattern_detector import (
     PatternDetector,
 )
 
+from lib.detection.personalization_detector import (
+    # 検出器
+    PersonalizationDetector,
+)
+
 # ================================================================
 # __all__ 定義
 # ================================================================
@@ -136,6 +144,10 @@ __all__ = [
     "NotificationType",
     "Importance",
     "Classification",
+    # A2属人化検出
+    "PersonalizationRiskLevel",
+    "PersonalizationStatus",
+    # その他定数
     "ErrorCode",
     "IdempotencyKeyPrefix",
     "LogMessages",
@@ -160,6 +172,7 @@ __all__ = [
     "BaseDetector",
     # 検出器
     "PatternDetector",
+    "PersonalizationDetector",
     # ユーティリティ
     "validate_uuid",
     "truncate_text",

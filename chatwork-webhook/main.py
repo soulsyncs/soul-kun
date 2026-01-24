@@ -189,6 +189,27 @@ else:
 # ProposalHandlerインスタンス（後で初期化）
 _proposal_handler = None
 
+# =====================================================
+# handlers/memory_handler.py に分割されたメモリ管理機能
+# 環境変数 USE_NEW_MEMORY_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_MEMORY_HANDLER_ENV = os.environ.get("USE_NEW_MEMORY_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_MEMORY_HANDLER_ENV:
+    try:
+        from handlers.memory_handler import MemoryHandler as _NewMemoryHandler
+        USE_NEW_MEMORY_HANDLER = True
+        print("✅ handlers/memory_handler.py loaded for Memory management")
+    except ImportError as e:
+        print(f"⚠️ handlers/memory_handler.py not available (using fallback): {e}")
+        USE_NEW_MEMORY_HANDLER = False
+else:
+    print("⚠️ New Memory handler disabled by environment variable USE_NEW_MEMORY_HANDLER=false")
+    USE_NEW_MEMORY_HANDLER = False
+
+# MemoryHandlerインスタンス（後で初期化）
+_memory_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -4970,8 +4991,40 @@ HANDLERS = {
 
 # ===== 会話履歴管理 =====
 
+# =====================================================
+# MemoryHandler初期化（v10.24.3）
+# =====================================================
+def _get_memory_handler():
+    """MemoryHandlerのシングルトンインスタンスを取得"""
+    global _memory_handler
+    if _memory_handler is None and USE_NEW_MEMORY_HANDLER:
+        _memory_handler = _NewMemoryHandler(
+            firestore_db=db,
+            get_pool=get_pool,
+            get_secret=get_secret,
+            max_history_count=MAX_HISTORY_COUNT,
+            history_expiry_hours=HISTORY_EXPIRY_HOURS,
+            use_memory_framework=USE_MEMORY_FRAMEWORK,
+            memory_summary_trigger_count=MEMORY_SUMMARY_TRIGGER_COUNT,
+            memory_default_org_id=MEMORY_DEFAULT_ORG_ID,
+            conversation_summary_class=ConversationSummary if USE_MEMORY_FRAMEWORK else None,
+            conversation_search_class=ConversationSearch if USE_MEMORY_FRAMEWORK else None
+        )
+    return _memory_handler
+
+
 def get_conversation_history(room_id, account_id):
-    """会話履歴を取得"""
+    """
+    会話履歴を取得
+
+    v10.24.3: handlers/memory_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.get_conversation_history(room_id, account_id)
+
+    # フォールバック: 旧実装
     try:
         doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
         doc = doc_ref.get()
@@ -4988,7 +5041,17 @@ def get_conversation_history(room_id, account_id):
     return []
 
 def save_conversation_history(room_id, account_id, history):
-    """会話履歴を保存"""
+    """
+    会話履歴を保存
+
+    v10.24.3: handlers/memory_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.save_conversation_history(room_id, account_id, history)
+
+    # フォールバック: 旧実装
     try:
         doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
         doc_ref.set({
@@ -5018,6 +5081,8 @@ def process_memory_after_conversation(
     B2: ユーザー嗜好 - 会話パターンからユーザーの好みを学習
     B4: 会話検索 - 会話をインデックス化（検索可能に）
 
+    v10.24.3: handlers/memory_handler.py に分割
+
     Args:
         room_id: ChatWorkルームID
         account_id: ユーザーのChatWorkアカウントID
@@ -5030,6 +5095,14 @@ def process_memory_after_conversation(
         - エラーが発生しても会話処理には影響を与えない
         - 会話数が閾値未満の場合は何もしない（負荷軽減）
     """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.process_memory_after_conversation(
+            room_id, account_id, sender_name, user_message, ai_response, history
+        )
+
+    # フォールバック: 旧実装
     if not USE_MEMORY_FRAMEWORK:
         return
 

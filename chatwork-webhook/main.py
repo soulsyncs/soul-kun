@@ -4052,6 +4052,16 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
     if not query:
         return "🐺 何を調べればいいか教えてほしいウル！\n例：「有給休暇は何日？」「経費精算のルールは？」"
 
+    # v10.22.6: MVV質問の場合は直接回答（ナレッジ検索をバイパス）
+    if is_mvv_question(query):
+        print(f"📖 MVV質問検出（会社知識ハンドラー）: user={sender_name}")
+        mvv_info = get_full_mvv_info()
+        return f"""🐺 ソウルシンクスのMVVについて教えるウル！
+
+{mvv_info}
+
+何か質問があれば聞いてほしいウル！✨"""
+
     print(f"📚 会社知識クエリ: '{query}' (sender: {sender_name})")
 
     try:

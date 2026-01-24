@@ -458,7 +458,7 @@ def weekly_report(request: Request):
 
         dry_run = data.get("dry_run", DRY_RUN)
         org_id = data.get("org_id", DEFAULT_ORG_ID)
-        room_id = int(data.get("room_id", 405315911))  # デフォルト: 管理部
+        room_id = int(data.get("room_id", 417892193))  # デフォルト: 菊地さんDM
 
         if isinstance(dry_run, str):
             dry_run = dry_run.lower() in ("true", "1", "yes")

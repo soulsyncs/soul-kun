@@ -101,6 +101,14 @@ from lib.memory.conversation_search import (
 )
 
 # ================================================================
+# Phase 2.5統合のエクスポート
+# ================================================================
+
+from lib.memory.goal_integration import (
+    GoalSettingContextEnricher,
+)
+
+# ================================================================
 # __all__ 定義
 # ================================================================
 
@@ -135,4 +143,6 @@ __all__ = [
     # B4 会話検索
     "ConversationSearch",
     "SearchResult",
+    # Phase 2.5統合
+    "GoalSettingContextEnricher",
 ]

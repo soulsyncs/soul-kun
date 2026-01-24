@@ -632,6 +632,31 @@ git status
 
 ## 直近の主な成果
 
+- **2026-01-24 17:41 JST**: Memory Framework通常会話統合完了（PR #68）✅
+  - **実施者**: Claude Code
+  - **作業内容**: chatwork-webhookにPhase 2 B Memory Frameworkを統合
+    - `asyncio`インポート追加（Python 3.10+ 推奨方式）
+    - `lib/memory`からクラスインポート
+      - ConversationSummary (B1)
+      - UserPreference (B2)
+      - ConversationSearch (B4)
+      - MemoryParameters
+    - `process_memory_after_conversation()`関数追加（~150行）
+      - 会話完了後に非同期でMemory処理を実行
+      - B1: 会話サマリー生成（10件以上で自動トリガー）
+      - B4: 会話検索インデックス（ユーザー・AI両方）
+    - 会話数閾値による負荷軽減
+    - エラーハンドリング（会話処理に影響を与えない設計）
+  - **デプロイ**: chatwork-webhook revision 00107-zum
+  - **動作確認**: Memory Framework正常ロード確認済み
+  - **10の鉄則準拠**:
+    - ✅ organization_id: usersテーブルから取得してMemory Frameworkに渡す
+    - ✅ SQLインジェクション対策: パラメータ化クエリ使用
+    - ✅ フォールバック設計: USE_MEMORY_FRAMEWORK=Falseで無効化可能
+  - **Phase 2「覚える能力」通常会話に統合**:
+    - B1 会話サマリー: 10件以上の会話で自動生成
+    - B4 会話検索: 全会話をインデックス化
+
 - **2026-01-24 17:04 JST**: Phase 2 A4 + Phase 2.5 本番デプロイ完了（PR #66）✅
   - **実施者**: Claude Code
   - **作業内容**:

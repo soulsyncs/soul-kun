@@ -97,6 +97,23 @@ class BottleneckDetector(BaseDetector):
         self._task_concentration_threshold = task_concentration_threshold
         self._concentration_ratio_threshold = concentration_ratio_threshold
 
+    def _get_org_id_for_chatwork_tasks(self) -> str:
+        """
+        chatwork_tasks テーブル用の organization_id を取得
+
+        chatwork_tasks.organization_id は VARCHAR型で 'soul_syncs' 等の文字列。
+        本来は organizations テーブルから slug を取得すべきだが、
+        現在は単一テナントのため固定値を返す。
+
+        TODO: Phase 4A (BPaaS対応) で organizations.slug との連携を実装
+
+        Returns:
+            str: organization_id（'soul_syncs' 等）
+        """
+        # 現在はソウルシンクスのみ
+        # self._org_id は UUID だが、chatwork_tasks は 'soul_syncs' を使用
+        return "soul_syncs"
+
     async def detect(self, **kwargs: Any) -> DetectionResult:
         """
         ボトルネックを検出
@@ -188,6 +205,7 @@ class BottleneckDetector(BaseDetector):
         """
         try:
             # limit_time は bigint (Unix timestamp) なので to_timestamp() で変換
+            # 注意: chatwork_tasks.organization_id は VARCHAR型（'soul_syncs'等）
             result = self._conn.execute(text("""
                 SELECT
                     task_id,
@@ -203,9 +221,10 @@ class BottleneckDetector(BaseDetector):
                 WHERE status = 'open'
                   AND limit_time IS NOT NULL
                   AND to_timestamp(limit_time) < NOW()
+                  AND organization_id = :org_id
                 ORDER BY limit_time ASC
                 LIMIT 100
-            """))
+            """), {"org_id": self._get_org_id_for_chatwork_tasks()})
 
             alerts = []
             for row in result:
@@ -285,9 +304,13 @@ class BottleneckDetector(BaseDetector):
                 WHERE status = 'open'
                   AND created_at < :cutoff_date
                   AND (limit_time IS NULL OR to_timestamp(limit_time) >= NOW())
+                  AND organization_id = :org_id
                 ORDER BY created_at ASC
                 LIMIT 50
-            """), {"cutoff_date": cutoff_date})
+            """), {
+                "cutoff_date": cutoff_date,
+                "org_id": self._get_org_id_for_chatwork_tasks(),
+            })
 
             alerts = []
             for row in result:
@@ -348,11 +371,15 @@ class BottleneckDetector(BaseDetector):
                 FROM chatwork_tasks
                 WHERE status = 'open'
                   AND assigned_to_account_id IS NOT NULL
+                  AND organization_id = :org_id
                 GROUP BY assigned_to_account_id, assigned_to_name
                 HAVING COUNT(*) >= :threshold
                 ORDER BY task_count DESC
                 LIMIT 20
-            """), {"threshold": self._task_concentration_threshold})
+            """), {
+                "threshold": self._task_concentration_threshold,
+                "org_id": self._get_org_id_for_chatwork_tasks(),
+            })
 
             alerts = []
             for row in result:

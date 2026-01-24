@@ -477,6 +477,48 @@ class TestConstants:
             assert isinstance(STEP_EXPECTED_KEYWORDS[step]["positive"], list)
 
 
+class TestExitPattern:
+    """v10.22.1: 終了パターンのテスト"""
+
+    @pytest.fixture
+    def dialogue(self):
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_name = "テストユーザー"
+        return d
+
+    def test_exit_keywords_exist(self):
+        """終了キーワードが定義されているか"""
+        assert "exit" in PATTERN_KEYWORDS
+        assert len(PATTERN_KEYWORDS["exit"]) > 0
+
+    def test_exit_template_exists(self):
+        """終了テンプレートが定義されているか"""
+        assert "exit" in TEMPLATES
+        assert "{user_name}" in TEMPLATES["exit"]
+
+    @pytest.mark.parametrize("message", [
+        "目標設定を終了したい",
+        "やめたい",
+        "やめる",
+        "キャンセル",
+        "中止して",
+        "また今度にする",
+        "今日はいいです",
+        "ストップ",
+    ])
+    def test_exit_keyword_in_message(self, message):
+        """終了キーワードが含まれるメッセージを検出できるか"""
+        # キーワードマッチングのテスト
+        matched = any(kw in message for kw in PATTERN_KEYWORDS["exit"])
+        assert matched, f"Message '{message}' should match an exit keyword"
+
+    def test_exit_template_format(self):
+        """終了テンプレートのフォーマットが正しいか"""
+        formatted = TEMPLATES["exit"].format(user_name="テストユーザー")
+        assert "テストユーザー" in formatted
+        assert "終了" in formatted
+
+
 class TestEdgeCases:
     """エッジケースのテスト"""
 

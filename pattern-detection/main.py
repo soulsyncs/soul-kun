@@ -1,8 +1,8 @@
 """
-Phase 2 A1: パターン検知 Cloud Function
+Phase 2 A1/A2: パターン検知・属人化検出 Cloud Function
 
 このCloud Functionは、ソウルくんへの質問を分析し、
-頻出パターンを検出してインサイトを生成します。
+頻出パターンと属人化リスクを検出してインサイトを生成します。
 
 実行タイミング:
 - 毎時実行（バッチ処理）: 直近1時間のメッセージを分析
@@ -12,12 +12,19 @@ Phase 2 A1: パターン検知 Cloud Function
 - POST /pattern-detection
   - hours_back: 分析対象期間（デフォルト: 1時間）
   - dry_run: true の場合、DBに書き込まない
+- POST /personalization-detection
+  - dry_run: true の場合、DBに書き込まない
+- POST /weekly-report
+  - room_id: 送信先ChatWorkルームID
 
-設計書: docs/06_phase2_a1_pattern_detection.md
+設計書:
+- docs/06_phase2_a1_pattern_detection.md
+- docs/07_phase2_a2_personalization_detection.md
 
 Author: Claude Code（経営参謀・SE・PM）
 Created: 2026-01-23
-Version: 1.0
+Updated: 2026-01-24 (A2追加)
+Version: 1.1
 """
 
 import functions_framework
@@ -516,6 +523,99 @@ def weekly_report(request: Request):
 
     except Exception as e:
         error_msg = f"週次レポートエラー: {str(e)}"
+        print(f"❌ {error_msg}")
+        print(traceback.format_exc())
+
+        return jsonify({
+            "success": False,
+            "error": error_msg,
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 500
+
+
+@functions_framework.http
+def personalization_detection(request: Request):
+    """
+    属人化検出のメインエントリポイント
+
+    特定の人にしか回答できない状態を検出し、BCPリスクを可視化
+
+    リクエストパラメータ:
+    - dry_run: true の場合、DBに書き込まない
+    - org_id: 組織ID（デフォルト: ソウルシンクス）
+
+    レスポンス:
+    - success: 成功/失敗
+    - results: 検出結果のサマリー
+    - timestamp: 実行日時
+    """
+    from lib.detection.personalization_detector import PersonalizationDetector
+
+    start_time = datetime.now(timezone.utc)
+    print(f"🚀 属人化検出開始: {start_time.isoformat()}")
+
+    try:
+        # リクエストパラメータを取得
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = {}
+
+        dry_run = data.get("dry_run", DRY_RUN)
+        org_id = data.get("org_id", DEFAULT_ORG_ID)
+
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in ("true", "1", "yes")
+
+        print(f"📋 パラメータ: dry_run={dry_run}, org_id={org_id}")
+
+        if dry_run:
+            print(f"🧪 DRY RUN モード: DBへの書き込みはスキップされます")
+            return jsonify({
+                "success": True,
+                "message": "DRY RUNモード - 属人化検出をスキップしました",
+                "results": {"dry_run": True},
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }), 200
+
+        # データベース接続
+        pool = get_db_pool()
+
+        with pool.connect() as conn:
+            org_uuid = UUID(org_id)
+
+            # 属人化検出器を初期化
+            detector = PersonalizationDetector(conn, org_uuid)
+
+            # 検出を実行
+            import asyncio
+            result = asyncio.get_event_loop().run_until_complete(
+                detector.detect()
+            )
+
+            # トランザクションをコミット
+            conn.commit()
+            print(f"✅ トランザクションコミット完了")
+
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        print(f"🏁 属人化検出完了: {elapsed:.2f}秒")
+
+        return jsonify({
+            "success": result.success,
+            "message": f"{result.detected_count}件のリスクを検出しました",
+            "results": {
+                "detected_count": result.detected_count,
+                "insight_created": result.insight_created,
+                "insight_id": str(result.insight_id) if result.insight_id else None,
+                "details": result.details,
+            },
+            "elapsed_seconds": elapsed,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 200
+
+    except Exception as e:
+        error_msg = f"属人化検出エラー: {str(e)}"
         print(f"❌ {error_msg}")
         print(traceback.format_exc())
 

@@ -66,6 +66,7 @@ cp "$LIB_SRC/detection/base.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/constants.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/exceptions.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/pattern_detector.py" "$LIB_DST/detection/"
+cp "$LIB_SRC/detection/personalization_detector.py" "$LIB_DST/detection/"
 
 # insights モジュール
 mkdir -p "$LIB_DST/insights"
@@ -86,7 +87,7 @@ fi
 # lib/__init__.py を作成
 cat > "$LIB_DST/__init__.py" << 'EOF'
 """
-Phase 2 A1: パターン検知用 lib モジュール
+Phase 2 A1/A2: パターン検知・属人化検出用 lib モジュール
 
 このモジュールは pattern-detection Cloud Function で使用される
 共通ライブラリです。
@@ -95,6 +96,7 @@ Phase 2 A1: パターン検知用 lib モジュール
 # detection モジュール
 from lib.detection import (
     PatternDetector,
+    PersonalizationDetector,
     BaseDetector,
     DetectionResult,
     DetectionContext,
@@ -109,6 +111,7 @@ from lib.insights import (
 
 __all__ = [
     "PatternDetector",
+    "PersonalizationDetector",
     "BaseDetector",
     "DetectionResult",
     "DetectionContext",
@@ -213,10 +216,32 @@ gcloud functions deploy pattern-detection \
 echo "✅ pattern-detection デプロイ完了"
 
 # =====================================================
-# Step 4: 週次レポート関数をデプロイ
+# Step 4: 属人化検出関数をデプロイ
 # =====================================================
 echo ""
-echo "🚀 Step 4: weekly-report 関数をデプロイ中..."
+echo "🚀 Step 4: personalization-detection 関数をデプロイ中..."
+
+gcloud functions deploy personalization-detection \
+    --gen2 \
+    --runtime=python311 \
+    --region=asia-northeast1 \
+    --source="$SCRIPT_DIR" \
+    --entry-point=personalization_detection \
+    --trigger-http \
+    --allow-unauthenticated \
+    --memory=512MB \
+    --timeout=300s \
+    --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
+    --min-instances=0 \
+    --max-instances=3
+
+echo "✅ personalization-detection デプロイ完了"
+
+# =====================================================
+# Step 5: 週次レポート関数をデプロイ
+# =====================================================
+echo ""
+echo "🚀 Step 5: weekly-report 関数をデプロイ中..."
 
 gcloud functions deploy weekly-report \
     --gen2 \
@@ -235,10 +260,10 @@ gcloud functions deploy weekly-report \
 echo "✅ weekly-report デプロイ完了"
 
 # =====================================================
-# Step 5: Cloud Scheduler ジョブを作成/更新
+# Step 6: Cloud Scheduler ジョブを作成/更新
 # =====================================================
 echo ""
-echo "⏰ Step 5: Cloud Scheduler ジョブを設定中..."
+echo "⏰ Step 6: Cloud Scheduler ジョブを設定中..."
 
 # パターン検知: 毎時実行（毎時15分に実行）
 PATTERN_JOB_EXISTS=$(gcloud scheduler jobs list --location=asia-northeast1 --format="value(name)" 2>/dev/null | grep "pattern-detection-hourly" || true)
@@ -265,6 +290,34 @@ else
         --http-method=POST \
         --update-headers="Content-Type=application/json" \
         --message-body='{"hours_back": 1}' \
+        --attempt-deadline=300s
+fi
+
+# 属人化検出: 毎日実行（毎日6:00 JSTに実行）
+PERSONALIZATION_JOB_EXISTS=$(gcloud scheduler jobs list --location=asia-northeast1 --format="value(name)" 2>/dev/null | grep "personalization-detection-daily" || true)
+
+if [ -z "$PERSONALIZATION_JOB_EXISTS" ]; then
+    echo "   新規作成: personalization-detection-daily"
+    gcloud scheduler jobs create http personalization-detection-daily \
+        --location=asia-northeast1 \
+        --schedule="0 6 * * *" \
+        --time-zone="Asia/Tokyo" \
+        --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/personalization-detection" \
+        --http-method=POST \
+        --headers="Content-Type=application/json" \
+        --message-body='{}' \
+        --attempt-deadline=300s \
+        --description="Phase 2 A2: 属人化検出（毎日実行）"
+else
+    echo "   更新: personalization-detection-daily"
+    gcloud scheduler jobs update http personalization-detection-daily \
+        --location=asia-northeast1 \
+        --schedule="0 6 * * *" \
+        --time-zone="Asia/Tokyo" \
+        --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/personalization-detection" \
+        --http-method=POST \
+        --update-headers="Content-Type=application/json" \
+        --message-body='{}' \
         --attempt-deadline=300s
 fi
 
@@ -308,10 +361,12 @@ echo "=============================================="
 echo ""
 echo "デプロイされた関数:"
 echo "  - pattern-detection: https://asia-northeast1-soulkun-production.cloudfunctions.net/pattern-detection"
+echo "  - personalization-detection: https://asia-northeast1-soulkun-production.cloudfunctions.net/personalization-detection"
 echo "  - weekly-report: https://asia-northeast1-soulkun-production.cloudfunctions.net/weekly-report"
 echo ""
 echo "Cloud Scheduler ジョブ:"
 echo "  - pattern-detection-hourly: 毎時15分に実行"
+echo "  - personalization-detection-daily: 毎日6:00 JSTに実行"
 echo "  - weekly-report-monday: 毎週月曜9:00 JSTに実行"
 echo ""
 if [ "$MODE" = "test" ]; then

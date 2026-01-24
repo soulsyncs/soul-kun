@@ -242,6 +242,11 @@ from lib.insights import (
     WeeklyReportService,
 )
 
+# v10.18.1: ユーザー関連ユーティリティ（Phase 3.5対応）
+from lib.user_utils import (
+    get_user_primary_department,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -379,4 +384,6 @@ __all__ = [
     "ReportInsightItem",
     "GeneratedReport",
     "WeeklyReportService",
+    # v10.18.1: User Utils（Phase 3.5対応）
+    "get_user_primary_department",
 ]

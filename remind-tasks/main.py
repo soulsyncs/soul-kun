@@ -14,18 +14,31 @@ from functools import lru_cache
 import traceback
 
 # ★★★ v10.17.0: lib/テキスト処理ユーティリティ ★★★
+# ★★★ v10.18.1: extract_task_subject追加、user_utils追加 ★★★
 try:
     from lib import (
         clean_chatwork_tags as lib_clean_chatwork_tags,
         prepare_task_display_text as lib_prepare_task_display_text,
         remove_greetings as lib_remove_greetings,
         validate_summary as lib_validate_summary,
+        extract_task_subject as lib_extract_task_subject,
     )
     USE_TEXT_UTILS_LIB = True
     print("✅ lib/text_utils をロードしました")
 except ImportError as e:
     USE_TEXT_UTILS_LIB = False
     print(f"⚠️ lib/text_utils が見つかりません。ローカル関数を使用: {e}")
+
+# ★★★ v10.18.1: ユーザーユーティリティ（Phase 3.5対応） ★★★
+try:
+    from lib import (
+        get_user_primary_department as lib_get_user_primary_department,
+    )
+    USE_USER_UTILS_LIB = True
+    print("✅ lib/user_utils をロードしました")
+except ImportError as e:
+    USE_USER_UTILS_LIB = False
+    print(f"⚠️ lib/user_utils が見つかりません: {e}")
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -1475,15 +1488,44 @@ def update_task_status_in_db(task_id, status):
 
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
-    """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）"""
+    """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
+
+    v10.18.1: summary生成、department_id追加（Phase 3.5対応）
+    """
     try:
         pool = get_pool()
+
+        # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
+        summary = None
+        if USE_TEXT_UTILS_LIB and body:
+            try:
+                summary = lib_extract_task_subject(body)
+                if not lib_validate_summary(summary, body):
+                    summary = lib_prepare_task_display_text(body, max_length=50)
+                if not lib_validate_summary(summary, body):
+                    cleaned = lib_clean_chatwork_tags(body)
+                    summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                print(f"📝 summary生成成功: {summary}")
+            except Exception as e:
+                print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
+                summary = body[:40] + "..." if body and len(body) > 40 else body
+
+        # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+        department_id = None
+        if USE_USER_UTILS_LIB and assigned_to_account_id:
+            try:
+                department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
+                if department_id:
+                    print(f"📁 department_id取得成功: {department_id}")
+            except Exception as e:
+                print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
+
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary, department_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary, :department_id)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -1493,7 +1535,9 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "assigned_to": assigned_to_account_id,
                     "body": body,
                     "limit_time": limit_time,
-                    "status": "open"
+                    "status": "open",
+                    "summary": summary,
+                    "department_id": department_id,
                 }
             )
         print(f"✅ タスクをDBに保存: task_id={task_id}")
@@ -5408,14 +5452,46 @@ def sync_chatwork_tasks(request):
                     """, (body, limit_datetime, room_name, assigned_to_name, task_id))
                 else:
                     # 新規タスクの挿入
+                    # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
+                    summary = None
+                    if USE_TEXT_UTILS_LIB and body:
+                        try:
+                            summary = lib_extract_task_subject(body)
+                            if not lib_validate_summary(summary, body):
+                                summary = lib_prepare_task_display_text(body, max_length=50)
+                            if not lib_validate_summary(summary, body):
+                                cleaned = lib_clean_chatwork_tags(body)
+                                summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                        except Exception as e:
+                            print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
+                            summary = body[:40] + "..." if body and len(body) > 40 else body
+
+                    # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
+                    department_id = None
+                    try:
+                        cursor.execute("""
+                            SELECT ud.department_id
+                            FROM user_departments ud
+                            JOIN users u ON ud.user_id = u.id
+                            WHERE u.chatwork_account_id = %s
+                              AND ud.is_primary = TRUE
+                              AND ud.ended_at IS NULL
+                            LIMIT 1
+                        """, (str(assigned_to_id),))
+                        dept_row = cursor.fetchone()
+                        department_id = str(dept_row[0]) if dept_row else None
+                    except Exception as e:
+                        print(f"⚠️ department_id取得エラー（NULLで継続）: {e}")
+
                     cursor.execute("""
-                        INSERT INTO chatwork_tasks 
-                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status, 
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
-                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body, 
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
-            
+                        INSERT INTO chatwork_tasks
+                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                        ON CONFLICT (task_id) DO NOTHING
+                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
+
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
             

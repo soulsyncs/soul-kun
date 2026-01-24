@@ -1,11 +1,10 @@
 """
-sync-chatwork-tasks/lib - Cloud Functions用ローカルライブラリ
+cleanup-old-data/lib - Cloud Functions用ローカルライブラリ
 
 このディレクトリにはデプロイ時にsoul-kun/lib/からコピーされた
 モジュールが配置されます。
 
-v10.14.1: audit追加
-v10.17.0: text_utils追加
+v10.18.1: text_utils、user_utils追加
 """
 from .text_utils import (
     # パターン定義
@@ -23,14 +22,6 @@ from .text_utils import (
     validate_and_get_reason,
 )
 
-from .audit import (
-    AuditAction,
-    AuditResourceType,
-    log_audit,
-    log_audit_batch,
-)
-
-# v10.18.1: user_utils追加（Phase 3.5対応）
 from .user_utils import (
     get_user_primary_department,
 )

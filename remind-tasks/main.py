@@ -5488,6 +5488,7 @@ def sync_chatwork_tasks(request):
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
                          skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
                         VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                        ON CONFLICT (task_id) DO NOTHING
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
                           limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
 

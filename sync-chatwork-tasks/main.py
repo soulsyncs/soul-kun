@@ -2271,6 +2271,36 @@ def get_pool():
         )
     return _pool
 
+
+def get_user_primary_department(chatwork_account_id):
+    """
+    担当者のメイン部署IDを取得（Phase 3.5対応）
+
+    ★★★ v10.18.1: sync-chatwork-tasksに追加 ★★★
+    chatwork-webhookとの一貫性を保つため追加
+    """
+    try:
+        pool = get_pool()
+        with pool.connect() as conn:
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT ud.department_id
+                    FROM user_departments ud
+                    JOIN users u ON ud.user_id = u.id
+                    WHERE u.chatwork_account_id = :chatwork_account_id
+                      AND ud.is_primary = TRUE
+                      AND ud.ended_at IS NULL
+                    LIMIT 1
+                """),
+                {"chatwork_account_id": str(chatwork_account_id)}
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+    except Exception as e:
+        print(f"部署取得エラー: {e}")
+        return None
+
+
 @lru_cache(maxsize=32)
 def get_secret(secret_id):
     """Secret Managerからシークレットを取得（キャッシュ付き）"""
@@ -2805,8 +2835,9 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
     """
     ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
 
-    ★★★ v10.18.1: summary生成機能追加 ★★★
+    ★★★ v10.18.1: summary生成機能 + department_id追加 ★★★
     タスク作成時にsummaryを自動生成して保存
+    chatwork-webhookとの一貫性を保つためdepartment_idも追加
     """
     try:
         # =====================================================
@@ -2832,13 +2863,18 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     print(f"⚠️ フォールバックもエラー: {fallback_e}")
                     summary = body[:40] if len(body) > 40 else body
 
+        # =====================================================
+        # v10.18.1: department_id取得（Phase 3.5対応）
+        # =====================================================
+        department_id = get_user_primary_department(assigned_to_account_id)
+
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO chatwork_tasks
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary)
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary, department_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary, :department_id)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -2849,11 +2885,12 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "body": body,
                     "limit_time": limit_time,
                     "status": "open",
-                    "summary": summary
+                    "summary": summary,
+                    "department_id": department_id
                 }
             )
         summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
-        print(f"✅ タスクをDBに保存: task_id={task_id}, summary={summary_preview}")
+        print(f"✅ タスクをDBに保存: task_id={task_id}, department_id={department_id}, summary={summary_preview}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")
@@ -7771,13 +7808,16 @@ def sync_chatwork_tasks(request):
                             summary = "（タスク内容を確認してください）"
                             print(f"📝 デフォルト要約使用: {summary}")
 
+                    # ★★★ v10.18.1: department_id取得（Phase 3.5対応）★★★
+                    department_id = get_user_primary_department(assigned_to_id)
+
                     cursor.execute("""
                         INSERT INTO chatwork_tasks
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s)
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary))
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
 
                     # ★★★ v10.4.0: INSERTをコミットしてから通知処理を実行 ★★★
                     # 通知処理でエラーが発生してもタスクの登録は保持される

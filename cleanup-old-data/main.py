@@ -8,6 +8,21 @@ import pg8000
 import sqlalchemy
 from google.cloud.sql.connector import Connector
 import json
+import traceback
+
+# ★★★ v10.18.1: lib/テキスト処理ユーティリティ（summary生成用）★★★
+try:
+    from lib import (
+        clean_chatwork_tags,
+        prepare_task_display_text,
+        extract_task_subject,
+        validate_summary,
+    )
+    USE_TEXT_UTILS_LIB = True
+    print("✅ lib/text_utils をロードしました")
+except ImportError as e:
+    USE_TEXT_UTILS_LIB = False
+    print(f"⚠️ lib/text_utils が見つかりません: {e}")
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -376,30 +391,76 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
         return None
 
 def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
-    """ChatWorkタスクをデータベースに保存"""
+    """
+    ChatWorkタスクをデータベースに保存
+
+    ★★★ v10.18.1: summary生成機能追加 ★★★
+    タスク作成時にsummaryを自動生成して保存
+    """
     try:
+        body = task_data["body"]
+
+        # =====================================================
+        # v10.18.1: summary生成
+        # =====================================================
+        summary = None
+        if USE_TEXT_UTILS_LIB and body:
+            try:
+                # 1. まず【件名】形式を探す
+                subject = extract_task_subject(body)
+                if subject and len(subject) <= 40:
+                    summary = subject
+                    print(f"📝 件名を抽出: {summary}")
+                else:
+                    # 2. タグを除去して整形
+                    clean_body = clean_chatwork_tags(body)
+                    summary = prepare_task_display_text(clean_body, max_length=40)
+                    print(f"📝 要約を生成: {summary}")
+
+                # 3. バリデーション（挨拶のみ等は除外）
+                if summary and not validate_summary(summary, body):
+                    print(f"⚠️ 要約がバリデーション失敗、再生成: {summary}")
+                    clean_body = clean_chatwork_tags(body)
+                    summary = prepare_task_display_text(clean_body, max_length=40)
+                    if summary == "（タスク内容なし）":
+                        # 最終フォールバック
+                        summary = body[:40] if len(body) > 40 else body
+            except Exception as e:
+                print(f"⚠️ summary生成エラー（続行）: {e}")
+                # フォールバック: bodyの先頭40文字
+                summary = body[:40] if body and len(body) > 40 else body
+        else:
+            # lib未使用時のフォールバック
+            if body:
+                summary = body[:40] if len(body) > 40 else body
+
         pool = get_pool()
         with pool.connect() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary)
+                    ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
                     "task_id": task_data["task_id"],
                     "room_id": room_id,
                     "assigned_by": assigned_by_account_id,
                     "assigned_to": task_data["account"]["account_id"],
-                    "body": task_data["body"],
+                    "body": body,
                     "limit_time": task_data.get("limit_time"),
-                    "status": task_data.get("status", "open")
+                    "status": task_data.get("status", "open"),
+                    "summary": summary
                 }
             )
             conn.commit()
+        summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
+        print(f"✅ タスクをDBに保存: task_id={task_data['task_id']}, summary={summary_preview}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")
+        traceback.print_exc()
         return False
 
 

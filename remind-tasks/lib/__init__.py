@@ -5,6 +5,7 @@ remind-tasks/lib - Cloud Functions用ローカルライブラリ
 モジュールが配置されます。
 
 v10.17.0: text_utils追加
+v10.18.1: extract_task_subject追加（summary生成用）
 """
 from .goal_notification import (
     scheduled_daily_check,
@@ -18,9 +19,11 @@ from .goal_notification import (
 )
 
 # v10.17.0: text_utils追加
+# v10.18.1: extract_task_subject追加（summary生成用）
 from .text_utils import (
     clean_chatwork_tags,
     prepare_task_display_text,
     remove_greetings,
     validate_summary,
+    extract_task_subject,
 )

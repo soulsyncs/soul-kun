@@ -14,12 +14,14 @@ from functools import lru_cache
 import traceback
 
 # ★★★ v10.17.0: lib/テキスト処理ユーティリティ ★★★
+# ★★★ v10.18.1: extract_task_subject追加（summary生成用）★★★
 try:
     from lib import (
         clean_chatwork_tags as lib_clean_chatwork_tags,
         prepare_task_display_text as lib_prepare_task_display_text,
         remove_greetings as lib_remove_greetings,
         validate_summary as lib_validate_summary,
+        extract_task_subject as lib_extract_task_subject,
     )
     USE_TEXT_UTILS_LIB = True
     print("✅ lib/text_utils をロードしました")
@@ -1475,15 +1477,54 @@ def update_task_status_in_db(task_id, status):
 
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
-    """ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）"""
+    """
+    ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
+
+    ★★★ v10.18.1: summary生成機能追加 ★★★
+    タスク作成時にsummaryを自動生成して保存
+    """
     try:
+        # =====================================================
+        # v10.18.1: summary生成
+        # =====================================================
+        summary = None
+        if USE_TEXT_UTILS_LIB and body:
+            try:
+                # 1. まず【件名】形式を探す
+                subject = lib_extract_task_subject(body)
+                if subject and len(subject) <= 40:
+                    summary = subject
+                    print(f"📝 件名を抽出: {summary}")
+                else:
+                    # 2. タグを除去して整形
+                    clean_body = lib_clean_chatwork_tags(body)
+                    summary = lib_prepare_task_display_text(clean_body, max_length=40)
+                    print(f"📝 要約を生成: {summary}")
+
+                # 3. バリデーション（挨拶のみ等は除外）
+                if summary and not lib_validate_summary(summary, body):
+                    print(f"⚠️ 要約がバリデーション失敗、再生成: {summary}")
+                    clean_body = lib_clean_chatwork_tags(body)
+                    summary = lib_prepare_task_display_text(clean_body, max_length=40)
+                    if summary == "（タスク内容なし）":
+                        # 最終フォールバック
+                        summary = body[:40] if len(body) > 40 else body
+            except Exception as e:
+                print(f"⚠️ summary生成エラー（続行）: {e}")
+                # フォールバック: bodyの先頭40文字
+                summary = body[:40] if body and len(body) > 40 else body
+        else:
+            # lib未使用時のフォールバック
+            if body:
+                summary = body[:40] if len(body) > 40 else body
+
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks 
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status)
+                    INSERT INTO chatwork_tasks
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, summary)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :summary)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -1493,10 +1534,12 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     "assigned_to": assigned_to_account_id,
                     "body": body,
                     "limit_time": limit_time,
-                    "status": "open"
+                    "status": "open",
+                    "summary": summary
                 }
             )
-        print(f"✅ タスクをDBに保存: task_id={task_id}")
+        summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
+        print(f"✅ タスクをDBに保存: task_id={task_id}, summary={summary_preview}")
         return True
     except Exception as e:
         print(f"データベース保存エラー: {e}")

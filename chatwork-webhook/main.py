@@ -113,6 +113,32 @@ else:
         USE_MVV_CONTEXT = False
         ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
 
+# =====================================================
+# v10.24.0: 日付処理ユーティリティ（リファクタリング）
+# =====================================================
+# utils/date_utils.py に分割された日付処理関数
+# 環境変数 USE_NEW_DATE_UTILS=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_DATE_UTILS_ENV = os.environ.get("USE_NEW_DATE_UTILS", "true").lower() == "true"
+
+if _USE_NEW_DATE_UTILS_ENV:
+    try:
+        from utils.date_utils import (
+            parse_date_from_text as _new_parse_date_from_text,
+            check_deadline_proximity as _new_check_deadline_proximity,
+            get_overdue_days as _new_get_overdue_days,
+            JST as _utils_JST,
+            DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
+        )
+        USE_NEW_DATE_UTILS = True
+        print("✅ utils/date_utils.py loaded for date processing")
+    except ImportError as e:
+        print(f"⚠️ utils/date_utils.py not available (using fallback): {e}")
+        USE_NEW_DATE_UTILS = False
+else:
+    print("⚠️ New date utils disabled by environment variable USE_NEW_DATE_UTILS=false")
+    USE_NEW_DATE_UTILS = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2304,24 +2330,31 @@ def parse_date_from_text(text):
     """
     自然言語の日付表現をYYYY-MM-DD形式に変換
     例: "明日", "明後日", "12/27", "来週金曜日"
+
+    v10.24.0: utils/date_utils.py に分割
     """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_parse_date_from_text(text)
+
+    # フォールバック: 旧実装
     now = datetime.now(JST)
     today = now.date()
-    
+
     text = text.strip().lower()
-    
+
     # 「明日」
     if "明日" in text or "あした" in text:
         return (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    
+
     # 「明後日」
     if "明後日" in text or "あさって" in text:
         return (today + timedelta(days=2)).strftime("%Y-%m-%d")
-    
+
     # 「今日」
     if "今日" in text or "きょう" in text:
         return today.strftime("%Y-%m-%d")
-    
+
     # 「来週」
     if "来週" in text:
         # 来週の月曜日を基準に
@@ -2329,7 +2362,7 @@ def parse_date_from_text(text):
         if days_until_monday == 0:
             days_until_monday = 7
         next_monday = today + timedelta(days=days_until_monday)
-        
+
         # 曜日指定があるか確認
         weekdays = {
             "月": 0, "火": 1, "水": 2, "木": 3, "金": 4, "土": 5, "日": 6,
@@ -2339,16 +2372,16 @@ def parse_date_from_text(text):
             if day_name in text:
                 target = next_monday + timedelta(days=day_num)
                 return target.strftime("%Y-%m-%d")
-        
+
         # 曜日指定がなければ来週の月曜日
         return next_monday.strftime("%Y-%m-%d")
-    
+
     # 「○日後」
     match = re.search(r'(\d+)日後', text)
     if match:
         days = int(match.group(1))
         return (today + timedelta(days=days)).strftime("%Y-%m-%d")
-    
+
     # 「MM/DD」形式
     match = re.search(r'(\d{1,2})[/\-](\d{1,2})', text)
     if match:
@@ -2360,7 +2393,7 @@ def parse_date_from_text(text):
         if target < today:
             target = datetime(year + 1, month, day).date()
         return target.strftime("%Y-%m-%d")
-    
+
     # 「MM月DD日」形式
     match = re.search(r'(\d{1,2})月(\d{1,2})日', text)
     if match:
@@ -2394,7 +2427,14 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         - needs_alert: アラートが必要か
         - days_until: 期限までの日数（0=今日, 1=明日, 負=過去）
         - limit_date: 期限日（date型）
+
+    v10.24.0: utils/date_utils.py に分割
     """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_check_deadline_proximity(limit_date_str)
+
+    # フォールバック: 旧実装
     if not limit_date_str:
         return False, -1, None
 
@@ -7325,14 +7365,23 @@ def report_unassigned_overdue_tasks(tasks):
 
 
 def get_overdue_days(limit_time):
-    """期限超過日数を計算"""
+    """
+    期限超過日数を計算
+
+    v10.24.0: utils/date_utils.py に分割
+    """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_get_overdue_days(limit_time)
+
+    # フォールバック: 旧実装
     if not limit_time:
         return 0
-    
+
     now = datetime.now(JST)
     today = now.date()
-    
-    # ★★★ v6.8.6: int/float両対応 ★★★
+
+    # v6.8.6: int/float両対応
     try:
         if isinstance(limit_time, (int, float)):
             limit_date = datetime.fromtimestamp(int(limit_time), tz=JST).date()
@@ -7344,7 +7393,7 @@ def get_overdue_days(limit_time):
     except Exception as e:
         print(f"⚠️ get_overdue_days: 変換エラー: {limit_time}, error={e}")
         return 0
-    
+
     delta = (today - limit_date).days
     return max(0, delta)
 

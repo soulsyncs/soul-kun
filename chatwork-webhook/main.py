@@ -4104,7 +4104,20 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
         period_type = params.get("period_type", "monthly")
         deadline = params.get("deadline")
 
-        if not goal_title:
+        # 目標内容のバリデーション
+        # 空、または曖昧なキーワードのみの場合は具体的な内容を聞く
+        ambiguous_keywords = ["目標", "設定", "登録", "したい", "する", "新規", "kpi", "ゴール"]
+        goal_title_lower = goal_title.lower().strip()
+
+        is_ambiguous = (
+            not goal_title or
+            len(goal_title) < 3 or
+            all(kw in goal_title_lower for kw in ["目標", "設定"]) or
+            all(kw in goal_title_lower for kw in ["目標", "登録"]) or
+            goal_title_lower in ["目標", "設定", "登録", "新規目標", "新規目標の設定", "目標設定", "目標登録"]
+        )
+
+        if is_ambiguous:
             return {
                 "success": False,
                 "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
@@ -4768,9 +4781,11 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
    - 「何日？」「どうやって？」「ルールは？」のような制度への質問
 8. ★★★ 目標に関する発言 → goal系アクション ★★★
    - 「今日は〇〇した」「今日〇〇円売り上げた」「今日〇〇件達成」など進捗報告 → goal_progress_report
-   - 「目標を設定したい」「目標を登録したい」「KPIを設定」など目標設定 → goal_registration
+   - 「粗利300万円を目標にする」「今月10件獲得」など具体的な目標内容がある → goal_registration（goal_titleにその内容）
+   - 「目標を設定したい」「目標を登録したい」など具体的な内容がない → goal_registration（goal_titleは空文字""にする）
    - 「目標の進捗は？」「達成率を教えて」など目標確認 → goal_status_check
    ★★★ 特に数値＋売上/件数/達成などの組み合わせは goal_progress_report を優先 ★★★
+   ★★★ goal_registration で goal_title は「具体的な目標内容」のみ。「目標を設定したい」のような依頼文は含めない ★★★
 9. それ以外 → general_chat
 
 【具体例】
@@ -4784,7 +4799,8 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
 - 「今日は25万売り上げた」→ goal_progress_report（目標進捗報告）★★★
 - 「今日10件成約した」→ goal_progress_report（目標進捗報告）★★★
 - 「今日の売上は50万円」→ goal_progress_report（目標進捗報告）★★★
-- 「目標を設定したい」→ goal_registration（目標登録）
+- 「目標を設定したい」→ goal_registration（goal_title: ""）★具体的な内容がないので空
+- 「粗利300万円を目標にする」→ goal_registration（goal_title: "粗利300万円", goal_type: "numeric", target_value: 3000000, unit: "円"）
 - 「目標の進捗を教えて」→ goal_status_check（目標確認）"""
 
     try:
@@ -8026,14 +8042,42 @@ def sync_chatwork_tasks(request):
                     """, (body, limit_datetime, room_name, assigned_to_name, task_id))
                 else:
                     # 新規タスクの挿入
+                    # ★★★ v10.18.1: summary生成、department_id追加 ★★★
+                    summary = None
+                    if USE_TEXT_UTILS_LIB and body:
+                        try:
+                            summary = extract_task_subject(body)
+                            if not validate_summary(summary, body):
+                                summary = prepare_task_display_text(clean_chatwork_tags(body), max_length=40)
+                            if summary == "（タスク内容なし）":
+                                summary = body[:40] if len(body) > 40 else body
+                        except Exception as e:
+                            print(f"⚠️ summary生成エラー: {e}")
+                            summary = body[:40] + "..." if body and len(body) > 40 else body
+                    elif body:
+                        summary = body[:40] + "..." if len(body) > 40 else body
+
+                    department_id = None
+                    try:
+                        cursor.execute("""
+                            SELECT ud.department_id FROM user_departments ud
+                            JOIN users u ON ud.user_id = u.id
+                            WHERE u.chatwork_account_id = %s AND ud.is_primary = TRUE AND ud.ended_at IS NULL
+                            LIMIT 1
+                        """, (str(assigned_to_id),))
+                        dept_row = cursor.fetchone()
+                        department_id = str(dept_row[0]) if dept_row else None
+                    except Exception as e:
+                        print(f"⚠️ department_id取得エラー: {e}")
+
                     cursor.execute("""
-                        INSERT INTO chatwork_tasks 
-                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status, 
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s)
-                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body, 
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name))
-            
+                        INSERT INTO chatwork_tasks
+                        (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                    """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
+
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
             

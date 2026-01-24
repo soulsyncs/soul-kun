@@ -34,7 +34,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.6.0"  # v10.18.0: Phase 2進化版 A1 パターン検出基盤追加
+__version__ = "1.7.0"  # v10.18.1: user_utils追加（get_user_primary_department）
 
 # 設定
 from lib.config import (
@@ -242,6 +242,12 @@ from lib.insights import (
     WeeklyReportService,
 )
 
+# v10.18.1: ユーザーユーティリティ（Phase 3.5対応）
+from lib.user_utils import (
+    get_user_primary_department,
+    get_user_by_chatwork_id,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -379,4 +385,7 @@ __all__ = [
     "ReportInsightItem",
     "GeneratedReport",
     "WeeklyReportService",
+    # v10.18.1: User Utils（Phase 3.5対応）
+    "get_user_primary_department",
+    "get_user_by_chatwork_id",
 ]

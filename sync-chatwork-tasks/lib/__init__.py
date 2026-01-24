@@ -6,6 +6,7 @@ sync-chatwork-tasks/lib - Cloud Functions用ローカルライブラリ
 
 v10.14.1: audit追加
 v10.17.0: text_utils追加
+v10.18.1: user_utils追加（Phase 3.5対応）
 """
 from .text_utils import (
     # パターン定義
@@ -28,4 +29,10 @@ from .audit import (
     AuditResourceType,
     log_audit,
     log_audit_batch,
+)
+
+# v10.18.1: user_utils追加（Phase 3.5対応）
+from .user_utils import (
+    get_user_primary_department,
+    get_user_by_chatwork_id,
 )

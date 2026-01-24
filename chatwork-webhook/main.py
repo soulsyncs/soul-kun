@@ -168,6 +168,27 @@ else:
     print("⚠️ New ChatWork utils disabled by environment variable USE_NEW_CHATWORK_UTILS=false")
     USE_NEW_CHATWORK_UTILS = False
 
+# =====================================================
+# handlers/proposal_handler.py に分割された提案管理機能
+# 環境変数 USE_NEW_PROPOSAL_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_PROPOSAL_HANDLER_ENV = os.environ.get("USE_NEW_PROPOSAL_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_PROPOSAL_HANDLER_ENV:
+    try:
+        from handlers.proposal_handler import ProposalHandler as _NewProposalHandler
+        USE_NEW_PROPOSAL_HANDLER = True
+        print("✅ handlers/proposal_handler.py loaded for Proposal management")
+    except ImportError as e:
+        print(f"⚠️ handlers/proposal_handler.py not available (using fallback): {e}")
+        USE_NEW_PROPOSAL_HANDLER = False
+else:
+    print("⚠️ New Proposal handler disabled by environment variable USE_NEW_PROPOSAL_HANDLER=false")
+    USE_NEW_PROPOSAL_HANDLER = False
+
+# ProposalHandlerインスタンス（後で初期化）
+_proposal_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -3643,7 +3664,15 @@ def handle_proposal_decision(params, room_id, account_id, sender_name, context=N
     - 管理者のみ有効
     - 管理部ルームでの発言のみ対応
     v6.9.1: ID指定方式を推奨（handle_proposal_by_idを使用）
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.handle_proposal_decision(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     decision = params.get("decision", "").lower()
     
     # 管理部ルームかチェック
@@ -3700,7 +3729,15 @@ def handle_proposal_by_id(proposal_id: int, decision: str, account_id: str, send
     """
     ID指定で提案を承認/却下（v6.9.1追加）
     ローカルコマンド「承認 123」「却下 123」用
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.handle_proposal_by_id(proposal_id, decision, account_id, sender_name, room_id)
+
+    # フォールバック: 旧実装
     # 管理部ルームかチェック
     if str(room_id) != str(ADMIN_ROOM_ID):
         return "🤔 承認・却下は管理部ルームでお願いするウル！"
@@ -3945,7 +3982,15 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
     """
     提案を管理部に報告
     v6.9.1: ID表示、admin_notifiedフラグ更新
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value)
+
+    # フォールバック: 旧実装
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         
@@ -3993,7 +4038,17 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
 
 
 def notify_proposal_result(proposal: dict, approved: bool):
-    """提案の結果を提案者に通知"""
+    """
+    提案の結果を提案者に通知
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.notify_proposal_result(proposal, approved)
+
+    # フォールバック: 旧実装
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         room_id = proposal.get("proposed_in_room_id")
@@ -6891,10 +6946,40 @@ def get_knowledge_for_prompt():
     return "\n".join(lines)
 
 
-def create_proposal(proposed_by_account_id: str, proposed_by_name: str, 
-                   proposed_in_room_id: str, category: str, key: str, 
+# =====================================================
+# ProposalHandler初期化（v10.24.2）
+# =====================================================
+def _get_proposal_handler():
+    """ProposalHandlerのシングルトンインスタンスを取得"""
+    global _proposal_handler
+    if _proposal_handler is None and USE_NEW_PROPOSAL_HANDLER:
+        _proposal_handler = _NewProposalHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            admin_room_id=str(ADMIN_ROOM_ID),
+            admin_account_id=ADMIN_ACCOUNT_ID,
+            is_admin=is_admin
+        )
+    return _proposal_handler
+
+
+def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
+                   proposed_in_room_id: str, category: str, key: str,
                    value: str, message_id: str = None):
-    """知識の提案を作成"""
+    """
+    知識の提案を作成
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.create_proposal(
+            proposed_by_account_id, proposed_by_name, proposed_in_room_id,
+            category, key, value, message_id
+        )
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -6926,7 +7011,15 @@ def get_pending_proposals():
     """
     承認待ちの提案を取得
     v6.9.1: 古い順（FIFO）に変更 - 待たせている人から処理
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_pending_proposals()
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -6951,13 +7044,33 @@ def get_pending_proposals():
 
 
 def get_oldest_pending_proposal():
-    """最も古い承認待ち提案を取得（v6.9.1: FIFO）"""
+    """
+    最も古い承認待ち提案を取得（v6.9.1: FIFO）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_oldest_pending_proposal()
+
+    # フォールバック: 旧実装
     proposals = get_pending_proposals()
     return proposals[0] if proposals else None
 
 
 def get_proposal_by_id(proposal_id: int):
-    """ID指定で提案を取得（v6.9.1追加）"""
+    """
+    ID指定で提案を取得（v6.9.1追加）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_proposal_by_id(proposal_id)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -6982,7 +7095,17 @@ def get_proposal_by_id(proposal_id: int):
 
 
 def get_latest_pending_proposal():
-    """最新の承認待ち提案を取得（後方互換性のため残す）"""
+    """
+    最新の承認待ち提案を取得（後方互換性のため残す）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_latest_pending_proposal()
+
+    # フォールバック: 旧実装
     return get_oldest_pending_proposal()
 
 
@@ -6994,7 +7117,15 @@ def get_unnotified_proposals():
     """
     通知失敗した提案を取得（admin_notified=FALSE）
     v6.9.2追加
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_unnotified_proposals()
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -7020,7 +7151,15 @@ def get_unnotified_proposals():
 def retry_proposal_notification(proposal_id: int):
     """
     提案の通知を再送（v6.9.2追加）
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.retry_proposal_notification(proposal_id)
+
+    # フォールバック: 旧実装
     proposal = get_proposal_by_id(proposal_id)
     if not proposal:
         return False, f"提案ID={proposal_id}が見つからない"
@@ -7043,7 +7182,17 @@ def retry_proposal_notification(proposal_id: int):
 
 
 def approve_proposal(proposal_id: int, reviewed_by: str):
-    """提案を承認して知識に反映"""
+    """
+    提案を承認して知識に反映
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.approve_proposal(proposal_id, reviewed_by)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -7089,7 +7238,17 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
 
 
 def reject_proposal(proposal_id: int, reviewed_by: str):
-    """提案を却下"""
+    """
+    提案を却下
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.reject_proposal(proposal_id, reviewed_by)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:

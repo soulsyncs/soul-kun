@@ -253,6 +253,28 @@ else:
 # OverdueHandlerインスタンス（後で初期化）
 _overdue_handler = None
 
+# =====================================================
+# v10.24.6: 目標達成支援ハンドラー（handlers/goal_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_GOAL_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_GOAL_HANDLER_ENV = os.environ.get("USE_NEW_GOAL_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_GOAL_HANDLER_ENV:
+    try:
+        from handlers.goal_handler import GoalHandler as _NewGoalHandler
+        USE_NEW_GOAL_HANDLER = True
+        print("✅ handlers/goal_handler.py loaded for Goal management")
+    except ImportError as e:
+        print(f"⚠️ handlers/goal_handler.py not available (using fallback): {e}")
+        USE_NEW_GOAL_HANDLER = False
+else:
+    print("⚠️ New Goal handler disabled by environment variable USE_NEW_GOAL_HANDLER=false")
+    USE_NEW_GOAL_HANDLER = False
+
+# GoalHandlerインスタンス（後で初期化）
+_goal_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2092,6 +2114,21 @@ def _get_overdue_handler():
             escalation_days=ESCALATION_DAYS
         )
     return _overdue_handler
+
+
+# =====================================================
+# GoalHandler初期化（v10.24.6）
+# =====================================================
+def _get_goal_handler():
+    """GoalHandlerのシングルトンインスタンスを取得"""
+    global _goal_handler
+    if _goal_handler is None and USE_NEW_GOAL_HANDLER:
+        _goal_handler = _NewGoalHandler(
+            get_pool=get_pool,
+            process_goal_setting_message_func=process_goal_setting_message if USE_GOAL_SETTING_LIB else None,
+            use_goal_setting_lib=USE_GOAL_SETTING_LIB
+        )
+    return _goal_handler
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
@@ -4585,6 +4622,7 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
 # =====================================================
 # ===== Phase 2.5: 目標達成支援ハンドラー =====
 # =====================================================
+# v10.24.6: handlers/goal_handler.py に分割
 
 def handle_goal_registration(params, room_id, account_id, sender_name, context=None):
     """
@@ -4594,7 +4632,15 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
     具体的なgoal_titleがある場合は直接登録（後方互換性維持）。
 
     アチーブメント社・選択理論に基づく目標設定支援。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_registration(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
     print(f"   params: {params}")
 
@@ -4788,7 +4834,15 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
     目標進捗報告ハンドラー（Phase 2.5）
 
     goal_progress テーブルに進捗を記録する。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_progress_report(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"📊 handle_goal_progress_report 開始: room_id={room_id}, account_id={account_id}")
     print(f"   params: {params}")
 
@@ -4979,7 +5033,15 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
     目標確認ハンドラー（Phase 2.5）
 
     現在の目標と進捗状況を返す。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_status_check(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"📋 handle_goal_status_check 開始: room_id={room_id}, account_id={account_id}")
 
     try:

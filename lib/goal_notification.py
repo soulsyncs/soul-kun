@@ -700,7 +700,7 @@ def send_daily_reminder_to_user(
 
     # Phase 1a: 17時の進捗確認に回答済みか確認（ビジネスロジック）
     result = conn.execute(sqlalchemy.text("""
-        SELECT id FROM goal_progress gp
+        SELECT gp.id FROM goal_progress gp
         JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
         WHERE g.user_id = CAST(:user_id AS UUID)
           AND g.organization_id = CAST(:org_id AS UUID)

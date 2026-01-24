@@ -1,8 +1,17 @@
 """
-目標設定対話フロー管理モジュール（Phase 2.5 v1.6）
+目標設定対話フロー管理モジュール（Phase 2.5 v1.7）
 
 アチーブメント社・選択理論に基づく目標設定対話を管理。
 WHY → WHAT → HOW の順で一問一答形式で目標を設定する。
+
+v1.7 変更点:
+- 臨機応変な対応（Adaptive Response Enhancement）
+  - 質問検出（？で終わる、「どうしたらいい」等）
+  - 困惑検出（全ステップで「わからない」「難しい」等）
+  - 極端に短い回答の検出（<5文字、5-10文字）
+  - 具体性スコアリングの強化
+  - コンテキスト認識（前回答の参照、リトライ回数に応じた対応）
+  - 新規テンプレート追加
 
 使用例:
     from lib.goal_setting import GoalSettingDialogue
@@ -196,6 +205,123 @@ TEMPLATES = {
 
 プライベートと仕事、両方充実させていけたら最高ウル！
 仕事での目標も教えてほしいウル🐺✨""",
+
+    # =====================================================
+    # v1.7 新規: ヘルプ・質問対応テンプレート
+    # =====================================================
+
+    # 質問への回答: WHYステップ
+    "help_question_why": """📝 良い質問ウル！説明するね！
+
+【WHY】は「どんな自分になりたいか」を聞いているウル🐺
+
+例えばこんな感じ：
+• 「チームを引っ張れるリーダーになりたい」
+• 「お客様から指名される営業になりたい」
+• 「後輩に頼られる先輩になりたい」
+• 「この分野の第一人者として認められたい」
+
+仕事を通じて、{user_name}さんがどんな姿を目指しているか、
+自由に教えてほしいウル🐺✨""",
+
+    # 質問への回答: WHATステップ
+    "help_question_what": """📝 良い質問ウル！説明するね！
+
+【WHAT】は「具体的に何を達成したいか」を聞いているウル🐺
+
+例えばこんな感じ：
+• 「今月の売上を300万円達成する」
+• 「今月中に新規顧客を5件獲得する」
+• 「月末までにプロジェクトを完了させる」
+• 「今週中に提案書を3本作成する」
+
+**数字や期限**を入れてくれると、進捗が追いやすくなるウル！
+{user_name}さんが達成したい成果を教えてほしいウル🐺✨""",
+
+    # 質問への回答: HOWステップ
+    "help_question_how": """📝 良い質問ウル！説明するね！
+
+【HOW】は「毎日・毎週どんな行動をするか」を聞いているウル🐺
+
+例えばこんな感じ：
+• 「毎日30分、見込み客にアプローチの電話をする」
+• 「週に3回、お客様訪問をする」
+• 「毎朝10分、業界ニュースをチェックする」
+• 「毎日退勤前に翌日のタスクを整理する」
+
+目標達成のために、{user_name}さんが**習慣にしたい行動**を教えてほしいウル🐺✨""",
+
+    # 困惑・迷い: WHYステップ
+    "help_confused_why": """🤔 迷っちゃうよね、わかるウル！
+
+{user_name}さん、急に「どんな自分になりたい？」って聞かれても、
+すぐに答えが出ないこともあるウル🐺
+
+こんな風に考えてみてほしいウル：
+
+1. **最近「やった！」と思えた瞬間**は何かな？
+2. **「こうなれたらいいな」**と憧れる先輩や同僚はいるかな？
+3. **1年後の自分**がどうなっていたら嬉しいかな？
+
+小さなことでも大丈夫ウル！
+{user_name}さんの気持ちを教えてほしいウル🐺✨""",
+
+    # 困惑・迷い: WHATステップ
+    "help_confused_what": """🤔 具体的な数字って、難しいよね！
+
+{user_name}さん、大丈夫ウル！一緒に考えようウル🐺
+
+さっき「{why_summary}」って教えてくれたよね。
+
+その想いを叶えるために、今月やれそうなことを考えてみようウル：
+
+• **数で測れること**: 〇件、〇人、〇回など
+• **期限で測れること**: 〇日までに完了、〇月末までに提出など
+• **達成度で測れること**: 〇%達成、〇点以上など
+
+どれかピンとくるものはあるかな？🐺✨""",
+
+    # 困惑・迷い: HOWステップ
+    "help_confused_how": """🤔 行動目標、迷うよね！
+
+{user_name}さん、一緒に考えようウル🐺
+
+目標は「{what_summary}」だったよね。
+
+これを達成するために、**毎日または毎週できる小さな行動**を考えてみようウル：
+
+• **毎日5分でもできること**は何かな？
+• **週に1回は必ずやること**は何かな？
+• **習慣にしたいこと**は何かな？
+
+大きな行動じゃなくて、**続けられる小さな行動**でOKウル🐺✨""",
+
+    # 極端に短い回答
+    "too_short": """🤔 もう少し詳しく教えてほしいウル！
+
+「{user_answer}」だけだと、ソウルくんには{user_name}さんの気持ちが
+よくわからないウル🐺
+
+{step_guidance}
+
+{user_name}さんの考えを、もう少し詳しく教えてほしいウル🐺✨""",
+
+    # リトライ2回目用（少し優しいトーン）
+    "retry_gentle": """😊 大丈夫、ゆっくり考えようウル！
+
+{user_name}さん、焦らなくていいウル🐺
+
+{step_hint}
+
+どんな小さなことでもいいから、{user_name}さんの言葉で教えてほしいウル🐺✨""",
+
+    # リトライ3回目用（受け入れ準備）
+    "retry_accepting": """👍 {user_name}さんの気持ち、受け取ったウル！
+
+「{user_answer}」という想い、大事にしようウル🐺
+
+これでいいなら、このまま次に進もうウル！
+もし変えたい場合は、もう一度教えてほしいウル🐺✨""",
 }
 
 
@@ -218,17 +344,56 @@ PATTERN_KEYWORDS = {
         "教えてくれない", "やらせてくれない"
     ],
     "ng_no_goal": [
-        "特にない", "今のまま", "考えてない", "わからない",
+        "特にない", "今のまま", "考えてない",
         "ないです", "ありません", "思いつかない"
     ],
     "ng_mental_health": [
         "疲れた", "しんどい", "辛い", "やる気が出ない", "限界",
-        "無理", "死にたい", "辞めたい", "消えたい", "もう嫌"
+        "無理", "死にたい", "辞めたい", "消えたい", "もう嫌",
+        "つらい", "きつい", "病んで", "鬱", "うつ"
     ],
     "ng_private_only": [
         "ダイエット", "趣味", "旅行", "痩せたい", "筋トレ",
         "資格", "プライベート", "休み", "休暇"
     ],
+    # v1.7 新規: 質問・ヘルプ要求パターン
+    "help_question": [
+        "どうしたらいい", "どうすれば", "何を書けば", "どんなこと",
+        "どういう", "どのような", "何を言えば", "何を答えれば",
+        "例えば", "具体的には", "教えて"
+    ],
+    # v1.7 新規: 困惑・迷いパターン（全ステップ共通）
+    "help_confused": [
+        "わからない", "わかりません", "難しい", "迷う", "悩む",
+        "考え中", "思いつかない", "ピンとこない", "イメージできない"
+    ],
+}
+
+# v1.7 新規: 極端に短い回答の閾値
+LENGTH_THRESHOLDS = {
+    "extremely_short": 5,   # 5文字未満は極端に短い
+    "very_short": 10,       # 10文字未満は非常に短い
+    "short": 20,            # 20文字未満は短い
+    "adequate": 30,         # 30文字以上は適切
+}
+
+# v1.7 新規: ステップ別の期待キーワード
+STEP_EXPECTED_KEYWORDS = {
+    "why": {
+        "positive": ["なりたい", "したい", "目指", "実現", "達成", "貢献"],
+        "numeric": False,
+        "deadline": False,
+    },
+    "what": {
+        "positive": ["達成", "完了", "獲得", "増やす", "減らす", "改善"],
+        "numeric": True,   # 数値目標が望ましい
+        "deadline": True,  # 期限が望ましい
+    },
+    "how": {
+        "positive": ["する", "やる", "行う", "実施", "毎日", "毎週", "週に", "日に"],
+        "numeric": False,
+        "deadline": False,
+    },
 }
 
 
@@ -432,33 +597,88 @@ class GoalSettingDialogue:
         ).fetchone()
         return (result[0] or 0) + 1
 
-    def _detect_pattern(self, message: str, step: str) -> Tuple[str, Dict[str, Any]]:
+    def _detect_pattern(self, message: str, step: str,
+                        context: Dict[str, Any] = None) -> Tuple[str, Dict[str, Any]]:
         """
-        パターンを検出
+        パターンを検出（v1.7 拡張版）
 
-        キーワードベースの簡易検出。
-        将来的にはAI評価に置き換え予定。
+        キーワードベースの検出 + 文脈考慮。
+        将来的にはAI評価との併用を予定。
+
+        Args:
+            message: ユーザーのメッセージ
+            step: 現在のステップ ('why', 'what', 'how')
+            context: コンテキスト情報（セッションデータ、リトライ回数など）
 
         Returns:
             (pattern_code, evaluation_result)
         """
+        context = context or {}
         message_lower = message.lower()
+        message_length = len(message.strip())
+
         evaluation = {
             "detected_keywords": [],
             "specificity_score": 0.0,
-            "issues": []
+            "issues": [],
+            "message_length": message_length,
+            "is_question": False,
+            "is_confused": False,
+            "retry_count": context.get("retry_count", 0),
         }
 
-        # メンタルヘルス懸念は最優先でチェック
+        # =====================================================
+        # Phase 1: 優先度最高のパターン検出
+        # =====================================================
+
+        # 1-1. メンタルヘルス懸念は最優先でチェック
         for keyword in PATTERN_KEYWORDS["ng_mental_health"]:
             if keyword in message:
                 evaluation["detected_keywords"].append(keyword)
                 evaluation["issues"].append("mental_health_concern")
                 return "ng_mental_health", evaluation
 
-        # 各パターンをチェック
+        # =====================================================
+        # Phase 2: v1.7新規 - 質問・ヘルプ要求の検出
+        # =====================================================
+
+        # 2-1. 質問形式の検出（？で終わる）
+        if message.strip().endswith("？") or message.strip().endswith("?"):
+            evaluation["is_question"] = True
+            evaluation["issues"].append("question_detected")
+            # 質問キーワードもチェック
+            for keyword in PATTERN_KEYWORDS["help_question"]:
+                if keyword in message:
+                    evaluation["detected_keywords"].append(keyword)
+            return f"help_question_{step}", evaluation
+
+        # 2-2. ヘルプ要求パターンの検出
+        for keyword in PATTERN_KEYWORDS["help_question"]:
+            if keyword in message:
+                evaluation["detected_keywords"].append(keyword)
+                evaluation["is_question"] = True
+
+        if evaluation["is_question"]:
+            evaluation["issues"].append("help_request")
+            return f"help_question_{step}", evaluation
+
+        # 2-3. 困惑・迷いパターンの検出（全ステップ共通）
+        for keyword in PATTERN_KEYWORDS["help_confused"]:
+            if keyword in message:
+                evaluation["detected_keywords"].append(keyword)
+                evaluation["is_confused"] = True
+
+        if evaluation["is_confused"]:
+            evaluation["issues"].append("confused")
+            return f"help_confused_{step}", evaluation
+
+        # =====================================================
+        # Phase 3: 既存パターン検出（優先度順） - 長さチェックより先に実行
+        # =====================================================
+
+        # 各パターンをチェック（重要なパターンは短いメッセージでも検出する）
         for pattern, keywords in PATTERN_KEYWORDS.items():
-            if pattern == "ng_mental_health":
+            if pattern in ["ng_mental_health", "help_question", "help_confused"]:
                 continue  # 既にチェック済み
 
             for keyword in keywords:
@@ -466,14 +686,15 @@ class GoalSettingDialogue:
                     evaluation["detected_keywords"].append(keyword)
 
         # 検出されたパターンを判定
-        # 優先度順にチェック（重要なパターンを先に判定）
         if evaluation["detected_keywords"]:
             detected_patterns = []
             for pattern, keywords in PATTERN_KEYWORDS.items():
+                if pattern in ["help_question", "help_confused"]:
+                    continue
                 if any(kw in evaluation["detected_keywords"] for kw in keywords):
                     detected_patterns.append(pattern)
 
-            evaluation["issues"] = detected_patterns
+            evaluation["issues"].extend(detected_patterns)
 
             # 優先度順に返す（重要なパターンを先に）
             # 1. 転職・副業志向（WHYステップのみ）
@@ -482,38 +703,131 @@ class GoalSettingDialogue:
             # 2. 他責思考
             if "ng_other_blame" in detected_patterns:
                 return "ng_other_blame", evaluation
-            # 3. 目標がない（WHYステップのみ）
+            # 3. 目標がない（WHYステップのみ - 「わからない」はhelp_confusedで処理）
             if step == "why" and "ng_no_goal" in detected_patterns:
                 return "ng_no_goal", evaluation
             # 4. プライベート目標のみ（WHY/WHATステップ）
             if step in ["why", "what"] and "ng_private_only" in detected_patterns:
                 return "ng_private_only", evaluation
-            # 5. 抽象的すぎる
+            # 5. 抽象的すぎる（ただし極端に短い場合はtoo_shortを優先）
             if "ng_abstract" in detected_patterns:
-                return "ng_abstract", evaluation
+                if message_length >= LENGTH_THRESHOLDS["very_short"]:
+                    return "ng_abstract", evaluation
 
-        # 具体性をチェック（文字数と数字の有無）
-        has_numbers = bool(re.search(r'\d+', message))
-        has_deadline = any(word in message for word in ["まで", "月", "週", "日", "期限"])
-        word_count = len(message)
+        # =====================================================
+        # Phase 4: v1.7新規 - 極端に短い回答の検出
+        # ※ 重要なパターン検出の後に実行
+        # =====================================================
 
+        if message_length < LENGTH_THRESHOLDS["extremely_short"]:
+            # 5文字未満は極端に短い
+            evaluation["issues"].append("extremely_short")
+            evaluation["specificity_score"] = 0.1
+            return "too_short", evaluation
+
+        if message_length < LENGTH_THRESHOLDS["very_short"]:
+            # 5-10文字は非常に短い
+            evaluation["issues"].append("very_short")
+            evaluation["specificity_score"] = 0.2
+            return "too_short", evaluation
+
+        # =====================================================
+        # Phase 5: v1.7強化 - 具体性スコアリング
+        # =====================================================
+
+        specificity_score = self._calculate_specificity_score(message, step)
+        evaluation["specificity_score"] = specificity_score
+
+        # ステップ別の具体性チェック
         if step == "what":
             # WHATは数値目標が望ましい
-            if not has_numbers and word_count < 20:
-                evaluation["specificity_score"] = 0.3
+            has_numbers = bool(re.search(r'\d+', message))
+            has_deadline = self._has_deadline_expression(message)
+
+            if not has_numbers and message_length < LENGTH_THRESHOLDS["short"]:
                 evaluation["issues"].append("too_abstract")
-                return "ng_abstract", evaluation
-        elif step == "how":
-            # HOWは具体的な行動が望ましい
-            has_action = any(word in message for word in ["する", "やる", "毎日", "毎週", "行う"])
-            if not has_action and word_count < 15:
-                evaluation["specificity_score"] = 0.4
-                evaluation["issues"].append("too_abstract")
+                evaluation["issues"].append("no_numeric_target")
                 return "ng_abstract", evaluation
 
-        # 問題なし
-        evaluation["specificity_score"] = 0.8
+        elif step == "how":
+            # HOWは具体的な行動が望ましい
+            has_action = self._has_action_expression(message)
+
+            if not has_action and message_length < LENGTH_THRESHOLDS["short"]:
+                evaluation["issues"].append("too_abstract")
+                evaluation["issues"].append("no_action_verb")
+                return "ng_abstract", evaluation
+
+        # =====================================================
+        # Phase 6: 問題なし
+        # =====================================================
         return "ok", evaluation
+
+    def _calculate_specificity_score(self, message: str, step: str) -> float:
+        """
+        具体性スコアを計算（v1.7新規）
+
+        0.0 〜 1.0 のスコアを返す。
+
+        計算要素:
+        - 文字数（長いほど高い、上限あり）
+        - 数値表現の有無
+        - 期限表現の有無
+        - 行動動詞の有無（HOWステップ）
+        - ステップ別期待キーワードの有無
+        """
+        score = 0.0
+        message_length = len(message.strip())
+
+        # 1. 文字数スコア（最大0.3）
+        if message_length >= LENGTH_THRESHOLDS["adequate"]:
+            score += 0.3
+        elif message_length >= LENGTH_THRESHOLDS["short"]:
+            score += 0.2
+        elif message_length >= LENGTH_THRESHOLDS["very_short"]:
+            score += 0.1
+
+        # 2. 数値表現スコア（最大0.2）
+        if bool(re.search(r'\d+', message)):
+            score += 0.2
+
+        # 3. 期限表現スコア（最大0.2）
+        if self._has_deadline_expression(message):
+            score += 0.2
+
+        # 4. ステップ別期待キーワードスコア（最大0.2）
+        if step in STEP_EXPECTED_KEYWORDS:
+            expected = STEP_EXPECTED_KEYWORDS[step]
+            if any(kw in message for kw in expected["positive"]):
+                score += 0.2
+
+        # 5. 行動動詞スコア（HOWステップのみ、最大0.1）
+        if step == "how" and self._has_action_expression(message):
+            score += 0.1
+
+        return min(score, 1.0)
+
+    def _has_deadline_expression(self, message: str) -> bool:
+        """期限表現があるかチェック（v1.7新規）"""
+        deadline_patterns = [
+            r'\d+月', r'\d+日', r'\d+週',  # 数字+単位
+            r'今月', r'来月', r'今週', r'来週',  # 相対期限
+            r'月末', r'週末', r'年末', r'期末',  # 期限表現
+            r'まで', r'期限', r'締め切り', r'締切',  # 期限キーワード
+            r'〜までに', r'～までに',  # パターン
+        ]
+        return any(re.search(pattern, message) for pattern in deadline_patterns)
+
+    def _has_action_expression(self, message: str) -> bool:
+        """行動表現があるかチェック（v1.7新規）"""
+        action_patterns = [
+            r'する', r'やる', r'行う', r'実施',
+            r'毎日', r'毎週', r'毎朝', r'毎晩',
+            r'週に\d+', r'日に\d+', r'月に\d+',
+            r'\d+回', r'\d+件', r'\d+分',
+            r'続ける', r'習慣', r'ルーティン',
+        ]
+        return any(re.search(pattern, message) for pattern in action_patterns)
 
     def _register_goal(self, conn, session: Dict[str, Any]) -> str:
         """
@@ -655,7 +969,7 @@ class GoalSettingDialogue:
 
     def _process_step(self, conn, session: Dict[str, Any], user_message: str) -> Dict[str, Any]:
         """
-        現在のステップを処理
+        現在のステップを処理（v1.7拡張）
         """
         session_id = session["id"]
         current_step = session["current_step"]
@@ -667,8 +981,16 @@ class GoalSettingDialogue:
             # メッセージがない場合は現在の質問を再表示
             return self._get_current_question(session)
 
-        # パターン検出
-        pattern, evaluation = self._detect_pattern(user_message, current_step)
+        # v1.7: コンテキスト情報を構築
+        context = {
+            "retry_count": step_attempt - 1,  # 0-indexed
+            "why_answer": session.get("why_answer"),
+            "what_answer": session.get("what_answer"),
+            "session_id": session_id,
+        }
+
+        # パターン検出（v1.7: コンテキスト付き）
+        pattern, evaluation = self._detect_pattern(user_message, current_step, context)
         print(f"   Detected pattern: {pattern}, evaluation: {evaluation}")
 
         # メンタルヘルス懸念の場合は特別処理
@@ -695,14 +1017,21 @@ class GoalSettingDialogue:
 
         # NGパターンの場合
         if pattern != "ok":
-            # リトライ上限チェック
-            if step_attempt >= MAX_RETRY_COUNT:
+            # v1.7: help_question/help_confused はリトライ上限に含めない
+            is_help_request = pattern.startswith("help_question_") or pattern.startswith("help_confused_")
+
+            # リトライ上限チェック（ヘルプ要求は除く）
+            if not is_help_request and step_attempt >= MAX_RETRY_COUNT:
                 # 上限に達したら受け入れて次へ進む
                 return self._accept_and_proceed(conn, session, user_message, current_step,
                                                pattern, evaluation, step_attempt)
 
-            # フィードバックを返す
-            response = self._get_feedback_response(pattern, user_message, session)
+            # フィードバックを返す（v1.7: step, step_attempt追加）
+            response = self._get_feedback_response(
+                pattern, user_message, session,
+                step=current_step,
+                step_attempt=step_attempt
+            )
             self._log_interaction(
                 conn, session_id, current_step,
                 user_message, response,
@@ -795,23 +1124,127 @@ class GoalSettingDialogue:
         }
 
     def _get_feedback_response(self, pattern: str, user_message: str,
-                               session: Dict[str, Any]) -> str:
-        """パターンに応じたフィードバックを返す"""
-        # Noneチェック
-        what_answer = session.get("what_answer") or ""
+                               session: Dict[str, Any],
+                               step: str = None,
+                               step_attempt: int = 1) -> str:
+        """
+        パターンに応じたフィードバックを返す（v1.7拡張）
 
+        Args:
+            pattern: 検出されたパターン
+            user_message: ユーザーのメッセージ
+            session: セッション情報
+            step: 現在のステップ
+            step_attempt: 試行回数
+        """
+        # Noneチェック
+        why_answer = session.get("why_answer") or ""
+        what_answer = session.get("what_answer") or ""
+        user_answer = user_message[:50] if user_message else ""
+
+        # v1.7: WHY/WHAT回答のサマリー（help_confused用）
+        why_summary = why_answer[:30] + "..." if len(why_answer) > 30 else why_answer
+        what_summary = what_answer[:30] + "..." if len(what_answer) > 30 else what_answer
+
+        # v1.7: ステップ別のガイダンス（too_short用）
+        step_guidance = self._get_step_guidance(step)
+        step_hint = self._get_step_hint(step)
+
+        # =====================================================
+        # v1.7: 新しいテンプレートの処理
+        # =====================================================
+
+        # 質問対応テンプレート
+        if pattern == "help_question_why" and "help_question_why" in TEMPLATES:
+            return TEMPLATES["help_question_why"].format(user_name=self.user_name)
+
+        if pattern == "help_question_what" and "help_question_what" in TEMPLATES:
+            return TEMPLATES["help_question_what"].format(user_name=self.user_name)
+
+        if pattern == "help_question_how" and "help_question_how" in TEMPLATES:
+            return TEMPLATES["help_question_how"].format(user_name=self.user_name)
+
+        # 困惑対応テンプレート
+        if pattern == "help_confused_why" and "help_confused_why" in TEMPLATES:
+            return TEMPLATES["help_confused_why"].format(user_name=self.user_name)
+
+        if pattern == "help_confused_what" and "help_confused_what" in TEMPLATES:
+            return TEMPLATES["help_confused_what"].format(
+                user_name=self.user_name,
+                why_summary=why_summary
+            )
+
+        if pattern == "help_confused_how" and "help_confused_how" in TEMPLATES:
+            return TEMPLATES["help_confused_how"].format(
+                user_name=self.user_name,
+                what_summary=what_summary
+            )
+
+        # 極端に短い回答
+        if pattern == "too_short" and "too_short" in TEMPLATES:
+            return TEMPLATES["too_short"].format(
+                user_name=self.user_name,
+                user_answer=user_answer,
+                step_guidance=step_guidance
+            )
+
+        # v1.7: リトライ回数に応じたトーン変更
+        if step_attempt >= 3 and "retry_accepting" in TEMPLATES:
+            # 3回目以降は受け入れ準備
+            return TEMPLATES["retry_accepting"].format(
+                user_name=self.user_name,
+                user_answer=user_answer
+            )
+
+        if step_attempt == 2 and "retry_gentle" in TEMPLATES:
+            # 2回目は優しいトーン
+            return TEMPLATES["retry_gentle"].format(
+                user_name=self.user_name,
+                step_hint=step_hint
+            )
+
+        # =====================================================
+        # 既存テンプレートの処理
+        # =====================================================
         if pattern in TEMPLATES:
             return TEMPLATES[pattern].format(
                 user_name=self.user_name,
-                user_answer=user_message[:50] if user_message else "",
+                user_answer=user_answer,
                 what_answer=what_answer[:50]
             )
 
         # デフォルトのフィードバック
         return TEMPLATES["ng_abstract"].format(
             user_name=self.user_name,
-            user_answer=user_message[:50]
+            user_answer=user_answer
         )
+
+    def _get_step_guidance(self, step: str) -> str:
+        """ステップ別のガイダンスを返す（v1.7新規）"""
+        guidance = {
+            "why": "仕事を通じて、どんな自分になりたいか教えてほしいウル🐺",
+            "what": "具体的に何を達成したいか、数字や期限を入れて教えてほしいウル🐺",
+            "how": "毎日・毎週どんな行動をするか教えてほしいウル🐺",
+        }
+        return guidance.get(step, "もう少し詳しく教えてほしいウル🐺")
+
+    def _get_step_hint(self, step: str) -> str:
+        """ステップ別のヒントを返す（v1.7新規）"""
+        hints = {
+            "why": """例えば...
+• 「チームに貢献できる人になりたい」
+• 「お客様に喜んでもらえる仕事がしたい」
+• 「成長して新しいことにチャレンジしたい」""",
+            "what": """例えば...
+• 「今月の売上を〇〇円にしたい」
+• 「新規顧客を〇件獲得したい」
+• 「〇月までにプロジェクトを完了させたい」""",
+            "how": """例えば...
+• 「毎日〇〇をする」
+• 「週に〇回△△をする」
+• 「毎朝/毎晩〇〇を続ける」""",
+        }
+        return hints.get(step, "具体的に教えてほしいウル🐺")
 
     def _get_current_question(self, session: Dict[str, Any]) -> Dict[str, Any]:
         """現在のステップの質問を返す"""

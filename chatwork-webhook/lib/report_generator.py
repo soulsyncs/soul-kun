@@ -123,16 +123,16 @@ class DailyReportGenerator:
         with self.pool.connect() as conn:
             result = conn.execute(text("""
                 SELECT
-                    DATE(period_end) as summary_date,
+                    DATE(conversation_end) as summary_date,
                     key_topics,
                     mentioned_persons,
                     mentioned_tasks,
-                    summary,
+                    summary_text,
                     message_count
                 FROM conversation_summaries
-                WHERE user_id = :user_id
-                  AND DATE(period_end) = :target_date
-                ORDER BY period_end DESC
+                WHERE user_id::text = :user_id
+                  AND DATE(conversation_end) = :target_date
+                ORDER BY conversation_end DESC
             """), {
                 "user_id": user_id,
                 "target_date": target_date
@@ -403,15 +403,15 @@ class ReportDistributor:
         with self.pool.connect() as conn:
             result = conn.execute(text("""
                 SELECT DISTINCT
-                    u.chatwork_account_id,
-                    u.chatwork_user_name,
-                    u.id as user_id
-                FROM users u
+                    cu.account_id,
+                    cu.name,
+                    cu.account_id as user_id
+                FROM chatwork_users cu
                 INNER JOIN conversation_summaries cs
-                    ON cs.user_id = CONCAT('chatwork_', u.chatwork_account_id::text)
-                WHERE cs.period_end >= NOW() - INTERVAL '7 days'
-                  AND u.chatwork_account_id IS NOT NULL
-                ORDER BY u.chatwork_user_name
+                    ON cs.user_id::text = CONCAT('chatwork_', cu.account_id::text)
+                WHERE cs.conversation_end >= NOW() - INTERVAL '7 days'
+                  AND cu.account_id IS NOT NULL
+                ORDER BY cu.name
             """))
 
             rows = result.fetchall()

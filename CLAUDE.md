@@ -489,11 +489,11 @@ git status
 ✅ Phase 2 A1: パターン検知（高頻度質問検出）
 ✅ Phase 2 A2: 属人化検出（BCPリスク可視化）
 ✅ Phase 2 A3: ボトルネック検出（期限超過・タスク集中）
+✅ Phase 2 A4: 感情変化検出（メンタルヘルス可視化）
 ✅ Phase 3: ナレッジ検索（Google Drive連携）
 ✅ Phase 3.5: 組織階層連携（役職ドロップダウン）
 
 【進行中】
-🔄 Phase 2 A4: 感情変化検出
 🔄 Phase 2.5: 目標達成支援
 
 【未着手】
@@ -552,7 +552,7 @@ git status
 | 2 A1 | パターン検知 | ✅ 完了 | 2026-01-23 | v10.18.0、高頻度質問検知 |
 | 2 A2 | 属人化検出 | ✅ 完了 | 2026-01-24 | PR #49、BCPリスク可視化 |
 | 2 A3 | ボトルネック検出 | ✅ 完了 | 2026-01-24 | PR #51、期限超過・タスク集中検出 |
-| 2 A4 | 感情変化検出 | 📋 未着手 | - | 従業員メンタル変化検出 |
+| 2 A4 | 感情変化検出 | ✅ 完了 | 2026-01-24 | v10.20.0、PR #59、メンタルヘルス可視化 |
 | 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.0 対話フロー完了、通知機能未デプロイ |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
@@ -561,6 +561,37 @@ git status
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ## 直近の主な成果
+
+- **2026-01-24**: v10.20.0 Phase 2 A4 感情変化検出（PR #59）✅完了
+  - **Phase 2「気づく能力」完成**（A1〜A4全て完了）
+  - **EmotionDetectorクラス**（~900行）
+    - BaseDetectorを継承した感情変化検出器
+    - LLM（Gemini 3 Flash）による感情スコアリング（-1.0〜1.0）
+    - 4種のアラートタイプ: sudden_drop, sustained_negative, high_volatility, recovery
+    - 4段階リスクレベル: CRITICAL, HIGH, MEDIUM, LOW
+    - soulkun_insightsへの自動登録（CRITICAL/HIGH）
+  - **DBスキーマ**
+    - emotion_scores: メッセージごとの感情スコア
+    - emotion_alerts: 検出されたアラート
+    - CHECK制約でCONFIDENTIAL分類を強制
+  - **プライバシー配慮**
+    - 全データはCONFIDENTIAL分類（DB制約で強制）
+    - 管理者のみ通知（本人には直接通知しない）
+    - メッセージ本文は保存しない（統計のみ）
+  - **Cloud Function**
+    - エンドポイント: POST /emotion-detection
+    - 実行タイミング: 毎日 10:00 JST（Cloud Scheduler）
+  - **テスト**
+    - 64件のユニットテスト（全てパス）
+    - パラメータ、Enum、リスクレベル判定、InsightData生成、プライバシー検証
+  - **10の鉄則準拠**
+    - organization_idフィルタ必須
+    - SQLインジェクション対策（パラメータ化）
+    - 監査ログ対応
+  - **デプロイ待ち**
+    - DBマイグレーション実行
+    - Cloud Functionデプロイ
+    - Cloud Scheduler設定
 
 - **2026-01-24**: v10.19.3 臨機応変な対応（Adaptive Response Enhancement）🔄実装中
   - **新機能**

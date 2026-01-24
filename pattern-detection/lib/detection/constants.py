@@ -78,6 +78,28 @@ class DetectionParameters:
     # 緊急リスク判定の連続検出日数
     CRITICAL_RISK_EXCLUSIVE_DAYS: Final[int] = 30
 
+    # ================================================================
+    # A3ボトルネック検出パラメータ
+    # ================================================================
+
+    # 緊急レベルの期限超過日数
+    OVERDUE_CRITICAL_DAYS: Final[int] = 7
+
+    # 高リスクレベルの期限超過日数
+    OVERDUE_HIGH_DAYS: Final[int] = 3
+
+    # 中リスクレベルの期限超過日数
+    OVERDUE_MEDIUM_DAYS: Final[int] = 1
+
+    # 長期未完了と判定する日数
+    STALE_TASK_DAYS: Final[int] = 7
+
+    # タスク集中アラートの閾値
+    TASK_CONCENTRATION_THRESHOLD: Final[int] = 10
+
+    # 平均の何倍で集中と判定
+    CONCENTRATION_RATIO_THRESHOLD: Final[float] = 2.0
+
 
 # ================================================================
 # 質問カテゴリ
@@ -355,6 +377,9 @@ class NotificationType(str, Enum):
     # A2属人化検出: 属人化アラート
     PERSONALIZATION_ALERT = "personalization_alert"
 
+    # A3ボトルネック検出: ボトルネックアラート
+    BOTTLENECK_ALERT = "bottleneck_alert"
+
 
 # ================================================================
 # A2属人化検出: リスクレベル
@@ -394,6 +419,73 @@ class PersonalizationStatus(str, Enum):
 
     # 対応済み（ナレッジ化等）
     MITIGATED = "mitigated"
+
+    # 無視（対応不要と判断）
+    DISMISSED = "dismissed"
+
+
+# ================================================================
+# A3ボトルネック検出: ボトルネックタイプ
+# ================================================================
+
+class BottleneckType(str, Enum):
+    """
+    ボトルネックの種類
+
+    設計書: docs/08_phase2_a3_bottleneck_detection.md
+    """
+
+    # 期限超過タスク
+    OVERDUE_TASK = "overdue_task"
+
+    # 長期未完了タスク
+    STALE_TASK = "stale_task"
+
+    # タスク集中
+    TASK_CONCENTRATION = "task_concentration"
+
+    # 担当者未設定
+    NO_ASSIGNEE = "no_assignee"
+
+
+# ================================================================
+# A3ボトルネック検出: リスクレベル
+# ================================================================
+
+class BottleneckRiskLevel(str, Enum):
+    """
+    ボトルネックのリスクレベル
+
+    設計書: docs/08_phase2_a3_bottleneck_detection.md
+    """
+
+    # 緊急: 期限7日超過 / タスク20件以上集中
+    CRITICAL = "critical"
+
+    # 高リスク: 期限3日超過 / タスク15件以上集中
+    HIGH = "high"
+
+    # 中リスク: 期限1日超過 / タスク10件以上集中
+    MEDIUM = "medium"
+
+    # 低リスク: 長期未完了
+    LOW = "low"
+
+
+# ================================================================
+# A3ボトルネック検出: ステータス
+# ================================================================
+
+class BottleneckStatus(str, Enum):
+    """
+    ボトルネックアラートの対応ステータス
+    """
+
+    # アクティブ（検出中）
+    ACTIVE = "active"
+
+    # 解決済み
+    RESOLVED = "resolved"
 
     # 無視（対応不要と判断）
     DISMISSED = "dismissed"

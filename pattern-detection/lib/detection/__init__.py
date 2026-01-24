@@ -65,6 +65,10 @@ from lib.detection.constants import (
     # A2属人化検出
     PersonalizationRiskLevel,
     PersonalizationStatus,
+    # A3ボトルネック検出
+    BottleneckType,
+    BottleneckRiskLevel,
+    BottleneckStatus,
     # その他
     ErrorCode,
     IdempotencyKeyPrefix,
@@ -124,6 +128,11 @@ from lib.detection.personalization_detector import (
     PersonalizationDetector,
 )
 
+from lib.detection.bottleneck_detector import (
+    # 検出器
+    BottleneckDetector,
+)
+
 # ================================================================
 # __all__ 定義
 # ================================================================
@@ -147,6 +156,10 @@ __all__ = [
     # A2属人化検出
     "PersonalizationRiskLevel",
     "PersonalizationStatus",
+    # A3ボトルネック検出
+    "BottleneckType",
+    "BottleneckRiskLevel",
+    "BottleneckStatus",
     # その他定数
     "ErrorCode",
     "IdempotencyKeyPrefix",
@@ -173,6 +186,7 @@ __all__ = [
     # 検出器
     "PatternDetector",
     "PersonalizationDetector",
+    "BottleneckDetector",
     # ユーティリティ
     "validate_uuid",
     "truncate_text",

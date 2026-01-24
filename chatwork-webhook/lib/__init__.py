@@ -33,3 +33,18 @@ from .audit import (
 from .user_utils import (
     get_user_primary_department,
 )
+
+# v10.19.0: goal_setting追加（Phase 2.5目標設定対話フロー）
+from .goal_setting import (
+    # 定数
+    STEPS as GOAL_SETTING_STEPS,
+    STEP_ORDER as GOAL_SETTING_STEP_ORDER,
+    MAX_RETRY_COUNT as GOAL_SETTING_MAX_RETRY,
+    TEMPLATES as GOAL_SETTING_TEMPLATES,
+    PATTERN_KEYWORDS as GOAL_SETTING_PATTERN_KEYWORDS,
+    # クラス
+    GoalSettingDialogue,
+    # ヘルパー関数
+    has_active_goal_session,
+    process_goal_setting_message,
+)

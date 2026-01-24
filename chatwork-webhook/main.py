@@ -210,6 +210,27 @@ else:
 # MemoryHandlerインスタンス（後で初期化）
 _memory_handler = None
 
+# =====================================================
+# handlers/task_handler.py に分割されたタスク管理機能
+# 環境変数 USE_NEW_TASK_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_TASK_HANDLER_ENV = os.environ.get("USE_NEW_TASK_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_TASK_HANDLER_ENV:
+    try:
+        from handlers.task_handler import TaskHandler as _NewTaskHandler
+        USE_NEW_TASK_HANDLER = True
+        print("✅ handlers/task_handler.py loaded for Task management")
+    except ImportError as e:
+        print(f"⚠️ handlers/task_handler.py not available (using fallback): {e}")
+        USE_NEW_TASK_HANDLER = False
+else:
+    print("⚠️ New Task handler disabled by environment variable USE_NEW_TASK_HANDLER=false")
+    USE_NEW_TASK_HANDLER = False
+
+# TaskHandlerインスタンス（後で初期化）
+_task_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2015,8 +2036,39 @@ def is_room_member(room_id, account_id):
     return int(account_id) in member_ids
 
 
+# =====================================================
+# TaskHandler初期化（v10.24.4）
+# =====================================================
+def _get_task_handler():
+    """TaskHandlerのシングルトンインスタンスを取得"""
+    global _task_handler
+    if _task_handler is None and USE_NEW_TASK_HANDLER:
+        _task_handler = _NewTaskHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            call_chatwork_api_with_retry=call_chatwork_api_with_retry,
+            extract_task_subject=extract_task_subject if USE_TEXT_UTILS_LIB else None,
+            clean_chatwork_tags=clean_chatwork_tags if USE_TEXT_UTILS_LIB else None,
+            prepare_task_display_text=prepare_task_display_text if USE_TEXT_UTILS_LIB else None,
+            validate_summary=validate_summary if USE_TEXT_UTILS_LIB else None,
+            get_user_primary_department=lib_get_user_primary_department if USE_USER_UTILS_LIB else None,
+            use_text_utils=USE_TEXT_UTILS_LIB
+        )
+    return _task_handler
+
+
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
-    """ChatWork APIでタスクを作成（リトライ機構付き）"""
+    """
+    ChatWork APIでタスクを作成（リトライ機構付き）
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.create_chatwork_task(room_id, task_body, assigned_to_account_id, limit)
+
+    # フォールバック: 旧実装
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
 
@@ -2047,7 +2099,17 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
 
 
 def complete_chatwork_task(room_id, task_id):
-    """ChatWork APIでタスクを完了にする（リトライ機構付き）"""
+    """
+    ChatWork APIでタスクを完了にする（リトライ機構付き）
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.complete_chatwork_task(room_id, task_id)
+
+    # フォールバック: 旧実装
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks/{task_id}/status"
 
@@ -2157,6 +2219,8 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                           enable_dept_filter=False, organization_id=None, search_all_rooms=False):
     """DBからタスクを検索
 
+    v10.24.4: handlers/task_handler.py に分割
+
     Args:
         room_id: チャットルームID（search_all_rooms=Trueの場合は無視）
         assigned_to_account_id: 担当者のChatWorkアカウントID
@@ -2166,6 +2230,16 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
         organization_id: 組織ID（部署フィルタ有効時に必要）
         search_all_rooms: True=全ルームからタスクを検索（v10.22.0 BUG-001修正）
     """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.search_tasks_from_db(
+            room_id, assigned_to_account_id, assigned_by_account_id, status,
+            enable_dept_filter, organization_id, search_all_rooms,
+            get_user_id_from_chatwork_account, get_accessible_departments
+        )
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -2238,7 +2312,17 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
 
 
 def update_task_status_in_db(task_id, status):
-    """DBのタスクステータスを更新"""
+    """
+    DBのタスクステータスを更新
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.update_task_status_in_db(task_id, status)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -2284,7 +2368,17 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
 
     ★★★ v10.18.1: summary生成機能追加 ★★★
     タスク作成時にsummaryを自動生成して保存
+
+    v10.24.4: handlers/task_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.save_chatwork_task_to_db(
+            task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time
+        )
+
+    # フォールバック: 旧実装
     try:
         # =====================================================
         # v10.18.1: summary生成
@@ -2370,7 +2464,9 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
 def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event_data, success=True, error_message=None, event_subtype=None):
     """
     分析用イベントログを記録
-    
+
+    v10.24.4: handlers/task_handler.py に委譲（フォールバック付き）
+
     Args:
         event_type: イベントタイプ（'task_created', 'memory_saved', 'memory_queried', 'general_chat'等）
         actor_account_id: 実行者のChatWork account_id
@@ -2380,17 +2476,32 @@ def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event
         success: 成功したかどうか
         error_message: エラーメッセージ（失敗時）
         event_subtype: 詳細分類（オプション）
-    
+
     Note:
         この関数はエラーが発生しても例外を投げない（処理を止めない）
         ログ記録は「あったら嬉しい」レベルの機能であり、本体処理を妨げない
     """
+    handler = _get_task_handler()
+    if handler:
+        handler.log_analytics_event(
+            event_type=event_type,
+            actor_account_id=actor_account_id,
+            actor_name=actor_name,
+            room_id=room_id,
+            event_data=event_data,
+            success=success,
+            error_message=error_message,
+            event_subtype=event_subtype
+        )
+        return
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO analytics_events 
+                    INSERT INTO analytics_events
                     (event_type, event_subtype, actor_account_id, actor_name, room_id, event_data, success, error_message)
                     VALUES (:event_type, :event_subtype, :actor_id, :actor_name, :room_id, :event_data, :success, :error_message)
                 """),

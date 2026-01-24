@@ -540,7 +540,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-24 17:04 JST**
+**最終更新: 2026-01-24 17:15 JST**
 
 ## Phase一覧と状態
 
@@ -552,16 +552,131 @@ git status
 | 2 A1 | パターン検知 | ✅ 完了 | 2026-01-23 | v10.18.0、高頻度質問検知 |
 | 2 A2 | 属人化検出 | ✅ 完了 | 2026-01-24 | PR #49、BCPリスク可視化 |
 | 2 A3 | ボトルネック検出 | ✅ 完了 | 2026-01-24 | PR #51、期限超過・タスク集中検出 |
-| 2 A4 | 感情変化検出 | ✅ 完了 | 2026-01-24 | v10.20.0、PR #59、メンタルヘルス可視化 |
-| 2 B | 覚える能力 | ✅ 完了 | 2026-01-24 | PR #62、会話サマリー・嗜好学習・知識蓄積・検索 |
-| 2.5 | 目標達成支援 | 🔄 進行中 | - | v10.19.4 対話フロー完了、PR #64 Memory統合完了 |
+| 2 A4 | 感情変化検出 | ✅ 完了 | 2026-01-24 | v10.20.0、PR #59、**本番デプロイ完了**（emotion-detection-daily 10:00 JST）|
+| 2 B | 覚える能力 | ✅ 完了 | 2026-01-24 | PR #62、**DBマイグレーション完了**（4テーブル） |
+| 2.5 | 目標達成支援 | ✅ 完了 | 2026-01-24 | v10.19.4、PR #64、**DBマイグレーション完了**（goal_setting_user_patterns） |
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-19 | 6段階権限、役職ドロップダウン |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化 |
 | 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
+## 本番環境インフラ状態（2026-01-24 17:10 JST時点）
+
+### Cloud Functions（18個）
+
+| 関数名 | 状態 | 用途 | 最終更新 |
+|--------|------|------|----------|
+| chatwork-webhook | ACTIVE | メインWebhook | 2026-01-24 12:44 |
+| chatwork-main | ACTIVE | Chatwork API | 2026-01-24 11:18 |
+| remind-tasks | ACTIVE | タスクリマインド | 2026-01-24 11:22 |
+| sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-24 11:54 |
+| check-reply-messages | ACTIVE | 返信チェック | 2026-01-24 11:23 |
+| cleanup-old-data | ACTIVE | 古いデータ削除 | 2026-01-24 11:25 |
+| **pattern-detection** | **ACTIVE** | **A1〜A4検知統合** | **2026-01-24 17:03** |
+| personalization-detection | ACTIVE | A2属人化検出 | 2026-01-24 10:28 |
+| bottleneck-detection | ACTIVE | A3ボトルネック検出 | 2026-01-24 11:28 |
+| weekly-report | ACTIVE | 週次レポート | 2026-01-24 08:44 |
+| goal-daily-check | ACTIVE | 目標デイリーチェック | 2026-01-24 11:58 |
+| goal-daily-reminder | ACTIVE | 目標リマインド | 2026-01-24 11:59 |
+| goal-morning-feedback | ACTIVE | 朝のフィードバック | 2026-01-24 12:00 |
+| goal-consecutive-unanswered | ACTIVE | 連続未回答検出 | 2026-01-24 12:01 |
+| watch_google_drive | ACTIVE | Google Drive監視 | 2026-01-21 17:16 |
+| sync-room-members | ACTIVE | ルームメンバー同期 | 2026-01-18 13:52 |
+| update-schema | ACTIVE | スキーマ更新 | 2025-12-25 11:51 |
+| schema-patch | FAILED | （廃止予定） | 2025-12-25 12:01 |
+
+### Cloud Scheduler（19個）
+
+| ジョブ名 | スケジュール | 状態 | 用途 |
+|----------|--------------|------|------|
+| check-reply-messages-job | */5 * * * * | ENABLED | 5分毎返信チェック |
+| sync-chatwork-tasks-job | 0 * * * * | ENABLED | 毎時タスク同期 |
+| sync-done-tasks-job | 0 */4 * * * | ENABLED | 4時間毎完了タスク同期 |
+| remind-tasks-job | 30 8 * * * | ENABLED | 毎日 08:30 リマインド |
+| cleanup-old-data-job | 0 3 * * * | ENABLED | 毎日 03:00 クリーンアップ |
+| **personalization-detection-daily** | **0 6 * * *** | **ENABLED** | **毎日 06:00 A2属人化検出** |
+| **bottleneck-detection-daily** | **0 8 * * *** | **ENABLED** | **毎日 08:00 A3ボトルネック検出** |
+| **emotion-detection-daily** | **0 10 * * *** | **ENABLED** | **毎日 10:00 A4感情変化検出** |
+| **pattern-detection-hourly** | **15 * * * *** | **ENABLED** | **毎時15分 A1パターン検知** |
+| weekly-report-monday | 0 9 * * 1 | ENABLED | 毎週月曜 09:00 週次レポート |
+| goal-daily-check-job | 0 17 * * * | ENABLED | 毎日 17:00 目標チェック |
+| goal-daily-reminder-job | 0 18 * * * | ENABLED | 毎日 18:00 目標リマインド |
+| goal-morning-feedback-job | 0 8 * * * | ENABLED | 毎日 08:00 朝フィードバック |
+| goal-consecutive-unanswered-job | 0 9 * * * | ENABLED | 毎日 09:00 連続未回答チェック |
+| daily-reminder-job | 0 18 * * * | ENABLED | 毎日 18:00 デイリーリマインド |
+| weekly-summary-job | 0 18 * * 5 | ENABLED | 毎週金曜 18:00 週次サマリー |
+| weekly-summary-manager-job | 5 18 * * 5 | ENABLED | 毎週金曜 18:05 マネージャーサマリー |
+| sync-room-members-job | 0 8 * * 1 | ENABLED | 毎週月曜 08:00 メンバー同期 |
+| soulkun-task-polling | */5 * * * * | PAUSED | （一時停止中） |
+
+### Phase 2関連DBテーブル（13テーブル）
+
+| テーブル名 | カラム数 | インデックス数 | レコード数 | Phase |
+|------------|----------|----------------|------------|-------|
+| question_patterns | 21 | 7 | 0 | A1 |
+| soulkun_insights | 26 | 8 | 89 | A1〜A4 |
+| soulkun_weekly_reports | 20 | 4 | 0 | A1 |
+| emotion_scores | 14 | 6 | 0 | A4 |
+| emotion_alerts | 26 | 8 | 0 | A4 |
+| conversation_summaries | 14 | 4 | 0 | B1 |
+| user_preferences | 12 | 5 | 0 | B2 |
+| organization_auto_knowledge | 20 | 6 | 0 | B3 |
+| conversation_index | 13 | 6 | 0 | B4 |
+| goal_setting_sessions | 16 | 6 | 1 | 2.5 |
+| goal_setting_logs | 14 | 7 | 3 | 2.5 |
+| goal_setting_patterns | 15 | 5 | 10 | 2.5 |
+| goal_setting_user_patterns | 18 | 5 | 0 | 2.5+B |
+
+---
+
 ## 直近の主な成果
+
+- **2026-01-24 17:04 JST**: Phase 2 A4 + Phase 2.5 本番デプロイ完了（PR #66）✅
+  - **実施者**: Claude Code
+  - **作業内容**:
+    1. **DBマイグレーション - Phase 2 A4 感情変化検出**
+       - `emotion_scores`テーブル作成（14カラム、6インデックス）
+         - id, organization_id, message_id, room_id, user_id
+         - sentiment_score (-1.0〜1.0), sentiment_label, confidence
+         - detected_emotions (TEXT[]), analysis_model
+         - message_time, analyzed_at, classification, created_at
+         - UNIQUE(organization_id, message_id)
+         - CHECK: classification = 'confidential' (プライバシー保護)
+       - `emotion_alerts`テーブル作成（26カラム、8インデックス）
+         - 4種のalert_type: sudden_drop, sustained_negative, high_volatility, recovery
+         - 4段階risk_level: critical, high, medium, low
+         - CHECK: classification = 'confidential' (プライバシー保護)
+       - `notification_logs` CHECK制約更新（emotion_alert追加）
+    2. **DBマイグレーション - Phase 2.5 Memory統合**
+       - `goal_setting_user_patterns`テーブル作成（18カラム、5インデックス）
+         - dominant_pattern, pattern_history (JSONB)
+         - total_sessions, completed_sessions, avg_retry_count, completion_rate
+         - why/what/how_pattern_tendency (JSONB)
+         - avg_specificity_score, preferred_feedback_style
+         - effective_retry_templates (TEXT[])
+         - UNIQUE(organization_id, user_id)
+    3. **Cloud Function再デプロイ**
+       - pattern-detection: revision 00005-koz
+       - /emotion-detectionエンドポイント追加
+       - memory=512MB, timeout=300s, max-instances=5
+    4. **Cloud Scheduler作成**
+       - emotion-detection-daily: 毎日 10:00 JST
+       - URI: https://asia-northeast1-soulkun-production.cloudfunctions.net/pattern-detection/emotion-detection
+       - body: {"dry_run": false}
+    5. **動作確認テスト**
+       - エンドポイント疎通確認: ✅成功
+       - レスポンス: {"success": true, "message": "分析対象の質問がありませんでした"}
+  - **10の鉄則準拠確認**:
+    - ✅ organization_idフィルタ: 全クエリに含まれる
+    - ✅ SQLインジェクション対策: パラメータ化クエリ使用
+    - ✅ 機密区分: emotion_*テーブルはCONFIDENTIAL強制
+    - ✅ 監査ログ対応: audit_logs連携済み
+  - **Phase 2「気づく能力」完全稼働**:
+    - A1 パターン検知: 毎時15分実行
+    - A2 属人化検出: 毎日06:00実行
+    - A3 ボトルネック検出: 毎日08:00実行
+    - A4 感情変化検出: 毎日10:00実行 ← NEW
 
 - **2026-01-24**: Phase 2.5 + B Memory統合（PR #64）✅完了
   - **GoalSettingContextEnricher**（lib/memory/goal_integration.py 396行）
@@ -641,7 +756,7 @@ git status
     - ✅ Cloud Scheduler設定（emotion-detection-daily 10:00 JST）
     - ✅ Phase 2.5 DBマイグレーション（goal_setting_user_patterns）
 
-- **2026-01-24**: v10.19.3 臨機応変な対応（Adaptive Response Enhancement）🔄実装中
+- **2026-01-24**: v10.19.3 臨機応変な対応（Adaptive Response Enhancement）（PR #58）✅完了
   - **新機能**
     - 質問検出: 「？」で終わる、「どうしたらいい」「どうすれば」等のヘルプ要求
     - 困惑検出: 「わからない」「難しい」「迷う」等、全ステップ共通

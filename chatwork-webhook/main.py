@@ -45,6 +45,21 @@ except ImportError as e:
     print(f"⚠️ lib/user_utils.py not available: {e}")
     USE_USER_UTILS_LIB = False
 
+# =====================================================
+# v10.19.0: Phase 2.5 目標設定対話フロー
+# =====================================================
+try:
+    from lib import (
+        GoalSettingDialogue,
+        has_active_goal_session,
+        process_goal_setting_message,
+    )
+    USE_GOAL_SETTING_LIB = True
+    print("✅ lib/goal_setting.py loaded for goal setting dialogue")
+except ImportError as e:
+    print(f"⚠️ lib/goal_setting.py not available: {e}")
+    USE_GOAL_SETTING_LIB = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -4108,10 +4123,12 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
 
 def handle_goal_registration(params, room_id, account_id, sender_name, context=None):
     """
-    目標登録ハンドラー（Phase 2.5）
+    目標登録ハンドラー（Phase 2.5 v1.6）
 
-    goals テーブルに目標を登録する。
-    ソウルくんのキャラクターで応答。
+    v10.19.0: WHY→WHAT→HOW の一問一答形式の目標設定対話を開始。
+    具体的なgoal_titleがある場合は直接登録（後方互換性維持）。
+
+    アチーブメント社・選択理論に基づく目標設定支援。
     """
     print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
     print(f"   params: {params}")
@@ -4129,11 +4146,29 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
         period_type = params.get("period_type", "monthly")
         deadline = params.get("deadline")
 
-        if not goal_title:
-            return {
-                "success": False,
-                "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
-            }
+        # =====================================================
+        # v10.19.0: 目標設定対話フロー
+        # =====================================================
+        # goal_titleが空または漠然としている場合は対話フローを開始
+        # 具体的な目標が指定されている場合は直接登録（後方互換性維持）
+        if not goal_title or goal_title in ["目標を設定したい", "目標を登録したい", "目標設定", "KPI設定"]:
+            if USE_GOAL_SETTING_LIB:
+                print("   → 目標設定対話フローを開始")
+                pool = get_pool()
+                result = process_goal_setting_message(
+                    pool, room_id, account_id,
+                    context.get("original_message", "") if context else ""
+                )
+                return result
+            else:
+                # lib が使えない場合は従来の応答
+                return {
+                    "success": False,
+                    "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
+                }
+
+        # 以下は具体的なgoal_titleがある場合の直接登録（後方互換性維持）
+        print(f"   → 直接目標登録: {goal_title}")
 
         # 期間を計算
         today = date.today()
@@ -5257,7 +5292,31 @@ def chatwork_webhook(request):
             send_chatwork_message(room_id, pending_response, sender_account_id, show_guide)
             update_conversation_timestamp(room_id, sender_account_id)
             return jsonify({"status": "ok"})
-        
+
+        # =====================================================
+        # v10.19.0: Phase 2.5 目標設定対話セッションのチェック
+        # =====================================================
+        # アクティブな目標設定セッションがある場合は、
+        # メッセージを目標設定対話フローにルーティングする
+        # =====================================================
+        if USE_GOAL_SETTING_LIB:
+            try:
+                pool = get_pool()
+                if has_active_goal_session(pool, room_id, sender_account_id):
+                    print(f"🎯 アクティブな目標設定セッションを検出 - 対話フローにルーティング")
+                    result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
+                    if result and result.get("success"):
+                        response_message = result.get("message", "")
+                        if response_message:
+                            show_guide = should_show_guide(room_id, sender_account_id)
+                            send_chatwork_message(room_id, response_message, sender_account_id, show_guide)
+                            update_conversation_timestamp(room_id, sender_account_id)
+                            return jsonify({"status": "ok"})
+            except Exception as e:
+                print(f"⚠️ 目標設定セッションチェックエラー（続行）: {e}")
+                import traceback
+                traceback.print_exc()
+
         # =====================================================
         # v6.9.1: ローカルコマンド判定（API制限対策）
         # =====================================================

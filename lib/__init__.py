@@ -34,7 +34,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.6.0"  # v10.18.0: Phase 2進化版 A1 パターン検出基盤追加
+__version__ = "1.7.0"  # v10.19.0: Phase 2.5 目標設定対話フロー追加
 
 # 設定
 from lib.config import (
@@ -247,6 +247,21 @@ from lib.user_utils import (
     get_user_primary_department,
 )
 
+# v10.19.0: Phase 2.5 目標設定対話フロー
+from lib.goal_setting import (
+    # 定数
+    STEPS as GOAL_SETTING_STEPS,
+    STEP_ORDER as GOAL_SETTING_STEP_ORDER,
+    MAX_RETRY_COUNT as GOAL_SETTING_MAX_RETRY,
+    TEMPLATES as GOAL_SETTING_TEMPLATES,
+    PATTERN_KEYWORDS as GOAL_SETTING_PATTERN_KEYWORDS,
+    # クラス
+    GoalSettingDialogue,
+    # ヘルパー関数
+    has_active_goal_session,
+    process_goal_setting_message,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -386,4 +401,13 @@ __all__ = [
     "WeeklyReportService",
     # v10.18.1: User Utils（Phase 3.5対応）
     "get_user_primary_department",
+    # v10.19.0: Phase 2.5 目標設定対話フロー
+    "GOAL_SETTING_STEPS",
+    "GOAL_SETTING_STEP_ORDER",
+    "GOAL_SETTING_MAX_RETRY",
+    "GOAL_SETTING_TEMPLATES",
+    "GOAL_SETTING_PATTERN_KEYWORDS",
+    "GoalSettingDialogue",
+    "has_active_goal_session",
+    "process_goal_setting_message",
 ]

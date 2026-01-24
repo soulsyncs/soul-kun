@@ -84,23 +84,31 @@ MEMORY_DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"  # ソウルシ�
 # =====================================================
 # v10.22.0: Phase 2C MVV・組織論的行動指針
 # =====================================================
-try:
-    from lib.mvv_context import (
-        MVVContext,
-        detect_ng_pattern,
-        analyze_basic_needs,
-        get_mvv_context,
-        should_flag_for_review,
-        ORGANIZATIONAL_THEORY_PROMPT,
-        RiskLevel,
-        AlertType,
-    )
-    USE_MVV_CONTEXT = True
-    print("✅ lib/mvv_context.py loaded for organizational theory guidelines")
-except ImportError as e:
-    print(f"⚠️ lib/mvv_context.py not available: {e}")
+# 環境変数 DISABLE_MVV_CONTEXT=true で無効化可能（段階的デプロイ用）
+_MVV_DISABLED_BY_ENV = os.environ.get("DISABLE_MVV_CONTEXT", "").lower() == "true"
+
+if _MVV_DISABLED_BY_ENV:
+    print("⚠️ MVV Context disabled by environment variable DISABLE_MVV_CONTEXT=true")
     USE_MVV_CONTEXT = False
-    ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
+    ORGANIZATIONAL_THEORY_PROMPT = ""
+else:
+    try:
+        from lib.mvv_context import (
+            MVVContext,
+            detect_ng_pattern,
+            analyze_basic_needs,
+            get_mvv_context,
+            should_flag_for_review,
+            ORGANIZATIONAL_THEORY_PROMPT,
+            RiskLevel,
+            AlertType,
+        )
+        USE_MVV_CONTEXT = True
+        print("✅ lib/mvv_context.py loaded for organizational theory guidelines")
+    except ImportError as e:
+        print(f"⚠️ lib/mvv_context.py not available: {e}")
+        USE_MVV_CONTEXT = False
+        ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)

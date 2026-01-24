@@ -322,6 +322,13 @@ TEMPLATES = {
 
 これでいいなら、このまま次に進もうウル！
 もし変えたい場合は、もう一度教えてほしいウル🐺✨""",
+
+    # v10.22.1 新規: セッション終了
+    "exit": """👋 目標設定を終了するウル！
+
+{user_name}さん、また目標を設定したくなったらいつでも声をかけてウル🐺✨
+
+「目標を設定したい」と言ってくれたら、いつでも始められるウル！""",
 }
 
 
@@ -366,6 +373,11 @@ PATTERN_KEYWORDS = {
     "help_confused": [
         "わからない", "わかりません", "難しい", "迷う", "悩む",
         "考え中", "思いつかない", "ピンとこない", "イメージできない"
+    ],
+    # v10.22.1 新規: 終了・キャンセルパターン
+    "exit": [
+        "終了", "やめる", "やめたい", "キャンセル", "中止", "中断",
+        "やっぱりいい", "また今度", "後で", "今日はいい", "ストップ"
     ],
 }
 
@@ -995,6 +1007,28 @@ class GoalSettingDialogue:
         if not user_message:
             # メッセージがない場合は現在の質問を再表示
             return self._get_current_question(session)
+
+        # v10.22.1: 終了コマンドのチェック（最優先）
+        for exit_keyword in PATTERN_KEYWORDS["exit"]:
+            if exit_keyword in user_message:
+                print(f"   Exit keyword detected: {exit_keyword}")
+                response = TEMPLATES["exit"].format(user_name=self.user_name)
+                self._log_interaction(
+                    conn, session_id, current_step,
+                    user_message, response,
+                    detected_pattern="exit",
+                    result="cancelled",
+                    step_attempt=step_attempt
+                )
+                # セッションをキャンセル
+                self._update_session(conn, session_id, current_step=current_step, status="cancelled")
+                return {
+                    "success": True,
+                    "message": response,
+                    "session_id": session_id,
+                    "step": current_step,
+                    "pattern": "exit"
+                }
 
         # v1.7: コンテキスト情報を構築
         context = {

@@ -373,6 +373,29 @@ class TestUtilityFunctions:
         guide = get_situation_response_guide("存在しない状況")
         assert guide is None
 
+    def test_get_situation_response_guide_high_goal(self):
+        """目標が高すぎるケースのガイド"""
+        guide = get_situation_response_guide("目標が高すぎる")
+        assert guide is not None
+        assert len(guide["steps"]) >= 5
+        assert "内発的動機" in "".join(guide["steps"])
+        assert "無理" in guide["ng"][0]  # NG発言に「無理」が含まれる
+
+    def test_get_situation_response_guide_relationship(self):
+        """人間関係の悩みケースのガイド"""
+        guide = get_situation_response_guide("人間関係の悩み")
+        assert guide is not None
+        assert "選択理論" in "".join(guide["steps"])
+        assert "関わり方" in "".join(guide["steps"])
+
+    def test_get_situation_response_guide_success(self):
+        """成功した時のケースのガイド"""
+        guide = get_situation_response_guide("成功した時")
+        assert guide is not None
+        assert "祝福" in guide["steps"][0]
+        assert "MVV" in "".join(guide["steps"])
+        assert "感謝" in "".join(guide["steps"])
+
 
 # ============================================================
 # 5. 定数・データ構造テスト

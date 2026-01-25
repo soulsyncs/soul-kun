@@ -360,7 +360,12 @@ def extract_question_text(body: str) -> str:
 @functions_framework.http
 def pattern_detection(request: Request):
     """
-    パターン検知のメインエントリポイント
+    パターン検知のメインエントリポイント（ルーター機能付き）
+
+    パスベースルーティング:
+    - /emotion-detection → emotion_detection()
+    - /weekly-report → weekly_report()
+    - その他 → A1パターン検知
 
     リクエストパラメータ:
     - hours_back: 分析対象期間（デフォルト: 1時間）
@@ -372,6 +377,18 @@ def pattern_detection(request: Request):
     - results: 分析結果のサマリー
     - timestamp: 実行日時
     """
+    # パスベースルーティング
+    path = request.path or ""
+    print(f"📍 リクエストパス: {path}")
+
+    if path.endswith("/emotion-detection"):
+        print("🔀 ルーティング: emotion_detection")
+        return emotion_detection(request)
+    elif path.endswith("/weekly-report"):
+        print("🔀 ルーティング: weekly_report")
+        return weekly_report(request)
+
+    # デフォルト: A1パターン検知
     start_time = datetime.now(timezone.utc)
     print(f"🚀 パターン検知開始: {start_time.isoformat()}")
 
@@ -489,11 +506,22 @@ def weekly_report(request: Request):
             # 週次レポートサービスを初期化
             service = WeeklyReportService(conn, org_uuid)
 
-            # レポートを生成
+            # レポートを生成（asyncio対応）
             import asyncio
-            report = asyncio.get_event_loop().run_until_complete(
-                service.generate_weekly_report()
-            )
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop and loop.is_running():
+                # 既存のループがある場合（ルーター経由で呼ばれた場合）
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as executor:
+                    future = executor.submit(asyncio.run, service.generate_weekly_report())
+                    report = future.result()
+            else:
+                # 新しいループを作成
+                report = asyncio.run(service.generate_weekly_report())
 
             if not report:
                 return jsonify({
@@ -508,9 +536,12 @@ def weekly_report(request: Request):
 
             # レポートを送信
             if not dry_run:
-                sent = asyncio.get_event_loop().run_until_complete(
-                    service.send_report(report.id, room_id=room_id)
-                )
+                if loop and loop.is_running():
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(asyncio.run, service.send_report(report.id, room_id=room_id))
+                        sent = future.result()
+                else:
+                    sent = asyncio.run(service.send_report(report.id, room_id=room_id))
                 conn.commit()
                 print(f"✅ レポート送信完了: sent={sent}")
             else:

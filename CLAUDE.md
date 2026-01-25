@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 19:20 JST**
+**最終更新: 2026-01-25 20:10 JST**
 
 ## Phase一覧と状態
 
@@ -734,7 +734,7 @@ git status
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-25 | 6段階権限、役職ドロップダウン、**96件テスト追加（PR #102）** |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化（Q3予定） |
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後（v10.22.0追加） |
-| **X** | **アナウンス機能** | **✅ マージ完了・デプロイ待ち** | **2026-01-25** | **v10.26.0、PR #127、10の鉄則完全準拠** |
+| **X** | **アナウンス機能** | **✅ 本番デプロイ完了** | **2026-01-25** | **v10.26.0、PR #127/PR #129/PR #130、revision 00141-sux** |
 | 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
@@ -830,46 +830,47 @@ git status
   - **テスト**: 55件全パス
   - **デプロイ**: chatwork-webhook 2026-01-26 18:24 UTC
 
-- **2026-01-25 19:20 JST**: Phase X アナウンス機能 マージ完了 (v10.26.0) ✅ **PR #127 マージ完了・デプロイ待ち**
+- **2026-01-25 20:10 JST**: Phase X アナウンス機能 本番デプロイ完了 (v10.26.0) ✅ **PR #127/PR #129/PR #130**
   - **実施者**: Claude Code
   - **概要**: 管理部またはカズさんがソウルくんにアナウンス業務を委任できる機能
   - **ユースケース**: 「合宿のチャットに持ち物確認してってアナウンスしといて。全員タスクで、来週金曜まで」
   - **10の鉄則完全準拠**: 全8箇所のWHEREクエリにorganization_idフィルタ追加、エラーメッセージから内部情報除去
-  - **作業内容**:
-    - **DBマイグレーション作成** (`migrations/phase_x_announcement_feature.sql`, 421行)
-      - `scheduled_announcements`: アナウンス予約・実行管理
-      - `announcement_logs`: 実行ログ（監査証跡）
-      - `announcement_patterns`: パターン検知（A1連携、3回以上で定期化提案）
-    - **AnnouncementHandler実装** (`handlers/announcement_handler.py`, ~900行)
-      - 認可チェック（管理部チャット or カズさん1on1のみ）
+  - **デプロイ実施内容**:
+    1. **DBマイグレーション** ✅ Cloud SQLで実行完了
+       - `scheduled_announcements`: アナウンス予約・実行管理
+       - `announcement_logs`: 実行ログ（監査証跡）
+       - `announcement_patterns`: パターン検知（A1連携、3回以上で定期化提案）
+    2. **chatwork-webhook デプロイ** ✅ revision 00141-sux
+       - `USE_ANNOUNCEMENT_FEATURE=true`
+       - pytz依存関係追加（PR #130で修正）
+    3. **認可ロジック修正** ✅ PR #129
+       - カズさんはどのルームからでもアナウンス可能
+       - スタッフは管理部チャットからのみ
+    4. **動作確認** ✅
+       - ログ: `✅ handlers/announcement_handler.py loaded for Announcement feature`
+  - **実装内容**:
+    - **AnnouncementHandler** (`handlers/announcement_handler.py`, ~1,371行)
+      - 認可チェック（管理者はどこからでもOK、それ以外は管理部チャットのみ）
       - 曖昧ルームマッチング（「合宿のチャット」→「2026年度 社員合宿」）
       - 確認フロー生成（送信前に確認メッセージ表示）
       - 即時/予約/繰り返し（cron式）の3種スケジュール対応
       - タスク作成（全員 or 指定者、除外者指定可）
       - パターン記録（A1連携で定期化提案）
-    - **main.py統合**
-      - Feature Flag: `USE_ANNOUNCEMENT_FEATURE`
-      - SYSTEM_CAPABILITIES: `announcement_request`追加
-      - HANDLERS: `handle_announcement_request`追加
-      - `_get_announcement_handler()`初期化関数
-    - **ユニットテスト** (`tests/test_announcement_handler.py`, 29件全パス)
   - **変更ファイル**:
     - `migrations/phase_x_announcement_feature.sql`: 新規（421行）
-    - `chatwork-webhook/handlers/announcement_handler.py`: 新規（~900行）
+    - `chatwork-webhook/handlers/announcement_handler.py`: 新規（~1,371行）
     - `chatwork-webhook/handlers/__init__.py`: エクスポート追加
     - `chatwork-webhook/main.py`: Feature Flag, CAPABILITIES, HANDLERS統合
-    - `tests/test_announcement_handler.py`: 新規（29テスト）
-  - **テスト**: 1067件全パス（29件新規追加）
+    - `chatwork-webhook/requirements.txt`: pytz>=2024.1追加
+    - `tests/test_announcement_handler.py`: 31件のユニットテスト
+  - **テスト**: 31件全パス（認可テスト含む）
   - **10の鉄則準拠**:
     - organization_id: 全テーブル・全クエリに含む
     - SQLインジェクション対策: パラメータ化クエリ使用
     - 監査ログ: announcement_logsで記録
-  - **設計書**: `/Users/kikubookair/.claude/plans/warm-snuggling-kitten.md`
-  - **次のステップ（デプロイ時）**:
-    1. DBマイグレーション実行（本番Cloud SQL）
-    2. `USE_ANNOUNCEMENT_FEATURE=true`でchatwork-webhookデプロイ
-    3. 管理部チャットからテスト（「テストルームにお知らせして」）
-    4. Cloud Scheduler設定（定期アナウンス用、5分毎ポーリング）
+  - **使い方**:
+    - カズさん: どのルームからでも「〇〇のチャットにアナウンスして」
+    - スタッフ: 管理部チャットから「〇〇のチャットにアナウンスして」
 
 - **2026-01-25 17:15 JST**: タスクsummaryバリデーション強化 (v10.25.1) ✅ **PR #118**
   - **実施者**: Claude Code

@@ -1,9 +1,9 @@
 # org-chart フロントエンド設計書
 
-**バージョン**: 1.1.0
+**バージョン**: 2.0.0
 **作成日**: 2026-01-25
-**最終更新**: 2026-01-25 13:20 JST
-**ステータス**: Phase 1完了 ✅
+**最終更新**: 2026-01-25 14:30 JST
+**ステータス**: Phase 1完了 ✅ / Phase 2-6 計画確定
 
 ---
 
@@ -279,23 +279,283 @@ POST https://soulkun-api-tzu7ftekzq-an.a.run.app/api/v1/organizations/{org_id}/s
 **PR**: https://github.com/soulsyncs/org-chart/pull/3
 **デプロイ**: X Server (sv10875.xserver.jp) に反映済み
 
-### 5.2 Phase 2: 品質向上（今週中）
+### 5.2 Phase 2: 認証・権限管理【完璧プラン】
+
+**目的**: セキュアな認証 + 将来のマルチテナント対応
 
 ```
-□ 5. role_id未設定の社員をハイライト表示
-□ 6. chatwork_account_id未設定の社員をハイライト表示
-□ 7. 「設定状況」ダッシュボードの追加
-□ 8. CSVインポートにChatWork ID列を追加
+□ 2-1. Supabase Auth導入（Google OAuth連携）
+       - Supabase Auth（Google Provider）を使用
+       - セッション管理をSupabaseに委譲
+       - 複数編集者に対応可能な設計
+
+□ 2-2. 編集者テーブル作成
+       - org_chart_editors テーブル新設
+       - organization_id, email, role で管理
+       - 将来のBPaaS対応（Phase 4）を見据えた設計
+
+□ 2-3. 権限制御
+       - org_chart_editors に登録 → 編集モード
+       - 未登録 → 閲覧モード
+       - 未ログイン → 閲覧モード
+
+□ 2-4. UI変更
+       - ヘッダーにユーザー情報表示
+       - 閲覧モード時は編集ボタン非表示
+       - ログイン促進バナー（必要時）
 ```
 
-### 5.3 Phase 3: 機能拡張（来週以降）
+**Supabaseテーブル設計**:
+```sql
+-- 編集者管理テーブル（Phase 4対応）
+CREATE TABLE org_chart_editors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id VARCHAR(50) NOT NULL DEFAULT 'org_soulsyncs',
+    email VARCHAR(255) NOT NULL,
+    role VARCHAR(20) DEFAULT 'editor',  -- 'admin', 'editor', 'viewer'
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, email)
+);
+
+-- 初期データ
+INSERT INTO org_chart_editors (email, role) VALUES
+    ('info@soulsyncs.jp', 'admin'),
+    ('kazu@soulsyncs.jp', 'admin');
+```
+
+**技術詳細**:
+```javascript
+// Supabase Auth
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+async function signInWithGoogle() {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google'
+    })
+}
+
+async function checkEditPermission(email) {
+    const { data } = await supabase
+        .from('org_chart_editors')
+        .select('role')
+        .eq('email', email)
+        .single()
+
+    return data?.role === 'admin' || data?.role === 'editor'
+}
+```
+
+### 5.3 Phase 3: ツリー表示改善
+
+**目的**: 組織階層と役職が一目で分かるように
 
 ```
-□ 9. 一括編集機能
-□ 10. 同期差分プレビュー
-□ 11. 部署コード入力欄
-□ 12. 統計グラフ強化
+□ 3-1. 役職順ソート
+       - 各部署内で役職レベル（role.level）昇順に表示
+       - 部長(level 2) → 課長(level 3) → リーダー(level 4) → 一般(level 6)
+       - 役職未設定者は最下位に表示
+
+□ 3-2. 役職名表示
+       - 社員名の横に役職名をバッジ表示
+       - 例: 「山田太郎 [部長]」
+
+□ 3-3. 兼務者表示
+       - 兼務者には「兼」バッジを表示
+       - 主所属と兼務の区別が視覚的に分かる
+       - 色分け: 主所属=黒、兼務=グレー
+
+□ 3-4. 未設定ハイライト
+       - role_id未設定 → 黄色背景 + ⚠️アイコン
+       - chatwork_account_id未設定 → 黄色背景 + ⚠️アイコン
+       - ツールチップで何が未設定か表示
 ```
+
+**表示イメージ**:
+```
+営業部
+├── 山田太郎 [部長]           ← level 2
+├── 佐藤花子 [課長]           ← level 3
+├── 鈴木一郎 [リーダー]       ← level 4
+├── 田中次郎 ⚠️               ← 役職未設定（ハイライト）
+└── 高橋三郎 [一般] [兼]      ← 兼務者
+```
+
+### 5.4 Phase 4: ドラッグ＆ドロップ強化
+
+**目的**: 直感的な組織編集
+
+```
+□ 4-1. 社員の部署間移動
+       - 社員カードをドラッグして別部署にドロップ
+       - 確認ダイアログ表示
+       - 兼務追加オプション（Shift+ドロップ）
+
+□ 4-2. 社員の並び順変更
+       - 同一部署内での上下入れ替え
+       - department_order カラムを更新
+
+□ 4-3. 部署の階層変更
+       - 部署自体をドラッグして親部署を変更
+       - 子部署も一緒に移動
+
+□ 4-4. ドラッグ中のビジュアル
+       - ドラッグ中の要素を半透明化
+       - ドロップ可能エリアをハイライト
+       - 不可エリアは×マーク表示
+```
+
+**技術詳細**:
+```javascript
+// HTML5 Drag and Drop API
+empItem.draggable = viewMode === 'edit';  // 編集モードのみ
+
+empItem.addEventListener('dragstart', (e) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/json', JSON.stringify({
+        type: 'employee',
+        id: emp.id,
+        shiftKey: e.shiftKey  // 兼務追加モード
+    }));
+});
+
+deptBox.addEventListener('drop', async (e) => {
+    const data = JSON.parse(e.dataTransfer.getData('application/json'));
+    if (data.shiftKey) {
+        await addKenmuToDepartment(data.id, dept.id);  // 兼務追加
+    } else {
+        await moveEmployeeToDepartment(data.id, dept.id);  // 移動
+    }
+});
+```
+
+### 5.5 Phase 5: 監査・履歴管理【完璧プラン追加】
+
+**目的**: 10の鉄則準拠 + 変更のロールバック機能
+
+```
+□ 5-1. 監査ログテーブル
+       - 誰が、いつ、何を変更したか記録
+       - 10の鉄則「機密情報アクセスは全て記録」準拠
+       - 将来のBPaaS監査対応
+
+□ 5-2. 変更履歴の強化
+       - 既存change_historyテーブルを拡張
+       - before/after のスナップショット保存
+       - 差分表示機能
+
+□ 5-3. ロールバック機能
+       - ワンクリックで変更を元に戻せる
+       - 複数変更の一括ロールバック
+       - ロールバック前の確認ダイアログ
+```
+
+**Supabaseテーブル設計**:
+```sql
+-- 監査ログテーブル（10の鉄則準拠）
+CREATE TABLE org_chart_audit_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id VARCHAR(50) NOT NULL DEFAULT 'org_soulsyncs',
+    user_email VARCHAR(255) NOT NULL,
+    action VARCHAR(50) NOT NULL,  -- 'create', 'update', 'delete', 'view'
+    target_type VARCHAR(50) NOT NULL,  -- 'employee', 'department'
+    target_id UUID,
+    before_data JSONB,
+    after_data JSONB,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_audit_logs_org ON org_chart_audit_logs(organization_id);
+CREATE INDEX idx_audit_logs_created ON org_chart_audit_logs(created_at DESC);
+```
+
+### 5.6 Phase 6: 品質向上・UX改善【完璧プラン】
+
+```
+□ 6-1. 設定状況ダッシュボード
+       - 設定完了率（role_id, chatwork_account_id）
+       - 未設定者一覧
+       - ワンクリックで編集画面へ
+
+□ 6-2. CSVインポート改善
+       - ChatWork ID列を追加
+       - role_id列を追加
+       - インポートプレビュー機能
+
+□ 6-3. 一括編集機能
+       - 複数社員を選択
+       - 部署一括変更
+       - role_id一括設定
+
+□ 6-4. 同期差分プレビュー
+       - ソウルくん同期前に差分を表示
+       - 追加/更新/削除の件数
+       - 詳細な変更内容確認
+
+□ 6-5. PDF/Excelエクスポート
+       - 組織図をPDFで出力
+       - 社員一覧をExcelで出力
+       - 部署別エクスポート
+
+□ 6-6. モバイル対応（レスポンシブ）
+       - スマホでの閲覧最適化
+       - タッチ操作対応
+       - 横スクロール改善
+```
+
+### 5.7 Phase 7: コードアーキテクチャ改善【完璧プラン追加】
+
+**目的**: 保守性向上 + 将来の機能拡張に備える
+
+```
+□ 7-1. モジュール分割
+       現在: app.js (3,700行の巨大ファイル)
+
+       分割後:
+       js/
+       ├── app.js           (メイン: 200行)
+       ├── auth.js          (認証: 300行)
+       ├── tree-view.js     (ツリー表示: 500行)
+       ├── card-view.js     (カード表示: 400行)
+       ├── drag-drop.js     (ドラッグ&ドロップ: 400行)
+       ├── sync.js          (ソウルくん同期: 300行)
+       ├── audit.js         (監査ログ: 200行)
+       ├── export.js        (エクスポート: 300行)
+       └── utils.js         (共通ユーティリティ: 300行)
+
+□ 7-2. ES Modules化
+       - import/export構文を使用
+       - 依存関係の明確化
+       - テスト容易性の向上
+
+□ 7-3. 定数・設定の外部化
+       - config.js に設定値を集約
+       - 環境ごとの設定切り替え可能に
+```
+
+### 5.8 実装優先順位【完璧プラン】
+
+| 順位 | Phase | 機能 | 所要時間 | 理由 |
+|------|-------|------|----------|------|
+| 1 | 2 | Supabase Auth | 4時間 | セキュリティ最優先 |
+| 2 | 3 | ツリー表示改善 | 4時間 | ユーザー要望の中心 |
+| 3 | 4 | ドラッグ&ドロップ | 4時間 | UX向上 |
+| 4 | 5 | 監査・履歴管理 | 6時間 | 10の鉄則準拠 |
+| 5 | 6 | 品質向上・UX | 8時間 | 運用効率化 |
+| 6 | 7 | コード分割 | 4時間 | 保守性向上 |
+| **合計** | | | **30時間** | **約1-2週間** |
+
+### 5.9 ランニングコスト
+
+| 項目 | 月額 | 備考 |
+|------|------|------|
+| Supabase | ¥0 | 無料枠内（500MB） |
+| Supabase Auth | ¥0 | 無料枠内 |
+| API使用料 | ¥0 | 無料枠内 |
+| **合計** | **¥0/月** | Phase 4でBPaaS展開時は¥3,800/月 |
 
 ---
 
@@ -303,14 +563,41 @@ POST https://soulkun-api-tzu7ftekzq-an.a.run.app/api/v1/organizations/{org_id}/s
 
 ### 6.1 手動テスト項目
 
+**Phase 1（完了済み）**
+| # | テスト項目 | 期待結果 | 状態 |
+|---|-----------|----------|------|
+| 1 | 社員追加（ChatWork ID入力） | Supabaseに保存 | ✅ |
+| 2 | 社員編集（ChatWork ID更新） | 既存データ維持 | ✅ |
+| 3 | ソウルくん同期 | Cloud SQLに反映 | ✅ |
+
+**Phase 2（認証）**
 | # | テスト項目 | 期待結果 |
 |---|-----------|----------|
-| 1 | 社員追加（全項目入力） | Supabaseに保存される |
-| 2 | 社員追加（ChatWork IDのみ） | エラーなく保存される |
-| 3 | 社員編集（ChatWork ID追加） | 既存データが維持される |
-| 4 | ソウルくん同期（ドライラン） | 同期件数が正しく表示される |
-| 5 | ソウルくん同期（本番） | Cloud SQLに反映される |
-| 6 | 未設定ハイライト | 赤枠で表示される |
+| 4 | info@soulsyncs.jpでログイン | 編集モードになる |
+| 5 | 他のGoogleアカウントでログイン | 閲覧モードになる |
+| 6 | ログアウト | 閲覧モードに戻る |
+| 7 | 未ログイン状態 | 閲覧モード、編集ボタン非表示 |
+
+**Phase 3（ツリー表示）**
+| # | テスト項目 | 期待結果 |
+|---|-----------|----------|
+| 8 | ツリー表示で役職順 | 部長→課長→リーダー→一般の順 |
+| 9 | 役職名バッジ表示 | 名前の横に[部長]等 |
+| 10 | 兼務者表示 | [兼]バッジが表示される |
+| 11 | 未設定ハイライト | ⚠️アイコン+黄色背景 |
+
+**Phase 4（ドラッグ＆ドロップ）**
+| # | テスト項目 | 期待結果 |
+|---|-----------|----------|
+| 12 | 社員を別部署にドラッグ | 確認後に移動される |
+| 13 | Shift+ドロップ | 兼務として追加される |
+| 14 | 閲覧モードでドラッグ | ドラッグ不可 |
+
+**Phase 5（品質向上）**
+| # | テスト項目 | 期待結果 |
+|---|-----------|----------|
+| 15 | ダッシュボード表示 | 設定完了率が正しい |
+| 16 | CSVインポート | ChatWork ID列が反映 |
 
 ### 6.2 E2Eテスト（将来）
 

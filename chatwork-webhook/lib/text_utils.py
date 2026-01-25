@@ -273,10 +273,14 @@ def validate_summary(summary: str, original_body: str) -> bool:
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False
 
-    # 5. v10.25.2: 助詞で終わる不自然な切れ方を検出（閾値を50→15に緩和）
-    #    - 元の本文が最低限の長さ（15文字以上）
-    #    - 要約が助詞で終わる
-    #    - 要約が元の本文の途中で切れている（元本文に要約テキスト+続きがある）
+    # 5. v10.25.3: 短いsummaryが助詞で終わる場合は常に無効
+    #    例: "決算書の"(4文字), "資料を"(3文字) → 明らかに途切れている
+    if len(summary) <= 10:
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary.endswith(ending):
+                return False
+
+    # 6. 長いsummaryでも、元本文の途中で切れている場合は無効
     if len(original_body) > 15:
         for ending in MID_SENTENCE_ENDINGS:
             if summary.endswith(ending):
@@ -447,7 +451,13 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False, "starts_with_greeting"
 
-    # v10.25.2: 助詞で終わる不自然な切れ方を検出（閾値を50→15に緩和）
+    # v10.25.3: 短いsummaryが助詞で終わる場合は常に無効
+    if len(summary) <= 10:
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary.endswith(ending):
+                return False, "short_particle_ending"
+
+    # 長いsummaryでも、元本文の途中で切れている場合は無効
     if len(original_body) > 15:
         for ending in MID_SENTENCE_ENDINGS:
             if summary.endswith(ending):

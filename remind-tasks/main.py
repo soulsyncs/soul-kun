@@ -1504,11 +1504,11 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     summary = lib_prepare_task_display_text(body, max_length=50)
                 if not lib_validate_summary(summary, body):
                     cleaned = lib_clean_chatwork_tags(body)
-                    summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                    summary = lib_prepare_task_display_text(cleaned, max_length=40)
                 print(f"📝 summary生成成功: {summary}")
             except Exception as e:
                 print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
-                summary = body[:40] + "..." if body and len(body) > 40 else body
+                summary = lib_prepare_task_display_text(body, max_length=40) if body else "（タスク内容なし）"
 
         # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
         department_id = None
@@ -3985,8 +3985,8 @@ def flush_dm_unavailable_notifications():
         task_hint = ""
         if tasks and len(tasks) > 0:
             body = tasks[0].get("body", "")
-            body_short = (body[:15] + "...") if len(body) > 15 else body
-            task_hint = f"「{body_short}」"
+            body_short = lib_prepare_task_display_text(body, max_length=25) if body else ""
+            task_hint = f"「{body_short}」" if body_short else ""
 
         message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")
 
@@ -5461,10 +5461,10 @@ def sync_chatwork_tasks(request):
                                 summary = lib_prepare_task_display_text(body, max_length=50)
                             if not lib_validate_summary(summary, body):
                                 cleaned = lib_clean_chatwork_tags(body)
-                                summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                                summary = lib_prepare_task_display_text(cleaned, max_length=40)
                         except Exception as e:
                             print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
-                            summary = body[:40] + "..." if body and len(body) > 40 else body
+                            summary = lib_prepare_task_display_text(body, max_length=40) if body else "（タスク内容なし）"
 
                     # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
                     department_id = None

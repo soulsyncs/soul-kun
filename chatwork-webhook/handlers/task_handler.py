@@ -56,6 +56,36 @@ class TaskHandler:
         self.get_user_primary_department_func = get_user_primary_department
         self.use_text_utils = use_text_utils
 
+    @staticmethod
+    def _fallback_truncate(text: str, max_length: int = 40) -> str:
+        """
+        フォールバック用の切り詰め処理
+
+        自然な位置（句点、読点、助詞の後）で切る
+
+        Args:
+            text: 切り詰める文字列
+            max_length: 最大文字数
+
+        Returns:
+            切り詰めた文字列
+        """
+        if not text:
+            return "（タスク内容なし）"
+
+        if len(text) <= max_length:
+            return text
+
+        truncated = text[:max_length]
+
+        # 句点、読点、助詞の後ろで切る
+        for sep in ["。", "、", "を", "に", "で", "が", "は", "の"]:
+            pos = truncated.rfind(sep)
+            if pos > max_length // 2:
+                return truncated[:pos + 1] + "..."
+
+        return truncated + "..."
+
     def create_chatwork_task(
         self,
         room_id: str,
@@ -361,13 +391,13 @@ class TaskHandler:
                         clean_body = body
                     summary = self.prepare_task_display_text(clean_body, max_length=40)
                     if summary == "（タスク内容なし）":
-                        summary = body[:40] if len(body) > 40 else body
+                        summary = self._fallback_truncate(body, max_length=40)
             except Exception as e:
                 print(f"⚠️ summary生成エラー（続行）: {e}")
-                summary = body[:40] if len(body) > 40 else body
+                summary = self._fallback_truncate(body, max_length=40)
         else:
             # lib未使用時のフォールバック
-            summary = body[:40] if len(body) > 40 else body
+            summary = self._fallback_truncate(body, max_length=40)
 
         return summary
 

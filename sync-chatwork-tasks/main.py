@@ -2835,7 +2835,18 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                         summary = prepare_task_display_text(clean_body, max_length=40)
                 except Exception as fallback_e:
                     print(f"⚠️ フォールバックもエラー: {fallback_e}")
-                    summary = body[:40] if len(body) > 40 else body
+                    # 最終手段: 自然な位置で切る
+                    if body and len(body) > 40:
+                        truncated = body[:40]
+                        for sep in ["。", "、", "を", "に", "で", "が", "は"]:
+                            pos = truncated.rfind(sep)
+                            if pos > 20:
+                                summary = truncated[:pos + 1] + "..."
+                                break
+                        else:
+                            summary = truncated + "..."
+                    else:
+                        summary = body if body else "（タスク内容なし）"
 
         # =====================================================
         # v10.18.1: department_id取得（Phase 3.5対応）
@@ -6075,8 +6086,8 @@ def flush_dm_unavailable_notifications():
         task_hint = ""
         if tasks and len(tasks) > 0:
             body = tasks[0].get("body", "")
-            body_short = (body[:15] + "...") if len(body) > 15 else body
-            task_hint = f"「{body_short}」"
+            body_short = lib_prepare_task_display_text(body, max_length=25) if body and USE_LIB else (body[:25] + "..." if body and len(body) > 25 else body)
+            task_hint = f"「{body_short}」" if body_short else ""
         
         message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")
     
@@ -7751,7 +7762,18 @@ def sync_chatwork_tasks(request):
                                     clean_body = clean_task_body(body)
                                     new_summary = prepare_task_display_text(clean_body, max_length=40)
                             except:
-                                new_summary = body[:40] if len(body) > 40 else body
+                                # 最終手段: 自然な位置で切る
+                                if body and len(body) > 40:
+                                    truncated = body[:40]
+                                    for sep in ["。", "、", "を", "に", "で", "が", "は"]:
+                                        pos = truncated.rfind(sep)
+                                        if pos > 20:
+                                            new_summary = truncated[:pos + 1] + "..."
+                                            break
+                                    else:
+                                        new_summary = truncated + "..."
+                                else:
+                                    new_summary = body if body else "（タスク内容なし）"
 
                     cursor.execute("""
                         UPDATE chatwork_tasks

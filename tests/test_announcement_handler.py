@@ -985,6 +985,124 @@ class TestMessageModification:
         assert "修正後メッセージ" in result
 
 
+# =====================================================
+# v10.26.3: 名前からアカウントID変換テスト
+# =====================================================
+
+class TestNameToAccountIdResolution:
+    """名前からアカウントIDへの変換テスト"""
+
+    def _create_handler_with_members(self, members):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(return_value="test-api-key"),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(return_value=members),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_exact_name_match(self):
+        """完全一致でマッチすること"""
+        members = [
+            {"account_id": 111, "name": "田中太郎"},
+            {"account_id": 222, "name": "麻美"},
+            {"account_id": 333, "name": "佐藤花子"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        result = handler._match_name_to_member("麻美", members)
+        assert result is not None
+        assert result["account_id"] == 222
+
+    def test_partial_name_match(self):
+        """部分一致でマッチすること（名前に含まれる）"""
+        members = [
+            {"account_id": 111, "name": "田中 太郎"},
+            {"account_id": 222, "name": "鈴木 麻美"},
+            {"account_id": 333, "name": "佐藤 花子"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        result = handler._match_name_to_member("麻美", members)
+        assert result is not None
+        assert result["account_id"] == 222
+
+    def test_name_with_honorific(self):
+        """敬称付きでもマッチすること"""
+        members = [
+            {"account_id": 111, "name": "田中太郎"},
+            {"account_id": 222, "name": "麻美"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        result = handler._match_name_to_member("麻美さん", members)
+        assert result is not None
+        assert result["account_id"] == 222
+
+    def test_no_match_returns_none(self):
+        """マッチしない場合はNone"""
+        members = [
+            {"account_id": 111, "name": "田中太郎"},
+            {"account_id": 222, "name": "佐藤花子"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        result = handler._match_name_to_member("山田", members)
+        assert result is None
+
+    def test_resolve_names_sets_account_ids(self):
+        """名前解決でアカウントIDが設定されること"""
+        members = [
+            {"account_id": 111, "name": "田中太郎"},
+            {"account_id": 222, "name": "麻美"},
+            {"account_id": 333, "name": "佐藤花子"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        parsed = ParsedAnnouncementRequest(
+            raw_message="テスト",
+            target_room_id=123,
+            target_room_name="テストルーム",
+            message_content="テストメッセージ",
+            create_tasks=True,
+            task_include_names=["麻美"],
+            task_assign_all=True,  # 初期値はTrue
+        )
+
+        result = handler._resolve_names_to_account_ids(parsed)
+
+        # アカウントIDが設定される
+        assert 222 in result.task_include_account_ids
+        # task_assign_all が False に変更される
+        assert result.task_assign_all is False
+
+    def test_resolve_names_multiple(self):
+        """複数名の解決"""
+        members = [
+            {"account_id": 111, "name": "田中太郎"},
+            {"account_id": 222, "name": "麻美"},
+            {"account_id": 333, "name": "佐藤花子"},
+        ]
+        handler = self._create_handler_with_members(members)
+
+        parsed = ParsedAnnouncementRequest(
+            raw_message="テスト",
+            target_room_id=123,
+            target_room_name="テストルーム",
+            message_content="テストメッセージ",
+            create_tasks=True,
+            task_include_names=["麻美", "田中"],
+        )
+
+        result = handler._resolve_names_to_account_ids(parsed)
+
+        assert 222 in result.task_include_account_ids
+        assert 111 in result.task_include_account_ids
+        assert len(result.task_include_account_ids) == 2
+
+
 class TestFollowUpModificationDetection:
     """フォローアップ応答でのメッセージ修正検出テスト"""
 

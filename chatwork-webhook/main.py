@@ -2133,7 +2133,8 @@ def _get_overdue_handler():
             get_direct_room=get_direct_room,
             get_overdue_days_func=get_overdue_days,
             admin_room_id=str(ADMIN_ROOM_ID),
-            escalation_days=ESCALATION_DAYS
+            escalation_days=ESCALATION_DAYS,
+            prepare_task_display_text=prepare_task_display_text if USE_TEXT_UTILS_LIB else None
         )
     return _overdue_handler
 

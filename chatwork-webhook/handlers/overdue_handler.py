@@ -33,7 +33,8 @@ class OverdueHandler:
         get_direct_room: Callable,
         get_overdue_days_func: Callable = None,
         admin_room_id: str = None,
-        escalation_days: int = 3
+        escalation_days: int = 3,
+        prepare_task_display_text: Callable = None
     ):
         """
         Args:
@@ -43,6 +44,7 @@ class OverdueHandler:
             get_overdue_days_func: 期限超過日数を計算する関数（オプション）
             admin_room_id: 管理部のルームID
             escalation_days: エスカレーションまでの日数
+            prepare_task_display_text: タスク本文を適切に要約する関数（オプション）
         """
         self.get_pool = get_pool
         self.get_secret = get_secret
@@ -50,9 +52,57 @@ class OverdueHandler:
         self.get_overdue_days_func = get_overdue_days_func
         self.admin_room_id = admin_room_id
         self.escalation_days = escalation_days
+        self.prepare_task_display_text = prepare_task_display_text
 
         # DM不可通知バッファ（まとめ送信用）
         self._dm_unavailable_buffer: List[Dict] = []
+
+    def _format_body_short(self, body: str, max_length: int = 40) -> str:
+        """
+        タスク本文を表示用に適切な長さに整形する
+
+        Args:
+            body: タスク本文
+            max_length: 最大文字数（デフォルト40）
+
+        Returns:
+            整形されたタスク本文
+        """
+        if not body:
+            return "（タスク内容なし）"
+
+        # 注入されたprepare_task_display_textがあれば使用
+        if self.prepare_task_display_text:
+            try:
+                return self.prepare_task_display_text(body, max_length=max_length)
+            except Exception:
+                pass  # フォールバックへ
+
+        # フォールバック: 自然な位置で切る
+        if len(body) <= max_length:
+            return body
+
+        # 句点、読点、助詞の後ろで切る（途切れ防止）
+        truncated = body[:max_length]
+
+        # 句点「。」の位置を探す
+        last_period = truncated.rfind("。")
+        if last_period > max_length // 2:
+            return truncated[:last_period + 1]
+
+        # 読点「、」の位置を探す
+        last_comma = truncated.rfind("、")
+        if last_comma > max_length // 2:
+            return truncated[:last_comma + 1] + "..."
+
+        # 助詞の後ろで切る
+        for particle in ["を", "に", "で", "が", "は", "の", "と", "へ"]:
+            pos = truncated.rfind(particle)
+            if pos > max_length // 2:
+                return truncated[:pos + 1] + "..."
+
+        # どれも見つからなければ、そのまま切って「...」を付ける
+        return truncated + "..."
 
     def get_overdue_days(self, limit_time: int) -> int:
         """
@@ -316,7 +366,7 @@ class OverdueHandler:
             overdue_days = self.get_overdue_days(task["limit_time"])
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
             requester = task.get("assigned_by_name") or "依頼者"
-            body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+            body_short = self._format_body_short(task["body"], max_length=40)
 
             message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
 
@@ -482,7 +532,7 @@ class OverdueHandler:
 
         for task in tasks:
             assignee = task.get("assigned_to_name", "担当者")
-            body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+            body_short = self._format_body_short(task["body"], max_length=40)
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
             message_lines.append(f"・「{body_short}」")
@@ -528,7 +578,7 @@ class OverdueHandler:
         for i, task in enumerate(tasks, 1):
             assignee = task.get("assigned_to_name", "担当者")
             requester = task.get("assigned_by_name", "依頼者")
-            body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+            body_short = self._format_body_short(task["body"], max_length=40)
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
             message_lines.append(f"{i}. {assignee}さん「{body_short}」")
@@ -606,7 +656,7 @@ class OverdueHandler:
         assignee_name = task_info.get("assigned_to_name", "担当者")
         assignee_id = task_info.get("assigned_to_account_id")
         requester_name = task_info.get("assigned_by_name", "依頼者")
-        body_short = (task_info["body"][:30] + "...") if len(task_info["body"]) > 30 else task_info["body"]
+        body_short = self._format_body_short(task_info["body"], max_length=40)
 
         if not self.admin_room_id:
             print("❌ admin_room_idが設定されていません")
@@ -704,7 +754,7 @@ class OverdueHandler:
                          "以下のタスクは担当者が設定されておらず、督促できません：\n"]
 
         for i, task in enumerate(tasks[:10], 1):
-            body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+            body_short = self._format_body_short(task["body"], max_length=40)
             requester = task.get("assigned_by_name") or "依頼者不明"
             overdue_days = self.get_overdue_days(task["limit_time"])
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
@@ -784,7 +834,7 @@ class OverdueHandler:
             task_hint = ""
             if tasks and len(tasks) > 0:
                 body = tasks[0].get("body", "")
-                body_short = (body[:15] + "...") if len(body) > 15 else body
+                body_short = self._format_body_short(body, max_length=25)
                 task_hint = f"「{body_short}」"
 
             message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")

@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 06:28 JST**
+**最終更新: 2026-01-26 07:15 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,20 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 07:15 JST**: タスク要約 AI summary優先使用 (v10.27.0) ✅ **PR #139 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題**: タスク検索結果で「どなたに伺うのが最適なのかわからなかため...」のように元のタスク本文がそのまま表示され、AIが生成した要約（summaryカラム）が使われていなかった
+  - **根本原因**: `handle_chatwork_task_search()`内のコメント「DBのsummaryは信頼できないため」に基づき、`summary`カラムを無視して`body`を直接切り詰めていた
+  - **修正内容**:
+    - `summary`カラムを`validate_summary()`で検証し、有効な場合は優先使用
+    - 無効な場合（NULL、挨拶のみ、途切れ）のみ`body`からフォールバック生成
+  - **変更ファイル**:
+    - `chatwork-webhook/main.py`: `handle_chatwork_task_search()`の2箇所を修正
+    - `tests/test_task_search.py`: `TestTaskSummaryDisplay`クラス追加（4件のテスト）
+  - **テスト**: 1092件全パス
+  - **デプロイ**: chatwork-webhook revision 00158-qey
+  - **10の鉄則準拠**: 既存のSQLインジェクション対策維持、後方互換性確保
 
 - **2026-01-26 06:28 JST**: アナウンス機能ルームマッチングバグ修正 (BUG-002) ✅ **PR #136 本番デプロイ完了**
   - **実施者**: Claude Code

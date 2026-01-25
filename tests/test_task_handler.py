@@ -200,9 +200,10 @@ class TestSearchTasksFromDb:
         mock_conn = MagicMock()
         mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        # v10.25.0: summaryカラムを追加（10番目の要素）
         mock_conn.execute.return_value.fetchall.return_value = [
-            ("task1", "タスク1", None, "open", "acc1", "acc2", None, "room1", "Room 1"),
-            ("task2", "タスク2", 1704067200, "open", "acc1", "acc3", "dept1", "room1", "Room 1"),
+            ("task1", "タスク1", None, "open", "acc1", "acc2", None, "room1", "Room 1", "タスク1の要約"),
+            ("task2", "タスク2", 1704067200, "open", "acc1", "acc3", "dept1", "room1", "Room 1", "タスク2の要約"),
         ]
 
         handler = TaskHandler(
@@ -218,8 +219,10 @@ class TestSearchTasksFromDb:
 
         assert len(result) == 2
         assert result[0]["task_id"] == "task1"
+        assert result[0]["summary"] == "タスク1の要約"  # v10.25.0追加
         assert result[1]["task_id"] == "task2"
         assert result[1]["department_id"] == "dept1"
+        assert result[1]["summary"] == "タスク2の要約"  # v10.25.0追加
 
     def test_search_tasks_all_rooms(self):
         """全ルームからのタスク検索（search_all_rooms=True）"""
@@ -227,9 +230,10 @@ class TestSearchTasksFromDb:
         mock_conn = MagicMock()
         mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        # v10.25.0: summaryカラムを追加（10番目の要素）
         mock_conn.execute.return_value.fetchall.return_value = [
-            ("task1", "タスク1", None, "open", "acc1", "acc2", None, "room1", "Room 1"),
-            ("task2", "タスク2", None, "open", "acc1", "acc2", None, "room2", "Room 2"),
+            ("task1", "タスク1", None, "open", "acc1", "acc2", None, "room1", "Room 1", "要約1"),
+            ("task2", "タスク2", None, "open", "acc1", "acc2", None, "room2", "Room 2", "要約2"),
         ]
 
         handler = TaskHandler(
@@ -245,6 +249,7 @@ class TestSearchTasksFromDb:
         )
 
         assert len(result) == 2
+        assert result[0]["summary"] == "要約1"  # v10.25.0追加
         # SQLにroom_idフィルタが含まれていないことを確認
         call_args = mock_conn.execute.call_args
         query_text = str(call_args[0][0])

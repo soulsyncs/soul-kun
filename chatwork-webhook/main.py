@@ -2381,9 +2381,9 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                 if user_id and organization_id:
                     accessible_dept_ids = get_accessible_departments(conn, user_id, organization_id)
 
-            # クエリ構築（v10.22.0: room_id, room_nameを追加）
+            # クエリ構築（v10.22.0: room_id, room_nameを追加、v10.25.0: summaryを追加）
             query = """
-                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name
+                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name, summary
                 FROM chatwork_tasks
             """
             params = {}
@@ -2433,7 +2433,8 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                     "assigned_by_account_id": row[5],
                     "department_id": row[6],  # Phase 3.5対応
                     "room_id": row[7],        # v10.22.0追加
-                    "room_name": row[8]       # v10.22.0追加
+                    "room_name": row[8],      # v10.22.0追加
+                    "summary": row[9]         # v10.25.0追加: AI生成の要約
                 }
                 for row in tasks
             ]
@@ -3451,6 +3452,7 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
             response += f"📁 **{room_name}**\n"
             for task in room_tasks:
                 body = task["body"]
+                summary = task.get("summary")  # v10.25.0: AI生成の要約を優先
                 limit_time = task.get("limit_time")
 
                 # 期限の表示
@@ -3462,9 +3464,12 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # タスク内容を短く表示（ChatWorkタグ除去 + 途切れ防止）
-                clean_body = clean_chatwork_tags(body)
-                body_short = prepare_task_display_text(clean_body, max_length=30)
+                # v10.25.0: summaryがあればそのまま使用、なければbodyからフォールバック生成
+                if summary:
+                    body_short = summary
+                else:
+                    clean_body = clean_chatwork_tags(body)
+                    body_short = prepare_task_display_text(clean_body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -3472,6 +3477,7 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
         # 従来の表示（単一ルーム）
         for i, task in enumerate(tasks, 1):
             body = task["body"]
+            summary = task.get("summary")  # v10.25.0: AI生成の要約を優先
             limit_time = task.get("limit_time")
 
             # 期限の表示
@@ -3483,9 +3489,12 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 except:
                     pass
 
-            # タスク内容を短く表示（ChatWorkタグ除去 + 途切れ防止）
-            clean_body = clean_chatwork_tags(body)
-            body_short = prepare_task_display_text(clean_body, max_length=30)
+            # v10.25.0: summaryがあればそのまま使用、なければbodyからフォールバック生成
+            if summary:
+                body_short = summary
+            else:
+                clean_body = clean_chatwork_tags(body)
+                body_short = prepare_task_display_text(clean_body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"
@@ -3640,75 +3649,111 @@ def parse_attribute_string(attr_str):
 
 
 def handle_save_memory(params, room_id, account_id, sender_name, context=None):
-    """人物情報を記憶するハンドラー（文字列形式と辞書形式の両方に対応）"""
+    """
+    人物情報を記憶するハンドラー（文字列形式と辞書形式の両方に対応）
+
+    v10.25.0: 提案制を追加
+    - 管理者（カズさん）からは即時保存
+    - 他のスタッフからは提案として記録し、確認後に保存
+    """
     print(f"📝 handle_save_memory 開始")
     print(f"   params: {json.dumps(params, ensure_ascii=False)}")
-    
+
     attributes = params.get("attributes", [])
     print(f"   attributes: {attributes}")
-    
+
     if not attributes:
         return "🤔 何を覚えればいいかわからなかったウル...もう少し詳しく教えてほしいウル！"
-    
+
+    # v10.25.0: 管理者判定
+    is_admin_user = is_admin(account_id)
+
     saved = []
+    proposed = []
+
+    def process_attribute(person, attr_type, attr_value):
+        """属性を処理（管理者なら即時保存、それ以外は提案）"""
+        if not person or not attr_value:
+            return False
+        if person.lower() in [bn.lower() for bn in BOT_NAME_PATTERNS]:
+            print(f"   → スキップ: ボット名パターンに一致")
+            return False
+
+        if is_admin_user:
+            # 管理者は即時保存
+            save_person_attribute(person, attr_type, attr_value, "command")
+            saved.append(f"{person}さんの{attr_type}「{attr_value}」")
+            print(f"   → 管理者: 即時保存成功: {person}さんの{attr_type}")
+        else:
+            # スタッフは提案として記録
+            # valueにJSON形式で{type, value}を保存
+            proposal_value = json.dumps({"type": attr_type, "value": attr_value}, ensure_ascii=False)
+            proposal_id = create_proposal(
+                proposed_by_account_id=account_id,
+                proposed_by_name=sender_name,
+                proposed_in_room_id=room_id,
+                category="memory",  # 人物情報用のカテゴリ
+                key=person,         # 人物名
+                value=proposal_value
+            )
+            if proposal_id:
+                # 管理者に通知（裏で）
+                try:
+                    # v10.25.0: category='memory'を渡して人物情報用メッセージに
+                    report_proposal_to_admin(proposal_id, sender_name, person, proposal_value, category="memory")
+                except Exception as e:
+                    print(f"⚠️ 管理部への報告エラー: {e}")
+                proposed.append(f"{person}さんの{attr_type}「{attr_value}」")
+                print(f"   → スタッフ: 提案として記録: {person}さんの{attr_type}, ID={proposal_id}")
+        return True
+
     for attr in attributes:
         print(f"   処理中のattr: {attr} (型: {type(attr).__name__})")
-        
+
         # ★ 文字列形式の場合はパースする
         if isinstance(attr, str):
             print(f"   → 文字列形式を検出、パース開始")
             parsed_attrs = parse_attribute_string(attr)
             print(f"   → パース結果: {parsed_attrs}")
-            
+
             for parsed in parsed_attrs:
                 person = parsed.get("person", "")
                 attr_type = parsed.get("type", "メモ")
                 attr_value = parsed.get("value", "")
                 print(f"   person='{person}', type='{attr_type}', value='{attr_value}'")
-                
-                if person and attr_value:
-                    if person.lower() not in [bn.lower() for bn in BOT_NAME_PATTERNS]:
-                        save_person_attribute(person, attr_type, attr_value, "command")
-                        saved.append(f"{person}さんの{attr_type}「{attr_value}」")
-                        print(f"   → 保存成功: {person}さんの{attr_type}")
-                    else:
-                        print(f"   → スキップ: ボット名パターンに一致")
-                else:
-                    print(f"   → スキップ: personまたはvalueが空")
+                process_attribute(person, attr_type, attr_value)
             continue
-        
+
         # ★ 辞書形式の場合は従来通り処理
         if isinstance(attr, dict):
             person = attr.get("person", "")
             attr_type = attr.get("type", "メモ")
             attr_value = attr.get("value", "")
             print(f"   person='{person}', type='{attr_type}', value='{attr_value}'")
-            
-            if person and attr_value:
-                if person.lower() not in [bn.lower() for bn in BOT_NAME_PATTERNS]:
-                    save_person_attribute(person, attr_type, attr_value, "command")
-                    saved.append(f"{person}さんの{attr_type}「{attr_value}」")
-                    print(f"   → 保存成功: {person}さんの{attr_type}")
-                else:
-                    print(f"   → スキップ: ボット名パターンに一致")
-            else:
-                print(f"   → スキップ: personまたはvalueが空")
+            process_attribute(person, attr_type, attr_value)
         else:
             print(f"   ⚠️ 未対応の型: {type(attr).__name__}")
-    
-    if saved:
-        # 分析ログ記録
+
+    # 分析ログ記録
+    if saved or proposed:
         log_analytics_event(
-            event_type="memory_saved",
+            event_type="memory_saved" if saved else "memory_proposed",
             actor_account_id=account_id,
             actor_name=sender_name,
             room_id=room_id,
             event_data={
                 "saved_items": saved,
+                "proposed_items": proposed,
                 "original_params": params
             }
         )
+
+    # レスポンス
+    if saved:
         return f"✅ 覚えたウル！📝\n" + "\n".join([f"・{s}" for s in saved])
+    elif proposed:
+        # v10.25.0: スタッフ向けメッセージ（ソウルくんが確認）
+        return f"教えてくれてありがとウル！🐺\n\nソウルくんが会社として問題ないか確認するウル！\n確認できたら覚えるウル！✨\n\n" + "\n".join([f"・{s}" for s in proposed])
     return "🤔 覚えられなかったウル..."
 
 
@@ -3897,10 +3942,11 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
                 print(f"⚠️ 管理部への報告エラー: {e}")
 
             # v6.9.1: 通知成功/失敗に応じたメッセージ
+            # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更（心理的安全性向上）
             if notified:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！\n承認されたら覚えるウル！✨"
+                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\nソウルくんが会社として問題ないか確認するウル！\n確認できたら覚えるウル！✨"
             else:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたけど、管理部への通知が失敗したウル...\nあとで再送するか、直接菊地さんに伝えてほしいウル！"
+                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたウル！\nソウルくんが確認中だから、少し待っててほしいウル！"
         else:
             return "😢 提案を記録しようとしたけどエラーが起きたウル..."
 
@@ -4193,10 +4239,11 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
             except Exception as e:
                 print(f"⚠️ 管理部への報告エラー: {e}")
 
+            # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更（心理的安全性向上）
             if notified:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！"
+                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\nソウルくんが会社として問題ないか確認するウル！"
             else:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたけど、管理部への通知が失敗したウル..."
+                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたウル！ソウルくんが確認中だから、少し待っててほしいウル！"
         else:
             return "😢 提案を記録しようとしたけどエラーが起きたウル..."
 
@@ -4313,30 +4360,54 @@ def execute_local_command(action: str, groups: tuple, account_id: str, sender_na
     return None  # マッチしなかった場合はAI司令塔に委ねる
 
 
-def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, value: str):
+def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, value: str, category: str = None):
     """
     提案を管理部に報告
     v6.9.1: ID表示、admin_notifiedフラグ更新
+    v10.25.0: category='memory'の場合は人物情報用メッセージ
 
     v10.24.2: handlers/proposal_handler.py に分割
     """
     # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
-        return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value)
+        return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value, category)
 
     # フォールバック: 旧実装
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-        
-        # v6.9.1: IDを含めて表示（ID指定承認用）
-        message = f"""📝 知識の更新提案があったウル！🐺
+
+        # v10.25.0: カテゴリに応じてメッセージを変更
+        if category == 'memory':
+            # 人物情報の場合
+            try:
+                data = json.loads(value)
+                attr_type = data.get('type', 'その他')
+                attr_value = data.get('value', value)
+                content_display = f"{key}さんの{attr_type}：{attr_value}"
+            except json.JSONDecodeError:
+                content_display = f"{key}さんの情報：{value}"
+
+            message = f"""📝 人物情報の登録提案があったウル！🐺
+
+**提案ID:** {proposal_id}
+**提案者:** {proposer_name}さん
+**内容:** 「{content_display}」
+
+ソウルくんが会社として問題ないか確認するウル！
+
+・「承認 {proposal_id}」→ 覚えるウル
+・「却下 {proposal_id}」→ 見送るウル
+・「承認待ち一覧」→ 全ての提案を確認"""
+        else:
+            # 通常の知識の場合
+            message = f"""📝 知識の更新提案があったウル！🐺
 
 **提案ID:** {proposal_id}
 **提案者:** {proposer_name}さん
 **内容:** 「{key}: {value}」
 
-[To:{ADMIN_ACCOUNT_ID}] 承認お願いするウル！
+ソウルくんが会社として問題ないか確認するウル！
 
 ・「承認 {proposal_id}」→ 反映するウル
 ・「却下 {proposal_id}」→ 見送るウル
@@ -4377,6 +4448,7 @@ def notify_proposal_result(proposal: dict, approved: bool):
     提案の結果を提案者に通知
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.25.0: category='memory'の場合は人物情報用メッセージ
     """
     # 新しいモジュールを使用
     handler = _get_proposal_handler()
@@ -4387,20 +4459,47 @@ def notify_proposal_result(proposal: dict, approved: bool):
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         room_id = proposal.get("proposed_in_room_id")
-        
+
         if not room_id:
             print("⚠️ 提案元ルームIDが不明")
             return
-        
-        if approved:
-            message = f"""✅ 提案が承認されたウル！🐺✨
 
-「{proposal['key']}: {proposal['value']}」を覚えたウル！
+        category = proposal.get("category", "")
+        key = proposal.get("key", "")
+        value = proposal.get("value", "")
+
+        # v10.25.0: カテゴリに応じてメッセージを変更
+        if category == 'memory':
+            # 人物情報の場合
+            try:
+                data = json.loads(value)
+                attr_type = data.get('type', 'その他')
+                attr_value = data.get('value', value)
+                content_display = f"{key}さんの{attr_type}「{attr_value}」"
+            except json.JSONDecodeError:
+                content_display = f"{key}さんの情報「{value}」"
+
+            if approved:
+                message = f"""✅ 人物情報の登録が承認されたウル！🐺✨
+
+{content_display}を覚えたウル！
 教えてくれてありがとウル！"""
-        else:
-            message = f"""🙏 提案は今回は見送りになったウル
+            else:
+                message = f"""🙏 人物情報の登録は今回は見送りになったウル
 
-「{proposal['key']}: {proposal['value']}」は反映しなかったウル。
+{content_display}は登録しなかったウル。
+また何かあれば教えてウル！🐺"""
+        else:
+            # 通常の知識の場合
+            if approved:
+                message = f"""✅ 提案が承認されたウル！🐺✨
+
+「{key}: {value}」を覚えたウル！
+教えてくれてありがとウル！"""
+            else:
+                message = f"""🙏 提案は今回は見送りになったウル
+
+「{key}: {value}」は反映しなかったウル。
 また何かあれば教えてウル！🐺"""
         
         url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
@@ -7390,7 +7489,8 @@ def _get_proposal_handler():
             get_secret=get_secret,
             admin_room_id=str(ADMIN_ROOM_ID),
             admin_account_id=ADMIN_ACCOUNT_ID,
-            is_admin=is_admin
+            is_admin=is_admin,
+            save_person_attribute=save_person_attribute  # v10.25.0: 人物情報提案対応
         )
     return _proposal_handler
 
@@ -7585,6 +7685,7 @@ def retry_proposal_notification(proposal_id: int):
     提案の通知を再送（v6.9.2追加）
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.25.0: category対応
     """
     # 新しいモジュールを使用
     handler = _get_proposal_handler()
@@ -7595,16 +7696,17 @@ def retry_proposal_notification(proposal_id: int):
     proposal = get_proposal_by_id(proposal_id)
     if not proposal:
         return False, f"提案ID={proposal_id}が見つからない"
-    
+
     if proposal["status"] != "pending":
         return False, f"提案ID={proposal_id}は既に処理済み（{proposal['status']}）"
-    
+
     # 再通知を実行
     success = report_proposal_to_admin(
         proposal_id,
         proposal["proposed_by_name"],
         proposal["key"],
-        proposal["value"]
+        proposal["value"],
+        proposal.get("category")  # v10.25.0: カテゴリを渡す
     )
     
     if success:
@@ -7615,9 +7717,10 @@ def retry_proposal_notification(proposal_id: int):
 
 def approve_proposal(proposal_id: int, reviewed_by: str):
     """
-    提案を承認して知識に反映
+    提案を承認して知識または人物情報に反映
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.25.0: category='memory'の場合は人物情報として保存
     """
     # 新しいモジュールを使用
     handler = _get_proposal_handler()
@@ -7634,33 +7737,48 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
                 FROM knowledge_proposals WHERE id = :id AND status = 'pending'
             """), {"id": proposal_id})
             row = result.fetchone()
-            
+
             if not row:
                 print(f"⚠️ 提案ID={proposal_id}が見つからないか、既に処理済み")
                 return False
-            
+
             category, key, value, proposed_by = row
-            
-            # 知識に反映
-            conn.execute(sqlalchemy.text("""
-                INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                ON CONFLICT (category, key) 
-                DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
-            """), {
-                "category": category,
-                "key": key,
-                "value": value,
-                "created_by": proposed_by
-            })
-            
+
+            # v10.25.0: カテゴリに応じて保存先を分岐
+            if category == 'memory':
+                # 人物情報の場合
+                try:
+                    data = json.loads(value)
+                    person_name = key
+                    attr_type = data.get('type', 'その他')
+                    attr_value = data.get('value', value)
+                    save_person_attribute(person_name, attr_type, attr_value, 'proposal')
+                    print(f"✅ 人物情報を保存: {person_name}の{attr_type}={attr_value}")
+                except json.JSONDecodeError:
+                    # JSONパース失敗時はそのまま保存
+                    save_person_attribute(key, 'その他', value, 'proposal')
+                    print(f"⚠️ JSONパース失敗、そのまま保存: {key}={value}")
+            else:
+                # 通常の知識の場合
+                conn.execute(sqlalchemy.text("""
+                    INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
+                    VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                    ON CONFLICT (category, key)
+                    DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
+                """), {
+                    "category": category,
+                    "key": key,
+                    "value": value,
+                    "created_by": proposed_by
+                })
+
             # 提案を承認済みに更新
             conn.execute(sqlalchemy.text("""
-                UPDATE knowledge_proposals 
+                UPDATE knowledge_proposals
                 SET status = 'approved', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
                 WHERE id = :id
             """), {"id": proposal_id, "reviewed_by": reviewed_by})
-        
+
         print(f"✅ 提案ID={proposal_id}を承認: {key}={value}")
         return True
     except Exception as e:

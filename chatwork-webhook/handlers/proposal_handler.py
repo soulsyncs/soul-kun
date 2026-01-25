@@ -8,6 +8,7 @@ main.pyから分割された知識提案の管理機能を提供する。
 バージョン: v10.24.2
 """
 
+import json
 import traceback
 import httpx
 import sqlalchemy
@@ -19,6 +20,8 @@ class ProposalHandler:
     知識提案の管理を行うハンドラークラス
 
     外部依存を注入することで、main.pyとの疎結合を実現。
+
+    v10.25.0: save_person_attribute依存を追加（人物情報提案対応）
     """
 
     def __init__(
@@ -27,7 +30,8 @@ class ProposalHandler:
         get_secret: Callable,
         admin_room_id: str,
         admin_account_id: str,
-        is_admin: Callable[[str], bool]
+        is_admin: Callable[[str], bool],
+        save_person_attribute: Callable[[str, str, str, str], bool] = None
     ):
         """
         Args:
@@ -36,12 +40,14 @@ class ProposalHandler:
             admin_room_id: 管理部ルームID
             admin_account_id: 管理者アカウントID
             is_admin: 管理者判定関数
+            save_person_attribute: 人物属性保存関数（v10.25.0追加）
         """
         self.get_pool = get_pool
         self.get_secret = get_secret
         self.admin_room_id = admin_room_id
         self.admin_account_id = admin_account_id
         self.is_admin = is_admin
+        self.save_person_attribute = save_person_attribute
 
     def create_proposal(
         self,
@@ -207,7 +213,9 @@ class ProposalHandler:
 
     def approve_proposal(self, proposal_id: int, reviewed_by: str) -> bool:
         """
-        提案を承認して知識に反映
+        提案を承認して知識または人物情報に反映
+
+        v10.25.0: category='memory'の場合は人物情報として保存
 
         Args:
             proposal_id: 提案ID
@@ -232,18 +240,37 @@ class ProposalHandler:
 
                 category, key, value, proposed_by = row
 
-                # 知識に反映
-                conn.execute(sqlalchemy.text("""
-                    INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                    VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                    ON CONFLICT (category, key)
-                    DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
-                """), {
-                    "category": category,
-                    "key": key,
-                    "value": value,
-                    "created_by": proposed_by
-                })
+                # v10.25.0: カテゴリに応じて保存先を分岐
+                if category == 'memory':
+                    # 人物情報の場合
+                    if self.save_person_attribute:
+                        try:
+                            data = json.loads(value)
+                            person_name = key
+                            attr_type = data.get('type', 'その他')
+                            attr_value = data.get('value', value)
+                            self.save_person_attribute(person_name, attr_type, attr_value, 'proposal')
+                            print(f"✅ 人物情報を保存: {person_name}の{attr_type}={attr_value}")
+                        except json.JSONDecodeError:
+                            # JSONパース失敗時はそのまま保存
+                            self.save_person_attribute(key, 'その他', value, 'proposal')
+                            print(f"⚠️ JSONパース失敗、そのまま保存: {key}={value}")
+                    else:
+                        print(f"⚠️ save_person_attributeが未設定のため、人物情報を保存できません")
+                        return False
+                else:
+                    # 通常の知識の場合
+                    conn.execute(sqlalchemy.text("""
+                        INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
+                        VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                        ON CONFLICT (category, key)
+                        DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
+                    """), {
+                        "category": category,
+                        "key": key,
+                        "value": value,
+                        "created_by": proposed_by
+                    })
 
                 # 提案を承認済みに更新
                 conn.execute(sqlalchemy.text("""
@@ -290,18 +317,21 @@ class ProposalHandler:
         proposal_id: int,
         proposer_name: str,
         key: str,
-        value: str
+        value: str,
+        category: str = None
     ) -> bool:
         """
         提案を管理部に報告
 
         v6.9.1: ID表示、admin_notifiedフラグ更新
+        v10.25.0: category='memory'の場合は人物情報用メッセージ
 
         Args:
             proposal_id: 提案ID
             proposer_name: 提案者の名前
             key: 提案のキー
             value: 提案の値
+            category: 提案のカテゴリ（v10.25.0追加）
 
         Returns:
             成功時True
@@ -309,13 +339,37 @@ class ProposalHandler:
         try:
             chatwork_api_token = self.get_secret("SOULKUN_CHATWORK_TOKEN")
 
-            message = f"""📝 知識の更新提案があったウル！🐺
+            # v10.25.0: カテゴリに応じてメッセージを変更
+            if category == 'memory':
+                # 人物情報の場合
+                try:
+                    data = json.loads(value)
+                    attr_type = data.get('type', 'その他')
+                    attr_value = data.get('value', value)
+                    content_display = f"{key}さんの{attr_type}：{attr_value}"
+                except json.JSONDecodeError:
+                    content_display = f"{key}さんの情報：{value}"
+
+                message = f"""📝 人物情報の登録提案があったウル！🐺
+
+**提案ID:** {proposal_id}
+**提案者:** {proposer_name}さん
+**内容:** 「{content_display}」
+
+ソウルくんが会社として問題ないか確認するウル！
+
+・「承認 {proposal_id}」→ 覚えるウル
+・「却下 {proposal_id}」→ 見送るウル
+・「承認待ち一覧」→ 全ての提案を確認"""
+            else:
+                # 通常の知識の場合
+                message = f"""📝 知識の更新提案があったウル！🐺
 
 **提案ID:** {proposal_id}
 **提案者:** {proposer_name}さん
 **内容:** 「{key}: {value}」
 
-[To:{self.admin_account_id}] 承認お願いするウル！
+ソウルくんが会社として問題ないか確認するウル！
 
 ・「承認 {proposal_id}」→ 反映するウル
 ・「却下 {proposal_id}」→ 見送るウル
@@ -353,6 +407,8 @@ class ProposalHandler:
         """
         提案の結果を提案者に通知
 
+        v10.25.0: category='memory'の場合は人物情報用メッセージ
+
         Args:
             proposal: 提案データ
             approved: 承認された場合True
@@ -365,15 +421,42 @@ class ProposalHandler:
                 print("⚠️ 提案元ルームIDが不明")
                 return
 
-            if approved:
-                message = f"""✅ 提案が承認されたウル！🐺✨
+            category = proposal.get("category", "")
+            key = proposal.get("key", "")
+            value = proposal.get("value", "")
 
-「{proposal['key']}: {proposal['value']}」を覚えたウル！
+            # v10.25.0: カテゴリに応じてメッセージを変更
+            if category == 'memory':
+                # 人物情報の場合
+                try:
+                    data = json.loads(value)
+                    attr_type = data.get('type', 'その他')
+                    attr_value = data.get('value', value)
+                    content_display = f"{key}さんの{attr_type}「{attr_value}」"
+                except json.JSONDecodeError:
+                    content_display = f"{key}さんの情報「{value}」"
+
+                if approved:
+                    message = f"""✅ 人物情報の登録が承認されたウル！🐺✨
+
+{content_display}を覚えたウル！
 教えてくれてありがとウル！"""
-            else:
-                message = f"""🙏 提案は今回は見送りになったウル
+                else:
+                    message = f"""🙏 人物情報の登録は今回は見送りになったウル
 
-「{proposal['key']}: {proposal['value']}」は反映しなかったウル。
+{content_display}は登録しなかったウル。
+また何かあれば教えてウル！🐺"""
+            else:
+                # 通常の知識の場合
+                if approved:
+                    message = f"""✅ 提案が承認されたウル！🐺✨
+
+「{key}: {value}」を覚えたウル！
+教えてくれてありがとウル！"""
+                else:
+                    message = f"""🙏 提案は今回は見送りになったウル
+
+「{key}: {value}」は反映しなかったウル。
 また何かあれば教えてウル！🐺"""
 
             url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
@@ -394,6 +477,8 @@ class ProposalHandler:
         """
         提案の通知を再送（v6.9.2追加）
 
+        v10.25.0: category対応
+
         Args:
             proposal_id: 提案ID
 
@@ -412,7 +497,8 @@ class ProposalHandler:
             proposal_id,
             proposal["proposed_by_name"],
             proposal["key"],
-            proposal["value"]
+            proposal["value"],
+            proposal.get("category")  # v10.25.0: カテゴリを渡す
         )
 
         if success:

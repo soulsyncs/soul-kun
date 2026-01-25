@@ -131,6 +131,24 @@ class OverdueHandler:
         # どれも見つからなければ、そのまま切って「...」を付ける
         return truncated + "..."
 
+    def _get_task_display_text(self, task: Dict, max_length: int = 40) -> str:
+        """
+        タスクの表示用テキストを取得（v10.25.0追加）
+
+        summaryがあればそのまま使用、なければbodyから生成
+
+        Args:
+            task: タスク情報（"summary", "body"キーを持つdict）
+            max_length: 最大文字数（summaryがない場合のフォールバック用）
+
+        Returns:
+            表示用テキスト
+        """
+        summary = task.get("summary")
+        if summary:
+            return summary
+        return self._format_body_short(task.get("body", ""), max_length=max_length)
+
     def get_overdue_days(self, limit_time: int) -> int:
         """
         期限超過日数を計算
@@ -409,7 +427,8 @@ class OverdueHandler:
             overdue_days = self.get_overdue_days(task["limit_time"])
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
             requester = task.get("assigned_by_name") or "依頼者"
-            body_short = self._format_body_short(task["body"], max_length=40)
+            # v10.25.0: summaryを優先使用
+            body_short = self._get_task_display_text(task, max_length=40)
 
             message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
 
@@ -575,7 +594,8 @@ class OverdueHandler:
 
         for task in tasks:
             assignee = task.get("assigned_to_name", "担当者")
-            body_short = self._format_body_short(task["body"], max_length=40)
+            # v10.25.0: summaryを優先使用
+            body_short = self._get_task_display_text(task, max_length=40)
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
             message_lines.append(f"・「{body_short}」")
@@ -621,7 +641,8 @@ class OverdueHandler:
         for i, task in enumerate(tasks, 1):
             assignee = task.get("assigned_to_name", "担当者")
             requester = task.get("assigned_by_name", "依頼者")
-            body_short = self._format_body_short(task["body"], max_length=40)
+            # v10.25.0: summaryを優先使用
+            body_short = self._get_task_display_text(task, max_length=40)
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
 
             message_lines.append(f"{i}. {assignee}さん「{body_short}」")
@@ -699,7 +720,8 @@ class OverdueHandler:
         assignee_name = task_info.get("assigned_to_name", "担当者")
         assignee_id = task_info.get("assigned_to_account_id")
         requester_name = task_info.get("assigned_by_name", "依頼者")
-        body_short = self._format_body_short(task_info["body"], max_length=40)
+        # v10.25.0: summaryを優先使用
+        body_short = self._get_task_display_text(task_info, max_length=40)
 
         if not self.admin_room_id:
             print("❌ admin_room_idが設定されていません")
@@ -797,7 +819,8 @@ class OverdueHandler:
                          "以下のタスクは担当者が設定されておらず、督促できません：\n"]
 
         for i, task in enumerate(tasks[:10], 1):
-            body_short = self._format_body_short(task["body"], max_length=40)
+            # v10.25.0: summaryを優先使用
+            body_short = self._get_task_display_text(task, max_length=40)
             requester = task.get("assigned_by_name") or "依頼者不明"
             overdue_days = self.get_overdue_days(task["limit_time"])
             limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
@@ -876,8 +899,8 @@ class OverdueHandler:
 
             task_hint = ""
             if tasks and len(tasks) > 0:
-                body = tasks[0].get("body", "")
-                body_short = self._format_body_short(body, max_length=25)
+                # v10.25.0: summaryを優先使用
+                body_short = self._get_task_display_text(tasks[0], max_length=25)
                 task_hint = f"「{body_short}」"
 
             message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")

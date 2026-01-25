@@ -20,7 +20,9 @@ COPY lib ./lib
 COPY api ./api
 
 # Set environment variables
-ENV PYTHONPATH=/app
+# /app: lib/ へのアクセス用
+# /app/api: api/app/ へのアクセス用（api/main.py から from app.xxx としてインポート）
+ENV PYTHONPATH=/app:/app/api
 ENV PORT=8080
 
 # Run the application

@@ -13,6 +13,9 @@ pg8000>=1.30.0
 # Google Cloud
 cloud-sql-python-connector[pg8000]>=1.5.0
 google-cloud-secret-manager>=2.18.0
+# ★ v10.25.0: lib/google_drive.py が依存
+google-api-python-client>=2.111.0
+google-auth>=2.25.0
 
 # Validation
 pydantic>=2.5.0
@@ -23,6 +26,12 @@ httpx>=0.26.0
 
 # Production Server
 gunicorn>=21.0.0
+
+# ★ v10.25.0: lib/共通ライブラリの依存関係
+# goal_notification.py (pytz)
+# business_day.py (jpholiday)
+pytz>=2024.1
+jpholiday>=0.1.9
 
 # Phase 3: Embedding & Vector Search
 # ★ v10.12.0: OpenAI → Gemini Embeddingに変更

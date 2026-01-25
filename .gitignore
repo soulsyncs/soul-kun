@@ -218,3 +218,17 @@ scripts/drive_folder_id.txt
 
 # Backup files
 *.backup.*
+
+# =====================================================
+# watch-google-drive/lib/ 一時コピーファイル
+# =====================================================
+# deploy.sh がデプロイ時に lib/ から自動コピーするファイル
+# document_processor.py のみ追跡（watch-google-drive専用の処理があるため）
+# 参考: watch-google-drive/deploy.sh の103行目
+watch-google-drive/lib/__init__.py
+watch-google-drive/lib/config.py
+watch-google-drive/lib/db.py
+watch-google-drive/lib/embedding.py
+watch-google-drive/lib/google_drive.py
+watch-google-drive/lib/pinecone_client.py
+watch-google-drive/lib/secrets.py

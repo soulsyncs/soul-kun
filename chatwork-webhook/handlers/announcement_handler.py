@@ -256,8 +256,20 @@ class AnnouncementHandler:
             if not authorized:
                 return f"🚫 {reason}"
 
-            # フォローアップ応答かチェック
+            # フォローアップ応答かチェック（コンテキスト経由）
             if context and context.get("awaiting_announcement_response"):
+                return self._handle_follow_up_response(
+                    params, room_id, account_id, sender_name, context
+                )
+
+            # DBから pending announcement をチェック（リクエスト間でのコンテキスト保持）
+            pending = self._get_pending_announcement(room_id, account_id)
+            if pending:
+                # pending announcement があればフォローアップとして処理
+                context = {
+                    "awaiting_announcement_response": True,
+                    "pending_announcement_id": str(pending["id"]),
+                }
                 return self._handle_follow_up_response(
                     params, room_id, account_id, sender_name, context
                 )
@@ -905,6 +917,44 @@ class AnnouncementHandler:
     # =========================================================================
     # DB操作
     # =========================================================================
+
+    def _get_pending_announcement(
+        self,
+        room_id: str,
+        account_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """このユーザー/ルームのpending announcementを取得"""
+        pool = self.get_pool()
+
+        try:
+            with pool.connect() as conn:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id, message_content, target_room_id, target_room_name,
+                               create_tasks, task_deadline, task_assign_all_members,
+                               created_at
+                        FROM scheduled_announcements
+                        WHERE organization_id = :org_id
+                          AND requested_by_account_id = :account_id
+                          AND requested_from_room_id = :room_id
+                          AND status = 'pending'
+                          AND created_at > NOW() - INTERVAL '30 minutes'
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                    """),
+                    {
+                        "org_id": self._organization_id,
+                        "account_id": int(account_id),
+                        "room_id": int(room_id),
+                    }
+                )
+                row = result.mappings().fetchone()
+                if row:
+                    return dict(row)
+                return None
+        except Exception as e:
+            print(f"[AnnouncementHandler] pending取得エラー: {e}")
+            return None
 
     def _save_pending_announcement(
         self,

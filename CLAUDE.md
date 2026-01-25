@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 20:10 JST**
+**最終更新: 2026-01-25 21:01 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,38 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 21:00 JST**: Phase X DBマイグレーション実行完了 ✅ **本番環境適用**
+  - **実施者**: Claude Code
+  - **背景**: PR #127〜#133はマージ・デプロイ済みだったが、DBマイグレーションが未実行だったため本番でエラー発生
+  - **エラー内容**: `relation "scheduled_announcements" does not exist`
+  - **実行内容**:
+    - Cloud SQL Proxy経由で本番DBに接続
+    - `migrations/phase_x_announcement_feature.sql`を実行
+  - **作成されたテーブル**:
+    - `scheduled_announcements`: 35カラム、5インデックス（アナウンス予約・実行管理）
+    - `announcement_logs`: 21カラム、3インデックス（実行ログ・監査証跡）
+    - `announcement_patterns`: 22カラム、3インデックス（パターン検知・A1連携）
+  - **作成されたオブジェクト**:
+    - インデックス: 15個（PK含む）
+    - トリガー: 2個（updated_at自動更新）
+    - CHECK制約: 43個
+    - 外部キー: 1個（announcement_logs → scheduled_announcements）
+  - **検証**: INSERT/SELECT/DELETE動作確認済み
+  - **10の鉄則準拠**: 全テーブルにorganization_id、監査ログ対応
+
+- **2026-01-25 20:35 JST**: PR #131〜#133 マージ完了 ✅
+  - **実施者**: Claude Code
+  - **PR一覧**:
+    - **PR #131**: CLAUDE.md Phase X本番デプロイ完了記録
+    - **PR #132**: アナウンス確認フローにタスク作成プロンプト追加
+    - **PR #133**: アナウンスフォローアップのコンテキスト永続化修正
+  - **PR #133の修正内容**:
+    - 問題: フォローアップメッセージが一般会話に流れる
+    - 原因: HTTPリクエスト間でコンテキストが保持されない
+    - 解決: `_get_pending_announcement()`でDBから30分以内のpendingを取得、ai_commander前にチェック
+  - **テスト**: 38件のユニットテスト全パス
+  - **デプロイ**: chatwork-webhook revision 00141-sux以降
 
 - **2026-01-26 18:30 JST**: タスク要約 助詞終了バグ修正 (v10.25.5) ✅ **PR #125 本番デプロイ完了**
   - **実施者**: Claude Code

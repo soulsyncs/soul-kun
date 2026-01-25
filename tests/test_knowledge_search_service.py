@@ -8,11 +8,11 @@ import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime
 
-from api.app.services.knowledge_search import (
+from app.services.knowledge_search import (
     KnowledgeSearchService,
     UserContext,
 )
-from api.app.schemas.knowledge import (
+from app.schemas.knowledge import (
     KnowledgeSearchRequest,
     KnowledgeSearchResponse,
     KnowledgeFeedbackRequest,

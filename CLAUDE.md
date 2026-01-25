@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 14:45 JST**
+**最終更新: 2026-01-25 15:30 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,27 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 15:30 JST**: タスク要約切り詰めバグ 完全修正 ✅ **PR #108, #111, #112**
+  - **実施者**: Claude Code
+  - **問題**: タスク要約が途中で切れる（`[:30]`等で雑に切り詰めていた）
+  - **作業内容**:
+    - **PR #108**: デイリーインサイト通知バグ修正
+      - 送信者がカズさんになる問題: `CHATWORK_API_TOKEN` → `SOULKUN_CHATWORK_TOKEN`
+      - `[qt][qtmeta...]`タグ表示問題: `clean_chatwork_tags()` + `prepare_task_display_text()`追加
+    - **PR #111**: chatwork-webhook タスク要約修正（6箇所）
+      - `_fallback_truncate_text()`ヘルパー関数追加
+      - 句点・読点・助詞の後ろで自然に切れるように
+    - **PR #112**: 追加修正（6箇所）
+      - 督促メッセージ、エスカレーションDM、管理部報告、期限変更通知
+  - **修正箇所合計**:
+    - chatwork-webhook/main.py: 12箇所
+    - remind-tasks/main.py: 11箇所（v10.17.2で対応済み）
+    - sync-chatwork-tasks/main.py: 8箇所（v10.17.2で対応済み）
+  - **デプロイ**:
+    - chatwork-webhook: revision 00130-daf
+    - pattern-detection: revision 00010-xxx
+  - **10の鉄則準拠**: UI表示のみ、SQL変更なし
 
 - **2026-01-25 14:45 JST**: org-chart 完璧プラン設計書 v2.0.0 ✅ **PR #109**
   - **実施者**: Claude Code

@@ -11,7 +11,10 @@ from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 
 # プロジェクトルートをパスに追加
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
+# api/app のインポート用にapiディレクトリも追加
+sys.path.insert(0, os.path.join(project_root, "api"))
 
 
 # ================================================================

@@ -6708,8 +6708,20 @@ def update_conversation_timestamp(room_id, account_id):
         print(f"会話タイムスタンプ更新エラー: {e}")
         traceback.print_exc()
 
-def send_chatwork_message(room_id, message, reply_to=None, show_guide=False):
-    """メッセージを送信（リトライ機構付き）"""
+def send_chatwork_message(room_id, message, reply_to=None, show_guide=False, return_details=False):
+    """メッセージを送信（リトライ機構付き）
+
+    Args:
+        room_id: 送信先ルームID
+        message: 送信メッセージ
+        reply_to: 返信先アカウントID（オプション）
+        show_guide: 案内文を追加するか
+        return_details: Trueの場合、message_idを含む詳細を返す（v10.26.1追加）
+
+    Returns:
+        return_details=False (デフォルト): bool - 成功/失敗
+        return_details=True: dict - {"success": bool, "message_id": str or None}
+    """
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
 
     # 案内文を追加（条件を満たす場合のみ）
@@ -6726,6 +6738,22 @@ def send_chatwork_message(room_id, message, reply_to=None, show_guide=False):
         headers={"X-ChatWorkToken": api_token},
         data={"body": message}
     )
+
+    # v10.26.1: return_details=True の場合、message_idを含む詳細を返す
+    if return_details:
+        result = {"success": False, "message_id": None}
+        if success and response and response.status_code == 200:
+            try:
+                json_data = response.json()
+                result = {
+                    "success": True,
+                    "message_id": json_data.get("message_id")
+                }
+            except Exception:
+                result = {"success": True, "message_id": None}
+        return result
+
+    # デフォルト: 後方互換性のためboolを返す
     return success and response and response.status_code == 200
 
 # ========================================

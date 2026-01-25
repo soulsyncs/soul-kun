@@ -48,6 +48,22 @@ except ImportError as e:
     USE_USER_UTILS_LIB = False
 
 # =====================================================
+# v10.26.0: 営業日判定ユーティリティ
+# =====================================================
+try:
+    from lib.business_day import (
+        is_business_day,
+        get_non_business_day_reason,
+    )
+    USE_BUSINESS_DAY_LIB = True
+    print("✅ lib/business_day.py loaded for holiday detection")
+except ImportError as e:
+    print(f"⚠️ lib/business_day.py not available: {e}")
+    USE_BUSINESS_DAY_LIB = False
+    is_business_day = None
+    get_non_business_day_reason = None
+
+# =====================================================
 # v10.19.0: Phase 2.5 目標設定対話フロー
 # =====================================================
 try:
@@ -296,6 +312,30 @@ else:
 
 # KnowledgeHandlerインスタンス（後で初期化）
 _knowledge_handler = None
+
+# =====================================================
+# v10.26.0: アナウンス機能ハンドラー（handlers/announcement_handler.py）
+# =====================================================
+# 環境変数 USE_ANNOUNCEMENT_FEATURE=false で無効化可能
+
+_USE_ANNOUNCEMENT_FEATURE_ENV = os.environ.get("USE_ANNOUNCEMENT_FEATURE", "true").lower() == "true"
+
+if _USE_ANNOUNCEMENT_FEATURE_ENV:
+    try:
+        from handlers.announcement_handler import AnnouncementHandler as _NewAnnouncementHandler
+        USE_ANNOUNCEMENT_FEATURE = True
+        print("✅ handlers/announcement_handler.py loaded for Announcement feature")
+    except ImportError as e:
+        print(f"⚠️ handlers/announcement_handler.py not available: {e}")
+        USE_ANNOUNCEMENT_FEATURE = False
+        _NewAnnouncementHandler = None
+else:
+    print("⚠️ Announcement feature disabled by environment variable USE_ANNOUNCEMENT_FEATURE=false")
+    USE_ANNOUNCEMENT_FEATURE = False
+    _NewAnnouncementHandler = None
+
+# AnnouncementHandlerインスタンス（後で初期化）
+_announcement_handler = None
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -1133,6 +1173,37 @@ SYSTEM_CAPABILITIES = {
         "handler": "handle_goal_status_check",
         "requires_confirmation": False,
         "required_data": ["sender_account_id", "sender_name"]
+    },
+
+    # =====================================================
+    # v10.26.0: アナウンス機能
+    # =====================================================
+    "announcement_request": {
+        "name": "アナウンス依頼",
+        "description": "指定したグループチャットにオールメンション（[toall]）でアナウンスを送信する。タスク一括作成や定期実行も可能。管理部チャットまたはカズさんDMからのみ使用可能。",
+        "category": "communication",
+        "enabled": True,
+        "trigger_examples": [
+            "合宿のチャットにお知らせして",
+            "開発チームに明日の予定を連絡して",
+            "全社員にタスクも振って連絡して",
+            "毎週月曜9時にチームに進捗確認を送って",
+            "総合ソウルシンクスに定期アナウンスして",
+        ],
+        "params_schema": {
+            "raw_message": {
+                "description": "ユーザーの依頼内容（そのまま渡す）",
+                "required": True,
+                "note": "ルーム名、メッセージ内容、タスク有無、期限等を含む自然言語"
+            }
+        },
+        "handler": "handle_announcement_request",
+        "requires_confirmation": True,
+        "required_data": ["sender_account_id", "sender_name", "room_id"],
+        "authorization": {
+            "rooms": [405315911],
+            "account_ids": ["1728974"]
+        }
     },
 }
 
@@ -2186,6 +2257,31 @@ def _get_knowledge_handler():
             openrouter_api_url=OPENROUTER_API_URL
         )
     return _knowledge_handler
+
+
+# =====================================================
+# AnnouncementHandler初期化（v10.26.0）
+# =====================================================
+def _get_announcement_handler():
+    """AnnouncementHandlerのシングルトンインスタンスを取得"""
+    global _announcement_handler
+    if _announcement_handler is None and USE_ANNOUNCEMENT_FEATURE:
+        _announcement_handler = _NewAnnouncementHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            call_chatwork_api_with_retry=call_chatwork_api_with_retry,
+            get_room_members=get_room_members,
+            get_all_rooms=get_all_rooms,
+            create_chatwork_task=create_chatwork_task,
+            send_chatwork_message=send_chatwork_message,
+            is_business_day=is_business_day if USE_BUSINESS_DAY_LIB else None,
+            get_non_business_day_reason=get_non_business_day_reason if USE_BUSINESS_DAY_LIB else None,
+            authorized_room_ids={405315911},  # 管理部チャット
+            admin_account_id=ADMIN_ACCOUNT_ID,
+            organization_id="org_soulsyncs",
+            kazu_dm_room_id=None,  # 後で設定
+        )
+    return _announcement_handler
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
@@ -3464,7 +3560,7 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # v10.25.4: summaryは使わず、常にprepare_task_display_text()で生成
+                # v10.25.5: summaryは使わず、常にprepare_task_display_text()で生成
                 # DBのsummaryは信頼できないため、リアルタイム生成が最も確実
                 clean_body = clean_chatwork_tags(body)
                 body_short = prepare_task_display_text(clean_body, max_length=40)
@@ -5428,6 +5524,12 @@ HANDLERS = {
     "handle_goal_registration": handle_goal_registration,
     "handle_goal_progress_report": handle_goal_progress_report,
     "handle_goal_status_check": handle_goal_status_check,
+    # v10.26.0: アナウンス機能
+    "handle_announcement_request": lambda params, room_id, account_id, sender_name, context=None: (
+        _get_announcement_handler().handle_announcement_request(
+            params, room_id, account_id, sender_name, context
+        ) if _get_announcement_handler() else "🚫 アナウンス機能は現在利用できませんウル"
+    ),
 }
 
 

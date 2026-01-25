@@ -66,14 +66,14 @@ class TestPrepareTaskDisplayText:
         result = prepare_task_display_text(text, max_length=15)
         assert len(result) <= 15
 
-    def test_truncation_at_particle(self):
-        """助詞で切れる"""
+    def test_truncation_no_particle_ending(self):
+        """v10.25.5: 助詞で終わらない（「〇〇を」「〇〇に」は意味が通じない）"""
         text = "経費精算書を確認して提出する必要があります"
         result = prepare_task_display_text(text, max_length=20)
         assert len(result) <= 20
-        # 助詞（を、に、で、と、が、は、の、へ、も）で終わるか確認
-        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も', '対応']
-        assert any(result.endswith(p) for p in particles) or result.endswith("。") or result.endswith("、")
+        # 助詞（を、に、で、と、が、は、の、へ、も）で終わらないことを確認
+        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
+        assert not any(result.endswith(p) for p in particles), f"結果が助詞で終わっている: {result}"
 
     def test_no_ellipsis(self):
         """途切れインジケータ（...）が出ない"""
@@ -290,10 +290,12 @@ class TestPrepareTaskDisplayTextNameRemoval:
 
     def test_name_with_work_schedule_removal(self):
         """勤務時間パターン付き名前の除去"""
-        text = "平賀　しおり _ 月火木金9：30～13：30（変動あり）さん いつも丁寧に"
+        text = "平賀　しおり _ 月火木金9：30～13：30（変動あり）さん いつも丁寧にありがとう"
         result = prepare_task_display_text(text, max_length=40)
         assert "平賀" not in result
-        assert "いつも丁寧に" in result
+        # v10.25.5: 「いつも丁寧に」だけで終わると「に」が助詞削除される
+        # 「いつも丁寧」が含まれていることを確認
+        assert "いつも丁寧" in result
 
     def test_name_in_content_preserved(self):
         """本文中の名前は保持"""

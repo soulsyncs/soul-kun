@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 16:00 JST**
+**最終更新: 2026-01-25 18:30 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,30 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 18:30 JST**: 人物情報の提案制 & タスク要約改善 (v10.25.0) ✅ **PR #115**
+  - **実施者**: Claude Code
+  - **作業内容**:
+    - **タスク要約改善**: DBの`summary`カラム（AI生成）を優先使用
+      - 検索結果、リマインド、遅延通知でsummaryを表示
+      - フォールバック時は句点・読点の後ろで自然に切り詰め
+    - **提案メッセージ改善**: 心理的安全性向上
+      - 「菊地さんに確認をお願いした」→「ソウルくんが会社として問題ないか確認する」
+      - `[To:管理者ID]`メンションも削除
+    - **人物情報の提案制導入**: セキュリティ強化
+      - スタッフ: 提案 → 管理者確認 → 承認で反映
+      - 管理者: 従来通り即時保存
+      - `knowledge_proposals`テーブルの`category='memory'`で管理
+  - **変更ファイル**:
+    - chatwork-webhook/main.py: handle_save_memory, approve_proposal等
+    - chatwork-webhook/handlers/proposal_handler.py: 全面改修
+    - chatwork-webhook/handlers/task_handler.py: summary対応
+    - chatwork-webhook/handlers/overdue_handler.py: summary対応
+    - remind-tasks/main.py: summary対応
+    - sync-chatwork-tasks/main.py: summary対応
+  - **テスト**: 1033件全パス
+  - **10の鉄則準拠**: SQLインジェクション対策（パラメータ化）、後方互換性維持
+  - **デプロイ待ち**: chatwork-webhook, remind-tasks, sync-chatwork-tasks
 
 - **2026-01-25 16:00 JST**: テスト修正 1033件全パス達成 ✅ **PR #113**
   - **実施者**: Claude Code

@@ -290,6 +290,15 @@ class AnnouncementHandler:
             if not parsed.target_room_id:
                 return self._handle_room_candidates(parsed, room_id, account_id)
 
+            # v10.26.1: MVVベースでメッセージをソウルくんらしく変換
+            if parsed.message_content:
+                enhanced_message = self._enhance_message_with_soulkun_style(
+                    raw_intent=parsed.message_content,
+                    target_room_name=parsed.target_room_name or "",
+                    sender_name=sender_name
+                )
+                parsed.message_content = enhanced_message
+
             # 確認メッセージ生成・保存
             return self._generate_confirmation(parsed, room_id, account_id, sender_name)
 
@@ -452,6 +461,132 @@ class AnnouncementHandler:
             needs_clarification=parsed_json.get("needs_clarification", False),
             clarification_questions=parsed_json.get("clarification_questions", [])
         )
+
+    # =========================================================================
+    # v10.26.1: MVVベースメッセージ生成（ソウルくんらしい文章に変換）
+    # =========================================================================
+
+    def _enhance_message_with_soulkun_style(
+        self,
+        raw_intent: str,
+        target_room_name: str = "",
+        sender_name: str = ""
+    ) -> str:
+        """
+        ユーザーの意図をソウルくんらしいメッセージに変換
+
+        Phase 2C-1のMVV・アチーブ連携を活用し、
+        雑な依頼でも意図を汲み取った優秀な秘書として文章を作成する。
+
+        Args:
+            raw_intent: ユーザーの伝えたい内容（「おはよう」等）
+            target_room_name: 送信先ルーム名（コンテキスト用）
+            sender_name: 依頼者の名前
+
+        Returns:
+            ソウルくんらしく変換されたメッセージ
+        """
+        try:
+            api_key = self.get_secret("OPENROUTER_API_KEY")
+            if not api_key:
+                print("⚠️ OPENROUTER_API_KEY not found, using raw message")
+                return raw_intent
+
+            import httpx
+
+            system_prompt = self._get_message_enhancement_prompt()
+            user_prompt = f"""以下の内容を、ソウルくん（狼キャラクター）が送るアナウンスメッセージとして書き換えてください。
+
+【伝えたい内容】
+{raw_intent}
+
+【送信先】
+{target_room_name or "不明"}
+
+【依頼者】
+{sender_name or "管理者"}
+
+【出力形式】
+そのままアナウンスとして送信できる文章のみを出力してください。
+説明や「以下がメッセージです」のような前置きは不要です。
+"""
+
+            response = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "google/gemini-3-flash-preview",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "max_tokens": 500,
+                    "temperature": 0.7,  # 少し創造性を持たせる
+                },
+                timeout=15.0
+            )
+
+            if response.status_code == 200:
+                enhanced = response.json()["choices"][0]["message"]["content"].strip()
+                # コードブロックや引用符を除去
+                enhanced = re.sub(r'^```\w*\n?', '', enhanced)
+                enhanced = re.sub(r'\n?```$', '', enhanced)
+                enhanced = enhanced.strip('"\'')
+                print(f"✅ メッセージ変換完了: {raw_intent[:20]}... → {enhanced[:30]}...")
+                return enhanced
+
+        except Exception as e:
+            print(f"⚠️ メッセージ変換エラー（元のメッセージを使用）: {e}")
+
+        return raw_intent
+
+    def _get_message_enhancement_prompt(self) -> str:
+        """メッセージ変換用のシステムプロンプト"""
+        return """あなたは「ソウルくん」という名前の、株式会社ソウルシンクスの公式キャラクターです。
+狼をモチーフにした可愛らしいキャラクターで、語尾に「ウル」をつけて話します。
+
+【ソウルシンクスのMVV】
+- ミッション: 可能性の解放
+- ビジョン: 心で繋がる未来を創る
+- スローガン: 感謝で自分を満たし、満たした自分で相手を満たし、目の前のことに魂を込め、困っている人を助ける
+
+【コミュニケーションスタイル】
+- フレンドリーで親しみやすい
+- 相手を応援し、可能性を信じる
+- 前向きで明るいトーン
+- 強制ではなく、提案や応援のスタンス
+- メンバーの自主性を尊重
+
+【アチーブメント流コミュニケーション】
+- 選択理論: 「～しなければならない」→「～できたらいいね」
+- 自己決定理論: 自律性・有能感・関係性を大切に
+- サーバントリーダーシップ: 支える立場で接する
+
+【変換ルール】
+1. 語尾に「ウル」をつける（ただし自然な範囲で）
+2. 命令口調は避け、お願いや提案の形にする
+3. 相手を思いやる一言を添える
+4. 必要に応じて絵文字を使う（🐺✨🎉など、最小限に）
+5. 長すぎず、簡潔にまとめる
+
+【禁止事項】
+- 上から目線の表現
+- プレッシャーを与える表現
+- 機械的・事務的すぎる文章
+
+【例】
+入力: 「おはよう」
+出力: おはようウル！🐺 今日も一日、みんなで頑張っていこうウル✨
+
+入力: 「明日までに資料を提出してください」
+出力: 明日までに資料の提出をお願いしたいウル！🐺 忙しいところ申し訳ないけど、よろしくお願いしますウル✨
+
+入力: 「会議の時間が変更になりました」
+出力: お知らせウル！🐺 会議の時間が変更になったウル。確認をお願いしますウル✨
+"""
 
     # =========================================================================
     # ルーム解決（曖昧マッチング）
@@ -1194,11 +1329,23 @@ class AnnouncementHandler:
                 )
 
                 # メッセージ送信
+                # v10.26.1: return_details=True でmessage_idを取得
                 message_with_toall = f"[toall]\n{announcement['message_content']}"
                 message_result = self.send_chatwork_message(
-                    str(room_id), message_with_toall
+                    str(room_id), message_with_toall, return_details=True
                 )
-                message_id = message_result.get("message_id") if message_result else None
+
+                # v10.26.1: boolとdictの両方をサポート（後方互換性）
+                if isinstance(message_result, dict):
+                    message_id = message_result.get("message_id")
+                    send_success = message_result.get("success", False)
+                else:
+                    # 旧実装（boolを返す場合）
+                    message_id = None
+                    send_success = bool(message_result)
+
+                if not send_success:
+                    raise Exception("メッセージ送信に失敗しました")
 
                 # タスク作成
                 tasks_created = 0

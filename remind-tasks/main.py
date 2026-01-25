@@ -40,6 +40,38 @@ except ImportError as e:
     USE_USER_UTILS_LIB = False
     print(f"⚠️ lib/user_utils が見つかりません: {e}")
 
+# ★★★ v10.24.9: 営業日判定（土日祝日リマインドスキップ） ★★★
+try:
+    from lib.business_day import (
+        is_business_day,
+        get_non_business_day_reason,
+    )
+    USE_BUSINESS_DAY_LIB = True
+    print("✅ lib/business_day をロードしました")
+except ImportError as e:
+    USE_BUSINESS_DAY_LIB = False
+    print(f"⚠️ lib/business_day が見つかりません。営業日判定をスキップ: {e}")
+
+    # フォールバック: 土日のみ判定
+    def is_business_day(target_date=None):
+        from datetime import datetime, timezone, timedelta
+        JST = timezone(timedelta(hours=9))
+        if target_date is None:
+            target_date = datetime.now(JST).date()
+        return target_date.weekday() < 5  # 月〜金
+
+    def get_non_business_day_reason(target_date=None):
+        from datetime import datetime, timezone, timedelta
+        JST = timezone(timedelta(hours=9))
+        if target_date is None:
+            target_date = datetime.now(JST).date()
+        weekday = target_date.weekday()
+        if weekday == 5:
+            return "土曜日"
+        if weekday == 6:
+            return "日曜日"
+        return None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -5569,13 +5601,26 @@ def remind_tasks(request):
     - グループチャットへの送信を廃止
     - テストガード実装（管理部・カズさんDMのみ）
     - メッセージフォーマット改善
+
+    ★★★ v10.24.9: 営業日判定 ★★★
+    - 土日祝日はリマインドをスキップ
     """
     print("=" * 60)
-    print("=== Starting task reminders (v10.11.0 - フォーマット統一) ===")
+    print("=== Starting task reminders (v10.24.9 - 営業日判定追加) ===")
     print(f"REMINDER_TEST_MODE: {REMINDER_TEST_MODE}")
     if REMINDER_TEST_MODE:
         print("⚠️ テストモード: 管理部チャットとカズさんDMのみに送信")
     print("=" * 60)
+
+    # ★★★ v10.24.9: 営業日判定 ★★★
+    if not is_business_day():
+        reason = get_non_business_day_reason()
+        print(f"📅 本日は{reason}のため、リマインドをスキップします")
+        return jsonify({
+            "status": "skipped",
+            "reason": f"本日は{reason}のため、リマインドをスキップしました",
+            "is_business_day": False
+        })
 
     conn = get_db_connection()
     cursor = conn.cursor()

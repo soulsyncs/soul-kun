@@ -34,7 +34,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.7.0"  # v10.19.0: Phase 2.5 目標設定対話フロー追加
+__version__ = "1.8.0"  # v10.24.9: 営業日判定追加（土日祝日リマインドスキップ）
 
 # 設定
 from lib.config import (
@@ -262,6 +262,15 @@ from lib.goal_setting import (
     process_goal_setting_message,
 )
 
+# v10.24.9: 営業日判定（土日祝日リマインドスキップ）
+from lib.business_day import (
+    is_business_day,
+    is_weekend,
+    is_holiday,
+    get_holiday_name,
+    get_non_business_day_reason,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -410,4 +419,10 @@ __all__ = [
     "GoalSettingDialogue",
     "has_active_goal_session",
     "process_goal_setting_message",
+    # v10.24.9: 営業日判定
+    "is_business_day",
+    "is_weekend",
+    "is_holiday",
+    "get_holiday_name",
+    "get_non_business_day_reason",
 ]

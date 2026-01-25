@@ -7,3 +7,4 @@ cloud-sql-python-connector[pg8000]==1.*
 sqlalchemy==2.*
 pg8000==1.*
 pytz>=2024.1
+jpholiday>=0.1.9

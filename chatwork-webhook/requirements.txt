@@ -5,3 +5,4 @@ sqlalchemy==2.*
 pg8000==1.*
 google-cloud-firestore==2.*
 google-cloud-secret-manager==2.*
+jpholiday>=0.1.9

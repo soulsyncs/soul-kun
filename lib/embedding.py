@@ -8,6 +8,11 @@
 - 次元数: 1536 → 768
 - コスト: $0.02/1M tokens → 無料（Free Tier）
 
+★★★ v10.25.0: google-genai SDKに移行 ★★★
+- google-generativeai（非推奨）→ google-genai（新SDK）
+- FutureWarning解消
+- 参考: https://ai.google.dev/gemini-api/docs/migrate
+
 使用例:
     from lib.embedding import EmbeddingClient
 
@@ -38,7 +43,8 @@ from typing import Optional
 from dataclasses import dataclass
 import logging
 
-import google.generativeai as genai
+from google import genai
+from google.genai.types import EmbedContentConfig
 
 from lib.config import get_settings
 from lib.secrets import get_secret
@@ -52,8 +58,9 @@ logger = logging.getLogger(__name__)
 # ================================================================
 
 # 利用可能なモデル
+# Note: 新SDKではモデル名から "models/" プレフィックスを削除
 EMBEDDING_MODELS = {
-    "models/text-embedding-004": {
+    "text-embedding-004": {
         "dimension": 768,
         "max_tokens": 2048,
         "cost_per_1k_tokens": 0.0,  # 無料（Free Tier）
@@ -61,7 +68,15 @@ EMBEDDING_MODELS = {
 }
 
 # デフォルトモデル
-DEFAULT_MODEL = "models/text-embedding-004"
+DEFAULT_MODEL = "text-embedding-004"
+
+# タスクタイプのマッピング（旧SDK → 新SDK）
+TASK_TYPE_MAP = {
+    "retrieval_document": "RETRIEVAL_DOCUMENT",
+    "retrieval_query": "RETRIEVAL_QUERY",
+    "RETRIEVAL_DOCUMENT": "RETRIEVAL_DOCUMENT",
+    "RETRIEVAL_QUERY": "RETRIEVAL_QUERY",
+}
 
 
 # ================================================================
@@ -148,8 +163,8 @@ class EmbeddingClient:
                         "環境変数 GOOGLE_AI_API_KEY または Secret Manager で設定してください。"
                     )
 
-        # Gemini APIの設定
-        genai.configure(api_key=self._api_key)
+        # ★★★ v10.25.0: 新SDK（google-genai）でクライアント初期化 ★★★
+        self._client = genai.Client(api_key=self._api_key)
 
         self.model = model
 
@@ -246,16 +261,21 @@ class EmbeddingClient:
         Returns:
             EmbeddingResult オブジェクト
         """
-        result = genai.embed_content(
+        # ★★★ v10.25.0: 新SDK（google-genai）での呼び出し ★★★
+        # タスクタイプを新SDKのフォーマットに変換
+        normalized_task_type = TASK_TYPE_MAP.get(task_type, "RETRIEVAL_DOCUMENT")
+
+        result = self._client.models.embed_content(
             model=self.model,
-            content=text,
-            task_type=task_type
+            contents=text,
+            config=EmbedContentConfig(task_type=normalized_task_type),
         )
 
-        embedding = result['embedding']
+        # 新SDKではresult.embeddingsがリストで返される
+        embedding = result.embeddings[0].values
 
         return EmbeddingResult(
-            vector=embedding,
+            vector=list(embedding),
             model=self.model,
             token_count=self.estimate_tokens(text),
             dimension=len(embedding),
@@ -294,24 +314,26 @@ class EmbeddingClient:
         all_results: list[EmbeddingResult] = []
         total_tokens = 0
 
+        # ★★★ v10.25.0: 新SDK（google-genai）での呼び出し ★★★
+        normalized_task_type = TASK_TYPE_MAP.get(task_type, "RETRIEVAL_DOCUMENT")
+
         # バッチ処理
         for i in range(0, len(texts), batch_size):
             batch = texts[i:i + batch_size]
 
-            # Gemini embed_contentは単一テキストのみ対応
-            # 複数テキストは順次処理
-            for text in batch:
-                result = genai.embed_content(
-                    model=self.model,
-                    content=text,
-                    task_type=task_type
-                )
+            # 新SDKはリストでバッチ処理可能
+            result = self._client.models.embed_content(
+                model=self.model,
+                contents=batch,
+                config=EmbedContentConfig(task_type=normalized_task_type),
+            )
 
-                embedding = result['embedding']
-                token_count = self.estimate_tokens(text)
+            for j, embedding_result in enumerate(result.embeddings):
+                embedding = embedding_result.values
+                token_count = self.estimate_tokens(batch[j])
 
                 all_results.append(EmbeddingResult(
-                    vector=embedding,
+                    vector=list(embedding),
                     model=self.model,
                     token_count=token_count,
                     dimension=len(embedding),

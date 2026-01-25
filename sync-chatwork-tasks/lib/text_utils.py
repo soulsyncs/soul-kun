@@ -542,6 +542,13 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
         # シンプルな名前パターン: "田中さん " で始まる場合（挨拶が続く場合のみ）
         # 「田中さん への依頼」のような主語は残す
         text = re.sub(r'^[^\s]{1,10}(さん|様|くん|ちゃん)[\s　]+(?=お疲れ|ありがとう|いつも|よろしく)', '', text)
+
+        # v10.25.6: URLを除去（要約表示には不要、切れると見栄えが悪い）
+        text = re.sub(r'https?://[^\s]+', '', text)
+        # URL除去後の「に をお願い」等の不自然なパターンを整形
+        text = re.sub(r'に\s+を', 'を', text)
+        text = re.sub(r'で\s+を', 'を', text)
+        text = re.sub(r'と\s+を', 'を', text)
         # 勤務時間パターン付き名前を除去（★v10.17.1修正: より厳密なパターン）
         # 例: "平賀　しおり _ 月火木金9：30～13：30（変動あり）さん"
         # アンダースコア + 曜日パターンが必須
@@ -582,16 +589,59 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
             return "（タスク内容なし）"
 
         # 8. max_length文字以内で完結させる（途切れ防止）
-        # v10.25.5: 短いテキストでも助詞で終わる場合は削除
-        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
+        # v10.25.6: 助詞・動詞活用形の末尾削除を強化
+
+        # 有効な接続表現（これらは完全な終わり方として認められる）
+        # 短いテキストからは削除しない、長いテキストでは切り取り位置として使う
+        valid_connector_phrases = ['について', 'として', 'により', 'において', 'に対して', 'に関して']
+
+        # 途切れを示す末尾パターン（助詞、動詞活用形）
+        # これらで終わる場合は不完全なので削除する
+        # 優先度順: 長いパターンから先にマッチさせる
+        incomplete_endings = [
+            # 動詞活用形（途中で切れやすいパターン）- 接続表現は除外
+            'してい', 'している', 'しており', 'されて', 'されてい',
+            'なって', 'なっており', 'なってい', 'であり', 'ですが',
+            'ますが', 'ません', 'ました', 'でした',
+            # 2文字の動詞・助動詞末尾（不完全な活用形）
+            'して', 'した', 'する', 'され', 'なり', 'なっ', 'であ',
+            'です', 'ます', 'ある', 'いる', 'おり', 'くれ', 'もら',
+            'でき', 'やっ', 'きた', 'きて', 'かけ', 'すれ', 'あっ',
+            'しま', 'いた', 'った', 'って', 'なか', 'ない',
+            # 1文字の助詞・接続・記号
+            'を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も',
+            'て', 'た', 'し', 'り', 'け', 'き', 'ち', 'み', 'つ',
+            '、', ',',  # 読点で終わるのも不完全
+        ]
+
+        def _remove_incomplete_ending(s: str, min_length: int = 3) -> str:
+            """末尾の不完全なパターンを削除"""
+            if not s:
+                return s
+            changed = True
+            while changed and len(s) > min_length:
+                changed = False
+                for ending in incomplete_endings:
+                    if s.endswith(ending):
+                        s = s[:-len(ending)]
+                        changed = True
+                        break
+            return s
+
         if len(text) <= max_length:
-            # 末尾の助詞を削除（2文字以上残す）
-            while len(text) > 2 and text and text[-1] in particles:
-                text = text[:-1]
-            # 結果が助詞だけになった場合は内容なし扱い
-            if not text or (len(text) <= 2 and text[-1] in particles):
+            # 短いテキスト: 有効な接続表現で終わる場合はそのまま返す
+            for connector in valid_connector_phrases:
+                if text.endswith(connector):
+                    return text
+            # 非常に短いテキスト（10文字未満）はそのまま返す
+            # （ユーザーが意図的に入力した可能性が高い）
+            if len(text) < 10:
+                return text
+            # それ以外の不完全な末尾パターンは削除
+            result = _remove_incomplete_ending(text, min_length=3)
+            if not result or len(result) < 3:
                 return "（タスク内容なし）"
-            return text
+            return result
 
         # 途切れ防止: 自然な位置で切る
         truncated = text[:max_length]
@@ -601,20 +651,30 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
             if truncated[i] == '。':
                 return truncated[:i + 1]
 
-        # 読点(、)で終わる位置を探す
+        # 読点(、)で終わる位置を探す（読点自体は含めない - 見栄え改善）
         for i in range(max_length - 1, max_length // 2, -1):
             if truncated[i] == '、':
-                return truncated[:i + 1]
+                # 読点の直前まで（読点で終わると不完全に見える）
+                result = truncated[:i]
+                # 読点前の内容が不完全でないか確認
+                result = _remove_incomplete_ending(result)
+                if len(result) >= 5:
+                    return result
+                # 不完全な場合は次の候補を探す
+                continue
 
-        # v10.25.5: 助詞での切り詰めロジックを廃止
-        # 「〇〇を」「〇〇に」で終わると意味が通じない
-        # 代わりに、末尾の助詞を削除するロジックを後で適用
+        # 「について」「として」等の接続表現の後で切る
+        for phrase in valid_connector_phrases:
+            idx = truncated.rfind(phrase)
+            if idx > max_length // 3:  # 文の後半にあれば採用
+                return truncated[:idx + len(phrase)]
 
         # 動作語の後で切る
         action_words = [
             '確認', '依頼', '報告', '対応', '作成', '提出', '送付', '連絡',
             '相談', '検討', '準備', '完了', '実施', '設定', '登録', '更新',
-            '共有', '調整'
+            '共有', '調整', '開拓', '開始', '終了', '承認', '申請', '発注',
+            '手配', '配信', '配布', '発送', '受領', '受付', '返信', '回答',
         ]
         for i in range(max_length - 2, max_length // 2, -1):
             for action in action_words:
@@ -623,18 +683,17 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
                     if cut_pos <= max_length:
                         return truncated[:cut_pos]
 
-        # v10.25.5: 末尾の助詞を削除（助詞で終わると意味不明になる）
-        # 「販路を」→「販路」、「資料に」→「資料」
-        result = truncated
-        # 最低2文字は残す
-        while len(result) > 2 and result and result[-1] in particles:
-            result = result[:-1]
+        # v10.25.6: 末尾の不完全なパターンを削除
+        result = _remove_incomplete_ending(truncated)
 
         # 結果が十分な長さならそれを返す
-        if len(result) >= 2:
+        if len(result) >= 5:
             return result
 
-        # 最終手段: そのまま返す
+        # 最終手段: 切り詰めて「…」を付ける（途中で切れていることを明示）
+        if len(truncated) > 3:
+            return truncated[:max_length-1] + "…"
+
         return truncated[:max_length] if truncated else "（タスク内容なし）"
 
     except Exception as e:

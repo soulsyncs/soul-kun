@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 17:15 JST**
+**最終更新: 2026-01-26 18:30 JST**
 
 ## Phase一覧と状態
 
@@ -734,6 +734,7 @@ git status
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-25 | 6段階権限、役職ドロップダウン、**96件テスト追加（PR #102）** |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化（Q3予定） |
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後（v10.22.0追加） |
+| **X** | **アナウンス機能** | **🔄 実装完了・デプロイ待ち** | - | **v10.26.0、管理部→全社アナウンス委任** |
 | 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
@@ -743,7 +744,7 @@ git status
 
 | 関数名 | 状態 | 用途 | 最終更新 |
 |--------|------|------|----------|
-| chatwork-webhook | ACTIVE | メインWebhook（v10.24.9 営業日判定） | 2026-01-25 11:10 |
+| chatwork-webhook | ACTIVE | メインWebhook（v10.25.5 助詞終了修正） | 2026-01-26 18:24 |
 | chatwork-main | ACTIVE | Chatwork API | 2026-01-24 11:18 |
 | remind-tasks | ACTIVE | タスクリマインド（土日祝スキップ） | 2026-01-25 11:10 |
 | sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-25 10:50 |
@@ -807,6 +808,67 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 18:30 JST**: タスク要約 助詞終了バグ修正 (v10.25.5) ✅ **PR #125 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題**: タスク要約が「販路を」「決算書の」「資料に」のように助詞で終わり、意味が通じなかった
+  - **根本原因**: `prepare_task_display_text()`が40文字で切り詰める際、助詞（を、に、で、と、が、は、の、へ、も）を見つけてそこで切っていた
+  - **修正内容**:
+    - 助詞での切り詰めロジックを**廃止**（601-606行目削除）
+    - 代わりに、結果の末尾が助詞の場合は**助詞を削除**
+    - 短いテキストでも助詞削除を適用（「決算書の」→「決算書」）
+  - **修正例**:
+    - `販路を` → `販路`
+    - `決算書の` → `決算書`
+    - `資料を` → `資料`
+    - `お手隙でこちらのマスター内の総務のドライブに` → `お手隙でこちらのマスター内の総務のドライブ`
+  - **変更ファイル**:
+    - `lib/text_utils.py`: 助詞切り詰め廃止、末尾助詞削除ロジック追加
+    - `chatwork-webhook/main.py`: デバッグログ削除
+    - `tests/test_text_utils_lib.py`: テスト更新（助詞で終わらないことを確認）
+    - 6つのCloud Functionsにlib/text_utils.py同期
+  - **テスト**: 55件全パス
+  - **デプロイ**: chatwork-webhook 2026-01-26 18:24 UTC
+
+- **2026-01-25 22:30 JST**: Phase X アナウンス機能 実装完了 (v10.26.0) 🔄 **デプロイ待ち**
+  - **実施者**: Claude Code
+  - **概要**: 管理部またはカズさんがソウルくんにアナウンス業務を委任できる機能
+  - **ユースケース**: 「合宿のチャットに持ち物確認してってアナウンスしといて。全員タスクで、来週金曜まで」
+  - **作業内容**:
+    - **DBマイグレーション作成** (`migrations/phase_x_announcement_feature.sql`, 421行)
+      - `scheduled_announcements`: アナウンス予約・実行管理
+      - `announcement_logs`: 実行ログ（監査証跡）
+      - `announcement_patterns`: パターン検知（A1連携、3回以上で定期化提案）
+    - **AnnouncementHandler実装** (`handlers/announcement_handler.py`, ~900行)
+      - 認可チェック（管理部チャット or カズさん1on1のみ）
+      - 曖昧ルームマッチング（「合宿のチャット」→「2026年度 社員合宿」）
+      - 確認フロー生成（送信前に確認メッセージ表示）
+      - 即時/予約/繰り返し（cron式）の3種スケジュール対応
+      - タスク作成（全員 or 指定者、除外者指定可）
+      - パターン記録（A1連携で定期化提案）
+    - **main.py統合**
+      - Feature Flag: `USE_ANNOUNCEMENT_FEATURE`
+      - SYSTEM_CAPABILITIES: `announcement_request`追加
+      - HANDLERS: `handle_announcement_request`追加
+      - `_get_announcement_handler()`初期化関数
+    - **ユニットテスト** (`tests/test_announcement_handler.py`, 29件全パス)
+  - **変更ファイル**:
+    - `migrations/phase_x_announcement_feature.sql`: 新規（421行）
+    - `chatwork-webhook/handlers/announcement_handler.py`: 新規（~900行）
+    - `chatwork-webhook/handlers/__init__.py`: エクスポート追加
+    - `chatwork-webhook/main.py`: Feature Flag, CAPABILITIES, HANDLERS統合
+    - `tests/test_announcement_handler.py`: 新規（29テスト）
+  - **テスト**: 1067件全パス（29件新規追加）
+  - **10の鉄則準拠**:
+    - organization_id: 全テーブル・全クエリに含む
+    - SQLインジェクション対策: パラメータ化クエリ使用
+    - 監査ログ: announcement_logsで記録
+  - **設計書**: `/Users/kikubookair/.claude/plans/warm-snuggling-kitten.md`
+  - **次のステップ（デプロイ時）**:
+    1. DBマイグレーション実行（本番Cloud SQL）
+    2. `USE_ANNOUNCEMENT_FEATURE=true`でchatwork-webhookデプロイ
+    3. 管理部チャットからテスト（「テストルームにお知らせして」）
+    4. Cloud Scheduler設定（定期アナウンス用、5分毎ポーリング）
 
 - **2026-01-25 17:15 JST**: タスクsummaryバリデーション強化 (v10.25.1) ✅ **PR #118**
   - **実施者**: Claude Code

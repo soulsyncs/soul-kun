@@ -527,6 +527,13 @@ class PineconeClient:
         """
         Pinecone IDをパース
 
+        フォーマット: {org_id}_{doc_id}_v{version}_chunk{index}
+        例: org_soulsyncs_doc_manual001_v1_chunk0
+            → organization_id: "org_soulsyncs"
+            → document_id: "doc_manual001"
+            → version: 1
+            → chunk_index: 0
+
         Returns:
             {
                 "organization_id": "org_soulsyncs",
@@ -535,30 +542,53 @@ class PineconeClient:
                 "chunk_index": 0
             }
         """
+        # Step 1: _chunk{N} を分離
         parts = pinecone_id.rsplit("_chunk", 1)
         if len(parts) != 2:
             return {"raw": pinecone_id}
 
-        chunk_index = int(parts[1])
+        try:
+            chunk_index = int(parts[1])
+        except ValueError:
+            return {"raw": pinecone_id}
+
         remaining = parts[0]
 
+        # Step 2: _v{N} を分離
         version_parts = remaining.rsplit("_v", 1)
         if len(version_parts) != 2:
             return {"raw": pinecone_id, "chunk_index": chunk_index}
 
-        version = int(version_parts[1])
-        doc_parts = version_parts[0].split("_", 1)
+        try:
+            version = int(version_parts[1])
+        except ValueError:
+            return {"raw": pinecone_id, "chunk_index": chunk_index}
 
-        if len(doc_parts) != 2:
-            return {
-                "raw": pinecone_id,
-                "version": version,
-                "chunk_index": chunk_index
-            }
+        # Step 3: organization_id と document_id を分離
+        # document_idは "doc" で始まることを想定
+        # 例: "org_soulsyncs_doc_manual001" → org_soulsyncs + doc_manual001
+        org_doc_str = version_parts[0]
+
+        # "_doc" を探して分割（document_idは "doc" で始まる規約）
+        doc_prefix_index = org_doc_str.find("_doc")
+        if doc_prefix_index > 0:
+            organization_id = org_doc_str[:doc_prefix_index]
+            document_id = org_doc_str[doc_prefix_index + 1:]  # "_doc" の "_" をスキップ
+        else:
+            # "_doc" が見つからない場合は最初の "_" で分割（フォールバック）
+            fallback_parts = org_doc_str.split("_", 1)
+            if len(fallback_parts) != 2:
+                return {
+                    "raw": pinecone_id,
+                    "version": version,
+                    "chunk_index": chunk_index
+                }
+            organization_id = fallback_parts[0]
+            document_id = fallback_parts[1]
 
         return {
-            "organization_id": doc_parts[0],
-            "document_id": doc_parts[1],
+            "organization_id": organization_id,
+            "document_id": document_id,
             "version": version,
             "chunk_index": chunk_index
         }

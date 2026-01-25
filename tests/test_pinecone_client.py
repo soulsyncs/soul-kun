@@ -60,6 +60,27 @@ class TestPineconeClient:
         parsed = client.parse_pinecone_id("invalid_id")
         assert "raw" in parsed
 
+    def test_parse_pinecone_id_with_underscores_in_doc_id(self, mock_pinecone):
+        """document_idにアンダースコアが含まれる場合のパース"""
+        client = PineconeClient(api_key="test-key")
+        # document_id = "doc_manual_001_v2"（アンダースコアを含む）
+        parsed = client.parse_pinecone_id("org_soulsyncs_doc_manual_001_v2_v1_chunk0")
+
+        assert parsed["organization_id"] == "org_soulsyncs"
+        assert parsed["document_id"] == "doc_manual_001_v2"
+        assert parsed["version"] == 1
+        assert parsed["chunk_index"] == 0
+
+    def test_parse_pinecone_id_simple_org(self, mock_pinecone):
+        """シンプルなorganization_idの場合のパース"""
+        client = PineconeClient(api_key="test-key")
+        parsed = client.parse_pinecone_id("soulsyncs_doc_001_v1_chunk0")
+
+        assert parsed["organization_id"] == "soulsyncs"
+        assert parsed["document_id"] == "doc_001"
+        assert parsed["version"] == 1
+        assert parsed["chunk_index"] == 0
+
     @pytest.mark.asyncio
     async def test_search(self, mock_pinecone):
         """検索のテスト"""

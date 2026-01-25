@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 11:10 JST**
+**最終更新: 2026-01-25 12:15 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,28 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 12:15 JST**: google-genai SDK移行 ✅ **PR #99**
+  - **実施者**: Claude Code
+  - **背景**: `google-generativeai`は2025年8月31日でサポート終了、新SDK`google-genai`への移行が必要
+  - **作業内容**:
+    - `lib/embedding.py`: 新SDK構造に対応
+      - `import google.generativeai as genai` → `from google import genai`
+      - `genai.configure()` → `genai.Client()`
+      - `genai.embed_content()` → `client.models.embed_content()`
+      - task_type: `retrieval_document` → `RETRIEVAL_DOCUMENT`
+      - レスポンス: `['embedding']` → `.embeddings[0].values`
+      - バッチ処理がネイティブでリスト対応
+    - `api/requirements.txt`: `google-generativeai>=0.8.0` → `google-genai>=1.0.0`
+    - `watch-google-drive/requirements.txt`: 同上
+    - `tests/conftest.py`: モックを新SDK構造に対応
+  - **後方互換**:
+    - task_typeの旧形式（小文字）も`TASK_TYPE_MAP`で変換
+    - 既存インターフェースを維持
+  - **テスト**: 901件全パス（embedding関連15件含む）
+  - **10の鉄則準拠**: DB操作なし、APIキーは環境変数/Secret Managerから取得
+  - **参考**: https://ai.google.dev/gemini-api/docs/migrate
+  - **デプロイ待ち**: watch-google-drive, api（Cloud Run）
 
 - **2026-01-25 11:45 JST**: Pinecone IDパースのバグ修正 ✅ **PR #97**
   - **実施者**: Claude Code

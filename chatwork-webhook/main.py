@@ -3468,6 +3468,8 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 # DBのsummaryは信頼できないため、リアルタイム生成が最も確実
                 clean_body = clean_chatwork_tags(body)
                 body_short = prepare_task_display_text(clean_body, max_length=40)
+                # デバッグログ
+                print(f"🔍 DEBUG: body={body[:50]}... -> clean={clean_body[:50]}... -> short={body_short}")
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"

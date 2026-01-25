@@ -3464,18 +3464,10 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # v10.25.2: summaryがあっても、切れていればfallbackを使う
-                body_short = None
-                if summary:
-                    # summaryが切れていないかバリデーション
-                    if validate_summary(summary, body):
-                        body_short = summary
-                    else:
-                        print(f"⚠️ 表示時: summaryが低品質のためfallback使用: {summary[:20]}...")
-
-                if not body_short:
-                    clean_body = clean_chatwork_tags(body)
-                    body_short = prepare_task_display_text(clean_body, max_length=40)
+                # v10.25.4: summaryは使わず、常にprepare_task_display_text()で生成
+                # DBのsummaryは信頼できないため、リアルタイム生成が最も確実
+                clean_body = clean_chatwork_tags(body)
+                body_short = prepare_task_display_text(clean_body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -3495,18 +3487,9 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 except:
                     pass
 
-            # v10.25.2: summaryがあっても、切れていればfallbackを使う
-            body_short = None
-            if summary:
-                # summaryが切れていないかバリデーション
-                if validate_summary(summary, body):
-                    body_short = summary
-                else:
-                    print(f"⚠️ 表示時: summaryが低品質のためfallback使用: {summary[:20]}...")
-
-            if not body_short:
-                clean_body = clean_chatwork_tags(body)
-                body_short = prepare_task_display_text(clean_body, max_length=40)
+            # v10.25.4: summaryは使わず、常にprepare_task_display_text()で生成
+            clean_body = clean_chatwork_tags(body)
+            body_short = prepare_task_display_text(clean_body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"

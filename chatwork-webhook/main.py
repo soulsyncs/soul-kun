@@ -8247,8 +8247,9 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         requester = task.get("assigned_by_name") or "依頼者"
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
-        
+        # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+        body_short = prepare_task_display_text(clean_chatwork_tags(task["body"]), max_length=30)
+
         message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
     
     message_lines.append("\n遅れている理由と、いつ頃完了できそうか教えてほしいウル🐺")
@@ -8417,12 +8418,13 @@ def send_escalation_to_requester(requester_id, tasks):
         return False
     
     message_lines = ["📋 タスク遅延のお知らせウル\n", "あなたが依頼したタスクが3日以上遅延しています：\n"]
-    
+
     for task in tasks:
         assignee = task.get("assigned_to_name", "担当者")
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+        # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+        body_short = prepare_task_display_text(clean_chatwork_tags(task["body"]), max_length=30)
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        
+
         message_lines.append(f"・「{body_short}」")
         message_lines.append(f"  担当者: {assignee} / 期限: {limit_date} / {task['overdue_days']}日超過")
     
@@ -8458,13 +8460,14 @@ def send_escalation_to_admin(tasks):
         return False
     
     message_lines = ["[info][title]📊 長期遅延タスク報告[/title]", "以下のタスクが3日以上遅延しています：\n"]
-    
+
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
         requester = task.get("assigned_by_name", "依頼者")
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+        # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+        body_short = prepare_task_display_text(clean_chatwork_tags(task["body"]), max_length=30)
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
-        
+
         message_lines.append(f"{i}. {assignee}さん「{body_short}」")
         message_lines.append(f"   依頼者: {requester} / 期限: {limit_date} / {task['overdue_days']}日超過")
     
@@ -8547,7 +8550,8 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     assignee_name = task_info.get("assigned_to_name", "担当者")
     assignee_id = task_info.get("assigned_to_account_id")
     requester_name = task_info.get("assigned_by_name", "依頼者")
-    body_short = (task_info["body"][:30] + "...") if len(task_info["body"]) > 30 else task_info["body"]
+    # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+    body_short = prepare_task_display_text(clean_chatwork_tags(task_info["body"]), max_length=30)
     
     # ① 管理部への即時報告
     admin_message = f"""[info][title]📝 タスク期限変更の検知[/title]
@@ -9254,6 +9258,7 @@ def sync_chatwork_tasks(request):
                 else:
                     # 新規タスクの挿入
                     # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
+                    # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
                     summary = None
                     if USE_TEXT_UTILS_LIB and body:
                         try:
@@ -9262,10 +9267,10 @@ def sync_chatwork_tasks(request):
                                 summary = prepare_task_display_text(body, max_length=50)
                             if not validate_summary(summary, body):
                                 cleaned = clean_chatwork_tags(body)
-                                summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
+                                summary = prepare_task_display_text(cleaned, max_length=40)
                         except Exception as e:
                             print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
-                            summary = body[:40] + "..." if body and len(body) > 40 else body
+                            summary = _fallback_truncate_text(body, 40) if body else "（タスク内容なし）"
 
                     # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
                     department_id = None

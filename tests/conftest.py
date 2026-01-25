@@ -58,20 +58,43 @@ def mock_async_db_conn():
 
 # ================================================================
 # Gemini Embedding モック（v10.12.0: OpenAI → Gemini に変更）
+# ★★★ v10.25.0: google-genai SDKに対応 ★★★
 # ================================================================
 
 @pytest.fixture
 def mock_openai_embedding():
     """Gemini Embedding APIのモック（後方互換のため名前は維持）"""
     with patch('lib.embedding.genai') as mock_genai:
-        # embed_contentのモック（768次元）
-        mock_genai.embed_content.return_value = {
-            'embedding': [0.1] * 768
-        }
+        # 新SDK（google-genai）のモック構造
+        mock_client = MagicMock()
+        mock_genai.Client.return_value = mock_client
+
+        def mock_embed_content(model, contents, config=None):
+            """動的にembeddingsを生成するモック関数"""
+            mock_response = MagicMock()
+
+            # contentsが文字列（単一）かリスト（バッチ）かで分岐
+            if isinstance(contents, str):
+                # 単一テキストの場合
+                mock_embedding = MagicMock()
+                mock_embedding.values = [0.1] * 768
+                mock_response.embeddings = [mock_embedding]
+            else:
+                # バッチ処理の場合
+                mock_embeddings = []
+                for _ in contents:
+                    mock_embedding = MagicMock()
+                    mock_embedding.values = [0.1] * 768
+                    mock_embeddings.append(mock_embedding)
+                mock_response.embeddings = mock_embeddings
+
+            return mock_response
+
+        mock_client.models.embed_content.side_effect = mock_embed_content
 
         yield {
             'genai': mock_genai,
-            'response': {'embedding': [0.1] * 768},
+            'client': mock_client,
         }
 
 

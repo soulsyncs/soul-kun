@@ -77,9 +77,11 @@ CLOSING_PATTERNS = [
     # ====================
     # 終了の挨拶
     # ====================
+    # v10.25.4: 「をお願いします」「にお願いします」等は依頼内容なので残す
+    # 「よろしくお願いします」「何卒お願いします」等の定型句のみ削除
     r'よろしくお願い(いた)?します[。！!]?\s*$',
     r'よろしくお願い(いた)?致します[。！!]?\s*$',
-    r'お願い(いた)?します[。！!]?\s*$',
+    # r'お願い(いた)?します[。！!]?\s*$',  # v10.25.4: 削除（「〇〇をお願いします」を壊す）
     r'ご確認(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
     r'ご対応(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
     r'ご検討(の程)?よろしくお願い(いた)?します[。！!]?\s*$',
@@ -596,9 +598,10 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
             if truncated[i] == '、':
                 return truncated[:i + 1]
 
-        # 助詞の後で切る
+        # v10.25.4: 助詞の後で切る（ただし結果が10文字以上の場合のみ）
+        # 「決算書の」(4文字)のような短すぎる結果を防止
         particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
-        for i in range(max_length - 1, max_length // 2, -1):
+        for i in range(max_length - 1, max(max_length // 2, 9), -1):  # 最低10文字以上
             if truncated[i] in particles:
                 return truncated[:i + 1]
 
@@ -614,6 +617,16 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
                     cut_pos = i + len(action)
                     if cut_pos <= max_length:
                         return truncated[:cut_pos]
+
+        # v10.25.4: 助詞で終わる場合の補正
+        # 「決算書の提出を」→「決算書の提出」のように助詞を削除
+        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
+        result = truncated[:max_length - 2]
+        while result and result[-1] in particles:
+            result = result[:-1]
+
+        if result:
+            return result
 
         # 最終手段: max_length-2文字 + 動作語で終わらせる
         return truncated[:max_length - 2] + "対応"

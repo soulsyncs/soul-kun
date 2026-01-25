@@ -457,5 +457,76 @@ class TestPrepareTaskDisplayTextV10172CodexFixes:
         assert "連絡事項" in result
 
 
+class TestPrepareTaskDisplayTextV10256Improvements:
+    """prepare_task_display_text() - v10.25.6 途切れ改善テスト"""
+
+    def test_url_removal(self):
+        """URLが除去される"""
+        text = "お手隙でこちらのマスター内の総務のドライブに https://drive.google.com/drive/folders/xxx をお願いします"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "https" not in result
+        assert "drive.google" not in result
+        assert "ドライブ" in result  # 内容は残る
+
+    def test_verb_ending_shite_removed(self):
+        """動詞活用「〜して」で終わらない"""
+        text = "まさのりが12月からソウルシンクス初の医療職のセカンドキャリア先の販路を開拓してくれました"
+        result = prepare_task_display_text(text, max_length=40)
+        assert not result.endswith("して")
+        assert "開拓" in result
+
+    def test_verb_ending_shima_removed(self):
+        """動詞活用「〜しま」で終わらない"""
+        text = "組織図からのグループ作成について 組織時そのままの細かさですと複雑になってしまうかと思います"
+        result = prepare_task_display_text(text, max_length=40)
+        assert not result.endswith("しま")
+        assert not result.endswith("なって")
+        assert "について" in result
+
+    def test_no_trailing_comma(self):
+        """読点(、)で終わらない"""
+        text = "【ご依頼】 ソウルくん、E-learning、社内システムの利用マニュアルを作成してください"
+        result = prepare_task_display_text(text, max_length=40)
+        assert not result.endswith("、")
+        assert "E-learning" in result
+
+    def test_connector_phrase_cut(self):
+        """「について」等の接続表現の後で切る"""
+        text = "ソウルくんのリマインドロジックへのフィードバックを反映させるという話について確認したいと思います"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result.endswith("について")
+
+    def test_action_word_cut(self):
+        """動作語(開拓、完了等)の後で切る"""
+        text = "こちらお待たせしています、未来合宿の原本動画のドライブ格納も完了しましたのでご連絡です"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result.endswith("完了")
+
+    def test_incomplete_ending_particles(self):
+        """10文字以上のテキストで助詞・動詞活用で終わらない"""
+        # 10文字未満はそのまま返す（ユーザー意図尊重）
+        short_text = "販路を開拓して"  # 7文字
+        result_short = prepare_task_display_text(short_text, max_length=40)
+        assert result_short == "販路を開拓して"  # そのまま
+
+        # 10文字以上は不完全な末尾を削除
+        long_text = "新規案件の販路を開拓して"  # 12文字
+        result_long = prepare_task_display_text(long_text, max_length=40)
+        assert result_long == "新規案件の販路を開拓"
+        assert not result_long.endswith("して")
+
+    def test_url_after_particle_cleanup(self):
+        """URL除去後の不自然なパターン「に を」が整形される"""
+        text = "総務のドライブに https://example.com をお願いします"
+        result = prepare_task_display_text(text, max_length=40)
+        assert "に を" not in result  # 「に を」という不自然なパターンがない
+
+    def test_period_break_still_works(self):
+        """句点での切り詰めは従来通り動作"""
+        text = "経費精算書を提出してください。よろしくお願いします。"
+        result = prepare_task_display_text(text, max_length=40)
+        assert result == "経費精算書を提出してください。"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

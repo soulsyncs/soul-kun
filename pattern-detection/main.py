@@ -1044,9 +1044,9 @@ def daily_insight_notification(request: Request):
 
             print(f"📝 メッセージ作成完了: {len(message)}文字")
 
-            # ChatWorkに送信
+            # ChatWorkに送信（ソウルくんのトークンを使用）
             if not dry_run:
-                chatwork_token = get_secret("CHATWORK_API_TOKEN")
+                chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
 
                 response = http_requests.post(
                     f"https://api.chatwork.com/v2/rooms/{room_id}/messages",

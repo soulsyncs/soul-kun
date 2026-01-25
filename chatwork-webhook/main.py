@@ -3424,8 +3424,9 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # タスク内容を短く表示（30文字まで）
-                body_short = body[:30] + "..." if len(body) > 30 else body
+                # タスク内容を短く表示（ChatWorkタグ除去 + 途切れ防止）
+                clean_body = clean_chatwork_tags(body)
+                body_short = prepare_task_display_text(clean_body, max_length=30)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -3444,8 +3445,9 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 except:
                     pass
 
-            # タスク内容を短く表示（30文字まで）
-            body_short = body[:30] + "..." if len(body) > 30 else body
+            # タスク内容を短く表示（ChatWorkタグ除去 + 途切れ防止）
+            clean_body = clean_chatwork_tags(body)
+            body_short = prepare_task_display_text(clean_body, max_length=30)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"

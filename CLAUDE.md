@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 10:25 JST**
+**最終更新: 2026-01-25 10:50 JST**
 
 ## Phase一覧と状態
 
@@ -743,10 +743,10 @@ git status
 
 | 関数名 | 状態 | 用途 | 最終更新 |
 |--------|------|------|----------|
-| chatwork-webhook | ACTIVE | メインWebhook（v10.24.7 全ハンドラー有効化） | 2026-01-25 10:25 |
+| chatwork-webhook | ACTIVE | メインWebhook（v10.24.8 タスク要約修正） | 2026-01-25 10:50 |
 | chatwork-main | ACTIVE | Chatwork API | 2026-01-24 11:18 |
-| remind-tasks | ACTIVE | タスクリマインド | 2026-01-24 11:22 |
-| sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-24 11:54 |
+| remind-tasks | ACTIVE | タスクリマインド | 2026-01-25 10:50 |
+| sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-25 10:50 |
 | check-reply-messages | ACTIVE | 返信チェック | 2026-01-24 11:23 |
 | cleanup-old-data | ACTIVE | 古いデータ削除 | 2026-01-24 11:25 |
 | **pattern-detection** | **ACTIVE** | **A1〜A4検知統合** | **2026-01-24 17:03** |
@@ -807,6 +807,24 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 10:50 JST**: タスク要約途切れバグ修正 本番デプロイ完了 ✅ **PR #93**
+  - **実施者**: Claude Code
+  - **問題**: タスク遅延リマインド等でタスク要約が途中で途切れる（「[:30]」や「[:40]」で直接切り詰めていた）
+  - **根本原因**: 15箇所で`prepare_task_display_text()`を使わず直接切り詰めしていた
+  - **修正内容**:
+    - `overdue_handler.py`: `_format_body_short()`ヘルパー追加、6箇所修正
+    - `task_handler.py`: `_fallback_truncate()`静的メソッド追加、3箇所修正
+    - `main.py`: OverdueHandler初期化に依存性注入
+    - `remind-tasks/main.py`: 5箇所を`lib_prepare_task_display_text()`に置換
+    - `sync-chatwork-tasks/main.py`: 3箇所をインラインフォールバックに置換
+  - **改善点**: 句点「。」、読点「、」、助詞「を」「に」「で」「が」「は」「の」の後ろで自然に切れる
+  - **デプロイ**:
+    - chatwork-webhook: revision 00126-rum
+    - remind-tasks: revision 00039-nix
+    - sync-chatwork-tasks: revision 00046-vow
+  - **テスト**: 371件のユニットテスト全パス
+  - **10の鉄則準拠**: 新規SQL追加なし、フォールバック設計維持
 
 - **2026-01-25 10:25 JST**: Phase 4前リファクタリング 本番デプロイ完了 ✅ **v10.24.7**
   - **実施者**: Claude Code

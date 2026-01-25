@@ -97,29 +97,37 @@ class TestAuthorization:
             admin_account_id="1728974",
         )
 
-    def test_admin_authorized(self):
-        """管理者は認可されること"""
+    def test_admin_authorized_from_authorized_room(self):
+        """管理者は認可ルームから認可されること"""
         handler = self._create_handler()
         authorized, reason = handler.is_authorized_request("405315911", "1728974")
         assert authorized is True
         assert reason == ""
 
-    def test_wrong_room_unauthorized(self):
-        """認可されていないルームからは拒否されること"""
+    def test_admin_authorized_from_any_room(self):
+        """管理者はどのルームからでも認可されること（個人チャット含む）"""
         handler = self._create_handler()
+        # 認可リストにないルームからでもカズさんはOK
         authorized, reason = handler.is_authorized_request("123456789", "1728974")
-        assert authorized is False
-        assert "管理部チャット" in reason
+        assert authorized is True
+        assert reason == ""
 
-    def test_non_admin_unauthorized(self):
-        """管理者以外は拒否されること"""
+    def test_non_admin_from_authorized_room(self):
+        """管理者以外は認可ルームからでも拒否されること（現時点）"""
         handler = self._create_handler()
         authorized, reason = handler.is_authorized_request("405315911", "9999999")
         assert authorized is False
         assert "管理者" in reason
 
-    def test_admin_in_authorized_room(self):
-        """認可ルームの管理者は許可されること"""
+    def test_non_admin_from_wrong_room(self):
+        """管理者以外が認可されていないルームからは拒否されること"""
+        handler = self._create_handler()
+        authorized, reason = handler.is_authorized_request("123456789", "9999999")
+        assert authorized is False
+        assert "管理部チャット" in reason
+
+    def test_admin_in_custom_authorized_room(self):
+        """カスタム認可ルームでも管理者は許可されること"""
         handler = self._create_handler({123456, 789012})
         authorized, reason = handler.is_authorized_request("123456", "1728974")
         assert authorized is True
@@ -375,13 +383,25 @@ class TestHandleAnnouncementRequest:
         )
         return handler
 
-    def test_unauthorized_room(self):
-        """認可されていないルームからは拒否"""
+    def test_admin_can_use_from_any_room(self):
+        """管理者はどのルームからでも使用可能"""
         handler = self._create_handler(authorized=True)
         result = handler.handle_announcement_request(
             params={"raw_message": "テスト"},
-            room_id="999999",  # 認可されていない
-            account_id="1728974",
+            room_id="999999",  # 認可リストにないルーム
+            account_id="1728974",  # でもカズさんなのでOK
+            sender_name="カズ",
+        )
+        # 拒否されない（確認フローが始まる）
+        assert "🚫" not in result
+
+    def test_non_admin_from_wrong_room_rejected(self):
+        """非管理者が認可されていないルームからは拒否"""
+        handler = self._create_handler(authorized=True)
+        result = handler.handle_announcement_request(
+            params={"raw_message": "テスト"},
+            room_id="999999",  # 認可されていないルーム
+            account_id="999999",  # 非管理者
             sender_name="テスト太郎",
         )
         assert "🚫" in result

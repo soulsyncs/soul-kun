@@ -200,18 +200,22 @@ class AnnouncementHandler:
 
         Returns:
             (is_authorized, reason)
-        """
-        # ルームチェック
-        room_id_int = int(room_id) if room_id else 0
-        if room_id_int not in self._authorized_room_ids:
-            return False, "この機能は管理部チャットまたはカズさんとの1on1からのみ使用できます"
 
-        # アカウントチェック（管理者または管理部メンバー）
+        認可ルール:
+        - カズさん（管理者）: どのルームからでも使用可能
+        - 管理部メンバー: 管理部チャットからのみ使用可能（将来対応）
+        """
+        # カズさんはどこからでもOK（個人チャット、グループ、どこでも）
         if str(account_id) == self._admin_account_id:
             return True, ""
 
+        # それ以外は認可ルームのみ
+        room_id_int = int(room_id) if room_id else 0
+        if room_id_int not in self._authorized_room_ids:
+            return False, "この機能は管理部チャットからのみ使用できます"
+
         # TODO: 管理部ロールチェック（Phase 3.5連携）
-        # 現時点ではカズさんのみ許可
+        # 現時点では管理部チャットからでもカズさん以外は使用不可
 
         return False, "この機能は管理者のみが使用できます"
 

@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 12:15 JST**
+**最終更新: 2026-01-25 12:22 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,26 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 12:22 JST**: google-genai SDK移行 本番デプロイ完了 ✅ **PR #101**
+  - **実施者**: Claude Code
+  - **背景**: PR #99でマージされた新SDK移行を本番環境に適用
+  - **作業内容**:
+    - **watch-google-drive**: revision 00013-yiq（すでにデプロイ済み）
+    - **soulkun-api**: revision 00039-z2q（新規デプロイ）
+  - **修正内容**:
+    - `api/requirements.txt`: 依存関係追加
+      - google-api-python-client>=2.111.0（lib/google_drive.py依存）
+      - google-auth>=2.25.0（lib/google_drive.py依存）
+      - pytz>=2024.1（lib/goal_notification.py依存）
+      - jpholiday>=0.1.9（lib/business_day.py依存）
+    - `Dockerfile`: PYTHONPATH修正
+      - `/app` → `/app:/app/api`
+      - lib/とapi/app/の両方にアクセス可能に
+  - **動作確認**:
+    - soulkun-api: `{"name":"Soul-kun API","version":"3.5.0","status":"running"}`
+    - watch-google-drive: `{"status":"completed","sync_id":"..."}`
+  - **10の鉄則準拠**: 依存関係追加のみ、DB操作なし
 
 - **2026-01-25 12:15 JST**: google-genai SDK移行 ✅ **PR #99**
   - **実施者**: Claude Code

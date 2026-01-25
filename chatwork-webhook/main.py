@@ -6522,7 +6522,29 @@ def chatwork_webhook(request):
         all_persons = get_all_persons_summary()
         all_tasks = get_tasks()
         chatwork_users = get_all_chatwork_users()  # ★ ChatWorkユーザー一覧を取得
-        
+
+        # ★ Phase X: pending announcement があればそちらを優先処理
+        if USE_ANNOUNCEMENT_FEATURE:
+            try:
+                announcement_handler = _get_announcement_handler()
+                if announcement_handler:
+                    pending = announcement_handler._get_pending_announcement(room_id, sender_account_id)
+                    if pending:
+                        print(f"📢 pending announcement検出: {pending['id']}")
+                        response = announcement_handler.handle_announcement_request(
+                            params={"raw_message": clean_message},
+                            room_id=room_id,
+                            account_id=sender_account_id,
+                            sender_name=sender_name,
+                        )
+                        if response:
+                            show_guide = should_show_guide(room_id, sender_account_id)
+                            send_chatwork_message(room_id, response, sender_account_id, show_guide)
+                            update_conversation_timestamp(room_id, sender_account_id)
+                            return jsonify({"status": "ok"})
+            except Exception as e:
+                print(f"❌ pending announcement チェックエラー: {e}")
+
         # AI司令塔に判断を委ねる（AIの判断力を最大活用）
         command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
         

@@ -240,20 +240,21 @@ client = ChatworkAsyncClient()
 await client.send_message(room_id=12345, message="Hello!")
 ```
 
-### chatwork-webhook/main.py 構造（v10.23.3）
+### chatwork-webhook/main.py 構造（v10.24.7）
 
-**現在の状況**: 8920行の巨大ファイル（Phase 4前に分割予定）
+**現在の状況**: 9,627行（ハンドラー分割により3,737行を外部化、フォールバック実装を維持）
 
 ```
 chatwork-webhook/main.py
 │
-├── [1-350] インポート・設定
+├── [1-300] インポート・設定
 │   ├── Flask/GCP imports
 │   ├── lib/ imports（text_utils, goal_setting, memory, mvv_context）
+│   ├── handlers/ imports（feature flags付き）
 │   ├── モデル設定（Gemini 3 Flash）
 │   └── Phase 3 ナレッジ検索設定
 │
-├── [350-1000] SYSTEM_CAPABILITIES（機能カタログ）
+├── [300-1000] SYSTEM_CAPABILITIES（機能カタログ）
 │   └── AI司令塔が参照する全機能定義
 │
 ├── [1000-1700] DB・認証・基盤ユーティリティ
@@ -262,23 +263,32 @@ chatwork-webhook/main.py
 │   ├── get_or_create_person(), normalize_person_name()
 │   └── get_org_chart_overview()（Phase 3.5）
 │
-├── [1700-2300] タスク管理
-│   ├── create_chatwork_task(), complete_chatwork_task()
-│   ├── search_tasks_from_db()（※BUG-001修正済み）
-│   ├── save_chatwork_task_to_db()
-│   └── log_analytics_event()
+├── [1700-2200] ハンドラー初期化関数
+│   ├── _get_task_handler()
+│   ├── _get_overdue_handler()
+│   ├── _get_goal_handler()
+│   ├── _get_knowledge_handler()
+│   └── _get_proposal_handler()
 │
-├── [2300-4000] AIハンドラー関数
-│   ├── handle_chatwork_task_*()
-│   ├── handle_query_company_knowledge()
-│   └── HANDLER_MAP（アクション→ハンドラー対応表）
+├── [2200-4000] タスク管理（→ handlers/task_handler.py に委譲）
+│   ├── create_chatwork_task() ← ラッパー
+│   ├── complete_chatwork_task() ← ラッパー
+│   ├── search_tasks_from_db() ← ラッパー
+│   └── + フォールバック実装
 │
-├── [4000-4800] Phase 2.5 目標達成支援ハンドラー
-│   ├── handle_goal_registration()
-│   ├── handle_goal_progress_report()
-│   └── handle_goal_status_check()
+├── [4000-4500] AIハンドラー関数（→ handlers/ に委譲）
+│   ├── handle_learn_knowledge() ← ラッパー
+│   ├── handle_forget_knowledge() ← ラッパー
+│   ├── handle_list_knowledge() ← ラッパー
+│   ├── handle_query_company_knowledge() ← ラッパー
+│   └── + フォールバック実装
 │
-├── [4800-5500] 会話履歴・Memory統合
+├── [4500-5000] Phase 2.5 目標達成支援（→ handlers/goal_handler.py に委譲）
+│   ├── handle_goal_registration() ← ラッパー
+│   ├── handle_goal_progress_report() ← ラッパー
+│   └── handle_goal_status_check() ← ラッパー
+│
+├── [5000-5500] 会話履歴・Memory統合
 │   ├── get_conversation_history(), save_conversation_history()
 │   └── process_memory_after_conversation()（Phase 2 B）
 │
@@ -288,40 +298,74 @@ chatwork-webhook/main.py
 │   ├── execute_action()
 │   └── get_ai_response()（MVV統合済み）
 │
-├── [6200-7100] ナレッジ管理 ⚠️ 分割候補
-│   ├── ensure_knowledge_tables()
-│   ├── save_knowledge(), delete_knowledge()
-│   ├── search_phase3_knowledge()（ハイブリッド検索）
-│   ├── integrated_knowledge_search()
-│   └── create_proposal(), approve_proposal()
+├── [6200-7500] ナレッジ管理（→ handlers/knowledge_handler.py に委譲）
+│   ├── ensure_knowledge_tables() ← ラッパー
+│   ├── save_knowledge(), delete_knowledge() ← ラッパー
+│   ├── search_phase3_knowledge() ← ラッパー
+│   ├── integrated_knowledge_search() ← ラッパー
+│   └── + フォールバック実装
 │
-├── [7100-7800] 遅延管理・エスカレーション
-│   ├── process_overdue_tasks()
-│   ├── send_overdue_reminder_to_dm()
-│   └── process_escalations()
+├── [7500-8200] 遅延管理（→ handlers/overdue_handler.py に委譲）
+│   ├── process_overdue_tasks() ← ラッパー
+│   ├── send_overdue_reminder_to_dm() ← ラッパー
+│   └── + フォールバック実装
 │
-├── [7800-8600] 他Cloud Function エンドポイント
+├── [8200-9000] 他Cloud Function エンドポイント
 │   ├── check_reply_messages()
 │   ├── sync_chatwork_tasks()
 │   └── remind_tasks()
 │
-└── [8600-8920] cleanup_old_data()
+└── [9000-9627] cleanup_old_data()
 ```
 
-### リファクタリング計画（Phase 4前に実施）
+### chatwork-webhook/handlers/ 構造（v10.24.7）
 
-**優先度順**:
-1. **ナレッジ管理** → `handlers/knowledge_handler.py`（~900行）
-2. **タスク管理** → `handlers/task_handler.py`（~600行）
-3. **目標達成支援** → `handlers/goal_handler.py`（~800行）
-4. **遅延管理** → `handlers/overdue_handler.py`（~700行）
+**Phase 4前リファクタリング完了**: 6つのハンドラーモジュールを抽出（計3,737行）
 
-**目標**: main.py を 1500行以下に削減
+```
+chatwork-webhook/handlers/
+├── __init__.py                 # エクスポート定義（8行）
+├── memory_handler.py           # Memory管理（302行）v10.24.3
+├── proposal_handler.py         # 提案管理（553行）v10.24.2
+├── task_handler.py             # タスク管理（462行）v10.24.4
+├── overdue_handler.py          # 遅延管理（817行）v10.24.5
+├── goal_handler.py             # 目標達成支援（551行）v10.24.6
+└── knowledge_handler.py        # ナレッジ管理（1,044行）v10.24.7
+```
 
-**注意**: 分割時は以下を確認
-- 関数間の依存関係（get_pool等の共通関数）
-- 定数の配置（ADMIN_ACCOUNT_ID等）
-- エラーハンドリングの一貫性
+| ハンドラー | 行数 | 主要機能 | Feature Flag |
+|-----------|------|----------|--------------|
+| `MemoryHandler` | 302 | 会話Memory統合 | `USE_NEW_MEMORY_HANDLER` |
+| `ProposalHandler` | 553 | 知識提案・承認 | `USE_NEW_PROPOSAL_HANDLER` |
+| `TaskHandler` | 462 | タスク作成・検索・完了 | `USE_NEW_TASK_HANDLER` |
+| `OverdueHandler` | 817 | 遅延検知・エスカレーション | `USE_NEW_OVERDUE_HANDLER` |
+| `GoalHandler` | 551 | 目標設定対話 | `USE_NEW_GOAL_HANDLER` |
+| `KnowledgeHandler` | 1,044 | ナレッジ管理・検索 | `USE_NEW_KNOWLEDGE_HANDLER` |
+
+### リファクタリング計画（Phase 4前に実施）✅ 完了
+
+**完了したフェーズ**:
+1. ✅ **Phase 2-3**: `handlers/memory_handler.py`（302行）v10.24.3
+2. ✅ **Phase 2-4**: `handlers/proposal_handler.py`（553行）v10.24.2
+3. ✅ **Phase 2-5**: `handlers/task_handler.py`（462行）v10.24.4
+4. ✅ **Phase 2-6**: `handlers/overdue_handler.py`（817行）v10.24.5
+5. ✅ **Phase 2-7**: `handlers/goal_handler.py`（551行）v10.24.6
+6. ✅ **Phase 2-8**: `handlers/knowledge_handler.py`（1,044行）v10.24.7
+
+**設計パターン（全ハンドラー共通）**:
+- 依存性注入（get_pool, get_secret等を外部から注入）
+- Feature Flag（環境変数で旧実装にフォールバック可能）
+- シングルトンパターン（`_get_*_handler()`で遅延初期化）
+- ラッパー関数（main.pyの既存シグネチャを維持）
+
+**テストカバレッジ**:
+- memory_handler: 18件
+- proposal_handler: 15件
+- task_handler: 28件
+- overdue_handler: 30件
+- goal_handler: 59件
+- knowledge_handler: 58件
+- **合計**: 208件のユニットテスト
 
 ---
 
@@ -634,7 +678,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-24 22:00 JST**
+**最終更新: 2026-01-25 00:30 JST**
 
 ## Phase一覧と状態
 
@@ -728,6 +772,53 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 00:30 JST**: Phase 2-8 KnowledgeHandler抽出完了 (v10.24.7) ✅ **PR #88**
+  - **実施者**: Claude Code
+  - **作業内容**:
+    - `handlers/knowledge_handler.py`（1,044行）を新規作成
+    - `KnowledgeHandler`クラス:
+      - 定数: `KNOWLEDGE_KEYWORDS`（キーワード辞書）、`QUERY_EXPANSION_MAP`（クエリ拡張）
+      - 静的メソッド: `extract_keywords()`, `expand_query()`, `calculate_keyword_score()`
+      - DB操作: `ensure_knowledge_tables()`, `save_knowledge()`, `delete_knowledge()`, `get_all_knowledge()`, `get_knowledge_for_prompt()`
+      - 検索: `search_phase3_knowledge()`, `format_phase3_results()`, `integrated_knowledge_search()`, `search_legacy_knowledge()`
+      - ハンドラー: `handle_learn_knowledge()`, `handle_forget_knowledge()`, `handle_list_knowledge()`, `handle_query_company_knowledge()`, `handle_local_learn_knowledge()`
+    - main.pyにインポートブロック追加（`USE_NEW_KNOWLEDGE_HANDLER`フラグ）
+    - `_get_knowledge_handler()`シングルトン初期化関数追加
+    - 5つのラッパー関数更新（フォールバック付き）
+  - **テスト**: 58件のユニットテスト追加（`tests/test_knowledge_handler.py`）
+    - 定数テスト（6件）
+    - 初期化テスト（4件）
+    - キーワード抽出・クエリ拡張テスト（8件）
+    - キーワードスコア計算テスト（5件）
+    - DB操作テスト（11件）
+    - 検索テスト（4件）
+    - ハンドラーテスト（20件）
+  - **全ハンドラーテスト**: 208件パス
+  - **10の鉄則準拠**: organization_id, SQLインジェクション対策, フォールバック設計
+  - **Quality Checks**: 全パス（禁止パターン, lib/同期, ユニットテスト）
+  - **Feature Flag**: `USE_NEW_KNOWLEDGE_HANDLER=false`で旧実装に戻せる
+
+- **2026-01-25 00:00 JST**: Phase 2-3〜2-8 リファクタリング完了 ✅ **main.py分割完了**
+  - **実施者**: Claude Code
+  - **概要**: chatwork-webhook/main.pyから6つのハンドラーモジュールを抽出
+  - **抽出結果**:
+    | Phase | ハンドラー | 行数 | バージョン | テスト数 |
+    |-------|-----------|------|-----------|---------|
+    | 2-3 | memory_handler.py | 302 | v10.24.3 | 18 |
+    | 2-4 | proposal_handler.py | 553 | v10.24.2 | 15 |
+    | 2-5 | task_handler.py | 462 | v10.24.4 | 28 |
+    | 2-6 | overdue_handler.py | 817 | v10.24.5 | 30 |
+    | 2-7 | goal_handler.py | 551 | v10.24.6 | 59 |
+    | 2-8 | knowledge_handler.py | 1,044 | v10.24.7 | 58 |
+    | **合計** | - | **3,737** | - | **208** |
+  - **設計パターン**:
+    - 依存性注入（外部依存をコンストラクタで注入）
+    - Feature Flag（環境変数で旧実装にフォールバック可能）
+    - シングルトンパターン（遅延初期化）
+    - ラッパー関数（既存シグネチャ維持）
+  - **main.py状態**: 9,627行（フォールバック実装維持のため減少は限定的）
+  - **次のステップ**: 本番デプロイ後、フォールバック実装を段階的に削除予定
 
 - **2026-01-24 22:00 JST**: v10.23.3 lib/同期チェック拡張 + report-generator再デプロイ ✅ **完了**
   - **実施者**: Claude Code

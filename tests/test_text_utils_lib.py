@@ -185,6 +185,38 @@ class TestValidateSummary:
         """途中で途切れているのは無効"""
         assert validate_summary("経費精算書を...", "長い本文...") is False
 
+    def test_invalid_mid_sentence_ending_no(self):
+        """v10.25.1: 「の」で終わる途中切れは無効"""
+        # 元本文が50文字以上必要
+        original = "お疲れ様です。決算書の提出をお願いします。期限は今週金曜日までです。確認よろしくお願いいたします。"
+        assert validate_summary("決算書の", original) is False
+
+    def test_invalid_mid_sentence_ending_wo(self):
+        """v10.25.1: 「を」で終わる途中切れは無効"""
+        # 元本文が50文字以上必要
+        original = "お疲れ様です。こちらの資料を確認してください。よろしくお願いします。何卒よろしくお願いいたします。以上です。"
+        assert len(original) > 50  # 確認用
+        assert validate_summary("こちらの資料を", original) is False
+
+    def test_invalid_mid_sentence_ending_ni(self):
+        """v10.25.1: 「に」で終わる途中切れは無効"""
+        # 元本文が50文字以上必要
+        original = "お手隙でこちらのマスター内の総務のドライブにアップロードしてください。よろしくお願いいたします。以上です。"
+        assert len(original) > 50  # 確認用
+        assert validate_summary("お手隙でこちらのマスター内の総務のドライブに", original) is False
+
+    def test_valid_summary_ending_with_particle_but_complete(self):
+        """v10.25.1: 助詞で終わるが完結している場合は有効"""
+        # 「について」で終わるが、元本文にこのテキストが含まれていない
+        original = "経費精算について相談したいです。よろしくお願いいたします。何卒よろしくお願いします。"
+        assert validate_summary("経費精算について相談依頼", original) is True
+
+    def test_valid_summary_short_original(self):
+        """v10.25.1: 元本文が短い場合は助詞チェックしない"""
+        # is_greeting_onlyは5文字以下を挨拶扱いするので、6文字以上のサマリーを使用
+        original = "経費精算書の提出依頼です"  # 11文字（50未満）
+        assert validate_summary("経費精算書の提出依頼", original) is True
+
 
 class TestIsGreetingOnly:
     """is_greeting_only() のテスト"""

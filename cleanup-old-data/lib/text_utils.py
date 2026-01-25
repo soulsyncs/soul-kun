@@ -96,6 +96,9 @@ GREETING_STARTS = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
 # 途切れインジケータ（バリデーション用）
 TRUNCATION_INDICATORS = ['…', '...', '。。', '、、']
 
+# v10.25.1: 文中で切れている可能性を示す末尾パターン（助詞・接続詞で終わる）
+MID_SENTENCE_ENDINGS = ['の', 'を', 'に', 'で', 'が', 'は', 'と', 'も', 'へ', 'から', 'まで', 'より', 'けど', 'ので', 'ため', 'って', 'という']
+
 
 def remove_greetings(text: str) -> str:
     """
@@ -270,6 +273,24 @@ def validate_summary(summary: str, original_body: str) -> bool:
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False
 
+    # 5. v10.25.1: 助詞で終わる不自然な切れ方を検出
+    #    - 元の本文が長い（50文字以上）
+    #    - 要約が助詞で終わる
+    #    - 要約が元の本文の途中で切れている（元本文に要約テキスト+続きがある）
+    if len(original_body) > 50:
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary.endswith(ending):
+                # 要約テキストが元本文の一部かどうかをチェック
+                summary_stripped = summary.rstrip(ending)
+                if summary_stripped and summary_stripped in original_body:
+                    # 元本文で要約の後にまだテキストが続いているかチェック
+                    pos = original_body.find(summary_stripped)
+                    if pos >= 0:
+                        after_summary = original_body[pos + len(summary_stripped):]
+                        # 要約の後に意味のあるテキスト（10文字以上）があれば途切れと判定
+                        if len(after_summary.strip()) > 10:
+                            return False
+
     return True
 
 
@@ -425,6 +446,18 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
 
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False, "starts_with_greeting"
+
+    # v10.25.1: 助詞で終わる不自然な切れ方を検出
+    if len(original_body) > 50:
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary.endswith(ending):
+                summary_stripped = summary.rstrip(ending)
+                if summary_stripped and summary_stripped in original_body:
+                    pos = original_body.find(summary_stripped)
+                    if pos >= 0:
+                        after_summary = original_body[pos + len(summary_stripped):]
+                        if len(after_summary.strip()) > 10:
+                            return False, "mid_sentence_truncated"
 
     return True, None
 
@@ -589,6 +622,7 @@ __all__ = [
     "CLOSING_PATTERNS",
     "GREETING_STARTS",
     "TRUNCATION_INDICATORS",
+    "MID_SENTENCE_ENDINGS",  # v10.25.1追加
     # 関数
     "remove_greetings",
     "extract_task_subject",

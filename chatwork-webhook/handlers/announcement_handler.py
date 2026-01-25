@@ -402,9 +402,15 @@ class AnnouncementHandler:
 - 「タスクも振って」「依頼して」「お願いして」→ create_tasks: true
 - 「〜まで」「〜日まで」→ task_deadline
 - 「全員」「みんな」→ task_assign_all: true
-- 「〜以外」「〜を除く」→ task_exclude_names
+- 「〇〇にタスク」「〇〇さんにタスク」→ task_include_names: ["〇〇"], task_assign_all: false
+- 「〜以外」「〜を除く」→ task_exclude_names, task_assign_all: true
 - 「毎週」「毎月」「毎日」→ schedule_type: recurring
 - 「明日」「来週月曜」→ schedule_type: one_time + scheduled_at
+
+【重要ルール】
+- 特定の人名が指定された場合（例:「麻美にタスク」）は必ず task_assign_all: false にして、task_include_names にその名前を入れる
+- 「全員」「みんな」と明示的に言われた場合のみ task_assign_all: true にする
+- 名前が指定されていない場合でも、デフォルトは task_assign_all: false にする
 
 【必須確認項目】
 メッセージ内容が明確でない場合はneeds_clarification: trueにしてください。
@@ -725,6 +731,104 @@ class AnnouncementHandler:
         return 0.0
 
     # =========================================================================
+    # v10.26.3: 名前からアカウントIDへの変換
+    # =========================================================================
+
+    def _resolve_names_to_account_ids(
+        self,
+        parsed: ParsedAnnouncementRequest
+    ) -> ParsedAnnouncementRequest:
+        """
+        task_include_names の名前をアカウントIDに変換
+
+        ルームメンバーから名前をマッチングし、
+        task_include_account_ids に変換する。
+
+        Args:
+            parsed: 解析済みリクエスト（task_include_names を含む）
+
+        Returns:
+            アカウントIDが設定されたリクエスト
+        """
+        if not parsed.task_include_names or not parsed.target_room_id:
+            return parsed
+
+        # ルームメンバー取得
+        members = self.get_room_members(str(parsed.target_room_id))
+        if not members:
+            print(f"⚠️ ルームメンバーが取得できませんでした: room_id={parsed.target_room_id}")
+            return parsed
+
+        # 名前→アカウントIDのマッピング
+        resolved_ids = []
+        unresolved_names = []
+
+        for target_name in parsed.task_include_names:
+            matched = self._match_name_to_member(target_name, members)
+            if matched:
+                resolved_ids.append(matched["account_id"])
+                print(f"✅ 名前解決: {target_name} → {matched['account_id']} ({matched.get('name', '不明')})")
+            else:
+                unresolved_names.append(target_name)
+                print(f"⚠️ 名前未解決: {target_name}")
+
+        # 結果を設定
+        if resolved_ids:
+            parsed.task_include_account_ids = resolved_ids
+            # 特定の人を指定した場合、task_assign_all は False
+            parsed.task_assign_all = False
+
+        return parsed
+
+    def _match_name_to_member(
+        self,
+        target_name: str,
+        members: List[Dict]
+    ) -> Optional[Dict]:
+        """
+        名前をルームメンバーにマッチング
+
+        マッチング優先度:
+        1. 完全一致
+        2. 名前に含まれる（「麻美」→「田中 麻美」）
+        3. カタカナ・ひらがな変換後の部分一致
+
+        Args:
+            target_name: 検索する名前
+            members: ルームメンバーリスト
+
+        Returns:
+            マッチしたメンバー or None
+        """
+        target_normalized = target_name.strip().lower()
+
+        # 完全一致
+        for m in members:
+            name = m.get("name", "")
+            if name.lower() == target_normalized:
+                return m
+
+        # 部分一致（名前に含まれる）
+        for m in members:
+            name = m.get("name", "")
+            # 「麻美」が「田中 麻美」に含まれる
+            if target_normalized in name.lower():
+                return m
+            # 「田中」が「田中 麻美」に含まれる
+            if name.lower() in target_normalized:
+                return m
+
+        # スペース・敬称を除去して再マッチ
+        target_clean = re.sub(r'[\s　さん様]', '', target_normalized)
+        for m in members:
+            name = m.get("name", "")
+            name_clean = re.sub(r'[\s　さん様]', '', name.lower())
+            if target_clean in name_clean or name_clean in target_clean:
+                return m
+
+        return None
+
+    # =========================================================================
     # 確認フロー
     # =========================================================================
 
@@ -782,6 +886,10 @@ class AnnouncementHandler:
         sender_name: str
     ) -> str:
         """確認メッセージを生成"""
+
+        # v10.26.3: 名前からアカウントIDに変換
+        if parsed.task_include_names and parsed.target_room_id:
+            parsed = self._resolve_names_to_account_ids(parsed)
 
         # DBに保存
         announcement_id = self._save_pending_announcement(

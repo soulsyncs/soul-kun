@@ -275,6 +275,28 @@ else:
 # GoalHandlerインスタンス（後で初期化）
 _goal_handler = None
 
+# =====================================================
+# v10.24.7: ナレッジ管理ハンドラー（handlers/knowledge_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_KNOWLEDGE_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_KNOWLEDGE_HANDLER_ENV = os.environ.get("USE_NEW_KNOWLEDGE_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_KNOWLEDGE_HANDLER_ENV:
+    try:
+        from handlers.knowledge_handler import KnowledgeHandler as _NewKnowledgeHandler
+        USE_NEW_KNOWLEDGE_HANDLER = True
+        print("✅ handlers/knowledge_handler.py loaded for Knowledge management")
+    except ImportError as e:
+        print(f"⚠️ handlers/knowledge_handler.py not available (using fallback): {e}")
+        USE_NEW_KNOWLEDGE_HANDLER = False
+else:
+    print("⚠️ New Knowledge handler disabled by environment variable USE_NEW_KNOWLEDGE_HANDLER=false")
+    USE_NEW_KNOWLEDGE_HANDLER = False
+
+# KnowledgeHandlerインスタンス（後で初期化）
+_knowledge_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2131,6 +2153,40 @@ def _get_goal_handler():
     return _goal_handler
 
 
+# =====================================================
+# KnowledgeHandler初期化（v10.24.7）
+# =====================================================
+def _get_knowledge_handler():
+    """KnowledgeHandlerのシングルトンインスタンスを取得"""
+    global _knowledge_handler
+    if _knowledge_handler is None and USE_NEW_KNOWLEDGE_HANDLER:
+        # MVV関数の取得
+        mvv_question_func = None
+        mvv_info_func = None
+        if USE_MVV_CONTEXT:
+            try:
+                mvv_question_func = is_mvv_question
+                mvv_info_func = get_full_mvv_info
+            except NameError:
+                pass
+
+        _knowledge_handler = _NewKnowledgeHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            is_admin_func=is_admin,
+            create_proposal_func=create_proposal,
+            report_proposal_to_admin_func=report_proposal_to_admin,
+            is_mvv_question_func=mvv_question_func,
+            get_full_mvv_info_func=mvv_info_func,
+            call_openrouter_api_func=call_openrouter_api,
+            phase3_knowledge_config=PHASE3_KNOWLEDGE_CONFIG,
+            default_model=MODELS["default"],
+            admin_account_id=ADMIN_ACCOUNT_ID,
+            openrouter_api_url=OPENROUTER_API_URL
+        )
+    return _knowledge_handler
+
+
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
     """
     ChatWork APIでタスクを作成（リトライ機構付き）
@@ -3745,20 +3801,28 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
     - 管理者（カズさん）からは即時反映
     - 他のスタッフからは提案として受け付け、管理部に報告
     v6.9.1: 通知失敗時のメッセージを事実ベースに改善
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_learn_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     category = params.get("category", "other")
     key = params.get("key", "")
     value = params.get("value", "")
-    
+
     if not key or not value:
         return "🤔 何を覚えればいいかわからなかったウル... もう少し具体的に教えてウル！🐺"
-    
+
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     # 管理者判定
     if is_admin(account_id):
         # 即時保存
@@ -3782,7 +3846,7 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
             key=key,
             value=value
         )
-        
+
         if proposal_id:
             # 管理部に報告
             notified = False
@@ -3790,7 +3854,7 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
                 notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
             except Exception as e:
                 print(f"⚠️ 管理部への報告エラー: {e}")
-            
+
             # v6.9.1: 通知成功/失敗に応じたメッセージ
             if notified:
                 return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！\n承認されたら覚えるウル！✨"
@@ -3804,17 +3868,25 @@ def handle_forget_knowledge(params, room_id, account_id, sender_name, context=No
     """
     知識を削除するハンドラー
     - 管理者のみ実行可能
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_forget_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     key = params.get("key", "")
     category = params.get("category")
-    
+
     if not key:
         return "🤔 何を忘れればいいかわからなかったウル..."
-    
+
     # 管理者判定
     if not is_admin(account_id):
         return f"🙏 知識の削除は菊地さんだけができるウル！\n[To:{ADMIN_ACCOUNT_ID}] {sender_name}さんが「{key}」の設定を削除したいみたいウル！"
-    
+
     # 削除実行
     if delete_knowledge(category, key):
         return f"忘れたウル！🐺\n\n🗑️ 「{key}」の設定を削除したウル！"
@@ -3825,18 +3897,26 @@ def handle_forget_knowledge(params, room_id, account_id, sender_name, context=No
 def handle_list_knowledge(params, room_id, account_id, sender_name, context=None):
     """
     学習した知識の一覧を表示するハンドラー
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_list_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     knowledge_list = get_all_knowledge()
-    
+
     if not knowledge_list:
         return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
-    
+
     # カテゴリごとにグループ化
     by_category = {}
     for k in knowledge_list:
@@ -3844,7 +3924,7 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
         if cat not in by_category:
             by_category[cat] = []
         by_category[cat].append(f"・{k['key']}: {k['value']}")
-    
+
     # 整形
     category_names = {
         "character": "🐺 キャラ設定",
@@ -3852,15 +3932,15 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
         "members": "👥 社員情報",
         "other": "📝 その他"
     }
-    
+
     lines = ["**覚えていること**ウル！🐺✨\n"]
     for cat, items in by_category.items():
         cat_name = category_names.get(cat, f"📁 {cat}")
         lines.append(f"\n**{cat_name}**")
         lines.extend(items)
-    
+
     lines.append(f"\n\n合計 {len(knowledge_list)} 件覚えてるウル！")
-    
+
     return "\n".join(lines)
 
 
@@ -4016,13 +4096,21 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
     """
     ローカルコマンドによる知識学習（v6.9.1追加）
     「設定：キー=値」形式で呼ばれる
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_local_learn_knowledge(key, value, account_id, sender_name, room_id)
+
+    # フォールバック: 旧実装
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     # カテゴリを推測（シンプルなルール）
     category = "other"
     key_lower = key.lower()
@@ -4032,7 +4120,7 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
         category = "rules"
     elif any(w in key_lower for w in ["社員", "メンバー", "担当"]):
         category = "members"
-    
+
     # 管理者判定
     if is_admin(account_id):
         if save_knowledge(category, key, value, str(account_id)):
@@ -4056,14 +4144,14 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
             key=key,
             value=value
         )
-        
+
         if proposal_id:
             notified = False
             try:
                 notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
             except Exception as e:
                 print(f"⚠️ 管理部への報告エラー: {e}")
-            
+
             if notified:
                 return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！"
             else:
@@ -4419,6 +4507,7 @@ ChatWorkアプリで直接操作してほしいウル！
 
 # =====================================================
 # v10.13.0: Phase 3 ナレッジ検索ハンドラー
+# v10.24.7: handlers/knowledge_handler.py に分割
 # =====================================================
 def handle_query_company_knowledge(params, room_id, account_id, sender_name, context=None):
     """
@@ -4436,7 +4525,15 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
 
     Returns:
         回答テキスト
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     query = params.get("query", "")
 
     if not query:

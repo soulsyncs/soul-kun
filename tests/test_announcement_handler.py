@@ -161,6 +161,46 @@ class TestRoomMatching:
         assert handler._normalize_for_matching("営業チーム") == "営業"
         assert handler._normalize_for_matching("テスト ルーム") == "テスト"
 
+    def test_normalize_for_matching_complex_suffix(self):
+        """複合サフィックスの除去が正しく動作すること（BUG-002修正）"""
+        handler = self._create_handler_with_rooms([])
+
+        # 「のグループチャット」という複合サフィックスが正しく除去される
+        assert handler._normalize_for_matching("管理部のグループチャット") == "管理部"
+        # 他の複合パターンもテスト
+        assert handler._normalize_for_matching("営業のグループチャット") == "営業"
+        assert handler._normalize_for_matching("開発グループチャット") == "開発"
+
+    def test_normalize_for_matching_special_characters(self):
+        """特殊文字の除去が正しく動作すること（BUG-002修正）"""
+        handler = self._create_handler_with_rooms([])
+
+        # 【】★☆などの特殊文字が除去される
+        assert handler._normalize_for_matching("【SS】★管理部★") == "ss管理部"
+        assert handler._normalize_for_matching("【開発】チーム") == "開発"
+        assert handler._normalize_for_matching("◆営業◆グループ") == "営業"
+        assert handler._normalize_for_matching("■総務■") == "総務"
+
+    def test_fuzzy_match_with_special_characters(self):
+        """特殊文字を含むルーム名がクエリにマッチすること（BUG-002修正）"""
+        rooms = [
+            {"room_id": 123, "name": "【SS】★管理部★", "type": "group"},
+            {"room_id": 456, "name": "【SS】開発チーム", "type": "group"},
+            {"room_id": 789, "name": "2026年度 社員合宿", "type": "group"},
+        ]
+        handler = self._create_handler_with_rooms(rooms)
+
+        # 「管理部のグループチャット」→「管理部」に正規化され、「【SS】★管理部★」→「ss管理部」と高スコアでマッチ
+        room_id, room_name, candidates = handler._fuzzy_match_room("管理部のグループチャット")
+        # 自動選択されるか、候補リストに含まれる
+        if room_id:
+            assert room_id == 123
+            assert room_name == "【SS】★管理部★"
+        else:
+            # 候補に含まれていることを確認
+            candidate_ids = [c["room_id"] for c in candidates]
+            assert 123 in candidate_ids
+
     def test_exact_match(self):
         """完全一致の場合"""
         rooms = [

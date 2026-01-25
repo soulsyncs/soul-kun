@@ -535,8 +535,25 @@ class AnnouncementHandler:
 
     def _normalize_for_matching(self, text: str) -> str:
         """マッチング用に正規化"""
-        # サフィックス除去
-        text = re.sub(r'(のチャット|のグループ|チャット|グループ|ルーム|チーム)$', '', text)
+        # サフィックス除去（複合パターンを先に、長いものから順に）
+        suffixes = [
+            'のグループチャット',
+            'グループチャット',
+            'のチャット',
+            'のグループ',
+            'チャット',
+            'グループ',
+            'ルーム',
+            'チーム',
+        ]
+        for suffix in suffixes:
+            if text.endswith(suffix):
+                text = text[:-len(suffix)]
+                break
+
+        # 特殊文字除去（【】★☆◆◇■□●○など）
+        text = re.sub(r'[【】★☆◆◇■□●○「」『』〈〉《》]', '', text)
+
         # スペース正規化
         text = re.sub(r'\s+', '', text)
         # 小文字化

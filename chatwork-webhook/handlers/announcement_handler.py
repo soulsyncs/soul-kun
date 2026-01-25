@@ -821,8 +821,9 @@ class AnnouncementHandler:
                             cancelled_at = CURRENT_TIMESTAMP,
                             cancelled_reason = :reason
                         WHERE id = :id
+                          AND organization_id = :org_id
                     """),
-                    {"id": announcement_id, "reason": reason}
+                    {"id": announcement_id, "reason": reason, "org_id": self._organization_id}
                 )
                 conn.commit()
                 print(f"📭 アナウンスキャンセル: id={announcement_id}")
@@ -877,13 +878,14 @@ class AnnouncementHandler:
 
         try:
             with pool.connect() as conn:
-                # アナウンス取得
+                # アナウンス取得（10の鉄則 #1: organization_idフィルタ必須）
                 result = conn.execute(
                     sqlalchemy.text("""
                         SELECT * FROM scheduled_announcements
                         WHERE id = :id
+                          AND organization_id = :org_id
                     """),
-                    {"id": announcement_id}
+                    {"id": announcement_id, "org_id": self._organization_id}
                 )
                 row = result.fetchone()
 
@@ -907,14 +909,15 @@ class AnnouncementHandler:
                                 self._calculate_next_execution(announcement_id, conn)
                             return {"success": True, "skipped": True, "reason": reason}
 
-                # ステータス更新
+                # ステータス更新（10の鉄則 #1: organization_idフィルタ必須）
                 conn.execute(
                     sqlalchemy.text("""
                         UPDATE scheduled_announcements
                         SET status = 'executing'
                         WHERE id = :id
+                          AND organization_id = :org_id
                     """),
-                    {"id": announcement_id}
+                    {"id": announcement_id, "org_id": self._organization_id}
                 )
 
                 # ルームメンバー取得
@@ -969,8 +972,9 @@ class AnnouncementHandler:
                             last_executed_at = CURRENT_TIMESTAMP,
                             execution_count = execution_count + 1
                         WHERE id = :id
+                          AND organization_id = :org_id
                     """),
-                    {"id": announcement_id, "status": final_status}
+                    {"id": announcement_id, "status": final_status, "org_id": self._organization_id}
                 )
                 conn.commit()
 
@@ -984,7 +988,8 @@ class AnnouncementHandler:
         except Exception as e:
             print(f"❌ アナウンス実行エラー: {e}")
             traceback.print_exc()
-            return {"success": False, "errors": [str(e)]}
+            # 10の鉄則 #8: エラーメッセージに機密情報を含めない
+            return {"success": False, "errors": ["アナウンスの実行中にエラーが発生しました"]}
 
     def _create_announcement_tasks(
         self,
@@ -1098,7 +1103,7 @@ class AnnouncementHandler:
         status: str,
         conn
     ):
-        """実行ログを更新"""
+        """実行ログを更新（10の鉄則 #1: organization_idフィルタ必須）"""
         try:
             conn.execute(
                 sqlalchemy.text("""
@@ -1110,6 +1115,7 @@ class AnnouncementHandler:
                         task_count = :task_count,
                         status = :status
                     WHERE id = :id
+                      AND organization_id = :org_id
                 """),
                 {
                     "id": log_id,
@@ -1118,13 +1124,14 @@ class AnnouncementHandler:
                     "tasks_created_flag": tasks_created > 0,
                     "task_count": tasks_created,
                     "status": status,
+                    "org_id": self._organization_id,
                 }
             )
         except Exception as e:
             print(f"⚠️ ログ更新エラー: {e}")
 
     def _calculate_next_execution(self, announcement_id: str, conn):
-        """次回実行日時を計算（繰り返し用）"""
+        """次回実行日時を計算（繰り返し用）（10の鉄則 #1: organization_idフィルタ必須）"""
         # TODO: croniter使用した計算
         # 現時点では単純に7日後を設定
         try:
@@ -1133,8 +1140,9 @@ class AnnouncementHandler:
                     UPDATE scheduled_announcements
                     SET next_execution_at = CURRENT_TIMESTAMP + INTERVAL '7 days'
                     WHERE id = :id
+                      AND organization_id = :org_id
                 """),
-                {"id": announcement_id}
+                {"id": announcement_id, "org_id": self._organization_id}
             )
         except Exception as e:
             print(f"⚠️ 次回実行計算エラー: {e}")
@@ -1318,17 +1326,19 @@ class AnnouncementHandler:
 
             insight_row = insight_result.fetchone()
             if insight_row:
-                # パターンを更新
+                # パターンを更新（10の鉄則 #1: organization_idフィルタ必須）
                 conn.execute(
                     sqlalchemy.text("""
                         UPDATE announcement_patterns
                         SET suggestion_created = TRUE,
                             insight_id = :insight_id
                         WHERE id = :pattern_id
+                          AND organization_id = :org_id
                     """),
                     {
                         "insight_id": str(insight_row[0]),
-                        "pattern_id": str(pattern["id"])
+                        "pattern_id": str(pattern["id"]),
+                        "org_id": self._organization_id
                     }
                 )
                 print(f"💡 定期化提案インサイト作成: {title}")

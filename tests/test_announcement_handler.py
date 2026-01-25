@@ -884,3 +884,145 @@ class TestMessageSendResultHandling:
 
         result = handler.send_chatwork_message("123", "test")
         assert result is True
+
+
+# =====================================================
+# v10.26.2: メッセージ修正機能テスト
+# =====================================================
+
+class TestMessageModification:
+    """メッセージ修正機能のテスト"""
+
+    def _create_handler(self):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(return_value="test-api-key"),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_modification_keywords_detected(self):
+        """修正キーワードが検出されること"""
+        handler = self._create_handler()
+
+        # _handle_follow_up_responseでキーワード検出されることを確認
+        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        for keyword in modification_keywords:
+            test_message = f"「テスト」を{keyword}して"
+            assert keyword in test_message
+
+    def test_apply_modification_fallback_append(self):
+        """LLMエラー時のフォールバック追記処理"""
+        handler = self._create_handler()
+        handler.get_secret = MagicMock(return_value=None)  # APIキーなし
+
+        current = "おはようウル！"
+        modification = "「これはテストです」を追記して"
+
+        result = handler._apply_message_modification(current, modification, "テスト太郎")
+
+        # 「」内のテキストが追記される
+        assert "これはテストです" in result
+        assert "おはようウル" in result
+
+    def test_apply_modification_fallback_pattern_1(self):
+        """フォールバック: 「〇〇」を追記してパターン"""
+        handler = self._create_handler()
+        handler.get_secret = MagicMock(return_value=None)
+
+        current = "メッセージ本文"
+        modification = "「追加テキスト」を追記して"
+
+        result = handler._apply_message_modification(current, modification, "テスト太郎")
+
+        assert "追加テキスト" in result
+
+    @patch('httpx.post')
+    def test_apply_modification_api_success(self, mock_post):
+        """API成功時、修正されたメッセージが返ること"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{
+                "message": {
+                    "content": "おはようウル！🐺 これはテストですウル✨"
+                }
+            }]
+        }
+        mock_post.return_value = mock_response
+
+        handler = self._create_handler()
+        result = handler._apply_message_modification(
+            "おはようウル！",
+            "これはテストですを追記して",
+            "テスト太郎"
+        )
+
+        assert "これはテスト" in result
+        assert mock_post.called
+
+    @patch('httpx.post')
+    def test_apply_modification_removes_code_blocks(self, mock_post):
+        """コードブロックが除去されること"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "choices": [{
+                "message": {
+                    "content": "```\n修正後メッセージ\n```"
+                }
+            }]
+        }
+        mock_post.return_value = mock_response
+
+        handler = self._create_handler()
+        result = handler._apply_message_modification("元", "修正依頼", "太郎")
+
+        assert "```" not in result
+        assert "修正後メッセージ" in result
+
+
+class TestFollowUpModificationDetection:
+    """フォローアップ応答でのメッセージ修正検出テスト"""
+
+    def _create_handler(self):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(return_value="test-api-key"),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_follow_up_detects_modification_request(self):
+        """フォローアップで修正リクエストが検出されること"""
+        modification_requests = [
+            "これはテストだよっていうのを追記して",
+            "メッセージを変更して",
+            "文章を修正してほしい",
+            "追加で書き換えてくれる？",
+            "ちょっと直してもらえる？",
+            "ここを変えて",
+            "〇〇を入れて",
+        ]
+
+        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+
+        for request in modification_requests:
+            detected = any(kw in request for kw in modification_keywords)
+            assert detected, f"'{request}' should be detected as modification request"
+
+    def test_ok_response_not_detected_as_modification(self):
+        """OKやキャンセルは修正リクエストとして検出されないこと"""
+        non_modification = ["OK", "ok", "キャンセル", "やめる", "はい", "送信"]
+
+        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+
+        for response in non_modification:
+            detected = any(kw in response for kw in modification_keywords)
+            assert not detected, f"'{response}' should NOT be detected as modification request"

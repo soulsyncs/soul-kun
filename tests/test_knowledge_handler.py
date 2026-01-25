@@ -461,7 +461,8 @@ class TestHandleLearnKnowledge:
             room_id="123", account_id="staff", sender_name="スタッフ", context=None
         )
         assert "提案ID: 1" in result
-        assert "確認をお願いした" in result
+        # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更
+        assert "ソウルくんが会社として問題ないか確認" in result
 
     def test_handle_learn_knowledge_staff_notification_failed(self):
         """スタッフからの提案（通知失敗）"""
@@ -476,7 +477,8 @@ class TestHandleLearnKnowledge:
             room_id="123", account_id="staff", sender_name="スタッフ", context=None
         )
         assert "提案ID: 1" in result
-        assert "通知が失敗した" in result
+        # v10.25.0: 通知失敗時もポジティブなメッセージに変更
+        assert "ソウルくんが確認中" in result
 
 
 # =====================================================

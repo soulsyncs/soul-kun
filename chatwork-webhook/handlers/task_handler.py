@@ -204,9 +204,9 @@ class TaskHandler:
                         if user_id and organization_id:
                             accessible_dept_ids = get_accessible_departments_func(conn, user_id, organization_id)
 
-                # クエリ構築（v10.22.0: room_id, room_nameを追加）
+                # クエリ構築（v10.22.0: room_id, room_nameを追加、v10.25.0: summaryを追加）
                 query = """
-                    SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name
+                    SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name, summary
                     FROM chatwork_tasks
                 """
                 params = {}
@@ -254,7 +254,8 @@ class TaskHandler:
                         "assigned_by_account_id": row[5],
                         "department_id": row[6],
                         "room_id": row[7],
-                        "room_name": row[8]
+                        "room_name": row[8],
+                        "summary": row[9]  # v10.25.0追加: AI生成の要約
                     }
                     for row in tasks
                 ]

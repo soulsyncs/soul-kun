@@ -113,6 +113,190 @@ else:
         USE_MVV_CONTEXT = False
         ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
 
+# =====================================================
+# v10.24.0: 日付処理ユーティリティ（リファクタリング）
+# =====================================================
+# utils/date_utils.py に分割された日付処理関数
+# 環境変数 USE_NEW_DATE_UTILS=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_DATE_UTILS_ENV = os.environ.get("USE_NEW_DATE_UTILS", "true").lower() == "true"
+
+if _USE_NEW_DATE_UTILS_ENV:
+    try:
+        from utils.date_utils import (
+            parse_date_from_text as _new_parse_date_from_text,
+            check_deadline_proximity as _new_check_deadline_proximity,
+            get_overdue_days as _new_get_overdue_days,
+            JST as _utils_JST,
+            DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
+        )
+        USE_NEW_DATE_UTILS = True
+        print("✅ utils/date_utils.py loaded for date processing")
+    except ImportError as e:
+        print(f"⚠️ utils/date_utils.py not available (using fallback): {e}")
+        USE_NEW_DATE_UTILS = False
+else:
+    print("⚠️ New date utils disabled by environment variable USE_NEW_DATE_UTILS=false")
+    USE_NEW_DATE_UTILS = False
+
+# =====================================================
+# v10.24.0: ChatWork APIユーティリティ（リファクタリング）
+# =====================================================
+# utils/chatwork_utils.py に分割されたChatWork API関数
+# 環境変数 USE_NEW_CHATWORK_UTILS=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_CHATWORK_UTILS_ENV = os.environ.get("USE_NEW_CHATWORK_UTILS", "true").lower() == "true"
+
+if _USE_NEW_CHATWORK_UTILS_ENV:
+    try:
+        from utils.chatwork_utils import (
+            APICallCounter as _new_APICallCounter,
+            get_api_call_counter as _new_get_api_call_counter,
+            reset_api_call_counter as _new_reset_api_call_counter,
+            clear_room_members_cache as _new_clear_room_members_cache,
+            call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
+            get_room_members as _new_get_room_members,
+            get_room_members_cached as _new_get_room_members_cached,
+            is_room_member as _new_is_room_member,
+        )
+        USE_NEW_CHATWORK_UTILS = True
+        print("✅ utils/chatwork_utils.py loaded for ChatWork API")
+    except ImportError as e:
+        print(f"⚠️ utils/chatwork_utils.py not available (using fallback): {e}")
+        USE_NEW_CHATWORK_UTILS = False
+else:
+    print("⚠️ New ChatWork utils disabled by environment variable USE_NEW_CHATWORK_UTILS=false")
+    USE_NEW_CHATWORK_UTILS = False
+
+# =====================================================
+# handlers/proposal_handler.py に分割された提案管理機能
+# 環境変数 USE_NEW_PROPOSAL_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_PROPOSAL_HANDLER_ENV = os.environ.get("USE_NEW_PROPOSAL_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_PROPOSAL_HANDLER_ENV:
+    try:
+        from handlers.proposal_handler import ProposalHandler as _NewProposalHandler
+        USE_NEW_PROPOSAL_HANDLER = True
+        print("✅ handlers/proposal_handler.py loaded for Proposal management")
+    except ImportError as e:
+        print(f"⚠️ handlers/proposal_handler.py not available (using fallback): {e}")
+        USE_NEW_PROPOSAL_HANDLER = False
+else:
+    print("⚠️ New Proposal handler disabled by environment variable USE_NEW_PROPOSAL_HANDLER=false")
+    USE_NEW_PROPOSAL_HANDLER = False
+
+# ProposalHandlerインスタンス（後で初期化）
+_proposal_handler = None
+
+# =====================================================
+# handlers/memory_handler.py に分割されたメモリ管理機能
+# 環境変数 USE_NEW_MEMORY_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_MEMORY_HANDLER_ENV = os.environ.get("USE_NEW_MEMORY_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_MEMORY_HANDLER_ENV:
+    try:
+        from handlers.memory_handler import MemoryHandler as _NewMemoryHandler
+        USE_NEW_MEMORY_HANDLER = True
+        print("✅ handlers/memory_handler.py loaded for Memory management")
+    except ImportError as e:
+        print(f"⚠️ handlers/memory_handler.py not available (using fallback): {e}")
+        USE_NEW_MEMORY_HANDLER = False
+else:
+    print("⚠️ New Memory handler disabled by environment variable USE_NEW_MEMORY_HANDLER=false")
+    USE_NEW_MEMORY_HANDLER = False
+
+# MemoryHandlerインスタンス（後で初期化）
+_memory_handler = None
+
+# =====================================================
+# handlers/task_handler.py に分割されたタスク管理機能
+# 環境変数 USE_NEW_TASK_HANDLER=false で旧実装に戻せる
+# =====================================================
+_USE_NEW_TASK_HANDLER_ENV = os.environ.get("USE_NEW_TASK_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_TASK_HANDLER_ENV:
+    try:
+        from handlers.task_handler import TaskHandler as _NewTaskHandler
+        USE_NEW_TASK_HANDLER = True
+        print("✅ handlers/task_handler.py loaded for Task management")
+    except ImportError as e:
+        print(f"⚠️ handlers/task_handler.py not available (using fallback): {e}")
+        USE_NEW_TASK_HANDLER = False
+else:
+    print("⚠️ New Task handler disabled by environment variable USE_NEW_TASK_HANDLER=false")
+    USE_NEW_TASK_HANDLER = False
+
+# TaskHandlerインスタンス（後で初期化）
+_task_handler = None
+
+# =====================================================
+# v10.24.5: 遅延管理ハンドラー（handlers/overdue_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_OVERDUE_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_OVERDUE_HANDLER_ENV = os.environ.get("USE_NEW_OVERDUE_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_OVERDUE_HANDLER_ENV:
+    try:
+        from handlers.overdue_handler import OverdueHandler as _NewOverdueHandler
+        USE_NEW_OVERDUE_HANDLER = True
+        print("✅ handlers/overdue_handler.py loaded for Overdue management")
+    except ImportError as e:
+        print(f"⚠️ handlers/overdue_handler.py not available (using fallback): {e}")
+        USE_NEW_OVERDUE_HANDLER = False
+else:
+    print("⚠️ New Overdue handler disabled by environment variable USE_NEW_OVERDUE_HANDLER=false")
+    USE_NEW_OVERDUE_HANDLER = False
+
+# OverdueHandlerインスタンス（後で初期化）
+_overdue_handler = None
+
+# =====================================================
+# v10.24.6: 目標達成支援ハンドラー（handlers/goal_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_GOAL_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_GOAL_HANDLER_ENV = os.environ.get("USE_NEW_GOAL_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_GOAL_HANDLER_ENV:
+    try:
+        from handlers.goal_handler import GoalHandler as _NewGoalHandler
+        USE_NEW_GOAL_HANDLER = True
+        print("✅ handlers/goal_handler.py loaded for Goal management")
+    except ImportError as e:
+        print(f"⚠️ handlers/goal_handler.py not available (using fallback): {e}")
+        USE_NEW_GOAL_HANDLER = False
+else:
+    print("⚠️ New Goal handler disabled by environment variable USE_NEW_GOAL_HANDLER=false")
+    USE_NEW_GOAL_HANDLER = False
+
+# GoalHandlerインスタンス（後で初期化）
+_goal_handler = None
+
+# =====================================================
+# v10.24.7: ナレッジ管理ハンドラー（handlers/knowledge_handler.py）
+# =====================================================
+# 環境変数 USE_NEW_KNOWLEDGE_HANDLER=false で旧実装に戻せる
+
+_USE_NEW_KNOWLEDGE_HANDLER_ENV = os.environ.get("USE_NEW_KNOWLEDGE_HANDLER", "true").lower() == "true"
+
+if _USE_NEW_KNOWLEDGE_HANDLER_ENV:
+    try:
+        from handlers.knowledge_handler import KnowledgeHandler as _NewKnowledgeHandler
+        USE_NEW_KNOWLEDGE_HANDLER = True
+        print("✅ handlers/knowledge_handler.py loaded for Knowledge management")
+    except ImportError as e:
+        print(f"⚠️ handlers/knowledge_handler.py not available (using fallback): {e}")
+        USE_NEW_KNOWLEDGE_HANDLER = False
+else:
+    print("⚠️ New Knowledge handler disabled by environment variable USE_NEW_KNOWLEDGE_HANDLER=false")
+    USE_NEW_KNOWLEDGE_HANDLER = False
+
+# KnowledgeHandlerインスタンス（後で初期化）
+_knowledge_handler = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -1698,46 +1882,69 @@ def get_chatwork_account_id_by_name(name):
 
 # =====================================================
 # APIレート制限対策（v10.3.3）
+# v10.24.0: utils/chatwork_utils.py に分割
 # =====================================================
 
-class APICallCounter:
-    """APIコール数をカウントするクラス"""
+# 新しいモジュールを使用する場合はそちらのクラスを使用
+if USE_NEW_CHATWORK_UTILS:
+    APICallCounter = _new_APICallCounter
+else:
+    class APICallCounter:
+        """APIコール数をカウントするクラス（フォールバック）"""
 
-    def __init__(self):
-        self.count = 0
-        self.start_time = time.time()
+        def __init__(self):
+            self.count = 0
+            self.start_time = time.time()
 
-    def increment(self):
-        self.count += 1
+        def increment(self):
+            self.count += 1
 
-    def get_count(self):
-        return self.count
+        def get_count(self):
+            return self.count
 
-    def log_summary(self, function_name: str):
-        elapsed = time.time() - self.start_time
-        print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
+        def log_summary(self, function_name: str):
+            elapsed = time.time() - self.start_time
+            print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
 
 
-# グローバルAPIカウンター
+# グローバルAPIカウンター（フォールバック用）
 _api_call_counter = APICallCounter()
 
-# ルームメンバーキャッシュ（同一リクエスト内で有効）
+# ルームメンバーキャッシュ（フォールバック用、同一リクエスト内で有効）
 _room_members_cache = {}
 
 
 def get_api_call_counter():
-    """APIカウンターを取得"""
+    """
+    APIカウンターを取得
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_get_api_call_counter()
     return _api_call_counter
 
 
 def reset_api_call_counter():
-    """APIカウンターをリセット"""
+    """
+    APIカウンターをリセット
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_reset_api_call_counter()
     global _api_call_counter
     _api_call_counter = APICallCounter()
 
 
 def clear_room_members_cache():
-    """ルームメンバーキャッシュをクリア"""
+    """
+    ルームメンバーキャッシュをクリア
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_clear_room_members_cache()
     global _room_members_cache
     _room_members_cache = {}
 
@@ -1767,7 +1974,16 @@ def call_chatwork_api_with_retry(
 
     Returns:
         (response, success): レスポンスと成功フラグのタプル
+
+    v10.24.0: utils/chatwork_utils.py に分割
     """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_call_chatwork_api_with_retry(
+            method, url, headers, data, params, max_retries, initial_wait, timeout
+        )
+
+    # フォールバック: 旧実装
     wait_time = initial_wait
     counter = get_api_call_counter()
 
@@ -1823,7 +2039,15 @@ def get_room_members_cached(room_id):
     """
     ルームメンバーを取得（キャッシュあり）
     同一リクエスト内で同じルームを複数回参照する場合に効率的
+
+    v10.24.0: utils/chatwork_utils.py に分割
     """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+        return _new_get_room_members_cached(room_id, api_token)
+
+    # フォールバック: 旧実装
     room_id_str = str(room_id)
     if room_id_str in _room_members_cache:
         return _room_members_cache[room_id_str]
@@ -1834,8 +2058,18 @@ def get_room_members_cached(room_id):
 
 
 def get_room_members(room_id):
-    """ルームのメンバー一覧を取得（リトライ機構付き）"""
+    """
+    ルームのメンバー一覧を取得（リトライ機構付き）
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        return _new_get_room_members(room_id, api_token)
+
+    # フォールバック: 旧実装
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
 
     response, success = call_chatwork_api_with_retry(
@@ -1852,14 +2086,119 @@ def get_room_members(room_id):
 
 
 def is_room_member(room_id, account_id):
-    """指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）"""
+    """
+    指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）
+
+    v10.24.0: utils/chatwork_utils.py に分割
+    """
+    # 新しいモジュールを使用
+    if USE_NEW_CHATWORK_UTILS:
+        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+        return _new_is_room_member(room_id, account_id, api_token)
+
+    # フォールバック: 旧実装
     members = get_room_members_cached(room_id)
     member_ids = [m.get("account_id") for m in members]
     return int(account_id) in member_ids
 
 
+# =====================================================
+# TaskHandler初期化（v10.24.4）
+# =====================================================
+def _get_task_handler():
+    """TaskHandlerのシングルトンインスタンスを取得"""
+    global _task_handler
+    if _task_handler is None and USE_NEW_TASK_HANDLER:
+        _task_handler = _NewTaskHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            call_chatwork_api_with_retry=call_chatwork_api_with_retry,
+            extract_task_subject=extract_task_subject if USE_TEXT_UTILS_LIB else None,
+            clean_chatwork_tags=clean_chatwork_tags if USE_TEXT_UTILS_LIB else None,
+            prepare_task_display_text=prepare_task_display_text if USE_TEXT_UTILS_LIB else None,
+            validate_summary=validate_summary if USE_TEXT_UTILS_LIB else None,
+            get_user_primary_department=lib_get_user_primary_department if USE_USER_UTILS_LIB else None,
+            use_text_utils=USE_TEXT_UTILS_LIB
+        )
+    return _task_handler
+
+
+def _get_overdue_handler():
+    """OverdueHandlerのシングルトンインスタンスを取得"""
+    global _overdue_handler
+    if _overdue_handler is None and USE_NEW_OVERDUE_HANDLER:
+        _overdue_handler = _NewOverdueHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            get_direct_room=get_direct_room,
+            get_overdue_days_func=get_overdue_days,
+            admin_room_id=str(ADMIN_ROOM_ID),
+            escalation_days=ESCALATION_DAYS
+        )
+    return _overdue_handler
+
+
+# =====================================================
+# GoalHandler初期化（v10.24.6）
+# =====================================================
+def _get_goal_handler():
+    """GoalHandlerのシングルトンインスタンスを取得"""
+    global _goal_handler
+    if _goal_handler is None and USE_NEW_GOAL_HANDLER:
+        _goal_handler = _NewGoalHandler(
+            get_pool=get_pool,
+            process_goal_setting_message_func=process_goal_setting_message if USE_GOAL_SETTING_LIB else None,
+            use_goal_setting_lib=USE_GOAL_SETTING_LIB
+        )
+    return _goal_handler
+
+
+# =====================================================
+# KnowledgeHandler初期化（v10.24.7）
+# =====================================================
+def _get_knowledge_handler():
+    """KnowledgeHandlerのシングルトンインスタンスを取得"""
+    global _knowledge_handler
+    if _knowledge_handler is None and USE_NEW_KNOWLEDGE_HANDLER:
+        # MVV関数の取得
+        mvv_question_func = None
+        mvv_info_func = None
+        if USE_MVV_CONTEXT:
+            try:
+                mvv_question_func = is_mvv_question
+                mvv_info_func = get_full_mvv_info
+            except NameError:
+                pass
+
+        _knowledge_handler = _NewKnowledgeHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            is_admin_func=is_admin,
+            create_proposal_func=create_proposal,
+            report_proposal_to_admin_func=report_proposal_to_admin,
+            is_mvv_question_func=mvv_question_func,
+            get_full_mvv_info_func=mvv_info_func,
+            call_openrouter_api_func=call_openrouter_api,
+            phase3_knowledge_config=PHASE3_KNOWLEDGE_CONFIG,
+            default_model=MODELS["default"],
+            admin_account_id=ADMIN_ACCOUNT_ID,
+            openrouter_api_url=OPENROUTER_API_URL
+        )
+    return _knowledge_handler
+
+
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
-    """ChatWork APIでタスクを作成（リトライ機構付き）"""
+    """
+    ChatWork APIでタスクを作成（リトライ機構付き）
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.create_chatwork_task(room_id, task_body, assigned_to_account_id, limit)
+
+    # フォールバック: 旧実装
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
 
@@ -1890,7 +2229,17 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
 
 
 def complete_chatwork_task(room_id, task_id):
-    """ChatWork APIでタスクを完了にする（リトライ機構付き）"""
+    """
+    ChatWork APIでタスクを完了にする（リトライ機構付き）
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.complete_chatwork_task(room_id, task_id)
+
+    # フォールバック: 旧実装
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks/{task_id}/status"
 
@@ -2000,6 +2349,8 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                           enable_dept_filter=False, organization_id=None, search_all_rooms=False):
     """DBからタスクを検索
 
+    v10.24.4: handlers/task_handler.py に分割
+
     Args:
         room_id: チャットルームID（search_all_rooms=Trueの場合は無視）
         assigned_to_account_id: 担当者のChatWorkアカウントID
@@ -2009,6 +2360,16 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
         organization_id: 組織ID（部署フィルタ有効時に必要）
         search_all_rooms: True=全ルームからタスクを検索（v10.22.0 BUG-001修正）
     """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.search_tasks_from_db(
+            room_id, assigned_to_account_id, assigned_by_account_id, status,
+            enable_dept_filter, organization_id, search_all_rooms,
+            get_user_id_from_chatwork_account, get_accessible_departments
+        )
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -2081,7 +2442,17 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
 
 
 def update_task_status_in_db(task_id, status):
-    """DBのタスクステータスを更新"""
+    """
+    DBのタスクステータスを更新
+
+    v10.24.4: handlers/task_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.update_task_status_in_db(task_id, status)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -2127,7 +2498,17 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
 
     ★★★ v10.18.1: summary生成機能追加 ★★★
     タスク作成時にsummaryを自動生成して保存
+
+    v10.24.4: handlers/task_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_task_handler()
+    if handler:
+        return handler.save_chatwork_task_to_db(
+            task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time
+        )
+
+    # フォールバック: 旧実装
     try:
         # =====================================================
         # v10.18.1: summary生成
@@ -2213,7 +2594,9 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
 def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event_data, success=True, error_message=None, event_subtype=None):
     """
     分析用イベントログを記録
-    
+
+    v10.24.4: handlers/task_handler.py に委譲（フォールバック付き）
+
     Args:
         event_type: イベントタイプ（'task_created', 'memory_saved', 'memory_queried', 'general_chat'等）
         actor_account_id: 実行者のChatWork account_id
@@ -2223,17 +2606,32 @@ def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event
         success: 成功したかどうか
         error_message: エラーメッセージ（失敗時）
         event_subtype: 詳細分類（オプション）
-    
+
     Note:
         この関数はエラーが発生しても例外を投げない（処理を止めない）
         ログ記録は「あったら嬉しい」レベルの機能であり、本体処理を妨げない
     """
+    handler = _get_task_handler()
+    if handler:
+        handler.log_analytics_event(
+            event_type=event_type,
+            actor_account_id=actor_account_id,
+            actor_name=actor_name,
+            room_id=room_id,
+            event_data=event_data,
+            success=success,
+            error_message=error_message,
+            event_subtype=event_subtype
+        )
+        return
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO analytics_events 
+                    INSERT INTO analytics_events
                     (event_type, event_subtype, actor_account_id, actor_name, room_id, event_data, success, error_message)
                     VALUES (:event_type, :event_subtype, :actor_id, :actor_name, :room_id, :event_data, :success, :error_message)
                 """),
@@ -2304,24 +2702,31 @@ def parse_date_from_text(text):
     """
     自然言語の日付表現をYYYY-MM-DD形式に変換
     例: "明日", "明後日", "12/27", "来週金曜日"
+
+    v10.24.0: utils/date_utils.py に分割
     """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_parse_date_from_text(text)
+
+    # フォールバック: 旧実装
     now = datetime.now(JST)
     today = now.date()
-    
+
     text = text.strip().lower()
-    
+
     # 「明日」
     if "明日" in text or "あした" in text:
         return (today + timedelta(days=1)).strftime("%Y-%m-%d")
-    
+
     # 「明後日」
     if "明後日" in text or "あさって" in text:
         return (today + timedelta(days=2)).strftime("%Y-%m-%d")
-    
+
     # 「今日」
     if "今日" in text or "きょう" in text:
         return today.strftime("%Y-%m-%d")
-    
+
     # 「来週」
     if "来週" in text:
         # 来週の月曜日を基準に
@@ -2329,7 +2734,7 @@ def parse_date_from_text(text):
         if days_until_monday == 0:
             days_until_monday = 7
         next_monday = today + timedelta(days=days_until_monday)
-        
+
         # 曜日指定があるか確認
         weekdays = {
             "月": 0, "火": 1, "水": 2, "木": 3, "金": 4, "土": 5, "日": 6,
@@ -2339,16 +2744,16 @@ def parse_date_from_text(text):
             if day_name in text:
                 target = next_monday + timedelta(days=day_num)
                 return target.strftime("%Y-%m-%d")
-        
+
         # 曜日指定がなければ来週の月曜日
         return next_monday.strftime("%Y-%m-%d")
-    
+
     # 「○日後」
     match = re.search(r'(\d+)日後', text)
     if match:
         days = int(match.group(1))
         return (today + timedelta(days=days)).strftime("%Y-%m-%d")
-    
+
     # 「MM/DD」形式
     match = re.search(r'(\d{1,2})[/\-](\d{1,2})', text)
     if match:
@@ -2360,7 +2765,7 @@ def parse_date_from_text(text):
         if target < today:
             target = datetime(year + 1, month, day).date()
         return target.strftime("%Y-%m-%d")
-    
+
     # 「MM月DD日」形式
     match = re.search(r'(\d{1,2})月(\d{1,2})日', text)
     if match:
@@ -2394,7 +2799,14 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         - needs_alert: アラートが必要か
         - days_until: 期限までの日数（0=今日, 1=明日, 負=過去）
         - limit_date: 期限日（date型）
+
+    v10.24.0: utils/date_utils.py に分割
     """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_check_deadline_proximity(limit_date_str)
+
+    # フォールバック: 旧実装
     if not limit_date_str:
         return False, -1, None
 
@@ -3389,20 +3801,28 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
     - 管理者（カズさん）からは即時反映
     - 他のスタッフからは提案として受け付け、管理部に報告
     v6.9.1: 通知失敗時のメッセージを事実ベースに改善
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_learn_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     category = params.get("category", "other")
     key = params.get("key", "")
     value = params.get("value", "")
-    
+
     if not key or not value:
         return "🤔 何を覚えればいいかわからなかったウル... もう少し具体的に教えてウル！🐺"
-    
+
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     # 管理者判定
     if is_admin(account_id):
         # 即時保存
@@ -3426,7 +3846,7 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
             key=key,
             value=value
         )
-        
+
         if proposal_id:
             # 管理部に報告
             notified = False
@@ -3434,7 +3854,7 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
                 notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
             except Exception as e:
                 print(f"⚠️ 管理部への報告エラー: {e}")
-            
+
             # v6.9.1: 通知成功/失敗に応じたメッセージ
             if notified:
                 return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！\n承認されたら覚えるウル！✨"
@@ -3448,17 +3868,25 @@ def handle_forget_knowledge(params, room_id, account_id, sender_name, context=No
     """
     知識を削除するハンドラー
     - 管理者のみ実行可能
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_forget_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     key = params.get("key", "")
     category = params.get("category")
-    
+
     if not key:
         return "🤔 何を忘れればいいかわからなかったウル..."
-    
+
     # 管理者判定
     if not is_admin(account_id):
         return f"🙏 知識の削除は菊地さんだけができるウル！\n[To:{ADMIN_ACCOUNT_ID}] {sender_name}さんが「{key}」の設定を削除したいみたいウル！"
-    
+
     # 削除実行
     if delete_knowledge(category, key):
         return f"忘れたウル！🐺\n\n🗑️ 「{key}」の設定を削除したウル！"
@@ -3469,18 +3897,26 @@ def handle_forget_knowledge(params, room_id, account_id, sender_name, context=No
 def handle_list_knowledge(params, room_id, account_id, sender_name, context=None):
     """
     学習した知識の一覧を表示するハンドラー
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_list_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     knowledge_list = get_all_knowledge()
-    
+
     if not knowledge_list:
         return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
-    
+
     # カテゴリごとにグループ化
     by_category = {}
     for k in knowledge_list:
@@ -3488,7 +3924,7 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
         if cat not in by_category:
             by_category[cat] = []
         by_category[cat].append(f"・{k['key']}: {k['value']}")
-    
+
     # 整形
     category_names = {
         "character": "🐺 キャラ設定",
@@ -3496,15 +3932,15 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
         "members": "👥 社員情報",
         "other": "📝 その他"
     }
-    
+
     lines = ["**覚えていること**ウル！🐺✨\n"]
     for cat, items in by_category.items():
         cat_name = category_names.get(cat, f"📁 {cat}")
         lines.append(f"\n**{cat_name}**")
         lines.extend(items)
-    
+
     lines.append(f"\n\n合計 {len(knowledge_list)} 件覚えてるウル！")
-    
+
     return "\n".join(lines)
 
 
@@ -3514,7 +3950,15 @@ def handle_proposal_decision(params, room_id, account_id, sender_name, context=N
     - 管理者のみ有効
     - 管理部ルームでの発言のみ対応
     v6.9.1: ID指定方式を推奨（handle_proposal_by_idを使用）
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.handle_proposal_decision(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     decision = params.get("decision", "").lower()
     
     # 管理部ルームかチェック
@@ -3571,7 +4015,15 @@ def handle_proposal_by_id(proposal_id: int, decision: str, account_id: str, send
     """
     ID指定で提案を承認/却下（v6.9.1追加）
     ローカルコマンド「承認 123」「却下 123」用
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.handle_proposal_by_id(proposal_id, decision, account_id, sender_name, room_id)
+
+    # フォールバック: 旧実装
     # 管理部ルームかチェック
     if str(room_id) != str(ADMIN_ROOM_ID):
         return "🤔 承認・却下は管理部ルームでお願いするウル！"
@@ -3644,13 +4096,21 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
     """
     ローカルコマンドによる知識学習（v6.9.1追加）
     「設定：キー=値」形式で呼ばれる
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_local_learn_knowledge(key, value, account_id, sender_name, room_id)
+
+    # フォールバック: 旧実装
     # テーブル存在確認
     try:
         ensure_knowledge_tables()
     except Exception as e:
         print(f"⚠️ 知識テーブル確認エラー: {e}")
-    
+
     # カテゴリを推測（シンプルなルール）
     category = "other"
     key_lower = key.lower()
@@ -3660,7 +4120,7 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
         category = "rules"
     elif any(w in key_lower for w in ["社員", "メンバー", "担当"]):
         category = "members"
-    
+
     # 管理者判定
     if is_admin(account_id):
         if save_knowledge(category, key, value, str(account_id)):
@@ -3684,14 +4144,14 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
             key=key,
             value=value
         )
-        
+
         if proposal_id:
             notified = False
             try:
                 notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
             except Exception as e:
                 print(f"⚠️ 管理部への報告エラー: {e}")
-            
+
             if notified:
                 return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n菊地さんに確認をお願いしたウル！"
             else:
@@ -3816,7 +4276,15 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
     """
     提案を管理部に報告
     v6.9.1: ID表示、admin_notifiedフラグ更新
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value)
+
+    # フォールバック: 旧実装
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         
@@ -3864,7 +4332,17 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
 
 
 def notify_proposal_result(proposal: dict, approved: bool):
-    """提案の結果を提案者に通知"""
+    """
+    提案の結果を提案者に通知
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.notify_proposal_result(proposal, approved)
+
+    # フォールバック: 旧実装
     try:
         chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
         room_id = proposal.get("proposed_in_room_id")
@@ -4029,6 +4507,7 @@ ChatWorkアプリで直接操作してほしいウル！
 
 # =====================================================
 # v10.13.0: Phase 3 ナレッジ検索ハンドラー
+# v10.24.7: handlers/knowledge_handler.py に分割
 # =====================================================
 def handle_query_company_knowledge(params, room_id, account_id, sender_name, context=None):
     """
@@ -4046,7 +4525,15 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
 
     Returns:
         回答テキスト
+
+    v10.24.7: handlers/knowledge_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_knowledge_handler()
+    if handler:
+        return handler.handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     query = params.get("query", "")
 
     if not query:
@@ -4232,6 +4719,7 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
 # =====================================================
 # ===== Phase 2.5: 目標達成支援ハンドラー =====
 # =====================================================
+# v10.24.6: handlers/goal_handler.py に分割
 
 def handle_goal_registration(params, room_id, account_id, sender_name, context=None):
     """
@@ -4241,7 +4729,15 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
     具体的なgoal_titleがある場合は直接登録（後方互換性維持）。
 
     アチーブメント社・選択理論に基づく目標設定支援。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_registration(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
     print(f"   params: {params}")
 
@@ -4435,7 +4931,15 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
     目標進捗報告ハンドラー（Phase 2.5）
 
     goal_progress テーブルに進捗を記録する。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_progress_report(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"📊 handle_goal_progress_report 開始: room_id={room_id}, account_id={account_id}")
     print(f"   params: {params}")
 
@@ -4626,7 +5130,15 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
     目標確認ハンドラー（Phase 2.5）
 
     現在の目標と進捗状況を返す。
+
+    v10.24.6: handlers/goal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_status_check(params, room_id, account_id, sender_name, context)
+
+    # フォールバック: 旧実装
     print(f"📋 handle_goal_status_check 開始: room_id={room_id}, account_id={account_id}")
 
     try:
@@ -4786,8 +5298,40 @@ HANDLERS = {
 
 # ===== 会話履歴管理 =====
 
+# =====================================================
+# MemoryHandler初期化（v10.24.3）
+# =====================================================
+def _get_memory_handler():
+    """MemoryHandlerのシングルトンインスタンスを取得"""
+    global _memory_handler
+    if _memory_handler is None and USE_NEW_MEMORY_HANDLER:
+        _memory_handler = _NewMemoryHandler(
+            firestore_db=db,
+            get_pool=get_pool,
+            get_secret=get_secret,
+            max_history_count=MAX_HISTORY_COUNT,
+            history_expiry_hours=HISTORY_EXPIRY_HOURS,
+            use_memory_framework=USE_MEMORY_FRAMEWORK,
+            memory_summary_trigger_count=MEMORY_SUMMARY_TRIGGER_COUNT,
+            memory_default_org_id=MEMORY_DEFAULT_ORG_ID,
+            conversation_summary_class=ConversationSummary if USE_MEMORY_FRAMEWORK else None,
+            conversation_search_class=ConversationSearch if USE_MEMORY_FRAMEWORK else None
+        )
+    return _memory_handler
+
+
 def get_conversation_history(room_id, account_id):
-    """会話履歴を取得"""
+    """
+    会話履歴を取得
+
+    v10.24.3: handlers/memory_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.get_conversation_history(room_id, account_id)
+
+    # フォールバック: 旧実装
     try:
         doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
         doc = doc_ref.get()
@@ -4804,7 +5348,17 @@ def get_conversation_history(room_id, account_id):
     return []
 
 def save_conversation_history(room_id, account_id, history):
-    """会話履歴を保存"""
+    """
+    会話履歴を保存
+
+    v10.24.3: handlers/memory_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.save_conversation_history(room_id, account_id, history)
+
+    # フォールバック: 旧実装
     try:
         doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
         doc_ref.set({
@@ -4834,6 +5388,8 @@ def process_memory_after_conversation(
     B2: ユーザー嗜好 - 会話パターンからユーザーの好みを学習
     B4: 会話検索 - 会話をインデックス化（検索可能に）
 
+    v10.24.3: handlers/memory_handler.py に分割
+
     Args:
         room_id: ChatWorkルームID
         account_id: ユーザーのChatWorkアカウントID
@@ -4846,6 +5402,14 @@ def process_memory_after_conversation(
         - エラーが発生しても会話処理には影響を与えない
         - 会話数が閾値未満の場合は何もしない（負荷軽減）
     """
+    # 新しいモジュールを使用
+    handler = _get_memory_handler()
+    if handler:
+        return handler.process_memory_after_conversation(
+            room_id, account_id, sender_name, user_message, ai_response, history
+        )
+
+    # フォールバック: 旧実装
     if not USE_MEMORY_FRAMEWORK:
         return
 
@@ -6165,7 +6729,18 @@ def mark_as_processed(message_id, room_id):
 # =====================================================
 
 def ensure_overdue_tables():
-    """遅延管理用テーブルが存在しない場合は作成"""
+    """
+    遅延管理用テーブルが存在しない場合は作成
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+    """
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        handler.ensure_overdue_tables()
+        return
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -6762,10 +7337,40 @@ def get_knowledge_for_prompt():
     return "\n".join(lines)
 
 
-def create_proposal(proposed_by_account_id: str, proposed_by_name: str, 
-                   proposed_in_room_id: str, category: str, key: str, 
+# =====================================================
+# ProposalHandler初期化（v10.24.2）
+# =====================================================
+def _get_proposal_handler():
+    """ProposalHandlerのシングルトンインスタンスを取得"""
+    global _proposal_handler
+    if _proposal_handler is None and USE_NEW_PROPOSAL_HANDLER:
+        _proposal_handler = _NewProposalHandler(
+            get_pool=get_pool,
+            get_secret=get_secret,
+            admin_room_id=str(ADMIN_ROOM_ID),
+            admin_account_id=ADMIN_ACCOUNT_ID,
+            is_admin=is_admin
+        )
+    return _proposal_handler
+
+
+def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
+                   proposed_in_room_id: str, category: str, key: str,
                    value: str, message_id: str = None):
-    """知識の提案を作成"""
+    """
+    知識の提案を作成
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.create_proposal(
+            proposed_by_account_id, proposed_by_name, proposed_in_room_id,
+            category, key, value, message_id
+        )
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -6797,7 +7402,15 @@ def get_pending_proposals():
     """
     承認待ちの提案を取得
     v6.9.1: 古い順（FIFO）に変更 - 待たせている人から処理
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_pending_proposals()
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -6822,13 +7435,33 @@ def get_pending_proposals():
 
 
 def get_oldest_pending_proposal():
-    """最も古い承認待ち提案を取得（v6.9.1: FIFO）"""
+    """
+    最も古い承認待ち提案を取得（v6.9.1: FIFO）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_oldest_pending_proposal()
+
+    # フォールバック: 旧実装
     proposals = get_pending_proposals()
     return proposals[0] if proposals else None
 
 
 def get_proposal_by_id(proposal_id: int):
-    """ID指定で提案を取得（v6.9.1追加）"""
+    """
+    ID指定で提案を取得（v6.9.1追加）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_proposal_by_id(proposal_id)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -6853,7 +7486,17 @@ def get_proposal_by_id(proposal_id: int):
 
 
 def get_latest_pending_proposal():
-    """最新の承認待ち提案を取得（後方互換性のため残す）"""
+    """
+    最新の承認待ち提案を取得（後方互換性のため残す）
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_latest_pending_proposal()
+
+    # フォールバック: 旧実装
     return get_oldest_pending_proposal()
 
 
@@ -6865,7 +7508,15 @@ def get_unnotified_proposals():
     """
     通知失敗した提案を取得（admin_notified=FALSE）
     v6.9.2追加
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.get_unnotified_proposals()
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.connect() as conn:
@@ -6891,7 +7542,15 @@ def get_unnotified_proposals():
 def retry_proposal_notification(proposal_id: int):
     """
     提案の通知を再送（v6.9.2追加）
+
+    v10.24.2: handlers/proposal_handler.py に分割
     """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.retry_proposal_notification(proposal_id)
+
+    # フォールバック: 旧実装
     proposal = get_proposal_by_id(proposal_id)
     if not proposal:
         return False, f"提案ID={proposal_id}が見つからない"
@@ -6914,7 +7573,17 @@ def retry_proposal_notification(proposal_id: int):
 
 
 def approve_proposal(proposal_id: int, reviewed_by: str):
-    """提案を承認して知識に反映"""
+    """
+    提案を承認して知識に反映
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.approve_proposal(proposal_id, reviewed_by)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -6960,7 +7629,17 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
 
 
 def reject_proposal(proposal_id: int, reviewed_by: str):
-    """提案を却下"""
+    """
+    提案を却下
+
+    v10.24.2: handlers/proposal_handler.py に分割
+    """
+    # 新しいモジュールを使用
+    handler = _get_proposal_handler()
+    if handler:
+        return handler.reject_proposal(proposal_id, reviewed_by)
+
+    # フォールバック: 旧実装
     try:
         pool = get_pool()
         with pool.begin() as conn:
@@ -7325,14 +8004,23 @@ def report_unassigned_overdue_tasks(tasks):
 
 
 def get_overdue_days(limit_time):
-    """期限超過日数を計算"""
+    """
+    期限超過日数を計算
+
+    v10.24.0: utils/date_utils.py に分割
+    """
+    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
+    if USE_NEW_DATE_UTILS:
+        return _new_get_overdue_days(limit_time)
+
+    # フォールバック: 旧実装
     if not limit_time:
         return 0
-    
+
     now = datetime.now(JST)
     today = now.date()
-    
-    # ★★★ v6.8.6: int/float両対応 ★★★
+
+    # v6.8.6: int/float両対応
     try:
         if isinstance(limit_time, (int, float)):
             limit_date = datetime.fromtimestamp(int(limit_time), tz=JST).date()
@@ -7344,7 +8032,7 @@ def get_overdue_days(limit_time):
     except Exception as e:
         print(f"⚠️ get_overdue_days: 変換エラー: {limit_time}, error={e}")
         return 0
-    
+
     delta = (today - limit_date).days
     return max(0, delta)
 
@@ -7353,14 +8041,24 @@ def process_overdue_tasks():
     """
     遅延タスクを処理：督促送信 + エスカレーション
     毎日8:30に実行（remind_tasksから呼び出し）
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
     """
-    global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok, _dm_unavailable_buffer
-    
-    print("=" * 50)
-    print("🔔 遅延タスク処理開始")
-    print("=" * 50)
-    
-    # ★★★ v6.8.4: 実行開始時にメモリキャッシュをリセット ★★★
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        # キャッシュリセット（ハンドラー呼び出し前）
+        global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok
+        _runtime_dm_cache = {}
+        _runtime_direct_rooms = None
+        _runtime_contacts_cache = None
+        _runtime_contacts_fetched_ok = None
+        print("✅ メモリキャッシュをリセット")
+        handler.process_overdue_tasks()
+        return
+
+    # フォールバック: 旧実装
+    global _dm_unavailable_buffer
     _runtime_dm_cache = {}
     _runtime_direct_rooms = None
     _runtime_contacts_cache = None
@@ -7755,19 +8453,28 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     """
     タスクの期限変更を検知して報告
     sync_chatwork_tasks内から呼び出される
-    
+
+    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+
     ★ v6.8.1変更点:
     - UPDATE文をPostgreSQL対応（サブクエリ方式）
     - DM見つからない時のフォールバック追加
     """
+    # 新しいハンドラーを使用
+    handler = _get_overdue_handler()
+    if handler:
+        handler.detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
+        return
+
+    # フォールバック: 旧実装
     if old_limit == new_limit:
         return
-    
+
     if old_limit is None or new_limit is None:
         return
-    
+
     print(f"🔍 期限変更検知: task_id={task_id}, {old_limit} → {new_limit}")
-    
+
     pool = get_pool()
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     

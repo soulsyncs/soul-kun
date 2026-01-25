@@ -1,0 +1,1361 @@
+"""
+アナウンス機能ハンドラー
+
+管理部またはカズさんからのアナウンス依頼を処理し、
+指定チャットルームにオールメンション送信・タスク作成する機能。
+
+分割元: 新規作成
+作成日: 2026-01-25
+バージョン: v10.26.0
+
+機能:
+- 自然言語でのアナウンス依頼解析
+- 曖昧なルーム名のマッチング
+- 確認フローでの安全な実行
+- 即時/予約/繰り返し実行
+- タスク一括作成（除外者指定可能）
+- パターン検知連携（A1統合）
+"""
+
+import hashlib
+import json
+import re
+import traceback
+import sqlalchemy
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Optional, Dict, Any, List, Callable, Tuple
+from uuid import UUID
+import pytz
+
+JST = pytz.timezone('Asia/Tokyo')
+
+
+# =====================================================
+# 定数
+# =====================================================
+
+class ScheduleType(str, Enum):
+    """スケジュールタイプ"""
+    IMMEDIATE = "immediate"
+    ONE_TIME = "one_time"
+    RECURRING = "recurring"
+
+
+class AnnouncementStatus(str, Enum):
+    """アナウンス状態"""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    SCHEDULED = "scheduled"
+    EXECUTING = "executing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    PAUSED = "paused"
+
+
+# パターン検知の閾値
+PATTERN_THRESHOLD = 3  # 3回以上で定期化提案
+
+# ルームマッチングの閾値
+ROOM_MATCH_AUTO_SELECT_THRESHOLD = 0.8
+ROOM_MATCH_CANDIDATE_THRESHOLD = 0.3
+
+# 認可されたルームID
+AUTHORIZED_ROOM_IDS = {
+    405315911,  # 管理部グループチャット
+    # カズさん1on1のroom_idはmain.pyから取得
+}
+
+# 認可されたアカウントID
+ADMIN_ACCOUNT_ID = "1728974"  # カズさん
+
+# デフォルトorganization_id
+DEFAULT_ORG_ID = "org_soulsyncs"
+
+
+# =====================================================
+# データクラス
+# =====================================================
+
+@dataclass
+class ParsedAnnouncementRequest:
+    """解析されたアナウンス依頼"""
+    raw_message: str
+    target_room_query: str = ""
+    target_room_id: Optional[int] = None
+    target_room_name: Optional[str] = None
+    target_room_candidates: List[Dict] = field(default_factory=list)
+
+    message_content: str = ""
+
+    create_tasks: bool = False
+    task_deadline: Optional[datetime] = None
+    task_assign_all: bool = False
+    task_include_names: List[str] = field(default_factory=list)
+    task_exclude_names: List[str] = field(default_factory=list)
+    task_include_account_ids: List[int] = field(default_factory=list)
+    task_exclude_account_ids: List[int] = field(default_factory=list)
+
+    schedule_type: ScheduleType = ScheduleType.IMMEDIATE
+    scheduled_at: Optional[datetime] = None
+    cron_expression: Optional[str] = None
+    cron_description: Optional[str] = None
+    skip_holidays: bool = True
+    skip_weekends: bool = True
+
+    confidence: float = 0.0
+    parse_errors: List[str] = field(default_factory=list)
+    needs_clarification: bool = False
+    clarification_questions: List[str] = field(default_factory=list)
+
+
+# =====================================================
+# メインハンドラークラス
+# =====================================================
+
+class AnnouncementHandler:
+    """
+    アナウンス機能を管理するハンドラークラス
+
+    設計パターン:
+    - 依存性注入（既存ハンドラーと同様）
+    - Feature Flag（USE_ANNOUNCEMENT_FEATURE）
+    - シングルトン初期化（_get_announcement_handler()）
+
+    使用例:
+        handler = _get_announcement_handler()
+        result = handler.handle_announcement_request(
+            params, room_id, account_id, sender_name, context
+        )
+    """
+
+    def __init__(
+        self,
+        get_pool: Callable,
+        get_secret: Callable,
+        call_chatwork_api_with_retry: Callable,
+        get_room_members: Callable,
+        get_all_rooms: Callable,
+        create_chatwork_task: Callable,
+        send_chatwork_message: Callable,
+        is_business_day: Callable = None,
+        get_non_business_day_reason: Callable = None,
+        authorized_room_ids: set = None,
+        admin_account_id: str = None,
+        organization_id: str = None,
+        kazu_dm_room_id: int = None,
+    ):
+        """
+        Args:
+            get_pool: DB接続プールを取得する関数
+            get_secret: Secret Managerから秘密情報を取得する関数
+            call_chatwork_api_with_retry: ChatWork APIリトライ付き呼び出し関数
+            get_room_members: ルームメンバー取得関数
+            get_all_rooms: 全ルーム一覧取得関数
+            create_chatwork_task: タスク作成関数（TaskHandler経由）
+            send_chatwork_message: メッセージ送信関数
+            is_business_day: 営業日判定関数（オプション）
+            get_non_business_day_reason: 非営業日理由取得関数（オプション）
+            authorized_room_ids: 認可ルームID（オプション）
+            admin_account_id: 管理者アカウントID（オプション）
+            organization_id: デフォルトorganization_id（オプション）
+            kazu_dm_room_id: カズさんとのDMルームID（オプション）
+        """
+        self.get_pool = get_pool
+        self.get_secret = get_secret
+        self.call_chatwork_api_with_retry = call_chatwork_api_with_retry
+        self.get_room_members = get_room_members
+        self.get_all_rooms = get_all_rooms
+        self.create_chatwork_task = create_chatwork_task
+        self.send_chatwork_message = send_chatwork_message
+        self.is_business_day = is_business_day
+        self.get_non_business_day_reason = get_non_business_day_reason
+
+        # 設定
+        self._authorized_room_ids = authorized_room_ids or AUTHORIZED_ROOM_IDS
+        self._admin_account_id = admin_account_id or ADMIN_ACCOUNT_ID
+        self._organization_id = organization_id or DEFAULT_ORG_ID
+
+        # カズさんDMルームがあれば追加
+        if kazu_dm_room_id:
+            self._authorized_room_ids = self._authorized_room_ids | {kazu_dm_room_id}
+
+    # =========================================================================
+    # 認可チェック
+    # =========================================================================
+
+    def is_authorized_request(
+        self,
+        room_id: str,
+        account_id: str
+    ) -> Tuple[bool, str]:
+        """
+        リクエストが認可されているかチェック
+
+        Args:
+            room_id: リクエスト元のルームID
+            account_id: リクエスト者のアカウントID
+
+        Returns:
+            (is_authorized, reason)
+        """
+        # ルームチェック
+        room_id_int = int(room_id) if room_id else 0
+        if room_id_int not in self._authorized_room_ids:
+            return False, "この機能は管理部チャットまたはカズさんとの1on1からのみ使用できます"
+
+        # アカウントチェック（管理者または管理部メンバー）
+        if str(account_id) == self._admin_account_id:
+            return True, ""
+
+        # TODO: 管理部ロールチェック（Phase 3.5連携）
+        # 現時点ではカズさんのみ許可
+
+        return False, "この機能は管理者のみが使用できます"
+
+    # =========================================================================
+    # メインエントリポイント
+    # =========================================================================
+
+    def handle_announcement_request(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Dict[str, Any] = None
+    ) -> str:
+        """
+        アナウンス依頼のメインエントリポイント
+
+        状態マシン:
+        1. 依頼解析 → ParsedAnnouncementRequest
+        2. 不足情報があれば質問
+        3. 確認メッセージ表示、DBに保存
+        4. 確認応答で実行/スケジュール
+
+        Args:
+            params: AI司令塔からのパラメータ
+            room_id: リクエスト元ルームID
+            account_id: リクエスト者アカウントID
+            sender_name: リクエスト者名
+            context: 会話コンテキスト（フォローアップ用）
+
+        Returns:
+            ユーザーへの応答メッセージ
+        """
+        try:
+            # 認可チェック
+            authorized, reason = self.is_authorized_request(room_id, account_id)
+            if not authorized:
+                return f"🚫 {reason}"
+
+            # フォローアップ応答かチェック
+            if context and context.get("awaiting_announcement_response"):
+                return self._handle_follow_up_response(
+                    params, room_id, account_id, sender_name, context
+                )
+
+            # 依頼解析
+            raw_message = params.get("raw_message", "")
+            parsed = self._parse_announcement_request(raw_message, account_id)
+
+            # 不足情報があれば質問
+            if parsed.needs_clarification:
+                return self._request_clarification(parsed, room_id, account_id)
+
+            # ルーム解決
+            if not parsed.target_room_id:
+                parsed = self._resolve_room(parsed)
+
+            # ルーム未確定なら候補提示
+            if not parsed.target_room_id:
+                return self._handle_room_candidates(parsed, room_id, account_id)
+
+            # 確認メッセージ生成・保存
+            return self._generate_confirmation(parsed, room_id, account_id, sender_name)
+
+        except Exception as e:
+            print(f"❌ アナウンス処理エラー: {e}")
+            traceback.print_exc()
+            return "申し訳ありませんウル... アナウンス処理中にエラーが発生しましたウル。"
+
+    # =========================================================================
+    # 依頼解析
+    # =========================================================================
+
+    def _parse_announcement_request(
+        self,
+        message: str,
+        requester_account_id: str
+    ) -> ParsedAnnouncementRequest:
+        """
+        自然言語のアナウンス依頼を解析
+
+        LLMを使用して構造化データに変換
+
+        Args:
+            message: ユーザーの依頼メッセージ
+            requester_account_id: 依頼者のアカウントID
+
+        Returns:
+            ParsedAnnouncementRequest
+        """
+        try:
+            api_key = self.get_secret("openrouter-api-key")
+
+            system_prompt = self._get_parsing_system_prompt()
+
+            import httpx
+            response = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "google/gemini-3-flash-preview",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": message}
+                    ],
+                    "max_tokens": 1000,
+                    "temperature": 0.1,
+                },
+                timeout=20.0
+            )
+
+            if response.status_code == 200:
+                content = response.json()["choices"][0]["message"]["content"]
+                # JSONを抽出
+                json_match = re.search(r'\{[\s\S]*\}', content)
+                if json_match:
+                    parsed_json = json.loads(json_match.group())
+                    return self._json_to_parsed_request(parsed_json, message)
+
+        except Exception as e:
+            print(f"⚠️ アナウンス解析エラー: {e}")
+
+        # フォールバック
+        return ParsedAnnouncementRequest(
+            raw_message=message,
+            needs_clarification=True,
+            clarification_questions=[
+                "どのチャットルームに送りたいですか？",
+                "何を伝えたいですか？"
+            ]
+        )
+
+    def _get_parsing_system_prompt(self) -> str:
+        """解析用システムプロンプトを取得"""
+        return """あなたはアナウンス依頼を解析するアシスタントです。
+
+ユーザーからのアナウンス依頼を分析し、以下の情報をJSON形式で抽出してください:
+
+{
+  "target_room_query": "送信先ルームの検索キーワード（ユーザーの言葉そのまま）",
+  "message_content": "送信するメッセージ内容（ユーザーが指定した内容、または推測した内容）",
+  "create_tasks": true/false,
+  "task_deadline": "YYYY-MM-DD HH:MM",
+  "task_assign_all": true/false,
+  "task_include_names": ["名前1", "名前2"],
+  "task_exclude_names": ["名前3"],
+  "schedule_type": "immediate/one_time/recurring",
+  "scheduled_at": "YYYY-MM-DD HH:MM",
+  "cron_description": "毎週月曜9時",
+  "skip_holidays": true/false,
+  "skip_weekends": true/false,
+  "confidence": 0.0-1.0,
+  "needs_clarification": true/false,
+  "clarification_questions": ["不明点1", "不明点2"]
+}
+
+【判断基準】
+- 「連絡して」「伝えて」「お知らせして」→ アナウンス
+- 「タスクも振って」「依頼して」「お願いして」→ create_tasks: true
+- 「〜まで」「〜日まで」→ task_deadline
+- 「全員」「みんな」→ task_assign_all: true
+- 「〜以外」「〜を除く」→ task_exclude_names
+- 「毎週」「毎月」「毎日」→ schedule_type: recurring
+- 「明日」「来週月曜」→ schedule_type: one_time + scheduled_at
+
+【必須確認項目】
+メッセージ内容が明確でない場合はneeds_clarification: trueにしてください。
+"""
+
+    def _json_to_parsed_request(
+        self,
+        parsed_json: Dict,
+        raw_message: str
+    ) -> ParsedAnnouncementRequest:
+        """JSONをParsedAnnouncementRequestに変換"""
+        schedule_type_str = parsed_json.get("schedule_type", "immediate")
+        try:
+            schedule_type = ScheduleType(schedule_type_str)
+        except ValueError:
+            schedule_type = ScheduleType.IMMEDIATE
+
+        # 日時パース
+        scheduled_at = None
+        if parsed_json.get("scheduled_at"):
+            try:
+                scheduled_at = datetime.strptime(
+                    parsed_json["scheduled_at"],
+                    "%Y-%m-%d %H:%M"
+                ).replace(tzinfo=JST)
+            except ValueError:
+                pass
+
+        task_deadline = None
+        if parsed_json.get("task_deadline"):
+            try:
+                task_deadline = datetime.strptime(
+                    parsed_json["task_deadline"],
+                    "%Y-%m-%d %H:%M"
+                ).replace(tzinfo=JST)
+            except ValueError:
+                pass
+
+        return ParsedAnnouncementRequest(
+            raw_message=raw_message,
+            target_room_query=parsed_json.get("target_room_query", ""),
+            message_content=parsed_json.get("message_content", ""),
+            create_tasks=parsed_json.get("create_tasks", False),
+            task_deadline=task_deadline,
+            task_assign_all=parsed_json.get("task_assign_all", False),
+            task_include_names=parsed_json.get("task_include_names", []),
+            task_exclude_names=parsed_json.get("task_exclude_names", []),
+            schedule_type=schedule_type,
+            scheduled_at=scheduled_at,
+            cron_description=parsed_json.get("cron_description"),
+            skip_holidays=parsed_json.get("skip_holidays", True),
+            skip_weekends=parsed_json.get("skip_weekends", True),
+            confidence=parsed_json.get("confidence", 0.5),
+            needs_clarification=parsed_json.get("needs_clarification", False),
+            clarification_questions=parsed_json.get("clarification_questions", [])
+        )
+
+    # =========================================================================
+    # ルーム解決（曖昧マッチング）
+    # =========================================================================
+
+    def _resolve_room(
+        self,
+        parsed: ParsedAnnouncementRequest
+    ) -> ParsedAnnouncementRequest:
+        """
+        曖昧なルーム名を解決
+
+        Args:
+            parsed: 解析済みリクエスト
+
+        Returns:
+            ルーム情報が追加されたリクエスト
+        """
+        query = parsed.target_room_query
+        if not query:
+            return parsed
+
+        room_id, room_name, candidates = self._fuzzy_match_room(query)
+
+        parsed.target_room_id = room_id
+        parsed.target_room_name = room_name
+        parsed.target_room_candidates = candidates
+
+        return parsed
+
+    def _fuzzy_match_room(
+        self,
+        query: str
+    ) -> Tuple[Optional[int], Optional[str], List[Dict]]:
+        """
+        ルーム名の曖昧マッチング
+
+        Args:
+            query: 検索クエリ（「合宿のチャット」等）
+
+        Returns:
+            (room_id, room_name, candidates)
+        """
+        all_rooms = self.get_all_rooms()
+        if not all_rooms:
+            return None, None, []
+
+        query_normalized = self._normalize_for_matching(query)
+
+        scored_rooms = []
+        for room in all_rooms:
+            room_name = room.get("name", "")
+            room_id = room.get("room_id")
+            room_type = room.get("type", "")
+
+            # マイチャットはスキップ
+            if room_type == "my":
+                continue
+
+            score = self._calculate_room_match_score(query_normalized, room_name)
+            if score >= ROOM_MATCH_CANDIDATE_THRESHOLD:
+                scored_rooms.append({
+                    "room_id": room_id,
+                    "room_name": room_name,
+                    "score": score
+                })
+
+        # スコア降順でソート
+        scored_rooms.sort(key=lambda x: x["score"], reverse=True)
+
+        # 高スコアなら自動選択
+        if scored_rooms and scored_rooms[0]["score"] >= ROOM_MATCH_AUTO_SELECT_THRESHOLD:
+            top = scored_rooms[0]
+            return top["room_id"], top["room_name"], []
+
+        # 候補があれば返す
+        if scored_rooms:
+            return None, None, scored_rooms[:5]
+
+        return None, None, []
+
+    def _normalize_for_matching(self, text: str) -> str:
+        """マッチング用に正規化"""
+        # サフィックス除去
+        text = re.sub(r'(のチャット|のグループ|チャット|グループ|ルーム|チーム)$', '', text)
+        # スペース正規化
+        text = re.sub(r'\s+', '', text)
+        # 小文字化
+        return text.lower()
+
+    def _calculate_room_match_score(self, query: str, room_name: str) -> float:
+        """ルームマッチスコアを計算"""
+        room_normalized = self._normalize_for_matching(room_name)
+
+        # 完全一致
+        if query == room_normalized:
+            return 1.0
+
+        # クエリがルーム名に含まれる
+        if query in room_normalized:
+            return 0.8 + (len(query) / len(room_normalized)) * 0.2
+
+        # ルーム名がクエリに含まれる
+        if room_normalized in query:
+            return 0.7 + (len(room_normalized) / len(query)) * 0.1
+
+        # 部分マッチ
+        query_parts = re.split(r'[\s、・]', query)
+        room_parts = re.split(r'[\s、・【】（）]', room_name)
+
+        matches = 0
+        for qp in query_parts:
+            if qp and any(qp in rp.lower() or rp.lower() in qp for rp in room_parts):
+                matches += 1
+
+        if matches > 0 and query_parts:
+            return 0.3 + (matches / len(query_parts)) * 0.4
+
+        return 0.0
+
+    # =========================================================================
+    # 確認フロー
+    # =========================================================================
+
+    def _request_clarification(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        room_id: str,
+        account_id: str
+    ) -> str:
+        """不足情報の質問を生成"""
+        questions = parsed.clarification_questions or ["詳細を教えてください"]
+
+        lines = [
+            "📢 アナウンス依頼を受け付けましたウル！",
+            "",
+            "確認させてほしいことがあるウル：",
+        ]
+
+        for i, q in enumerate(questions, 1):
+            lines.append(f"  {i}. {q}")
+
+        return "\n".join(lines)
+
+    def _handle_room_candidates(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        room_id: str,
+        account_id: str
+    ) -> str:
+        """ルーム候補を提示"""
+        if not parsed.target_room_candidates:
+            return (
+                f"🤔 「{parsed.target_room_query}」というチャットが見つからなかったウル...\n\n"
+                "正確なルーム名を教えてもらえるウル？"
+            )
+
+        lines = [
+            f"🔍 「{parsed.target_room_query}」に該当しそうなルームが複数あるウル：",
+            ""
+        ]
+
+        for i, candidate in enumerate(parsed.target_room_candidates, 1):
+            lines.append(f"  {i}. {candidate['room_name']}")
+
+        lines.append("")
+        lines.append("どのルームに送りたいか、番号か名前で教えてウル！")
+
+        return "\n".join(lines)
+
+    def _generate_confirmation(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> str:
+        """確認メッセージを生成"""
+
+        # DBに保存
+        announcement_id = self._save_pending_announcement(
+            parsed, room_id, account_id, sender_name
+        )
+
+        # 確認メッセージ組み立て
+        lines = [
+            "📢 **アナウンス確認**",
+            "",
+            f"**送信先**: {parsed.target_room_name}",
+            "",
+            "**メッセージ**:",
+            "```",
+            parsed.message_content,
+            "```",
+        ]
+
+        if parsed.create_tasks:
+            lines.append("")
+            lines.append("**タスク作成**: はい")
+            if parsed.task_assign_all:
+                lines.append("  - 対象: ルーム全員")
+            if parsed.task_exclude_names:
+                lines.append(f"  - 除外: {', '.join(parsed.task_exclude_names)}")
+            if parsed.task_deadline:
+                lines.append(f"  - 期限: {parsed.task_deadline.strftime('%Y/%m/%d %H:%M')}")
+            else:
+                lines.append("  - 期限: なし")
+
+        if parsed.schedule_type == ScheduleType.ONE_TIME:
+            lines.append("")
+            lines.append(f"**実行予定**: {parsed.scheduled_at.strftime('%Y/%m/%d %H:%M')}")
+        elif parsed.schedule_type == ScheduleType.RECURRING:
+            lines.append("")
+            lines.append(f"**繰り返し**: {parsed.cron_description or parsed.cron_expression}")
+            if parsed.skip_holidays:
+                lines.append("  - 祝日はスキップ")
+            if parsed.skip_weekends:
+                lines.append("  - 土日はスキップ")
+
+        lines.extend([
+            "",
+            "---",
+            "「OK」または「送信」で実行します。",
+            "「キャンセル」で取り消します。",
+            "修正したい場合は具体的に教えてください。",
+        ])
+
+        return "\n".join(lines)
+
+    # =========================================================================
+    # フォローアップ応答処理
+    # =========================================================================
+
+    def _handle_follow_up_response(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Dict[str, Any]
+    ) -> str:
+        """確認応答やルーム選択の処理"""
+        response_text = params.get("raw_message", "").strip().lower()
+        announcement_id = context.get("pending_announcement_id")
+
+        # 確認応答
+        if response_text in ["ok", "おっけー", "送信", "実行", "はい", "yes"]:
+            if announcement_id:
+                return self._execute_announcement_by_id(announcement_id)
+            return "⚠️ 確認待ちのアナウンスが見つかりませんウル"
+
+        # キャンセル
+        if response_text in ["キャンセル", "やめる", "取り消し", "cancel", "no"]:
+            if announcement_id:
+                self._cancel_announcement(announcement_id, "ユーザーによるキャンセル")
+            return "アナウンスをキャンセルしましたウル 📭"
+
+        # ルーム番号選択
+        if response_text.isdigit():
+            candidates = context.get("room_candidates", [])
+            idx = int(response_text) - 1
+            if 0 <= idx < len(candidates):
+                selected = candidates[idx]
+                # 選択されたルームで再処理
+                return self._retry_with_selected_room(
+                    context, selected, room_id, account_id, sender_name
+                )
+
+        return "すみませんウル、応答を理解できませんでしたウル。「OK」か「キャンセル」でお願いしますウル！"
+
+    # =========================================================================
+    # DB操作
+    # =========================================================================
+
+    def _save_pending_announcement(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> Optional[str]:
+        """アナウンスをDBに保存"""
+        pool = self.get_pool()
+
+        try:
+            with pool.connect() as conn:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        INSERT INTO scheduled_announcements (
+                            organization_id,
+                            title,
+                            message_content,
+                            target_room_id,
+                            target_room_name,
+                            create_tasks,
+                            task_deadline,
+                            task_include_account_ids,
+                            task_exclude_account_ids,
+                            task_assign_all_members,
+                            schedule_type,
+                            scheduled_at,
+                            cron_expression,
+                            cron_description,
+                            skip_holidays,
+                            skip_weekends,
+                            status,
+                            requested_by_account_id,
+                            requested_from_room_id
+                        ) VALUES (
+                            :org_id,
+                            :title,
+                            :message_content,
+                            :target_room_id,
+                            :target_room_name,
+                            :create_tasks,
+                            :task_deadline,
+                            :task_include_account_ids,
+                            :task_exclude_account_ids,
+                            :task_assign_all_members,
+                            :schedule_type,
+                            :scheduled_at,
+                            :cron_expression,
+                            :cron_description,
+                            :skip_holidays,
+                            :skip_weekends,
+                            'pending',
+                            :requested_by_account_id,
+                            :requested_from_room_id
+                        )
+                        RETURNING id
+                    """),
+                    {
+                        "org_id": self._organization_id,
+                        "title": parsed.message_content[:200] if parsed.message_content else "アナウンス",
+                        "message_content": parsed.message_content,
+                        "target_room_id": parsed.target_room_id,
+                        "target_room_name": parsed.target_room_name,
+                        "create_tasks": parsed.create_tasks,
+                        "task_deadline": parsed.task_deadline,
+                        "task_include_account_ids": parsed.task_include_account_ids or [],
+                        "task_exclude_account_ids": parsed.task_exclude_account_ids or [],
+                        "task_assign_all_members": parsed.task_assign_all,
+                        "schedule_type": parsed.schedule_type.value,
+                        "scheduled_at": parsed.scheduled_at,
+                        "cron_expression": parsed.cron_expression,
+                        "cron_description": parsed.cron_description,
+                        "skip_holidays": parsed.skip_holidays,
+                        "skip_weekends": parsed.skip_weekends,
+                        "requested_by_account_id": int(account_id),
+                        "requested_from_room_id": int(room_id),
+                    }
+                )
+                conn.commit()
+                row = result.fetchone()
+                if row:
+                    announcement_id = str(row[0])
+                    print(f"✅ アナウンス保存: id={announcement_id}")
+
+                    # パターン記録（A1連携）
+                    self._record_announcement_pattern(parsed, account_id, conn)
+
+                    return announcement_id
+
+        except Exception as e:
+            print(f"❌ アナウンス保存エラー: {e}")
+            traceback.print_exc()
+
+        return None
+
+    def _cancel_announcement(
+        self,
+        announcement_id: str,
+        reason: str
+    ):
+        """アナウンスをキャンセル"""
+        pool = self.get_pool()
+        try:
+            with pool.connect() as conn:
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET status = 'cancelled',
+                            cancelled_at = CURRENT_TIMESTAMP,
+                            cancelled_reason = :reason
+                        WHERE id = :id
+                    """),
+                    {"id": announcement_id, "reason": reason}
+                )
+                conn.commit()
+                print(f"📭 アナウンスキャンセル: id={announcement_id}")
+        except Exception as e:
+            print(f"❌ キャンセルエラー: {e}")
+
+    # =========================================================================
+    # 実行
+    # =========================================================================
+
+    def _execute_announcement_by_id(self, announcement_id: str) -> str:
+        """IDからアナウンスを実行"""
+        result = self.execute_announcement(announcement_id)
+
+        if result.get("success"):
+            if result.get("skipped"):
+                return f"📅 本日は{result.get('reason')}のため、スキップしましたウル"
+
+            message = "📢 送信完了ウル！🎉"
+
+            if result.get("tasks_created", 0) > 0:
+                message += f"\n✅ {result['tasks_created']}人にタスクを作成しましたウル"
+
+            return message
+        else:
+            errors = result.get("errors", ["不明なエラー"])
+            return f"😢 送信に失敗しましたウル... ({errors[0]})"
+
+    def execute_announcement(
+        self,
+        announcement_id: str,
+        execution_context: Dict[str, Any] = None
+    ) -> Dict[str, Any]:
+        """
+        アナウンスを実行
+
+        Args:
+            announcement_id: アナウンスID
+            execution_context: 実行コンテキスト（オプション）
+
+        Returns:
+            {
+                "success": bool,
+                "message_id": str,
+                "tasks_created": int,
+                "errors": [],
+                "skipped": bool,
+                "reason": str
+            }
+        """
+        pool = self.get_pool()
+
+        try:
+            with pool.connect() as conn:
+                # アナウンス取得
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT * FROM scheduled_announcements
+                        WHERE id = :id
+                    """),
+                    {"id": announcement_id}
+                )
+                row = result.fetchone()
+
+                if not row:
+                    return {"success": False, "errors": ["アナウンスが見つかりません"]}
+
+                # RowをDictに変換
+                columns = result.keys()
+                announcement = dict(zip(columns, row))
+
+                # 営業日チェック
+                if self.is_business_day:
+                    skip_weekends = announcement.get("skip_weekends", True)
+                    skip_holidays = announcement.get("skip_holidays", True)
+
+                    if skip_weekends or skip_holidays:
+                        if not self.is_business_day():
+                            reason = self.get_non_business_day_reason() if self.get_non_business_day_reason else "非営業日"
+                            # 繰り返しなら次回計算
+                            if announcement.get("schedule_type") == "recurring":
+                                self._calculate_next_execution(announcement_id, conn)
+                            return {"success": True, "skipped": True, "reason": reason}
+
+                # ステータス更新
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET status = 'executing'
+                        WHERE id = :id
+                    """),
+                    {"id": announcement_id}
+                )
+
+                # ルームメンバー取得
+                room_id = announcement["target_room_id"]
+                members = self.get_room_members(str(room_id))
+                members_snapshot = {m["account_id"]: m.get("name", "") for m in members}
+
+                # 実行ログ作成
+                log_id = self._create_execution_log(
+                    announcement_id, members_snapshot, conn
+                )
+
+                # メッセージ送信
+                message_with_toall = f"[toall]\n{announcement['message_content']}"
+                message_result = self.send_chatwork_message(
+                    str(room_id), message_with_toall
+                )
+                message_id = message_result.get("message_id") if message_result else None
+
+                # タスク作成
+                tasks_created = 0
+                task_errors = []
+
+                if announcement.get("create_tasks"):
+                    task_results = self._create_announcement_tasks(
+                        announcement, members, conn
+                    )
+                    tasks_created = task_results["created"]
+                    task_errors = task_results.get("errors", [])
+
+                # ログ更新
+                status = "completed" if not task_errors else "partial_failure"
+                self._update_execution_log(
+                    log_id,
+                    message_sent=True,
+                    message_id=message_id,
+                    tasks_created=tasks_created,
+                    status=status,
+                    conn=conn
+                )
+
+                # アナウンスステータス更新
+                final_status = "completed"
+                if announcement.get("schedule_type") == "recurring":
+                    final_status = "scheduled"
+                    self._calculate_next_execution(announcement_id, conn)
+
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET status = :status,
+                            last_executed_at = CURRENT_TIMESTAMP,
+                            execution_count = execution_count + 1
+                        WHERE id = :id
+                    """),
+                    {"id": announcement_id, "status": final_status}
+                )
+                conn.commit()
+
+                return {
+                    "success": True,
+                    "message_id": message_id,
+                    "tasks_created": tasks_created,
+                    "errors": task_errors
+                }
+
+        except Exception as e:
+            print(f"❌ アナウンス実行エラー: {e}")
+            traceback.print_exc()
+            return {"success": False, "errors": [str(e)]}
+
+    def _create_announcement_tasks(
+        self,
+        announcement: Dict,
+        members: List[Dict],
+        conn
+    ) -> Dict[str, Any]:
+        """タスクを一括作成"""
+        recipients = []
+
+        task_assign_all = announcement.get("task_assign_all_members", False)
+        include_ids = set(announcement.get("task_include_account_ids") or [])
+        exclude_ids = set(announcement.get("task_exclude_account_ids") or [])
+
+        for m in members:
+            account_id = m.get("account_id")
+            if not account_id:
+                continue
+
+            # 全員対象の場合
+            if task_assign_all:
+                if account_id not in exclude_ids:
+                    recipients.append(m)
+            # 指定者のみ
+            elif include_ids:
+                if account_id in include_ids:
+                    recipients.append(m)
+
+        # タスク作成
+        created = 0
+        errors = []
+        task_ids = []
+
+        room_id = str(announcement["target_room_id"])
+        task_body = announcement["message_content"]
+        task_deadline = announcement.get("task_deadline")
+        limit_timestamp = int(task_deadline.timestamp()) if task_deadline else None
+
+        for recipient in recipients:
+            try:
+                result = self.create_chatwork_task(
+                    room_id=room_id,
+                    task_body=task_body,
+                    assigned_to_account_id=str(recipient["account_id"]),
+                    limit=limit_timestamp
+                )
+                if result and result.get("task_ids"):
+                    task_ids.extend(result["task_ids"])
+                    created += 1
+            except Exception as e:
+                errors.append({
+                    "account_id": recipient.get("account_id"),
+                    "name": recipient.get("name"),
+                    "error": str(e)
+                })
+
+        return {
+            "created": created,
+            "task_ids": task_ids,
+            "errors": errors
+        }
+
+    # =========================================================================
+    # ログ操作
+    # =========================================================================
+
+    def _create_execution_log(
+        self,
+        announcement_id: str,
+        members_snapshot: Dict,
+        conn
+    ) -> Optional[str]:
+        """実行ログを作成"""
+        try:
+            result = conn.execute(
+                sqlalchemy.text("""
+                    INSERT INTO announcement_logs (
+                        organization_id,
+                        announcement_id,
+                        room_members_snapshot,
+                        members_count,
+                        status
+                    ) VALUES (
+                        :org_id,
+                        :announcement_id,
+                        :snapshot,
+                        :count,
+                        'in_progress'
+                    )
+                    RETURNING id
+                """),
+                {
+                    "org_id": self._organization_id,
+                    "announcement_id": announcement_id,
+                    "snapshot": json.dumps(members_snapshot),
+                    "count": len(members_snapshot),
+                }
+            )
+            row = result.fetchone()
+            return str(row[0]) if row else None
+        except Exception as e:
+            print(f"⚠️ ログ作成エラー: {e}")
+            return None
+
+    def _update_execution_log(
+        self,
+        log_id: str,
+        message_sent: bool,
+        message_id: str,
+        tasks_created: int,
+        status: str,
+        conn
+    ):
+        """実行ログを更新"""
+        try:
+            conn.execute(
+                sqlalchemy.text("""
+                    UPDATE announcement_logs
+                    SET message_sent = :message_sent,
+                        message_id = :message_id,
+                        message_sent_at = CASE WHEN :message_sent THEN CURRENT_TIMESTAMP ELSE NULL END,
+                        tasks_created = :tasks_created_flag,
+                        task_count = :task_count,
+                        status = :status
+                    WHERE id = :id
+                """),
+                {
+                    "id": log_id,
+                    "message_sent": message_sent,
+                    "message_id": message_id,
+                    "tasks_created_flag": tasks_created > 0,
+                    "task_count": tasks_created,
+                    "status": status,
+                }
+            )
+        except Exception as e:
+            print(f"⚠️ ログ更新エラー: {e}")
+
+    def _calculate_next_execution(self, announcement_id: str, conn):
+        """次回実行日時を計算（繰り返し用）"""
+        # TODO: croniter使用した計算
+        # 現時点では単純に7日後を設定
+        try:
+            conn.execute(
+                sqlalchemy.text("""
+                    UPDATE scheduled_announcements
+                    SET next_execution_at = CURRENT_TIMESTAMP + INTERVAL '7 days'
+                    WHERE id = :id
+                """),
+                {"id": announcement_id}
+            )
+        except Exception as e:
+            print(f"⚠️ 次回実行計算エラー: {e}")
+
+    # =========================================================================
+    # パターン検知（A1連携）
+    # =========================================================================
+
+    def _record_announcement_pattern(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        account_id: str,
+        conn
+    ):
+        """アナウンス依頼パターンを記録"""
+        try:
+            # 正規化してハッシュ生成
+            normalized = self._normalize_request_for_pattern(parsed)
+            pattern_hash = hashlib.sha256(normalized.encode()).hexdigest()[:64]
+
+            # Upsert
+            result = conn.execute(
+                sqlalchemy.text("""
+                    INSERT INTO announcement_patterns (
+                        organization_id,
+                        pattern_hash,
+                        normalized_request,
+                        target_room_id,
+                        target_room_name,
+                        occurrence_count,
+                        occurrence_timestamps,
+                        last_occurred_at,
+                        first_occurred_at,
+                        requested_by_account_ids,
+                        sample_requests
+                    ) VALUES (
+                        :org_id,
+                        :hash,
+                        :normalized,
+                        :room_id,
+                        :room_name,
+                        1,
+                        ARRAY[CURRENT_TIMESTAMP],
+                        CURRENT_TIMESTAMP,
+                        CURRENT_TIMESTAMP,
+                        ARRAY[:account_id::bigint],
+                        ARRAY[:sample]
+                    )
+                    ON CONFLICT (organization_id, pattern_hash) DO UPDATE SET
+                        occurrence_count = announcement_patterns.occurrence_count + 1,
+                        occurrence_timestamps = array_append(
+                            announcement_patterns.occurrence_timestamps,
+                            CURRENT_TIMESTAMP
+                        ),
+                        last_occurred_at = CURRENT_TIMESTAMP,
+                        requested_by_account_ids = CASE
+                            WHEN :account_id::bigint = ANY(announcement_patterns.requested_by_account_ids)
+                            THEN announcement_patterns.requested_by_account_ids
+                            ELSE array_append(
+                                announcement_patterns.requested_by_account_ids,
+                                :account_id::bigint
+                            )
+                        END,
+                        sample_requests = CASE
+                            WHEN array_length(announcement_patterns.sample_requests, 1) >= 5
+                            THEN announcement_patterns.sample_requests
+                            ELSE array_append(
+                                announcement_patterns.sample_requests,
+                                :sample
+                            )
+                        END,
+                        updated_at = CURRENT_TIMESTAMP
+                    RETURNING occurrence_count, suggestion_created
+                """),
+                {
+                    "org_id": self._organization_id,
+                    "hash": pattern_hash,
+                    "normalized": normalized,
+                    "room_id": parsed.target_room_id,
+                    "room_name": parsed.target_room_name,
+                    "account_id": int(account_id),
+                    "sample": parsed.raw_message[:500]
+                }
+            )
+
+            row = result.fetchone()
+            if row:
+                count = row[0]
+                suggestion_created = row[1]
+
+                # 閾値超えかつ未提案なら提案作成
+                if count >= PATTERN_THRESHOLD and not suggestion_created:
+                    self._create_recurring_suggestion(pattern_hash, conn)
+
+        except Exception as e:
+            print(f"⚠️ パターン記録エラー: {e}")
+
+    def _normalize_request_for_pattern(
+        self,
+        parsed: ParsedAnnouncementRequest
+    ) -> str:
+        """パターン検知用にリクエストを正規化"""
+        # ルーム名 + メッセージ概要でハッシュ
+        parts = []
+        if parsed.target_room_name:
+            parts.append(parsed.target_room_name)
+        if parsed.message_content:
+            # 最初の100文字
+            parts.append(parsed.message_content[:100])
+        return "|".join(parts).lower()
+
+    def _create_recurring_suggestion(self, pattern_hash: str, conn):
+        """定期化提案のインサイトを作成"""
+        try:
+            # パターン詳細取得
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT * FROM announcement_patterns
+                    WHERE organization_id = :org_id AND pattern_hash = :hash
+                """),
+                {"org_id": self._organization_id, "hash": pattern_hash}
+            )
+            pattern_row = result.fetchone()
+
+            if not pattern_row:
+                return
+
+            columns = result.keys()
+            pattern = dict(zip(columns, pattern_row))
+
+            # インサイト作成
+            title = f"「{pattern.get('target_room_name', '不明')}」へのアナウンスが繰り返されています"
+            description = (
+                f"過去{pattern['occurrence_count']}回、同様のアナウンスが依頼されました。\n"
+                "定期実行に設定することを検討してください。"
+            )
+
+            insight_result = conn.execute(
+                sqlalchemy.text("""
+                    INSERT INTO soulkun_insights (
+                        organization_id,
+                        insight_type,
+                        source_type,
+                        source_id,
+                        importance,
+                        title,
+                        description,
+                        recommended_action,
+                        evidence,
+                        status,
+                        classification
+                    ) VALUES (
+                        :org_id,
+                        'pattern_detected',
+                        'announcement_pattern',
+                        :pattern_id,
+                        'medium',
+                        :title,
+                        :description,
+                        :action,
+                        :evidence,
+                        'new',
+                        'internal'
+                    )
+                    ON CONFLICT DO NOTHING
+                    RETURNING id
+                """),
+                {
+                    "org_id": self._organization_id,
+                    "pattern_id": str(pattern["id"]),
+                    "title": title[:200],
+                    "description": description,
+                    "action": "1. アナウンスを定期実行に変更\n2. 担当者に定期タスク化を提案",
+                    "evidence": json.dumps({
+                        "occurrence_count": pattern["occurrence_count"],
+                        "target_room": pattern.get("target_room_name"),
+                        "sample_requests": pattern.get("sample_requests", [])[:3]
+                    })
+                }
+            )
+
+            insight_row = insight_result.fetchone()
+            if insight_row:
+                # パターンを更新
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE announcement_patterns
+                        SET suggestion_created = TRUE,
+                            insight_id = :insight_id
+                        WHERE id = :pattern_id
+                    """),
+                    {
+                        "insight_id": str(insight_row[0]),
+                        "pattern_id": str(pattern["id"])
+                    }
+                )
+                print(f"💡 定期化提案インサイト作成: {title}")
+
+        except Exception as e:
+            print(f"⚠️ 提案作成エラー: {e}")
+
+    def _retry_with_selected_room(
+        self,
+        context: Dict,
+        selected_room: Dict,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> str:
+        """選択されたルームで再処理"""
+        # コンテキストから元のパース結果を取得
+        original_parsed = context.get("original_parsed")
+        if not original_parsed:
+            return "⚠️ 元の依頼情報が見つかりませんウル"
+
+        # ルーム情報を設定
+        original_parsed["target_room_id"] = selected_room["room_id"]
+        original_parsed["target_room_name"] = selected_room["room_name"]
+
+        # ParsedAnnouncementRequestに変換
+        parsed = ParsedAnnouncementRequest(**original_parsed)
+
+        # 確認メッセージ生成
+        return self._generate_confirmation(parsed, room_id, account_id, sender_name)

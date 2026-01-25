@@ -165,20 +165,21 @@ class OrganizationSyncService:
     def _validate_org_chart_data(self, data: OrgChartSyncRequest) -> None:
         """組織図データのバリデーション"""
 
-        # 循環参照チェック
-        if self._has_cycle(data.departments):
-            raise OrganizationSyncError(
-                error_code="CIRCULAR_REFERENCE",
-                message="部署に循環参照が検出されました",
-            )
-
-        # 孤立部署チェック
+        # 孤立部署チェック（循環参照チェックより先に実行）
+        # 孤立部署があるとトポロジカルソートが失敗するため
         orphans = self._find_orphan_departments(data.departments)
         if orphans:
             raise OrganizationSyncError(
                 error_code="ORPHAN_DEPARTMENT",
                 message=f"親部署が存在しない部署: {orphans}",
                 details={"orphan_departments": orphans},
+            )
+
+        # 循環参照チェック
+        if self._has_cycle(data.departments):
+            raise OrganizationSyncError(
+                error_code="CIRCULAR_REFERENCE",
+                message="部署に循環参照が検出されました",
             )
 
         # 部署コード重複チェック

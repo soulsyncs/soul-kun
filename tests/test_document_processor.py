@@ -15,8 +15,8 @@ from lib.document_processor import (
     extract_text,
     extract_with_metadata,
     TextExtractor,
-    TxtExtractor,
-    HtmlExtractor,
+    TextFileExtractor,
+    HTMLExtractor,
 )
 
 
@@ -28,7 +28,7 @@ class TestTextChunker:
         chunker = TextChunker(chunk_size=100, chunk_overlap=20)
         text = "これはテスト文章です。" * 20  # 約200文字
 
-        chunks = chunker.chunk(text)
+        chunks = chunker.split(text)
 
         assert len(chunks) >= 2
         assert all(isinstance(c, Chunk) for c in chunks)
@@ -39,7 +39,7 @@ class TestTextChunker:
         chunker = TextChunker(chunk_size=50, chunk_overlap=10)
         text = "A" * 100
 
-        chunks = chunker.chunk(text)
+        chunks = chunker.split(text)
 
         # オーバーラップがある場合、連続するチャンクの終わりと始まりが重なる
         if len(chunks) >= 2:
@@ -50,7 +50,7 @@ class TestTextChunker:
         chunker = TextChunker(chunk_size=100, chunk_overlap=0)
         text = "テスト文章"
 
-        chunks = chunker.chunk(text)
+        chunks = chunker.split(text)
 
         assert len(chunks) == 1
         assert chunks[0].content_hash is not None
@@ -61,16 +61,16 @@ class TestTextChunker:
         chunker = TextChunker(chunk_size=50, chunk_overlap=10)
         text = "テスト" * 100
 
-        chunks = chunker.chunk(text)
+        chunks = chunker.split(text)
 
         for i, chunk in enumerate(chunks):
-            assert chunk.chunk_index == i
+            assert chunk.index == i
 
     def test_empty_text(self):
         """空のテキスト"""
         chunker = TextChunker(chunk_size=100, chunk_overlap=20)
 
-        chunks = chunker.chunk("")
+        chunks = chunker.split("")
 
         assert chunks == []
 
@@ -79,60 +79,61 @@ class TestTextChunker:
         chunker = TextChunker(chunk_size=100, chunk_overlap=20)
         text = "短いテキスト"
 
-        chunks = chunker.chunk(text)
+        chunks = chunker.split(text)
 
         assert len(chunks) == 1
         assert chunks[0].content == text
 
 
-class TestTxtExtractor:
-    """TxtExtractor のテスト"""
+class TestTextFileExtractor:
+    """TextFileExtractor のテスト"""
 
     def test_extract_text(self):
         """テキスト抽出"""
-        extractor = TxtExtractor()
+        extractor = TextFileExtractor()
         content = "テストテキスト\n2行目".encode('utf-8')
 
         result = extractor.extract(content)
 
-        assert isinstance(result, ExtractedDocument)
-        assert result.text == "テストテキスト\n2行目"
-        assert result.format == "txt"
+        assert isinstance(result, str)
+        assert result == "テストテキスト\n2行目"
 
     def test_extract_with_encoding(self):
         """エンコーディング処理"""
-        extractor = TxtExtractor()
+        extractor = TextFileExtractor()
         content = "日本語テスト".encode('shift_jis')
 
         result = extractor.extract(content)
 
         # UTF-8以外のエンコーディングも処理される
-        assert result.text is not None
+        assert result is not None
+        assert "日本語テスト" in result
 
 
-class TestHtmlExtractor:
-    """HtmlExtractor のテスト"""
+class TestHTMLExtractor:
+    """HTMLExtractor のテスト"""
 
     def test_extract_text(self):
         """HTML からテキスト抽出"""
-        extractor = HtmlExtractor()
+        extractor = HTMLExtractor()
         content = b"<html><body><h1>Title</h1><p>Content</p></body></html>"
 
         result = extractor.extract(content)
 
-        assert "Title" in result.text
-        assert "Content" in result.text
-        assert "<h1>" not in result.text  # タグは除去
+        assert isinstance(result, str)
+        assert "Title" in result
+        assert "Content" in result
+        assert "<h1>" not in result  # タグは除去
 
     def test_extract_removes_scripts(self):
         """スクリプトタグが除去される"""
-        extractor = HtmlExtractor()
+        extractor = HTMLExtractor()
         content = b"<html><script>alert('test')</script><p>Content</p></html>"
 
         result = extractor.extract(content)
 
-        assert "alert" not in result.text
-        assert "Content" in result.text
+        assert "alert" not in result
+        assert "Content" in result
 
 
 class TestDocumentProcessor:
@@ -167,14 +168,13 @@ class TestDocumentProcessor:
 
     def test_supported_formats(self):
         """サポートされる形式"""
-        processor = DocumentProcessor()
-        supported = processor.supported_formats
+        from lib.document_processor import EXTRACTOR_MAP
 
-        assert "pdf" in supported
-        assert "docx" in supported
-        assert "txt" in supported
-        assert "md" in supported
-        assert "html" in supported
+        assert "pdf" in EXTRACTOR_MAP
+        assert "docx" in EXTRACTOR_MAP
+        assert "txt" in EXTRACTOR_MAP
+        assert "md" in EXTRACTOR_MAP
+        assert "html" in EXTRACTOR_MAP
 
 
 class TestExtractText:
@@ -209,26 +209,24 @@ class TestChunk:
         """チャンク作成"""
         chunk = Chunk(
             content="テスト",
-            chunk_index=0,
+            index=0,
             start_position=0,
             end_position=4,
             char_count=4,
-            content_hash="abc123",
         )
 
         assert chunk.content == "テスト"
-        assert chunk.chunk_index == 0
+        assert chunk.index == 0
         assert chunk.char_count == 4
 
     def test_chunk_optional_fields(self):
         """オプションフィールド"""
         chunk = Chunk(
             content="テスト",
-            chunk_index=0,
+            index=0,
             start_position=0,
             end_position=4,
             char_count=4,
-            content_hash="abc123",
             page_number=1,
             section_title="第1章",
             section_hierarchy=["第1章", "1.1 概要"],
@@ -246,12 +244,10 @@ class TestExtractedDocument:
         """ドキュメント作成"""
         doc = ExtractedDocument(
             text="テスト",
-            format="txt",
             total_pages=1,
             metadata={"author": "test"}
         )
 
         assert doc.text == "テスト"
-        assert doc.format == "txt"
         assert doc.total_pages == 1
         assert doc.metadata["author"] == "test"

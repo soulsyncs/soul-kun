@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
 # テスト用のFastAPIアプリを作成
-from api.app.api.v1.knowledge import router, get_current_user, get_db_connection
-from api.app.services.knowledge_search import UserContext
+from app.api.v1.knowledge import router, get_current_user, get_db_connection
+from app.services.knowledge_search import UserContext
 
 
 # テスト用のFastAPIアプリ
@@ -53,7 +53,15 @@ class TestKnowledgeSearchEndpoint:
         """認証ヘッダーが必要"""
         app = create_test_app()
 
-        # オーバーライドなしでテスト
+        # DBはモックするが、認証はモックしない（ヘッダー必須を確認）
+        async def mock_get_db_connection():
+            conn = AsyncMock()
+            conn.execute = AsyncMock()
+            conn.commit = AsyncMock()
+            yield conn
+
+        app.dependency_overrides[get_db_connection] = mock_get_db_connection
+
         with TestClient(app) as client:
             response = client.post(
                 "/api/v1/knowledge/search",

@@ -176,16 +176,18 @@ class TestProcessOverdueTasks:
             escalation_days=3
         )
 
-        with patch('httpx.post') as mock_post:
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_post.return_value = mock_response
+        # v10.24.9: 営業日判定をモックして常にTrue（営業日）にする
+        with patch('handlers.overdue_handler.is_business_day', return_value=True):
+            with patch('httpx.post') as mock_post:
+                mock_response = MagicMock()
+                mock_response.status_code = 200
+                mock_post.return_value = mock_response
 
-            # エラーなく処理が完了することを確認
-            handler.process_overdue_tasks()
+                # エラーなく処理が完了することを確認
+                handler.process_overdue_tasks()
 
-            # DMルーム取得が呼ばれたことを確認
-            mock_get_dm.assert_called()
+                # DMルーム取得が呼ばれたことを確認
+                mock_get_dm.assert_called()
 
 
 class TestSendOverdueReminderToDm:

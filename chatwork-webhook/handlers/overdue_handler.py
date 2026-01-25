@@ -5,7 +5,7 @@ main.pyから分割された遅延タスク管理・エスカレーションの�
 
 分割元: chatwork-webhook/main.py
 分割日: 2026-01-25
-バージョン: v10.24.5
+バージョン: v10.24.9 (営業日判定追加)
 """
 
 import httpx
@@ -17,6 +17,33 @@ from typing import Optional, List, Dict, Any, Callable, Tuple
 
 # 日本標準時
 JST = timezone(timedelta(hours=9))
+
+# ★★★ v10.24.9: 営業日判定（土日祝日リマインドスキップ） ★★★
+try:
+    from lib.business_day import (
+        is_business_day,
+        get_non_business_day_reason,
+    )
+    _BUSINESS_DAY_AVAILABLE = True
+except ImportError:
+    _BUSINESS_DAY_AVAILABLE = False
+    print("⚠️ lib/business_day が見つかりません。営業日判定をスキップ")
+
+    # フォールバック: 土日のみ判定
+    def is_business_day(target_date=None):
+        if target_date is None:
+            target_date = datetime.now(JST).date()
+        return target_date.weekday() < 5  # 月〜金
+
+    def get_non_business_day_reason(target_date=None):
+        if target_date is None:
+            target_date = datetime.now(JST).date()
+        weekday = target_date.weekday()
+        if weekday == 5:
+            return "土曜日"
+        if weekday == 6:
+            return "日曜日"
+        return None
 
 
 class OverdueHandler:
@@ -212,11 +239,27 @@ class OverdueHandler:
             print(f"⚠️ 遅延管理テーブル作成エラー: {e}")
             traceback.print_exc()
 
-    def process_overdue_tasks(self) -> None:
+    def process_overdue_tasks(self) -> dict:
         """
         遅延タスクを処理：督促送信 + エスカレーション
         毎日8:30に実行（remind_tasksから呼び出し）
+
+        ★★★ v10.24.9: 営業日判定 ★★★
+        - 土日祝日は遅延タスク報告をスキップ
+
+        Returns:
+            処理結果を含む辞書
         """
+        # ★★★ v10.24.9: 営業日判定 ★★★
+        if not is_business_day():
+            reason = get_non_business_day_reason()
+            print(f"📅 本日は{reason}のため、遅延タスク報告をスキップします")
+            return {
+                "status": "skipped",
+                "reason": f"本日は{reason}のため、遅延タスク報告をスキップしました",
+                "is_business_day": False
+            }
+
         # バッファをリセット
         self._dm_unavailable_buffer = []
 

@@ -889,7 +889,14 @@ class AnnouncementHandler:
                 announcement_id, raw_message, room_id, account_id, sender_name
             )
 
-        return "すみませんウル、応答を理解できませんでしたウル。「OK」か「キャンセル」でお願いしますウル！"
+        # v10.26.2: メッセージ内容の修正リクエスト
+        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        if any(kw in raw_message for kw in modification_keywords) and announcement_id:
+            return self._update_message_content(
+                announcement_id, raw_message, room_id, account_id, sender_name
+            )
+
+        return "すみませんウル、応答を理解できませんでしたウル。「OK」か「キャンセル」、または修正内容を教えてウル！"
 
     def _update_task_settings(
         self,
@@ -1001,6 +1008,233 @@ class AnnouncementHandler:
         except Exception as e:
             print(f"[AnnouncementHandler] タスク設定更新エラー: {e}")
             return "⚠️ タスク設定の更新中にエラーが発生しましたウル"
+
+    def _update_message_content(
+        self,
+        announcement_id: str,
+        modification_request: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> str:
+        """
+        v10.26.2: メッセージ内容を修正
+
+        ユーザーの修正リクエストをLLMで解釈し、元のメッセージを更新する。
+
+        Args:
+            announcement_id: アナウンスID
+            modification_request: ユーザーの修正依頼（例: "これはテストだよっていうのを追記して"）
+            room_id: リクエスト元ルームID
+            account_id: リクエスト者アカウントID
+            sender_name: リクエスト者名
+
+        Returns:
+            更新後の確認メッセージ
+        """
+        pool = self.get_pool()
+
+        try:
+            with pool.connect() as conn:
+                # 現在のアナウンス情報を取得
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT
+                            id, message_content, target_room_id, target_room_name,
+                            create_tasks, task_deadline, task_assign_all_members,
+                            task_include_account_ids, task_exclude_account_ids,
+                            schedule_type, scheduled_at, cron_expression,
+                            cron_description, skip_holidays, skip_weekends
+                        FROM scheduled_announcements
+                        WHERE id = :id
+                          AND organization_id = :org_id
+                          AND status = 'pending'
+                    """),
+                    {"id": announcement_id, "org_id": self._organization_id}
+                )
+                row = result.mappings().fetchone()
+
+                if not row:
+                    return "⚠️ 確認待ちのアナウンスが見つかりませんウル"
+
+                current_message = row["message_content"]
+
+                # LLMでメッセージを修正
+                updated_message = self._apply_message_modification(
+                    current_message, modification_request, sender_name
+                )
+
+                # DBを更新
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET message_content = :message_content,
+                            updated_at = NOW()
+                        WHERE id = :id
+                          AND organization_id = :org_id
+                    """),
+                    {
+                        "id": announcement_id,
+                        "org_id": self._organization_id,
+                        "message_content": updated_message,
+                    }
+                )
+                conn.commit()
+
+                print(f"✅ メッセージ修正: {current_message[:30]}... → {updated_message[:30]}...")
+
+                # 更新後の確認メッセージを生成
+                lines = [
+                    "📢 **アナウンス確認（メッセージ修正済み）**",
+                    "",
+                    f"**送信先**: {row['target_room_name']}",
+                    "",
+                    "**メッセージ**:",
+                    "```",
+                    updated_message,
+                    "```",
+                ]
+
+                # タスク情報
+                lines.append("")
+                if row["create_tasks"]:
+                    lines.append("**タスク作成**: はい")
+                    if row["task_assign_all_members"]:
+                        lines.append("  - 対象: ルーム全員")
+                    if row["task_deadline"]:
+                        deadline = row["task_deadline"]
+                        if hasattr(deadline, 'strftime'):
+                            lines.append(f"  - 期限: {deadline.strftime('%Y/%m/%d %H:%M')}")
+                        else:
+                            lines.append(f"  - 期限: {deadline}")
+                else:
+                    lines.append("**タスク作成**: なし")
+
+                lines.extend([
+                    "",
+                    "---",
+                    "「OK」または「送信」で実行します。",
+                    "「キャンセル」で取り消します。",
+                    "さらに修正したい場合は具体的に教えてください。",
+                ])
+
+                return "\n".join(lines)
+
+        except Exception as e:
+            print(f"[AnnouncementHandler] メッセージ修正エラー: {e}")
+            return "⚠️ メッセージの修正中にエラーが発生しましたウル"
+
+    def _apply_message_modification(
+        self,
+        current_message: str,
+        modification_request: str,
+        sender_name: str
+    ) -> str:
+        """
+        LLMを使ってメッセージを修正
+
+        Args:
+            current_message: 現在のメッセージ
+            modification_request: ユーザーの修正依頼
+            sender_name: 依頼者名
+
+        Returns:
+            修正されたメッセージ
+        """
+        # まずLLMで修正を試みる
+        llm_result = self._try_llm_modification(current_message, modification_request)
+        if llm_result:
+            return llm_result
+
+        # フォールバック: 単純に追記
+        return self._fallback_modification(current_message, modification_request)
+
+    def _try_llm_modification(
+        self,
+        current_message: str,
+        modification_request: str
+    ) -> Optional[str]:
+        """LLMでメッセージ修正を試みる"""
+        try:
+            api_key = self.get_secret("OPENROUTER_API_KEY")
+            if not api_key:
+                print("⚠️ OPENROUTER_API_KEY not found, using fallback")
+                return None
+
+            import httpx
+
+            system_prompt = """あなたはメッセージ編集アシスタントです。
+ユーザーの修正依頼に基づいて、元のメッセージを適切に修正してください。
+
+ルール:
+1. 修正依頼を正確に反映する
+2. 「追記」「追加」→ 元のメッセージに追加
+3. 「変更」「修正」「書き換え」→ 該当部分を変更
+4. ソウルくんの語尾「ウル」や絵文字のスタイルは維持する
+5. 出力は修正後のメッセージのみ（説明不要）
+"""
+
+            user_prompt = f"""【元のメッセージ】
+{current_message}
+
+【修正依頼】
+{modification_request}
+
+修正後のメッセージを出力してください。"""
+
+            response = httpx.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "google/gemini-3-flash-preview",
+                    "messages": [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "max_tokens": 500,
+                    "temperature": 0.3,  # 正確性重視
+                },
+                timeout=15.0
+            )
+
+            if response.status_code == 200:
+                modified = response.json()["choices"][0]["message"]["content"].strip()
+                # コードブロックや引用符を除去
+                modified = re.sub(r'^```\w*\n?', '', modified)
+                modified = re.sub(r'\n?```$', '', modified)
+                modified = modified.strip('"\'')
+                return modified
+
+        except Exception as e:
+            print(f"⚠️ メッセージ修正LLMエラー: {e}")
+
+        return None
+
+    def _fallback_modification(
+        self,
+        current_message: str,
+        modification_request: str
+    ) -> str:
+        """フォールバック: 単純な追記処理"""
+        if "追記" in modification_request or "追加" in modification_request or "入れて" in modification_request:
+            # 追記内容を抽出する簡易ロジック
+            # 「〇〇を追記して」「〇〇って追加して」等から内容を抽出
+            patterns = [
+                r'「([^」]+)」.*(?:追記|追加|入れて)',
+                r'「([^」]+)」っていうの.*(?:追記|追加|入れて)',
+                r'(.+?)(?:を|って|と)(?:追記|追加)',
+            ]
+            for pattern in patterns:
+                match = re.search(pattern, modification_request)
+                if match:
+                    addition = match.group(1).strip()
+                    if addition:
+                        return f"{current_message}\n\n{addition}"
+
+        return current_message
 
     def _parse_deadline(self, message: str) -> Optional[datetime]:
         """メッセージから期限を解析"""

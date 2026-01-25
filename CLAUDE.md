@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 14:30 JST**
+**最終更新: 2026-01-25 13:20 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,23 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 13:20 JST**: org-chart ChatWork ID連携 ✅ **org-chart PR #3**
+  - **実施者**: Claude Code
+  - **作業内容**:
+    - Supabase: `chatwork_account_id`カラム追加（SQL実行）
+    - 同期APIのURL修正（誤ったCloud Run URLを修正）
+    - 社員追加・編集フォームにChatWork ID入力欄追加
+    - スキーマチェック機能追加（カラム未存在時のフォールバック）
+    - マイグレーションファイル作成（`migrations/001_add_chatwork_account_id.sql`）
+  - **変更ファイル（org-chart）**:
+    - `index.html`: +28行（ChatWork ID入力欄）
+    - `js/app.js`: +45行（スキーマチェック、条件付き送信）
+    - `migrations/001_add_chatwork_account_id.sql`: 新規作成
+  - **設計書**:
+    - `docs/12_org_chart_frontend_design.md`: 新規作成（Phase 1完了）
+  - **デプロイ**: X Server (sv10875.xserver.jp) に反映済み
+  - **効果**: ソウルくんがChatWork IDでユーザーを特定し、正確なタスクリマインドが可能に
 
 - **2026-01-25 14:30 JST**: Phase 3.5 バグ修正 + 96件テスト追加 ✅ **PR #102**
   - **実施者**: Claude Code

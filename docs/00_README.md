@@ -18,8 +18,9 @@
 | 10 | [09_implementation_standards.md](09_implementation_standards.md) | 実装規約 | 1600 |
 | 11 | **[10_phase2c_mvv_secretary.md](10_phase2c_mvv_secretary.md)** | **Phase 2C: MVV・ベテラン秘書【v10.22.0新設】** | **400** |
 | 12 | **[11_organizational_theory_guidelines.md](11_organizational_theory_guidelines.md)** | **組織論的行動指針【v10.22.2拡充】** | **1240** |
-| 13 | [12_troubleshooting_and_faq.md](10_troubleshooting_and_faq.md) | トラブルシューティング | 121 |
-| 13 | [CHANGELOG.md](CHANGELOG.md) | 改訂履歴 | 154 |
+| 13 | **[12_org_chart_frontend_design.md](12_org_chart_frontend_design.md)** | **org-chartフロントエンド設計【v10.24.8新設】** | **400** |
+| 14 | [13_troubleshooting_and_faq.md](13_troubleshooting_and_faq.md) | トラブルシューティング | 121 |
+| 15 | [CHANGELOG.md](CHANGELOG.md) | 改訂履歴 | 154 |
 
 ---
 

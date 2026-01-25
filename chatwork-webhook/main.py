@@ -2534,16 +2534,17 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                     clean_body = clean_chatwork_tags(body)
                     summary = prepare_task_display_text(clean_body, max_length=40)
                     if summary == "（タスク内容なし）":
-                        # 最終フォールバック
-                        summary = body[:40] if len(body) > 40 else body
+                        # ★★★ v10.24.8: 最終フォールバックも自然な位置で切る ★★★
+                        summary = _fallback_truncate_text(body, 40)
             except Exception as e:
                 print(f"⚠️ summary生成エラー（続行）: {e}")
-                # フォールバック: bodyの先頭40文字
-                summary = body[:40] if body and len(body) > 40 else body
+                # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
+                summary = _fallback_truncate_text(body, 40) if body else "（タスク内容なし）"
         else:
             # lib未使用時のフォールバック
+            # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
             if body:
-                summary = body[:40] if len(body) > 40 else body
+                summary = _fallback_truncate_text(body, 40)
 
         pool = get_pool()
 
@@ -2837,6 +2838,40 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
 
 
 # =====================================================
+# v10.24.8: フォールバック用切り詰め関数
+# =====================================================
+def _fallback_truncate_text(text: str, max_length: int = 40) -> str:
+    """
+    フォールバック用の切り詰め処理（自然な位置で切る）
+
+    prepare_task_display_text()が使えない場合の最終手段。
+    句点、読点、助詞の後ろで切ることで、途中で途切れる感を軽減。
+
+    Args:
+        text: 切り詰める文字列
+        max_length: 最大文字数
+
+    Returns:
+        切り詰めた文字列
+    """
+    if not text:
+        return "（タスク内容なし）"
+
+    if len(text) <= max_length:
+        return text
+
+    truncated = text[:max_length]
+
+    # 句点、読点、助詞の後ろで切る
+    for sep in ["。", "、", "を", "に", "で", "が", "は", "の"]:
+        pos = truncated.rfind(sep)
+        if pos > max_length // 2:
+            return truncated[:pos + 1] + "..."
+
+    return truncated + "..."
+
+
+# =====================================================
 # v10.13.4: タスク本文クリーニング関数
 # =====================================================
 def clean_task_body_for_summary(body: str) -> str:
@@ -2960,11 +2995,12 @@ def generate_deadline_alert_message(
     formatted_date = limit_date.strftime("%m/%d")
 
     # タスク名からChatWorkタグを除去（v10.13.4）
+    # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
     clean_task_name = clean_task_body_for_summary(task_name)
     if not clean_task_name:
         clean_task_name = "（タスク内容なし）"
-    elif len(clean_task_name) > 30:
-        clean_task_name = clean_task_name[:30] + "..."
+    else:
+        clean_task_name = prepare_task_display_text(clean_task_name, max_length=30)
 
     # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
@@ -3338,7 +3374,9 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
             }
         )
         
-        return f"✅ タスク「{task_body[:30]}{'...' if len(task_body) > 30 else ''}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
+        # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+        task_display = prepare_task_display_text(clean_chatwork_tags(task_body), max_length=30)
+        return f"✅ タスク「{task_display}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
     else:
         return f"❌ タスクの完了に失敗したウル...\nもう一度試してみてほしいウル！"
 
@@ -7976,7 +8014,8 @@ def report_unassigned_overdue_tasks(tasks):
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
     
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
-        body_short = (task["body"][:30] + "...") if len(task["body"]) > 30 else task["body"]
+        # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
+        body_short = prepare_task_display_text(clean_chatwork_tags(task["body"]), max_length=30)
         requester = task.get("assigned_by_name") or "依頼者不明"
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"

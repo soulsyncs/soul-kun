@@ -174,5 +174,118 @@ class TestTaskSearchEdgeCases:
         assert "見つからなかった" in message
 
 
+class TestTaskSummaryDisplay:
+    """v10.27.0: AI生成summaryの優先使用テスト"""
+
+    @pytest.fixture
+    def mock_task_with_valid_summary(self):
+        """有効なsummaryを持つタスク"""
+        return {
+            "task_id": "123",
+            "body": "お疲れ様です。来週の会議の議事録を確認して、修正があれば連絡してください。よろしくお願いします。",
+            "summary": "会議議事録の確認・修正依頼",  # AIが生成した良い要約
+            "limit_time": 1737712800,
+            "status": "open",
+            "room_id": "100",
+            "room_name": "営業部チャット"
+        }
+
+    @pytest.fixture
+    def mock_task_with_invalid_summary(self):
+        """無効なsummary（挨拶のみ）を持つタスク"""
+        return {
+            "task_id": "456",
+            "body": "お疲れ様です。来週の会議の議事録を確認して、修正があれば連絡してください。よろしくお願いします。",
+            "summary": "お疲れ様です",  # 挨拶のみ - 無効
+            "limit_time": 1737712800,
+            "status": "open",
+            "room_id": "100",
+            "room_name": "営業部チャット"
+        }
+
+    @pytest.fixture
+    def mock_task_with_null_summary(self):
+        """summaryがNULLのタスク"""
+        return {
+            "task_id": "789",
+            "body": "お疲れ様です。来週の会議の議事録を確認して、修正があれば連絡してください。よろしくお願いします。",
+            "summary": None,
+            "limit_time": 1737712800,
+            "status": "open",
+            "room_id": "100",
+            "room_name": "営業部チャット"
+        }
+
+    def test_valid_summary_used(self, mock_task_with_valid_summary):
+        """有効なsummaryがある場合、それがそのまま使われる"""
+        from lib.text_utils import validate_summary
+
+        task = mock_task_with_valid_summary
+        summary = task.get("summary")
+        body = task.get("body")
+
+        # summaryが有効かチェック
+        is_valid = validate_summary(summary, body)
+        assert is_valid, "Valid summary should pass validation"
+
+        # 有効な場合、summaryがそのまま表示に使われる
+        body_short = summary if is_valid else None
+        assert body_short == "会議議事録の確認・修正依頼"
+
+    def test_invalid_summary_fallback_to_body(self, mock_task_with_invalid_summary):
+        """無効なsummary（挨拶のみ）の場合、bodyから生成"""
+        from lib.text_utils import validate_summary, clean_chatwork_tags, prepare_task_display_text
+
+        task = mock_task_with_invalid_summary
+        summary = task.get("summary")
+        body = task.get("body")
+
+        # summaryが無効かチェック
+        is_valid = validate_summary(summary, body)
+        assert not is_valid, "Greeting-only summary should fail validation"
+
+        # 無効な場合、bodyから生成
+        clean_body = clean_chatwork_tags(body)
+        body_short = prepare_task_display_text(clean_body, max_length=40)
+
+        # bodyから生成された結果は挨拶を除去している
+        assert "お疲れ様" not in body_short
+        assert len(body_short) <= 40
+
+    def test_null_summary_fallback_to_body(self, mock_task_with_null_summary):
+        """summaryがNULLの場合、bodyから生成"""
+        from lib.text_utils import clean_chatwork_tags, prepare_task_display_text
+
+        task = mock_task_with_null_summary
+        summary = task.get("summary")
+        body = task.get("body")
+
+        # summaryがNULL
+        assert summary is None
+
+        # bodyから生成
+        clean_body = clean_chatwork_tags(body)
+        body_short = prepare_task_display_text(clean_body, max_length=40)
+
+        assert body_short is not None
+        assert len(body_short) > 0
+        assert len(body_short) <= 40
+
+    def test_truncated_summary_rejected(self):
+        """途中で切れたsummaryは無効と判定される"""
+        from lib.text_utils import validate_summary
+
+        # 途中で切れているsummary
+        truncated_summaries = [
+            ("決算書の", "決算書の作成をお願いします"),
+            ("資料を", "資料を確認してください"),
+            ("確認し...", "確認してください"),
+        ]
+
+        for summary, body in truncated_summaries:
+            is_valid = validate_summary(summary, body)
+            assert not is_valid, f"Truncated summary '{summary}' should be invalid"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -582,7 +582,15 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
             return "（タスク内容なし）"
 
         # 8. max_length文字以内で完結させる（途切れ防止）
+        # v10.25.5: 短いテキストでも助詞で終わる場合は削除
+        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
         if len(text) <= max_length:
+            # 末尾の助詞を削除（2文字以上残す）
+            while len(text) > 2 and text and text[-1] in particles:
+                text = text[:-1]
+            # 結果が助詞だけになった場合は内容なし扱い
+            if not text or (len(text) <= 2 and text[-1] in particles):
+                return "（タスク内容なし）"
             return text
 
         # 途切れ防止: 自然な位置で切る
@@ -598,12 +606,9 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
             if truncated[i] == '、':
                 return truncated[:i + 1]
 
-        # v10.25.4: 助詞の後で切る（ただし結果が10文字以上の場合のみ）
-        # 「決算書の」(4文字)のような短すぎる結果を防止
-        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
-        for i in range(max_length - 1, max(max_length // 2, 9), -1):  # 最低10文字以上
-            if truncated[i] in particles:
-                return truncated[:i + 1]
+        # v10.25.5: 助詞での切り詰めロジックを廃止
+        # 「〇〇を」「〇〇に」で終わると意味が通じない
+        # 代わりに、末尾の助詞を削除するロジックを後で適用
 
         # 動作語の後で切る
         action_words = [
@@ -618,18 +623,19 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
                     if cut_pos <= max_length:
                         return truncated[:cut_pos]
 
-        # v10.25.4: 助詞で終わる場合の補正
-        # 「決算書の提出を」→「決算書の提出」のように助詞を削除
-        particles = ['を', 'に', 'で', 'と', 'が', 'は', 'の', 'へ', 'も']
-        result = truncated[:max_length - 2]
-        while result and result[-1] in particles:
+        # v10.25.5: 末尾の助詞を削除（助詞で終わると意味不明になる）
+        # 「販路を」→「販路」、「資料に」→「資料」
+        result = truncated
+        # 最低2文字は残す
+        while len(result) > 2 and result and result[-1] in particles:
             result = result[:-1]
 
-        if result:
+        # 結果が十分な長さならそれを返す
+        if len(result) >= 2:
             return result
 
-        # 最終手段: max_length-2文字 + 動作語で終わらせる
-        return truncated[:max_length - 2] + "対応"
+        # 最終手段: そのまま返す
+        return truncated[:max_length] if truncated else "（タスク内容なし）"
 
     except Exception as e:
         print(f"⚠️ prepare_task_display_text エラー: {e}")

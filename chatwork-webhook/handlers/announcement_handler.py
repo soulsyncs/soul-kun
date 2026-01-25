@@ -636,10 +636,15 @@ class AnnouncementHandler:
             "```",
         ]
 
+        # タスク作成セクション
+        lines.append("")
         if parsed.create_tasks:
-            lines.append("")
             lines.append("**タスク作成**: はい")
             if parsed.task_assign_all:
+                lines.append("  - 対象: ルーム全員")
+            elif parsed.task_include_names:
+                lines.append(f"  - 対象: {', '.join(parsed.task_include_names)}")
+            else:
                 lines.append("  - 対象: ルーム全員")
             if parsed.task_exclude_names:
                 lines.append(f"  - 除外: {', '.join(parsed.task_exclude_names)}")
@@ -647,6 +652,10 @@ class AnnouncementHandler:
                 lines.append(f"  - 期限: {parsed.task_deadline.strftime('%Y/%m/%d %H:%M')}")
             else:
                 lines.append("  - 期限: なし")
+        else:
+            lines.append("**タスク作成**: なし")
+            lines.append("  💡 タスクも作る場合は「タスクも作って」と追記してください")
+            lines.append("  （例: 「全員にタスク、来週金曜まで」「田中さん以外にタスク」）")
 
         if parsed.schedule_type == ScheduleType.ONE_TIME:
             lines.append("")
@@ -708,7 +717,190 @@ class AnnouncementHandler:
                     context, selected, room_id, account_id, sender_name
                 )
 
+        # タスク追加の指示
+        raw_message = params.get("raw_message", "")
+        task_keywords = ["タスク", "task"]
+        if any(kw in raw_message for kw in task_keywords) and announcement_id:
+            return self._update_task_settings(
+                announcement_id, raw_message, room_id, account_id, sender_name
+            )
+
         return "すみませんウル、応答を理解できませんでしたウル。「OK」か「キャンセル」でお願いしますウル！"
+
+    def _update_task_settings(
+        self,
+        announcement_id: str,
+        message: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> str:
+        """タスク設定を更新し、確認メッセージを再表示"""
+        pool = self.get_pool()
+
+        try:
+            with pool.connect() as conn:
+                # 現在のアナウンス情報を取得
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT
+                            id, message_content, target_room_id, target_room_name,
+                            create_tasks, task_deadline, task_assign_all_members,
+                            task_include_account_ids, task_exclude_account_ids,
+                            schedule_type, scheduled_at, cron_expression,
+                            cron_description, skip_holidays, skip_weekends
+                        FROM scheduled_announcements
+                        WHERE id = :id
+                          AND organization_id = :org_id
+                          AND status = 'pending'
+                    """),
+                    {"id": announcement_id, "org_id": self._organization_id}
+                )
+                row = result.mappings().fetchone()
+
+                if not row:
+                    return "⚠️ 確認待ちのアナウンスが見つかりませんウル"
+
+                # タスク設定を解析
+                create_tasks = True
+                task_assign_all = True
+                task_deadline = None
+                task_exclude_account_ids = list(row["task_exclude_account_ids"] or [])
+                task_include_account_ids = list(row["task_include_account_ids"] or [])
+
+                # 「全員」「みんな」の検出
+                if "全員" in message or "みんな" in message:
+                    task_assign_all = True
+
+                # 除外の検出: 「〇〇以外」
+                exclude_match = re.search(r'([^\s、,]+)(?:さん)?以外', message)
+                if exclude_match:
+                    exclude_name = exclude_match.group(1)
+                    # ここでは名前のみ記録（IDへの変換は実行時に行う）
+                    # TODO: 名前→アカウントIDの変換
+
+                # 期限の検出
+                deadline_parsed = self._parse_deadline(message)
+                if deadline_parsed:
+                    task_deadline = deadline_parsed
+
+                # DBを更新
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET create_tasks = :create_tasks,
+                            task_assign_all_members = :task_assign_all,
+                            task_deadline = :task_deadline,
+                            updated_at = NOW()
+                        WHERE id = :id
+                          AND organization_id = :org_id
+                    """),
+                    {
+                        "id": announcement_id,
+                        "org_id": self._organization_id,
+                        "create_tasks": create_tasks,
+                        "task_assign_all": task_assign_all,
+                        "task_deadline": task_deadline,
+                    }
+                )
+                conn.commit()
+
+                # 更新後の確認メッセージを生成
+                lines = [
+                    "📢 **アナウンス確認（タスク追加）**",
+                    "",
+                    f"**送信先**: {row['target_room_name']}",
+                    "",
+                    "**メッセージ**:",
+                    "```",
+                    row["message_content"],
+                    "```",
+                    "",
+                    "**タスク作成**: はい ✅",
+                    f"  - 対象: {'ルーム全員' if task_assign_all else '指定メンバー'}",
+                ]
+
+                if task_deadline:
+                    lines.append(f"  - 期限: {task_deadline.strftime('%Y/%m/%d %H:%M')}")
+                else:
+                    lines.append("  - 期限: なし（期限を指定する場合は「来週金曜まで」等と追記してください）")
+
+                lines.extend([
+                    "",
+                    "---",
+                    "「OK」または「送信」で実行します。",
+                    "「キャンセル」で取り消します。",
+                ])
+
+                return "\n".join(lines)
+
+        except Exception as e:
+            print(f"[AnnouncementHandler] タスク設定更新エラー: {e}")
+            return "⚠️ タスク設定の更新中にエラーが発生しましたウル"
+
+    def _parse_deadline(self, message: str) -> Optional[datetime]:
+        """メッセージから期限を解析"""
+        now = datetime.now(JST)
+
+        # 「来週金曜」「来週の金曜日」
+        weekday_map = {
+            "月": 0, "火": 1, "水": 2, "木": 3, "金": 4, "土": 5, "日": 6,
+            "月曜": 0, "火曜": 1, "水曜": 2, "木曜": 3, "金曜": 4, "土曜": 5, "日曜": 6,
+        }
+
+        # 来週のパターン
+        next_week_match = re.search(r'来週の?([月火水木金土日])(曜日?)?', message)
+        if next_week_match:
+            target_weekday = weekday_map.get(next_week_match.group(1), 4)  # デフォルト金曜
+            days_ahead = target_weekday - now.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            days_ahead += 7  # 来週なので+7
+            deadline = now + timedelta(days=days_ahead)
+            return deadline.replace(hour=18, minute=0, second=0, microsecond=0)
+
+        # 今週のパターン
+        this_week_match = re.search(r'今週の?([月火水木金土日])(曜日?)?', message)
+        if this_week_match:
+            target_weekday = weekday_map.get(this_week_match.group(1), 4)
+            days_ahead = target_weekday - now.weekday()
+            if days_ahead <= 0:
+                days_ahead += 7
+            deadline = now + timedelta(days=days_ahead)
+            return deadline.replace(hour=18, minute=0, second=0, microsecond=0)
+
+        # 「明日」
+        if "明日" in message:
+            deadline = now + timedelta(days=1)
+            return deadline.replace(hour=18, minute=0, second=0, microsecond=0)
+
+        # 「明後日」
+        if "明後日" in message:
+            deadline = now + timedelta(days=2)
+            return deadline.replace(hour=18, minute=0, second=0, microsecond=0)
+
+        # 「〇日後」
+        days_later_match = re.search(r'(\d+)日後', message)
+        if days_later_match:
+            days = int(days_later_match.group(1))
+            deadline = now + timedelta(days=days)
+            return deadline.replace(hour=18, minute=0, second=0, microsecond=0)
+
+        # 「〇/〇」「〇月〇日」形式
+        date_match = re.search(r'(\d{1,2})[/月](\d{1,2})日?', message)
+        if date_match:
+            month = int(date_match.group(1))
+            day = int(date_match.group(2))
+            year = now.year
+            if month < now.month:
+                year += 1
+            try:
+                deadline = datetime(year, month, day, 18, 0, 0, tzinfo=JST)
+                return deadline
+            except ValueError:
+                pass
+
+        return None
 
     # =========================================================================
     # DB操作

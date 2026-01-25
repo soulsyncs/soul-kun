@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-25 19:30 JST**
+**最終更新: 2026-01-25 17:15 JST**
 
 ## Phase一覧と状態
 
@@ -807,6 +807,29 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-25 17:15 JST**: タスクsummaryバリデーション強化 (v10.25.1) ✅ **PR #118**
+  - **実施者**: Claude Code
+  - **問題**: タスク検索結果で「決算書の」「こちらの資料を」のように助詞で終わる不完全なsummaryが表示されていた
+  - **作業内容**:
+    - `MID_SENTENCE_ENDINGS`定数追加（の、を、に、で、が、は等17種の助詞）
+    - `validate_summary()`に助詞末尾チェックを追加
+    - `validate_and_get_reason()`にも同様のチェックを追加
+    - 元本文が50文字以上かつ、summaryが助詞で終わり、元本文の一部である場合に「途切れ」と判定
+  - **変更ファイル**:
+    - lib/text_utils.py: MID_SENTENCE_ENDINGS追加、validate_summary改善
+    - 6つのCloud Function: lib/text_utils.py同期
+    - tests/test_text_utils_lib.py: 5件の新規テスト追加
+  - **テスト**: 1038件全パス（5件新規追加）
+  - **10の鉄則準拠**: DB操作なし、後方互換性維持
+  - **デプロイ完了** (2026-01-25 17:15 JST):
+    - sync-chatwork-tasks: 00048-coh → **00049-veg** ✅
+    - chatwork-webhook: 00131-tod → **00132-cad** ✅
+    - remind-tasks: 00041-neq → **00042-yub** ✅
+    - check-reply-messages: 00010-xxx → **00011-vex** ✅
+    - cleanup-old-data: 00004-xxx → **00005-daq** ✅
+    - pattern-detection: 00010-xxx → **00011-yuj** ✅
+  - **動作確認**: sync-chatwork-tasksのログで「📝 summaryが低品質のため再生成」を確認
 
 - **2026-01-25 18:30 JST**: 人物情報の提案制 & タスク要約改善 (v10.25.0) ✅ **PR #115**
   - **実施者**: Claude Code

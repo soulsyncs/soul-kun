@@ -107,7 +107,10 @@ class Department(Base, TimestampMixin):
 
 
 class UserDepartment(Base, TimestampMixin):
-    """ユーザー所属部署"""
+    """ユーザー所属部署
+
+    Phase 3.5: role_idを追加して権限レベル計算に対応
+    """
 
     __tablename__ = "user_departments"
 
@@ -122,6 +125,11 @@ class UserDepartment(Base, TimestampMixin):
         ForeignKey("departments.id", ondelete="CASCADE"),
         nullable=False,
     )
+    role_id = Column(
+        UUID(as_uuid=False),
+        ForeignKey("roles.id"),
+        nullable=True,
+    )  # Phase 3.5: 権限レベル計算用（access_control.pyで使用）
     is_primary = Column(Boolean, default=True)
     role_in_dept = Column(String(100), nullable=True)
     started_at = Column(DateTime(timezone=True), default=datetime.utcnow)
@@ -130,10 +138,12 @@ class UserDepartment(Base, TimestampMixin):
     # Relationships
     user = relationship("User", back_populates="departments")
     department = relationship("Department", back_populates="user_departments")
+    role = relationship("Role")  # Phase 3.5: 役職への参照
 
     __table_args__ = (
         Index("idx_user_departments_user", "user_id"),
         Index("idx_user_departments_dept", "department_id"),
+        Index("idx_user_departments_role", "role_id"),  # Phase 3.5: 権限計算高速化
     )
 
 

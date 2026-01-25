@@ -212,7 +212,7 @@ class AccessControlService:
             query = text("""
                 SELECT id
                 FROM departments
-                WHERE parent_id = :dept_id
+                WHERE parent_department_id = :dept_id
                   AND organization_id = :organization_id
                   AND is_active = TRUE
             """)
@@ -380,7 +380,7 @@ def compute_accessible_departments_sync(
                 result = conn.execute(
                     text("""
                         SELECT id FROM departments
-                        WHERE parent_id = :dept_id
+                        WHERE parent_department_id = :dept_id
                           AND organization_id = :org_id
                           AND is_active = TRUE
                     """),

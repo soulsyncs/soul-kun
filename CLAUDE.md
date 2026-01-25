@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 07:15 JST**
+**最終更新: 2026-01-26 07:35 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,39 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 07:35 JST**: アナウンス確認フロー メッセージ修正機能 (v10.26.2) ✅ **PR #142 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題**: アナウンス確認フロー中に「これはテストだよっていうのを追記してもらってもいい？」と修正を依頼すると「応答を理解できませんでしたウル」となる
+  - **原因**: `_handle_follow_up_response()`が「OK」「キャンセル」「タスク追加」のみ対応し、メッセージ修正に対応していなかった
+  - **修正内容**:
+    - 修正キーワード検出追加（追記、追加、変更、修正、書き換え、直して、変えて、入れて）
+    - `_update_message_content()`: DBからpending announcementを取得しメッセージを更新
+    - `_apply_message_modification()`: LLMでメッセージ修正
+    - `_try_llm_modification()`: OpenRouter API経由でGeminiを使用
+    - `_fallback_modification()`: APIエラー時の単純追記処理
+  - **変更ファイル**:
+    - `chatwork-webhook/handlers/announcement_handler.py`: +236行（メッセージ修正機能）
+    - `tests/test_announcement_handler.py`: +142行（8件の新規テスト）
+  - **テスト**: 54件全パス
+  - **デプロイ**: chatwork-webhook revision 00162-kuq
+  - **10の鉄則準拠**: organization_idフィルタ、パラメータ化クエリ、エラーメッセージに機密情報含まず
+
+- **2026-01-26 07:22 JST**: アナウンス機能 MVVベースメッセージ変換 + BUG-003修正 (v10.26.1) ✅ **PR #140 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題1（BUG-003）**: アナウンス送信後のタスク作成が「送信に失敗しましたウル」エラー
+    - **原因**: `send_chatwork_message()`がboolを返すが、`execute_announcement()`が`.get("message_id")`を呼び出し`AttributeError`
+    - **修正**: `return_details`パラメータ追加（後方互換性維持）
+  - **問題2**: メッセージが「おはよう」のまま送信され、ソウルくんらしい文章に変換されない
+    - **原因**: MVVベースのメッセージ変換機能がなかった
+    - **修正**: `_enhance_message_with_soulkun_style()`メソッド追加
+  - **変更ファイル**:
+    - `chatwork-webhook/main.py`: `send_chatwork_message()`に`return_details`パラメータ追加
+    - `chatwork-webhook/handlers/announcement_handler.py`: MVVベースメッセージ変換追加
+    - `tests/test_announcement_handler.py`: 6件の新規テスト追加
+  - **テスト**: 46件全パス
+  - **デプロイ**: chatwork-webhook revision 00160-law
+  - **動作確認**: 「おはよう」→「おはようウル！🐺 今日も一日、みんなの可能性を信じて頑張っていこうウル✨」
 
 - **2026-01-26 07:15 JST**: タスク要約 AI summary優先使用 (v10.27.0) ✅ **PR #139 本番デプロイ完了**
   - **実施者**: Claude Code

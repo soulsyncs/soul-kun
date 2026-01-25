@@ -387,6 +387,9 @@ def pattern_detection(request: Request):
     elif path.endswith("/weekly-report"):
         print("🔀 ルーティング: weekly_report")
         return weekly_report(request)
+    elif path.endswith("/daily-insight"):
+        print("🔀 ルーティング: daily_insight_notification")
+        return daily_insight_notification(request)
 
     # デフォルト: A1パターン検知
     start_time = datetime.now(timezone.utc)
@@ -890,6 +893,193 @@ def emotion_detection(request: Request):
 
     except Exception as e:
         error_msg = f"感情変化検出エラー: {str(e)}"
+        print(f"❌ {error_msg}")
+        print(traceback.format_exc())
+
+        return jsonify({
+            "success": False,
+            "error": error_msg,
+            "traceback": traceback.format_exc(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 500
+
+
+# =====================================================
+# 毎日のインサイト通知
+# =====================================================
+
+# カズさんへのDM用room_id
+KAZUSAN_DM_ROOM_ID = 417892193
+
+
+@functions_framework.http
+def daily_insight_notification(request: Request):
+    """
+    毎日のインサイト通知をカズさんに送信
+
+    毎朝 Cloud Scheduler から呼び出され、
+    未対応のインサイト（問題）をChatWorkで通知する
+
+    リクエストパラメータ:
+    - dry_run: true の場合、送信しない
+    - room_id: 送信先（デフォルト: カズさんDM）
+
+    レスポンス:
+    - success: 成功/失敗
+    - insights_count: 通知したインサイト数
+    - sent: 送信完了かどうか
+    """
+    import requests as http_requests
+
+    start_time = datetime.now(timezone.utc)
+    print(f"🚀 毎日インサイト通知開始: {start_time.isoformat()}")
+
+    try:
+        # リクエストパラメータを取得
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = {}
+
+        dry_run = data.get("dry_run", DRY_RUN)
+        room_id = int(data.get("room_id", KAZUSAN_DM_ROOM_ID))
+        org_id = data.get("org_id", DEFAULT_ORG_ID)
+
+        if isinstance(dry_run, str):
+            dry_run = dry_run.lower() in ("true", "1", "yes")
+
+        print(f"📋 パラメータ: dry_run={dry_run}, room_id={room_id}")
+
+        # データベース接続
+        pool = get_db_pool()
+
+        with pool.connect() as conn:
+            # 未対応インサイトを取得（importance順）
+            result = conn.execute(text("""
+                SELECT
+                    id,
+                    insight_type,
+                    importance,
+                    title,
+                    description,
+                    recommended_action,
+                    created_at
+                FROM soulkun_insights
+                WHERE organization_id = :org_id
+                  AND status = 'new'
+                ORDER BY
+                    CASE importance
+                        WHEN 'critical' THEN 1
+                        WHEN 'high' THEN 2
+                        WHEN 'medium' THEN 3
+                        WHEN 'low' THEN 4
+                    END,
+                    created_at DESC
+                LIMIT 20
+            """), {"org_id": org_id})
+
+            insights = result.fetchall()
+            total_count = len(insights)
+
+            if total_count == 0:
+                print("✅ 未対応インサイトはありません")
+                return jsonify({
+                    "success": True,
+                    "message": "未対応のインサイトはありません",
+                    "insights_count": 0,
+                    "sent": False,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                }), 200
+
+            # 全件数を取得
+            result = conn.execute(text("""
+                SELECT COUNT(*) FROM soulkun_insights
+                WHERE organization_id = :org_id AND status = 'new'
+            """), {"org_id": org_id})
+            all_count = result.fetchone()[0]
+
+            # importance別集計
+            result = conn.execute(text("""
+                SELECT importance, COUNT(*)
+                FROM soulkun_insights
+                WHERE organization_id = :org_id AND status = 'new'
+                GROUP BY importance
+            """), {"org_id": org_id})
+            importance_counts = {row[0]: row[1] for row in result.fetchall()}
+
+            # メッセージを作成
+            jst = timezone(timedelta(hours=9))
+            today = datetime.now(jst).strftime("%m/%d")
+
+            message = f"[info][title]📊 {today} 対応が必要な問題リスト[/title]"
+            message += f"未対応: {all_count}件"
+
+            if importance_counts.get('critical', 0) > 0:
+                message += f" (🔴緊急: {importance_counts.get('critical', 0)}件)"
+            if importance_counts.get('high', 0) > 0:
+                message += f" (🟠重要: {importance_counts.get('high', 0)}件)"
+
+            message += "\n\n"
+
+            # インサイトをリスト化
+            for i, insight in enumerate(insights[:10], 1):
+                importance = insight[2]
+                title = insight[3][:50]
+
+                if importance == 'critical':
+                    icon = "🔴"
+                elif importance == 'high':
+                    icon = "🟠"
+                elif importance == 'medium':
+                    icon = "🟡"
+                else:
+                    icon = "⚪"
+
+                message += f"{icon} {title}\n"
+
+            if all_count > 10:
+                message += f"\n...他 {all_count - 10}件"
+
+            message += "[/info]"
+
+            print(f"📝 メッセージ作成完了: {len(message)}文字")
+
+            # ChatWorkに送信
+            if not dry_run:
+                chatwork_token = get_secret("CHATWORK_API_TOKEN")
+
+                response = http_requests.post(
+                    f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+                    headers={"X-ChatWorkToken": chatwork_token},
+                    data={"body": message},
+                    timeout=30
+                )
+
+                if response.status_code == 200:
+                    print(f"✅ ChatWork送信成功")
+                    sent = True
+                else:
+                    print(f"❌ ChatWork送信失敗: {response.status_code} {response.text}")
+                    sent = False
+            else:
+                print(f"🧪 DRY RUN: 送信スキップ")
+                print(f"📝 メッセージ内容:\n{message}")
+                sent = False
+
+        elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
+        print(f"🏁 毎日インサイト通知完了: {elapsed:.2f}秒")
+
+        return jsonify({
+            "success": True,
+            "message": f"{all_count}件のインサイトを通知しました" if sent else f"{all_count}件のインサイトがあります（未送信）",
+            "insights_count": all_count,
+            "sent": sent,
+            "elapsed_seconds": elapsed,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }), 200
+
+    except Exception as e:
+        error_msg = f"インサイト通知エラー: {str(e)}"
         print(f"❌ {error_msg}")
         print(traceback.format_exc())
 

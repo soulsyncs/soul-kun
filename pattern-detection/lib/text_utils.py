@@ -262,7 +262,7 @@ def validate_summary(summary: str, original_body: str) -> bool:
         return False
 
     # 2. 非常に短い場合はNG（ただし元の本文も短い場合はOK）
-    if len(summary) < 8 and len(original_body) > 50:
+    if len(summary) < 8 and len(original_body) > 15:
         return False
 
     # 3. 明らかに途切れている場合はNG
@@ -273,11 +273,11 @@ def validate_summary(summary: str, original_body: str) -> bool:
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False
 
-    # 5. v10.25.1: 助詞で終わる不自然な切れ方を検出
-    #    - 元の本文が長い（50文字以上）
+    # 5. v10.25.2: 助詞で終わる不自然な切れ方を検出（閾値を50→15に緩和）
+    #    - 元の本文が最低限の長さ（15文字以上）
     #    - 要約が助詞で終わる
     #    - 要約が元の本文の途中で切れている（元本文に要約テキスト+続きがある）
-    if len(original_body) > 50:
+    if len(original_body) > 15:
         for ending in MID_SENTENCE_ENDINGS:
             if summary.endswith(ending):
                 # 要約テキストが元本文の一部かどうかをチェック
@@ -287,8 +287,8 @@ def validate_summary(summary: str, original_body: str) -> bool:
                     pos = original_body.find(summary_stripped)
                     if pos >= 0:
                         after_summary = original_body[pos + len(summary_stripped):]
-                        # 要約の後に意味のあるテキスト（10文字以上）があれば途切れと判定
-                        if len(after_summary.strip()) > 10:
+                        # 要約の後に意味のあるテキスト（5文字以上）があれば途切れと判定
+                        if len(after_summary.strip()) > 5:
                             return False
 
     return True
@@ -438,7 +438,7 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
     if is_greeting_only(summary):
         return False, "greeting_only"
 
-    if len(summary) < 8 and len(original_body) > 50:
+    if len(summary) < 8 and len(original_body) > 15:
         return False, "too_short"
 
     if any(summary.endswith(ind) for ind in TRUNCATION_INDICATORS):
@@ -447,8 +447,8 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False, "starts_with_greeting"
 
-    # v10.25.1: 助詞で終わる不自然な切れ方を検出
-    if len(original_body) > 50:
+    # v10.25.2: 助詞で終わる不自然な切れ方を検出（閾値を50→15に緩和）
+    if len(original_body) > 15:
         for ending in MID_SENTENCE_ENDINGS:
             if summary.endswith(ending):
                 summary_stripped = summary.rstrip(ending)
@@ -456,7 +456,7 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
                     pos = original_body.find(summary_stripped)
                     if pos >= 0:
                         after_summary = original_body[pos + len(summary_stripped):]
-                        if len(after_summary.strip()) > 10:
+                        if len(after_summary.strip()) > 5:
                             return False, "mid_sentence_truncated"
 
     return True, None

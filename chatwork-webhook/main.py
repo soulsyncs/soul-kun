@@ -3464,10 +3464,16 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # v10.25.0: summaryがあればそのまま使用、なければbodyからフォールバック生成
+                # v10.25.2: summaryがあっても、切れていればfallbackを使う
+                body_short = None
                 if summary:
-                    body_short = summary
-                else:
+                    # summaryが切れていないかバリデーション
+                    if validate_summary(summary, body):
+                        body_short = summary
+                    else:
+                        print(f"⚠️ 表示時: summaryが低品質のためfallback使用: {summary[:20]}...")
+
+                if not body_short:
                     clean_body = clean_chatwork_tags(body)
                     body_short = prepare_task_display_text(clean_body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
@@ -3489,10 +3495,16 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 except:
                     pass
 
-            # v10.25.0: summaryがあればそのまま使用、なければbodyからフォールバック生成
+            # v10.25.2: summaryがあっても、切れていればfallbackを使う
+            body_short = None
             if summary:
-                body_short = summary
-            else:
+                # summaryが切れていないかバリデーション
+                if validate_summary(summary, body):
+                    body_short = summary
+                else:
+                    print(f"⚠️ 表示時: summaryが低品質のためfallback使用: {summary[:20]}...")
+
+            if not body_short:
                 clean_body = clean_chatwork_tags(body)
                 body_short = prepare_task_display_text(clean_body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"

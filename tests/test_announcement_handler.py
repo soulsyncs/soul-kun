@@ -599,3 +599,123 @@ class TestAnnouncementExecution:
         result = handler.execute_announcement("non-existent-id")
         assert result["success"] is False
         assert "見つかりません" in result["errors"][0]
+
+
+# =====================================================
+# 期限解析テスト
+# =====================================================
+
+class TestParseDeadline:
+    """_parse_deadline のテスト"""
+
+    def _create_handler(self):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_parse_next_week_friday(self):
+        """来週金曜のパース"""
+        handler = self._create_handler()
+        result = handler._parse_deadline("来週金曜まで")
+        assert result is not None
+        assert result.weekday() == 4  # 金曜日
+
+    def test_parse_tomorrow(self):
+        """明日のパース"""
+        handler = self._create_handler()
+        result = handler._parse_deadline("明日まで")
+        assert result is not None
+        # 明日であることを確認
+        from datetime import datetime, timedelta
+        import pytz
+        JST = pytz.timezone('Asia/Tokyo')
+        now = datetime.now(JST)
+        tomorrow = now + timedelta(days=1)
+        assert result.date() == tomorrow.date()
+
+    def test_parse_days_later(self):
+        """〇日後のパース"""
+        handler = self._create_handler()
+        result = handler._parse_deadline("3日後")
+        assert result is not None
+        from datetime import datetime, timedelta
+        import pytz
+        JST = pytz.timezone('Asia/Tokyo')
+        now = datetime.now(JST)
+        expected = now + timedelta(days=3)
+        assert result.date() == expected.date()
+
+    def test_parse_date_format(self):
+        """月日形式のパース"""
+        handler = self._create_handler()
+        result = handler._parse_deadline("1/31まで")
+        assert result is not None
+        assert result.month == 1
+        assert result.day == 31
+
+    def test_parse_no_deadline(self):
+        """期限指定なし"""
+        handler = self._create_handler()
+        result = handler._parse_deadline("タスクも作って")
+        assert result is None
+
+
+# =====================================================
+# 確認メッセージのタスク質問テスト
+# =====================================================
+
+class TestConfirmationTaskQuestion:
+    """確認メッセージでタスク作成を聞くテスト"""
+
+    def _create_handler(self):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_confirmation_without_tasks_shows_hint(self):
+        """タスク指定なしの場合、ヒントが表示されること"""
+        handler = self._create_handler()
+        parsed = ParsedAnnouncementRequest(
+            raw_message="テスト",
+            target_room_id=123,
+            target_room_name="テストルーム",
+            message_content="テストメッセージです",
+            create_tasks=False,  # タスク作成なし
+        )
+
+        with patch.object(handler, '_save_pending_announcement', return_value="test-id"):
+            result = handler._generate_confirmation(parsed, "123", "456", "テスト太郎")
+
+        assert "タスク作成**: なし" in result
+        assert "タスクも作って" in result
+        assert "全員にタスク" in result
+
+    def test_confirmation_with_tasks_no_hint(self):
+        """タスク指定ありの場合、ヒントが表示されないこと"""
+        handler = self._create_handler()
+        parsed = ParsedAnnouncementRequest(
+            raw_message="テスト",
+            target_room_id=123,
+            target_room_name="テストルーム",
+            message_content="テストメッセージです",
+            create_tasks=True,  # タスク作成あり
+            task_assign_all=True,
+        )
+
+        with patch.object(handler, '_save_pending_announcement', return_value="test-id"):
+            result = handler._generate_confirmation(parsed, "123", "456", "テスト太郎")
+
+        assert "タスク作成**: はい" in result
+        assert "タスクも作って" not in result

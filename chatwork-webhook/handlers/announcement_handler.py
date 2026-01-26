@@ -278,10 +278,11 @@ class AnnouncementHandler:
                     # pendingをNoneにして新規処理に進む
                     pending = None
                 else:
-                    # フォローアップとして処理
+                    # フォローアップとして処理（v10.26.8: statusを追加）
                     context = {
                         "awaiting_announcement_response": True,
                         "pending_announcement_id": str(pending["id"]),
+                        "pending_status": pending.get("status", "pending"),
                     }
                     return self._handle_follow_up_response(
                         params, room_id, account_id, sender_name, context
@@ -298,9 +299,9 @@ class AnnouncementHandler:
             if not parsed.target_room_id:
                 parsed = self._resolve_room(parsed)
 
-            # ルーム未確定なら候補提示
+            # ルーム未確定なら候補提示（v10.26.8: sender_name追加）
             if not parsed.target_room_id:
-                return self._handle_room_candidates(parsed, room_id, account_id)
+                return self._handle_room_candidates(parsed, room_id, account_id, sender_name)
 
             # v10.26.1: MVVベースでメッセージをソウルくんらしく変換
             if parsed.message_content:
@@ -909,14 +910,23 @@ class AnnouncementHandler:
         self,
         parsed: ParsedAnnouncementRequest,
         room_id: str,
-        account_id: str
+        account_id: str,
+        sender_name: str = ""
     ) -> str:
-        """ルーム候補を提示"""
+        """ルーム候補を提示（v10.26.8: pending保存追加）"""
         if not parsed.target_room_candidates:
             return (
                 f"🤔 「{parsed.target_room_query}」というチャットが見つからなかったウル...\n\n"
                 "正確なルーム名を教えてもらえるウル？"
             )
+
+        # v10.26.8: ルーム選択待ちとしてDBに保存
+        # status='awaiting_room_selection'で保存し、フォローアップで継続できるようにする
+        self._save_pending_announcement(
+            parsed, room_id, account_id, sender_name,
+            status="awaiting_room_selection"
+        )
+        print(f"📢 ルーム選択待ちとしてpending保存: room_candidates={len(parsed.target_room_candidates)}件")
 
         lines = [
             f"🔍 「{parsed.target_room_query}」に該当しそうなルームが複数あるウル：",
@@ -1044,6 +1054,13 @@ class AnnouncementHandler:
             print(f"📢 フォローアップではない（質問パターン）: {raw_message[:50]}")
             return None  # AI司令塔に委ねる
 
+        # v10.26.8: awaiting_room_selection状態の場合、ルーム選択として処理
+        pending_status = context.get("pending_status")
+        if pending_status == "awaiting_room_selection":
+            return self._handle_room_selection(
+                raw_message, announcement_id, room_id, account_id, sender_name
+            )
+
         # 確認応答
         if response_text in ["ok", "おっけー", "送信", "実行", "はい", "yes"]:
             if announcement_id:
@@ -1056,7 +1073,7 @@ class AnnouncementHandler:
                 self._cancel_announcement(announcement_id, "ユーザーによるキャンセル")
             return "アナウンスをキャンセルしましたウル 📭"
 
-        # ルーム番号選択
+        # ルーム番号選択（レガシー - 通常は上のawaiting_room_selectionで処理される）
         if response_text.isdigit():
             candidates = context.get("room_candidates", [])
             idx = int(response_text) - 1
@@ -1087,6 +1104,183 @@ class AnnouncementHandler:
             )
 
         return "すみませんウル、応答を理解できませんでしたウル。「OK」か「キャンセル」、または修正内容を教えてウル！"
+
+    def _handle_room_selection(
+        self,
+        user_input: str,
+        announcement_id: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str
+    ) -> str:
+        """v10.26.8: awaiting_room_selection状態でのルーム選択を処理"""
+        pool = self.get_pool()
+
+        try:
+            # キャンセル判定
+            if user_input.strip().lower() in ["キャンセル", "やめる", "取り消し", "cancel", "no"]:
+                self._cancel_announcement(announcement_id, "ユーザーによるキャンセル")
+                return "アナウンスをキャンセルしましたウル 📭"
+
+            # 全ルームを取得してマッチング
+            all_rooms = self.get_all_rooms() or []
+
+            selected_room = None
+
+            # 数字の場合（番号選択）: 元の候補リストを再構築
+            if user_input.strip().isdigit():
+                idx = int(user_input.strip()) - 1
+                # DBから元の検索クエリを取得して候補を再構築
+                with pool.connect() as conn:
+                    result = conn.execute(
+                        sqlalchemy.text("""
+                            SELECT title FROM scheduled_announcements
+                            WHERE id = :id AND organization_id = :org_id
+                        """),
+                        {"id": announcement_id, "org_id": self._organization_id}
+                    )
+                    row = result.fetchone()
+                    if row:
+                        # タイトルから検索クエリを推測（厳密ではない）
+                        pass
+
+                # 番号選択の場合、全ルームから推測するのは難しいのでエラー
+                # ユーザーにルーム名で選択してもらう
+                if not selected_room:
+                    return f"番号ではなく、ルーム名で教えてほしいウル！\n例: 「【SS】★管理部★」"
+
+            # ルーム名でマッチング
+            if not selected_room:
+                # 完全一致
+                for r in all_rooms:
+                    if r.get("name", "").strip() == user_input.strip():
+                        selected_room = {"room_id": r["room_id"], "room_name": r["name"]}
+                        break
+
+                # 部分一致
+                if not selected_room:
+                    user_lower = user_input.strip().lower()
+                    for r in all_rooms:
+                        room_name = r.get("name", "")
+                        if user_lower in room_name.lower() or room_name.lower() in user_lower:
+                            selected_room = {"room_id": r["room_id"], "room_name": r["name"]}
+                            break
+
+            if not selected_room:
+                return f"🤔 「{user_input}」というチャットが見つからなかったウル...\n正確なルーム名を教えてウル！"
+
+            print(f"📢 ルーム選択: {selected_room['room_name']} (ID: {selected_room['room_id']})")
+
+            # DBのpendingを更新して確認画面を再生成
+            with pool.connect() as conn:
+                # ルームIDとルーム名を更新
+                conn.execute(
+                    sqlalchemy.text("""
+                        UPDATE scheduled_announcements
+                        SET target_room_id = :target_room_id,
+                            target_room_name = :target_room_name,
+                            status = 'pending'
+                        WHERE id = :id AND organization_id = :org_id
+                    """),
+                    {
+                        "id": announcement_id,
+                        "org_id": self._organization_id,
+                        "target_room_id": int(selected_room["room_id"]),
+                        "target_room_name": selected_room["room_name"],
+                    }
+                )
+                conn.commit()
+
+                # 更新後の情報を取得して確認画面を生成
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id, message_content, target_room_id, target_room_name,
+                               create_tasks, task_deadline, task_assign_all_members,
+                               task_include_account_ids, task_exclude_account_ids,
+                               schedule_type, scheduled_at, cron_expression, cron_description,
+                               skip_holidays, skip_weekends
+                        FROM scheduled_announcements
+                        WHERE id = :id AND organization_id = :org_id
+                    """),
+                    {"id": announcement_id, "org_id": self._organization_id}
+                )
+                row = result.mappings().fetchone()
+
+                if not row:
+                    return "⚠️ アナウンス情報の取得に失敗しましたウル"
+
+                # ParsedAnnouncementRequestを再構築して確認画面を表示
+                from datetime import datetime
+                parsed = ParsedAnnouncementRequest(
+                    raw_message="",
+                    message_content=row["message_content"] or "",
+                    target_room_id=str(row["target_room_id"]) if row["target_room_id"] else None,
+                    target_room_name=row["target_room_name"] or "",
+                    create_tasks=row["create_tasks"] or False,
+                    task_deadline=row["task_deadline"],
+                    task_assign_all=row["task_assign_all_members"] or False,
+                    task_include_account_ids=row["task_include_account_ids"] or [],
+                    task_exclude_account_ids=row["task_exclude_account_ids"] or [],
+                    schedule_type=ScheduleType(row["schedule_type"]) if row["schedule_type"] else ScheduleType.IMMEDIATE,
+                    scheduled_at=row["scheduled_at"],
+                    cron_expression=row["cron_expression"],
+                    cron_description=row["cron_description"],
+                    skip_holidays=row["skip_holidays"] if row["skip_holidays"] is not None else True,
+                    skip_weekends=row["skip_weekends"] if row["skip_weekends"] is not None else True,
+                )
+
+                # 確認画面を生成（DBには既に保存済みなので再保存しない）
+                return self._generate_confirmation_message_only(parsed, announcement_id)
+
+        except Exception as e:
+            print(f"❌ ルーム選択処理エラー: {e}")
+            traceback.print_exc()
+            return "⚠️ ルーム選択の処理中にエラーが発生しましたウル"
+
+    def _generate_confirmation_message_only(
+        self,
+        parsed: ParsedAnnouncementRequest,
+        announcement_id: str
+    ) -> str:
+        """v10.26.8: 確認メッセージのみを生成（DB保存なし）"""
+        lines = [
+            "📢 **アナウンス確認**",
+            "",
+            f"**送信先**: {parsed.target_room_name}",
+            "",
+            "**メッセージ**:",
+            "```",
+            parsed.message_content or "(メッセージ内容を設定してください)",
+            "```",
+        ]
+
+        # タスク情報
+        if parsed.create_tasks:
+            lines.append("")
+            lines.append(f"**タスク作成**: はい ✅")
+            if parsed.task_assign_all:
+                lines.append("  - 対象: ルーム全員")
+            elif parsed.task_include_account_ids:
+                lines.append(f"  - 対象: {len(parsed.task_include_account_ids)}名")
+            if parsed.task_deadline:
+                deadline_str = parsed.task_deadline.strftime("%Y/%m/%d %H:%M")
+                lines.append(f"  - 期限: {deadline_str}")
+            else:
+                lines.append("  - 期限: なし（期限を指定する場合は「来週金曜まで」等と追記してください）")
+        else:
+            lines.append("")
+            lines.append("**タスク作成**: なし")
+            lines.append("（タスクも作成したい場合は「タスクも追加して」と教えてください）")
+
+        lines.extend([
+            "",
+            "---",
+            "「OK」または「送信」で実行します。",
+            "「キャンセル」で取り消します。",
+            "修正したい場合は具体的に教えてください。",
+        ])
+
+        return "\n".join(lines)
 
     def _update_task_settings(
         self,
@@ -1499,7 +1693,10 @@ class AnnouncementHandler:
         room_id: str,
         account_id: str
     ) -> Optional[Dict[str, Any]]:
-        """このユーザー/ルームのpending announcementを取得"""
+        """このユーザー/ルームのpending announcementを取得
+
+        v10.26.8: 'awaiting_room_selection'も取得対象に追加
+        """
         pool = self.get_pool()
 
         try:
@@ -1508,12 +1705,12 @@ class AnnouncementHandler:
                     sqlalchemy.text("""
                         SELECT id, message_content, target_room_id, target_room_name,
                                create_tasks, task_deadline, task_assign_all_members,
-                               created_at
+                               created_at, status
                         FROM scheduled_announcements
                         WHERE organization_id = :org_id
                           AND requested_by_account_id = :account_id
                           AND requested_from_room_id = :room_id
-                          AND status = 'pending'
+                          AND status IN ('pending', 'awaiting_room_selection')
                           AND created_at > NOW() - INTERVAL '30 minutes'
                         ORDER BY created_at DESC
                         LIMIT 1
@@ -1537,7 +1734,8 @@ class AnnouncementHandler:
         parsed: ParsedAnnouncementRequest,
         room_id: str,
         account_id: str,
-        sender_name: str
+        sender_name: str,
+        status: str = "pending"  # v10.26.8: 'pending' or 'awaiting_room_selection'
     ) -> Optional[str]:
         """アナウンスをDBに保存"""
         pool = self.get_pool()
@@ -1583,7 +1781,7 @@ class AnnouncementHandler:
                             :cron_description,
                             :skip_holidays,
                             :skip_weekends,
-                            'pending',
+                            :status,
                             :requested_by_account_id,
                             :requested_from_room_id
                         )
@@ -1606,6 +1804,7 @@ class AnnouncementHandler:
                         "cron_description": parsed.cron_description,
                         "skip_holidays": parsed.skip_holidays,
                         "skip_weekends": parsed.skip_weekends,
+                        "status": status,  # v10.26.8: パラメータ化
                         "requested_by_account_id": int(account_id),
                         "requested_from_room_id": int(room_id),
                     }

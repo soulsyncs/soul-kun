@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 11:10 JST**
+**最終更新: 2026-01-26 12:30 JST**
 
 ## Phase一覧と状態
 
@@ -809,7 +809,41 @@ git status
 
 ## 直近の主な成果
 
-- **2026-01-26 11:45 JST**: 脳アーキテクチャ Phase A 完了 (v10.28.0) 🔄 **PR作成中**
+- **2026-01-26 12:30 JST**: 脳アーキテクチャ Phase B 完了 (v10.28.1) 🔄 **PR作成中**
+  - **実施者**: Claude Code
+  - **概要**: 脳が全ての記憶ソースに統一インターフェースでアクセスできるようになった
+  - **進捗**: 36%（Phase A + Phase B完了）
+  - **作成ファイル**:
+    | ファイル | 行数 | 内容 |
+    |---------|------|------|
+    | `lib/brain/memory_access.py` | 976 | 記憶アクセス層（8アダプター統合） |
+    | `tests/test_brain_memory_access.py` | 810 | 43件のユニットテスト |
+  - **8つの記憶アダプター**:
+    | アダプター | 記憶ソース | 取得内容 |
+    |-----------|-----------|---------|
+    | `get_recent_conversation()` | Firestore | 直近10件の会話履歴 |
+    | `get_conversation_summary()` | conversation_summaries | 会話サマリー（B1） |
+    | `get_user_preferences()` | user_preferences | ユーザー嗜好（B2） |
+    | `get_person_info()` | persons | 人物情報（全員） |
+    | `get_recent_tasks()` | chatwork_tasks | 直近タスク（7日以内） |
+    | `get_active_goals()` | goals | アクティブな目標 |
+    | `get_relevant_knowledge()` | soulkun_knowledge | 関連ナレッジ（キーワード検索） |
+    | `get_recent_insights()` | soulkun_insights | 直近インサイト（30日以内） |
+  - **データクラス8種**: ConversationMessage, ConversationSummaryData, UserPreferenceData, PersonInfo, TaskInfo, GoalInfo, KnowledgeInfo, InsightInfo
+  - **機能**:
+    - `get_all_context()`: 全記憶を並列取得
+    - `get_context_summary()`: プロンプト用テキスト生成
+    - エラー分離（個別アダプター失敗時も他は継続）
+  - **core.py変更**:
+    - `__init__`に`firestore_db`パラメータ追加
+    - `BrainMemoryAccess`インスタンス生成
+    - `_get_context()`がBrainMemoryAccessを使用
+  - **main.py変更**:
+    - `_get_brain()`が`firestore_db=db`を渡す
+  - **テスト**: 43件の記憶アクセステスト + 49件の脳テスト = 92件（全パス）
+  - **10の鉄則準拠**: organization_id全クエリ、パラメータ化SQL、エラー分離設計
+
+- **2026-01-26 11:55 JST**: 脳アーキテクチャ Phase A 完了 (v10.28.0) ✅ **PR #160 マージ完了**
   - **実施者**: Claude Code
   - **概要**: ソウルくんの中央処理装置「脳」を新設。全てのユーザー入力が脳を通るようになる
   - **進捗**: 18%（Phase A バイパスルート排除完了）

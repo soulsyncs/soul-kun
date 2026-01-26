@@ -44,6 +44,18 @@ from lib.brain.models import (
 
 from lib.brain.core import SoulkunBrain
 
+from lib.brain.memory_access import (
+    BrainMemoryAccess,
+    ConversationMessage,
+    ConversationSummaryData,
+    UserPreferenceData,
+    PersonInfo,
+    TaskInfo,
+    GoalInfo,
+    KnowledgeInfo,
+    InsightInfo,
+)
+
 from lib.brain.exceptions import (
     BrainError,
     UnderstandingError,
@@ -64,6 +76,16 @@ from lib.brain.constants import (
 __all__ = [
     # メインクラス
     "SoulkunBrain",
+    # 記憶アクセス層
+    "BrainMemoryAccess",
+    "ConversationMessage",
+    "ConversationSummaryData",
+    "UserPreferenceData",
+    "PersonInfo",
+    "TaskInfo",
+    "GoalInfo",
+    "KnowledgeInfo",
+    "InsightInfo",
     # データモデル
     "BrainContext",
     "BrainResponse",

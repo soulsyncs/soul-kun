@@ -61,6 +61,17 @@ from lib.brain.exceptions import (
     HandlerNotFoundError,
     HandlerTimeoutError,
 )
+from lib.brain.memory_access import (
+    BrainMemoryAccess,
+    ConversationMessage as MemoryConversationMessage,
+    ConversationSummaryData,
+    UserPreferenceData,
+    PersonInfo,
+    TaskInfo,
+    GoalInfo,
+    KnowledgeInfo,
+    InsightInfo,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +100,7 @@ class SoulkunBrain:
         handlers: Optional[Dict[str, Callable]] = None,
         capabilities: Optional[Dict[str, Dict]] = None,
         get_ai_response_func: Optional[Callable] = None,
+        firestore_db=None,
     ):
         """
         Args:
@@ -97,12 +109,21 @@ class SoulkunBrain:
             handlers: アクション名 → ハンドラー関数のマッピング
             capabilities: SYSTEM_CAPABILITIES（機能カタログ）
             get_ai_response_func: AI応答生成関数
+            firestore_db: Firestore クライアント（会話履歴用）
         """
         self.pool = pool
         self.org_id = org_id
         self.handlers = handlers or {}
         self.capabilities = capabilities or {}
         self.get_ai_response = get_ai_response_func
+        self.firestore_db = firestore_db
+
+        # 記憶アクセス層の初期化
+        self.memory_access = BrainMemoryAccess(
+            pool=pool,
+            org_id=org_id,
+            firestore_db=firestore_db,
+        )
 
         # 内部状態
         self._initialized = False
@@ -143,11 +164,12 @@ class SoulkunBrain:
                 f"message={message[:50]}..."
             )
 
-            # 1. 記憶層: コンテキスト取得
+            # 1. 記憶層: コンテキスト取得（メッセージも渡して関連知識を検索）
             context = await self._get_context(
                 room_id=room_id,
                 user_id=account_id,
                 sender_name=sender_name,
+                message=message,
             )
 
             # 2. 状態チェック: マルチステップセッション中？
@@ -274,7 +296,7 @@ class SoulkunBrain:
             )
 
     # =========================================================================
-    # 記憶層
+    # 記憶層（BrainMemoryAccess経由）
     # =========================================================================
 
     async def _get_context(
@@ -282,11 +304,22 @@ class SoulkunBrain:
         room_id: str,
         user_id: str,
         sender_name: str,
+        message: Optional[str] = None,
     ) -> BrainContext:
         """
         脳が判断に必要な全ての記憶を取得
 
-        複数の記憶ソースから並列で取得し、統合したコンテキストを返す。
+        BrainMemoryAccessを使用して複数の記憶ソースから並列で取得し、
+        統合したコンテキストを返す。
+
+        Args:
+            room_id: ChatWorkルームID
+            user_id: ユーザーのアカウントID
+            sender_name: 送信者名
+            message: 現在のメッセージ（関連知識検索に使用）
+
+        Returns:
+            BrainContext: 統合されたコンテキスト
         """
         context = BrainContext(
             organization_id=self.org_id,
@@ -297,36 +330,119 @@ class SoulkunBrain:
         )
 
         try:
-            # 並列で記憶を取得（エラーは個別に処理）
-            results = await asyncio.gather(
-                self._get_recent_conversation(room_id, user_id),
-                self._get_conversation_summary(user_id),
-                self._get_user_preferences(user_id),
-                self._get_person_info(),
-                self._get_recent_tasks(user_id),
-                self._get_active_goals(user_id),
-                self._get_insights(),
-                return_exceptions=True,
+            # BrainMemoryAccessで全ての記憶を並列取得
+            memory_context = await self.memory_access.get_all_context(
+                room_id=room_id,
+                user_id=user_id,
+                sender_name=sender_name,
+                message=message,
             )
 
-            # 結果を統合
-            if not isinstance(results[0], Exception):
-                context.recent_conversation = results[0]
-            if not isinstance(results[1], Exception):
-                context.conversation_summary = results[1]
-            if not isinstance(results[2], Exception):
-                context.user_preferences = results[2]
-            if not isinstance(results[3], Exception):
-                context.person_info = results[3]
-            if not isinstance(results[4], Exception):
-                context.recent_tasks = results[4]
-            if not isinstance(results[5], Exception):
-                context.active_goals = results[5]
-            if not isinstance(results[6], Exception):
-                context.insights = results[6]
+            # 結果をBrainContextに統合
+            # 会話履歴（ConversationMessageに変換）
+            if memory_context.get("recent_conversation"):
+                context.recent_conversation = [
+                    ConversationMessage(
+                        role=msg.role if hasattr(msg, 'role') else msg.get('role', 'user'),
+                        content=msg.content if hasattr(msg, 'content') else msg.get('content', ''),
+                        timestamp=msg.timestamp if hasattr(msg, 'timestamp') else msg.get('timestamp'),
+                    )
+                    for msg in memory_context["recent_conversation"]
+                ]
+
+            # 会話要約
+            if memory_context.get("conversation_summary"):
+                summary = memory_context["conversation_summary"]
+                context.conversation_summary = {
+                    "summary_text": summary.summary_text if hasattr(summary, 'summary_text') else summary.get('summary_text', ''),
+                    "key_topics": summary.key_topics if hasattr(summary, 'key_topics') else summary.get('key_topics', []),
+                    "mentioned_persons": summary.mentioned_persons if hasattr(summary, 'mentioned_persons') else summary.get('mentioned_persons', []),
+                    "mentioned_tasks": summary.mentioned_tasks if hasattr(summary, 'mentioned_tasks') else summary.get('mentioned_tasks', []),
+                }
+
+            # ユーザー嗜好
+            if memory_context.get("user_preferences"):
+                context.user_preferences = [
+                    {
+                        "preference_type": pref.preference_type if hasattr(pref, 'preference_type') else pref.get('preference_type', ''),
+                        "preference_key": pref.preference_key if hasattr(pref, 'preference_key') else pref.get('preference_key', ''),
+                        "preference_value": pref.preference_value if hasattr(pref, 'preference_value') else pref.get('preference_value'),
+                        "confidence": pref.confidence if hasattr(pref, 'confidence') else pref.get('confidence', 0.5),
+                    }
+                    for pref in memory_context["user_preferences"]
+                ]
+
+            # 人物情報
+            if memory_context.get("person_info"):
+                context.person_info = [
+                    {
+                        "name": person.name if hasattr(person, 'name') else person.get('name', ''),
+                        "attributes": person.attributes if hasattr(person, 'attributes') else person.get('attributes', {}),
+                    }
+                    for person in memory_context["person_info"]
+                ]
+
+            # タスク情報
+            if memory_context.get("recent_tasks"):
+                context.recent_tasks = [
+                    {
+                        "task_id": task.task_id if hasattr(task, 'task_id') else task.get('task_id', ''),
+                        "body": task.body if hasattr(task, 'body') else task.get('body', ''),
+                        "summary": task.summary if hasattr(task, 'summary') else task.get('summary'),
+                        "status": task.status if hasattr(task, 'status') else task.get('status', 'open'),
+                        "limit_time": task.limit_time if hasattr(task, 'limit_time') else task.get('limit_time'),
+                        "is_overdue": task.is_overdue if hasattr(task, 'is_overdue') else task.get('is_overdue', False),
+                    }
+                    for task in memory_context["recent_tasks"]
+                ]
+
+            # 目標情報
+            if memory_context.get("active_goals"):
+                context.active_goals = [
+                    {
+                        "title": goal.title if hasattr(goal, 'title') else goal.get('title', ''),
+                        "why": goal.why if hasattr(goal, 'why') else goal.get('why'),
+                        "what": goal.what if hasattr(goal, 'what') else goal.get('what'),
+                        "how": goal.how if hasattr(goal, 'how') else goal.get('how'),
+                        "status": goal.status if hasattr(goal, 'status') else goal.get('status', 'active'),
+                        "progress": goal.progress if hasattr(goal, 'progress') else goal.get('progress', 0.0),
+                    }
+                    for goal in memory_context["active_goals"]
+                ]
+
+            # インサイト
+            if memory_context.get("insights"):
+                context.insights = [
+                    {
+                        "insight_type": insight.insight_type if hasattr(insight, 'insight_type') else insight.get('insight_type', ''),
+                        "importance": insight.importance if hasattr(insight, 'importance') else insight.get('importance', 'medium'),
+                        "title": insight.title if hasattr(insight, 'title') else insight.get('title', ''),
+                        "description": insight.description if hasattr(insight, 'description') else insight.get('description', ''),
+                        "recommended_action": insight.recommended_action if hasattr(insight, 'recommended_action') else insight.get('recommended_action'),
+                    }
+                    for insight in memory_context["insights"]
+                ]
+
+            # 関連知識
+            if memory_context.get("relevant_knowledge"):
+                context.relevant_knowledge = [
+                    {
+                        "keyword": knowledge.keyword if hasattr(knowledge, 'keyword') else knowledge.get('keyword', ''),
+                        "answer": knowledge.answer if hasattr(knowledge, 'answer') else knowledge.get('answer', ''),
+                        "category": knowledge.category if hasattr(knowledge, 'category') else knowledge.get('category'),
+                        "relevance_score": knowledge.relevance_score if hasattr(knowledge, 'relevance_score') else knowledge.get('relevance_score', 0.0),
+                    }
+                    for knowledge in memory_context["relevant_knowledge"]
+                ]
+
+            logger.debug(
+                f"Context loaded: conversation={len(context.recent_conversation)}, "
+                f"tasks={len(context.recent_tasks)}, goals={len(context.active_goals)}, "
+                f"insights={len(context.insights)}"
+            )
 
         except Exception as e:
-            logger.warning(f"Error fetching context: {e}")
+            logger.warning(f"Error fetching context via BrainMemoryAccess: {e}")
             # コンテキスト取得に失敗しても処理は続行
 
         return context
@@ -336,40 +452,44 @@ class SoulkunBrain:
         room_id: str,
         user_id: str,
     ) -> List[ConversationMessage]:
-        """直近の会話を取得"""
-        # TODO: Firestoreから取得する実装
-        # 現在は空リストを返す（既存のget_conversation_history()を呼び出す予定）
-        return []
+        """直近の会話を取得（BrainMemoryAccess経由）"""
+        messages = await self.memory_access.get_recent_conversation(room_id, user_id)
+        return [
+            ConversationMessage(
+                role=msg.role,
+                content=msg.content,
+                timestamp=msg.timestamp,
+            )
+            for msg in messages
+        ]
 
     async def _get_conversation_summary(self, user_id: str):
-        """会話要約を取得"""
-        # TODO: conversation_summariesテーブルから取得
-        return None
+        """会話要約を取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_conversation_summary(user_id)
 
     async def _get_user_preferences(self, user_id: str):
-        """ユーザー嗜好を取得"""
-        # TODO: user_preferencesテーブルから取得
-        return None
+        """ユーザー嗜好を取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_user_preferences(user_id)
 
     async def _get_person_info(self) -> List:
-        """人物情報を取得"""
-        # TODO: personsテーブルから取得
-        return []
+        """人物情報を取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_person_info()
 
     async def _get_recent_tasks(self, user_id: str) -> List:
-        """直近のタスクを取得"""
-        # TODO: chatwork_tasksテーブルから取得
-        return []
+        """直近のタスクを取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_recent_tasks(user_id)
 
     async def _get_active_goals(self, user_id: str) -> List:
-        """アクティブな目標を取得"""
-        # TODO: goalsテーブルから取得
-        return []
+        """アクティブな目標を取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_active_goals(user_id)
 
     async def _get_insights(self) -> List:
-        """インサイトを取得"""
-        # TODO: soulkun_insightsテーブルから取得
-        return []
+        """インサイトを取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_recent_insights()
+
+    async def _get_relevant_knowledge(self, query: str) -> List:
+        """関連知識を取得（BrainMemoryAccess経由）"""
+        return await self.memory_access.get_relevant_knowledge(query)
 
     # =========================================================================
     # 状態管理層

@@ -6,15 +6,22 @@
 全てのユーザー入力は、まずこの脳を通って処理されます。
 
 設計書: docs/13_brain_architecture.md
+設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
 
 【7つの鉄則】
 1. 全ての入力は脳を通る（バイパスルート禁止）
 2. 脳は全ての記憶にアクセスできる
 3. 脳が判断し、機能は実行するだけ
-4. 機能拡張しても脳の構造は変わらない
+4. 機能拡張しても脳の構造は変わらない → カタログへの追加のみで対応
 5. 確認は脳の責務
 6. 状態管理は脳が統一管理
 7. 速度より正確性を優先
+
+【v10.30.0 変更点】
+- CAPABILITY_KEYWORDSとINTENT_KEYWORDSを非推奨化
+- SYSTEM_CAPABILITIESのbrain_metadataから動的にキーワード辞書を構築
+- validate_capabilities_handlers()で整合性チェックを追加
+- 新機能追加時はSYSTEM_CAPABILITIESへの追加のみで対応可能に
 
 使用例:
     from lib.brain import SoulkunBrain, BrainResponse
@@ -27,6 +34,19 @@
         sender_name="菊地"
     )
     print(response.message)  # タスク一覧を表示
+
+バリデーション使用例:
+    from lib.brain import validate_capabilities_handlers, check_capabilities_coverage
+
+    # 整合性チェック
+    result = validate_capabilities_handlers(SYSTEM_CAPABILITIES, handlers)
+    if not result.is_valid:
+        for error in result.errors:
+            print(f"ERROR: {error.action}: {error.message}")
+
+    # カバレッジ確認
+    coverage = check_capabilities_coverage(SYSTEM_CAPABILITIES)
+    print(f"brain_metadata coverage: {coverage['percentage']:.1f}%")
 """
 
 from lib.brain.models import (
@@ -87,6 +107,14 @@ from lib.brain.integration import (
     FEATURE_FLAG_NAME,
 )
 
+from lib.brain.validation import (
+    ValidationResult,
+    ValidationError,
+    validate_capabilities_handlers,
+    validate_brain_metadata,
+    check_capabilities_coverage,
+)
+
 __all__ = [
     # メインクラス
     "SoulkunBrain",
@@ -137,6 +165,12 @@ __all__ = [
     "create_integration",
     "is_brain_enabled",
     "FEATURE_FLAG_NAME",
+    # バリデーション層（v10.30.0）
+    "ValidationResult",
+    "ValidationError",
+    "validate_capabilities_handlers",
+    "validate_brain_metadata",
+    "check_capabilities_coverage",
 ]
 
-__version__ = "1.1.0"  # Phase H: Integration Layer
+__version__ = "1.2.0"  # v10.30.0: Phase B - brain_metadata integration

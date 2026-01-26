@@ -6,6 +6,7 @@
 省略の補完、曖昧性の解消、感情の検出等を行います。
 
 設計書: docs/13_brain_architecture.md
+設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
 
 【理解の6つの要素】
 1. 意図（Intent）: 何をしたいのか
@@ -14,6 +15,12 @@
 4. 緊急度（Urgency）: どのくらい急ぎ
 5. 感情（Emotion）: どんな気持ち
 6. 文脈（Context）: 前の会話との繋がり
+
+【v10.30.0 変更点】
+- INTENT_KEYWORDSの静的定義を非推奨化
+- SYSTEM_CAPABILITIESのbrain_metadata.intent_keywordsから動的にキーワード辞書を構築
+- 新機能追加時はSYSTEM_CAPABILITIESへの追加のみで対応可能に（設計書7.3準拠）
+- _calculate_intent_scoreにnegativeキーワード処理を追加
 """
 
 import json
@@ -68,9 +75,28 @@ EMOTION_KEYWORDS: Dict[str, List[str]] = {
 }
 
 # =============================================================================
-# 意図キーワードマッピング（フォールバック用）
+# 意図キーワードマッピング - フォールバック専用
 # =============================================================================
 
+# ⚠️ DEPRECATED (v10.30.0): このINTENT_KEYWORDS定数は非推奨です。
+# 新しいアクションを追加する場合は、SYSTEM_CAPABILITIESのbrain_metadata.intent_keywords
+# を使用してください。
+#
+# この定数は以下の目的でのみ残しています：
+# 1. 後方互換性: brain_metadataがないアクションのフォールバック
+# 2. 移行期間中のバックアップ
+#
+# 設計書参照: docs/13_brain_architecture.md セクション7.3
+# 設計書参照: docs/14_brain_refactoring_plan.md Phase B
+#
+# 推奨される新しい方法:
+# SYSTEM_CAPABILITIES["action_name"]["brain_metadata"]["intent_keywords"] = {
+#     "primary": [...],
+#     "secondary": [...],
+#     "modifiers": [...],
+#     "negative": [...],
+#     "confidence_boost": 0.85,
+# }
 INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "chatwork_task_create": {
         "primary": ["タスク作成", "タスク追加", "タスク作って", "依頼して", "お願い"],
@@ -229,8 +255,12 @@ class BrainUnderstanding:
     ユーザーの入力から真の意図を推論する。
     省略の補完、曖昧性の解消、感情の検出等を行う。
 
+    v10.30.0: SYSTEM_CAPABILITIESのbrain_metadata.intent_keywordsから
+    動的にキーワード辞書を構築するように変更。
+
     使用例:
         understanding = BrainUnderstanding(
+            capabilities=SYSTEM_CAPABILITIES,  # v10.30.0追加
             get_ai_response_func=get_ai_response,
             org_id="org_soulsyncs"
         )
@@ -242,23 +272,115 @@ class BrainUnderstanding:
 
     def __init__(
         self,
+        capabilities: Optional[Dict[str, Dict]] = None,
         get_ai_response_func: Optional[Callable] = None,
         org_id: str = "",
         use_llm: bool = True,
     ):
         """
         Args:
+            capabilities: SYSTEM_CAPABILITIES（機能カタログ）v10.30.0追加
             get_ai_response_func: AI応答生成関数
             org_id: 組織ID
             use_llm: LLMを使用するかどうか（Falseならキーワードマッチのみ）
         """
+        self.capabilities = capabilities or {}
         self.get_ai_response = get_ai_response_func
         self.org_id = org_id
         self.use_llm = use_llm and get_ai_response_func is not None
 
+        # 有効な機能のみをフィルタ
+        self.enabled_capabilities = {
+            key: cap for key, cap in self.capabilities.items()
+            if cap.get("enabled", True)
+        }
+
+        # v10.30.0: SYSTEM_CAPABILITIESのbrain_metadataから動的にキーワード辞書を構築
+        # 設計書7.3準拠: INTENT_KEYWORDSをSYSTEM_CAPABILITIESに統合
+        self.intent_keywords = self._build_intent_keywords()
+
         logger.info(
-            f"BrainUnderstanding initialized: org_id={org_id}, use_llm={self.use_llm}"
+            f"BrainUnderstanding initialized: org_id={org_id}, "
+            f"capabilities={len(self.enabled_capabilities)}, "
+            f"intent_keywords={len(self.intent_keywords)}, "
+            f"use_llm={self.use_llm}"
         )
+
+    # =========================================================================
+    # キーワード辞書の動的構築（v10.30.0）
+    # =========================================================================
+
+    def _build_intent_keywords(self) -> Dict[str, Dict[str, Any]]:
+        """
+        SYSTEM_CAPABILITIESのbrain_metadataからキーワード辞書を動的に構築
+
+        設計書7.3準拠: INTENT_KEYWORDSをSYSTEM_CAPABILITIESに統合
+        これにより、新機能追加時にSYSTEM_CAPABILITIESへの追加のみで対応可能に。
+
+        後方互換性: capabilitiesが渡されていない場合は、静的なINTENT_KEYWORDSを返す
+
+        構築される辞書の形式:
+        {
+            "action_key": {
+                "primary": ["キーワード1", "キーワード2"],
+                "secondary": ["キーワード3"],
+                "modifiers": ["修飾語"],
+                "negative": ["除外ワード"],
+                "confidence_boost": 0.85,
+            }
+        }
+
+        Returns:
+            Dict[str, Dict[str, Any]]: アクション名をキーとしたキーワード辞書
+        """
+        # 後方互換性: capabilitiesが渡されていない場合は静的INTENT_KEYWORDSを使用
+        if not self.enabled_capabilities:
+            logger.debug(
+                "No capabilities provided, using static INTENT_KEYWORDS for backward compatibility"
+            )
+            return INTENT_KEYWORDS.copy()
+
+        keywords = {}
+
+        for key, cap in self.enabled_capabilities.items():
+            brain_metadata = cap.get("brain_metadata", {})
+            intent_keywords = brain_metadata.get("intent_keywords", {})
+
+            if intent_keywords:
+                # brain_metadataから取得
+                keywords[key] = {
+                    "primary": intent_keywords.get("primary", []),
+                    "secondary": intent_keywords.get("secondary", []),
+                    "modifiers": intent_keywords.get("modifiers", []),
+                    "negative": intent_keywords.get("negative", []),
+                    "confidence_boost": intent_keywords.get("confidence_boost", 0.8),
+                }
+            else:
+                # brain_metadataがない場合はフォールバック（後方互換性）
+                # INTENT_KEYWORDS（静的定義）から取得
+                fallback = INTENT_KEYWORDS.get(key, {})
+                if fallback:
+                    keywords[key] = fallback
+                    logger.debug(
+                        f"Using fallback INTENT_KEYWORDS for '{key}' "
+                        "(brain_metadata.intent_keywords not found)"
+                    )
+
+        # 統計情報をログ出力
+        from_metadata = sum(
+            1 for k in keywords
+            if self.enabled_capabilities.get(k, {}).get("brain_metadata", {}).get("intent_keywords")
+        )
+        from_fallback = len(keywords) - from_metadata
+
+        logger.debug(
+            f"Intent keywords built: "
+            f"total={len(keywords)}, "
+            f"from_metadata={from_metadata}, "
+            f"from_fallback={from_fallback}"
+        )
+
+        return keywords
 
     # =========================================================================
     # メインエントリーポイント
@@ -524,6 +646,9 @@ class BrainUnderstanding:
         キーワードマッチで意図を推論（フォールバック）
 
         LLMを使わない簡易的な意図推論。
+
+        v10.30.0: SYSTEM_CAPABILITIESのbrain_metadata.intent_keywordsから
+        動的に構築されたself.intent_keywordsを使用。
         """
         normalized = message.lower().strip()
 
@@ -531,8 +656,9 @@ class BrainUnderstanding:
         best_confidence = 0.5
         entities: Dict[str, Any] = {}
 
+        # v10.30.0: インスタンス変数から動的に取得（旧: INTENT_KEYWORDS定数）
         # 各意図についてスコアリング
-        for intent, keywords in INTENT_KEYWORDS.items():
+        for intent, keywords in self.intent_keywords.items():
             score = self._calculate_intent_score(normalized, keywords)
             if score > best_confidence:
                 best_confidence = score
@@ -562,8 +688,30 @@ class BrainUnderstanding:
     ) -> float:
         """
         意図のスコアを計算
+
+        v10.30.0: SYSTEM_CAPABILITIESのbrain_metadata.intent_keywordsから
+        動的に構築されたキーワード辞書を使用。
+
+        スコアリングロジック:
+        - negativeキーワードがあれば即座に0.0
+        - プライマリキーワード: マッチでconfidence_boost（デフォルト0.8）
+        - セカンダリ+モディファイア: 両方マッチでconfidence_boost
+        - セカンダリのみ: confidence_boost - 0.15
+
+        Args:
+            message: 小文字化されたメッセージ
+            keywords: キーワード辞書（primary, secondary, modifiers, negative, confidence_boost）
+
+        Returns:
+            float: 意図マッチスコア（0.0〜1.0）
         """
         score = 0.0
+
+        # v10.30.0: negativeキーワードチェック（decision.pyと同様）
+        negative = keywords.get("negative", [])
+        for neg in negative:
+            if neg in message:
+                return 0.0
 
         # プライマリキーワード（完全マッチ）
         primary = keywords.get("primary", [])

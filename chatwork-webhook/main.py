@@ -644,7 +644,7 @@ SYSTEM_CAPABILITIES = {
                 "note": "「俺」「自分」「私」「僕」の場合は「依頼者自身」と出力"
             },
             "task_body": {
-                "type": "string", 
+                "type": "string",
                 "description": "タスクの内容",
                 "required": True
             },
@@ -662,25 +662,59 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_chatwork_task_create",
         "requires_confirmation": False,
-        "required_data": ["chatwork_users", "sender_name"]
+        "required_data": ["chatwork_users", "sender_name"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ（設計書7.3準拠）
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["タスク作成", "タスク追加", "タスク作って", "依頼して", "お願いして"],
+                "secondary": ["タスク", "仕事", "やること", "依頼", "お願い"],
+                "negative": ["検索", "一覧", "教えて", "完了"],
+            },
+            "intent_keywords": {
+                "primary": ["タスク作成", "タスク追加", "タスク作って", "依頼して", "お願い"],
+                "secondary": ["タスク", "仕事", "やること"],
+                "modifiers": ["作成", "追加", "作って", "お願い", "依頼"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 3,
+        },
     },
-    # =====  =====
+    # ===== 振り返り =====
     "daily_reflection": {
-        "name": "",
-        "description": "",
+        "name": "日次振り返り",
+        "description": "今日一日の振り返りを行う。選択理論に基づいた内省を促す。",
         "category": "reflection",
         "enabled": True,
-        "trigger_examples": ["3", ""],
+        "trigger_examples": ["振り返りをしたい", "今日の反省"],
         "params_schema": {
             "reflection_text": {
                 "type": "string",
-                "description": "",
+                "description": "振り返りの内容",
                 "required": True
             }
         },
         "handler": "handle_daily_reflection",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["振り返り", "反省", "日報"],
+                "secondary": ["今日一日", "1日を振り返る"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["振り返り", "日報"],
+                "secondary": ["今日一日", "反省"],
+                "modifiers": [],
+                "negative": [],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "low",
+            "priority": 7,
+        },
     },
 
     
@@ -704,7 +738,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_chatwork_task_complete",
         "requires_confirmation": False,
-        "required_data": ["recent_tasks_context"]
+        "required_data": ["recent_tasks_context"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["タスク完了", "完了にして", "終わった", "できた"],
+                "secondary": ["完了", "終わり", "done"],
+                "negative": ["作成", "追加", "検索"],
+            },
+            "intent_keywords": {
+                "primary": ["タスク完了", "タスク終わった", "タスクできた"],
+                "secondary": ["タスク", "仕事"],
+                "modifiers": ["完了", "終わった", "できた", "done", "済み"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 3,
+        },
     },
     
     "chatwork_task_search": {
@@ -739,7 +790,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_chatwork_task_search",
         "requires_confirmation": False,
-        "required_data": ["chatwork_users", "sender_name"]
+        "required_data": ["chatwork_users", "sender_name"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["タスク検索", "タスク教えて", "タスク一覧", "タスク確認"],
+                "secondary": ["タスク", "何がある", "抱えてる"],
+                "negative": ["作成", "追加", "作って", "完了"],
+            },
+            "intent_keywords": {
+                "primary": ["タスク検索", "タスク確認", "タスク教えて", "タスク一覧"],
+                "secondary": ["タスク", "仕事", "やること"],
+                "modifiers": ["検索", "教えて", "見せて", "一覧", "確認"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 3,
+        },
     },
     
     # ===== 記憶機能 =====
@@ -768,7 +836,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_save_memory",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["覚えて", "記憶して", "メモして"],
+                "secondary": ["は〜です", "さんは", "の人"],
+                "negative": ["忘れて", "削除", "教えて"],
+            },
+            "intent_keywords": {
+                "primary": ["人を覚えて", "社員を記憶"],
+                "secondary": ["覚えて", "記憶して", "メモして"],
+                "modifiers": ["人", "さん", "社員"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
     },
     
     "query_memory": {
@@ -797,9 +882,26 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_query_memory",
         "requires_confirmation": False,
-        "required_data": ["all_persons"]
+        "required_data": ["all_persons"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["覚えてる", "知ってる", "について教えて"],
+                "secondary": ["誰", "情報"],
+                "negative": ["覚えて", "記憶して", "忘れて"],
+            },
+            "intent_keywords": {
+                "primary": ["について教えて", "のこと知ってる"],
+                "secondary": ["誰", "人物"],
+                "modifiers": ["教えて", "知ってる"],
+                "negative": ["覚えて", "忘れて"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
     },
-    
+
     "delete_memory": {
         "name": "人物情報を削除",
         "description": "記憶している人物の情報を削除する。忘れてほしいと言われた時に使用。",
@@ -819,7 +921,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_delete_memory",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["忘れて", "削除して", "消して"],
+                "secondary": ["記憶", "情報"],
+                "negative": ["覚えて", "教えて"],
+            },
+            "intent_keywords": {
+                "primary": ["忘れて", "削除して"],
+                "secondary": ["記憶", "情報"],
+                "modifiers": ["消して", "削除"],
+                "negative": ["覚えて"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "medium",
+            "priority": 6,
+        },
     },
     
     # ===== v6.9.0: 管理者学習機能 =====
@@ -853,9 +972,26 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_learn_knowledge",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id", "sender_name", "room_id"]
+        "required_data": ["sender_account_id", "sender_name", "room_id"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["ナレッジ追加", "知識を覚えて", "教えておくね"],
+                "secondary": ["ナレッジ", "知識", "情報"],
+                "negative": ["検索", "教えて", "忘れて"],
+            },
+            "intent_keywords": {
+                "primary": ["知識を覚えて", "ナレッジ追加"],
+                "secondary": ["覚えて", "記憶して", "メモして"],
+                "modifiers": [],
+                "negative": ["検索", "教えて"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
     },
-    
+
     "forget_knowledge": {
         "name": "知識を削除",
         "description": "学習した知識を削除する。「忘れて：〇〇」などの要望に対応。管理者のみ実行可能。",
@@ -880,9 +1016,26 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_forget_knowledge",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id"]
+        "required_data": ["sender_account_id"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["ナレッジ削除", "知識を忘れて"],
+                "secondary": ["削除", "忘れて"],
+                "negative": ["追加", "検索", "教えて"],
+            },
+            "intent_keywords": {
+                "primary": ["知識を忘れて", "ナレッジ削除"],
+                "secondary": ["忘れて", "削除して", "消して"],
+                "modifiers": [],
+                "negative": ["追加", "検索"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "medium",
+            "priority": 6,
+        },
     },
-    
+
     "list_knowledge": {
         "name": "学習した知識を一覧表示",
         "description": "ソウルくんが学習した知識の一覧を表示する。「何覚えてる？」「設定一覧」などの要望に対応。",
@@ -897,9 +1050,26 @@ SYSTEM_CAPABILITIES = {
         "params_schema": {},
         "handler": "handle_list_knowledge",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["設定一覧", "何覚えてる", "知識一覧"],
+                "secondary": ["設定", "知識", "学習"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["設定一覧", "知識一覧"],
+                "secondary": ["何覚えてる", "設定を見せて"],
+                "modifiers": ["一覧", "リスト"],
+                "negative": [],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "low",
+            "priority": 6,
+        },
     },
-    
+
     # v10.29.9: approve_proposal → proposal_decision（handlers/brain層と統一）
     "proposal_decision": {
         "name": "提案を承認",
@@ -921,7 +1091,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_proposal_decision",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id", "room_id"]
+        "required_data": ["sender_account_id", "room_id"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["承認", "却下", "反映して"],
+                "secondary": ["OK", "いいよ", "ダメ", "やめて"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["承認", "却下"],
+                "secondary": ["OK", "反映して"],
+                "modifiers": ["いいよ", "ダメ"],
+                "negative": [],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "medium",
+            "priority": 4,
+        },
     },
 
     # ===== 組織図クエリ（Phase 3.5） =====
@@ -951,7 +1138,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_query_org_chart",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["組織図", "部署", "誰がいる"],
+                "secondary": ["組織", "構造", "チーム"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["組織図", "部署一覧"],
+                "secondary": ["組織", "部署", "チーム", "誰が", "担当者", "上司", "部下"],
+                "modifiers": [],
+                "negative": [],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "low",
+            "priority": 6,
+        },
     },
 
     # ===== 一般会話 =====
@@ -970,7 +1174,24 @@ SYSTEM_CAPABILITIES = {
         "params_schema": {},
         "handler": "handle_general_chat",
         "requires_confirmation": False,
-        "required_data": []
+        "required_data": [],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": [],
+                "secondary": ["こんにちは", "ありがとう", "どう思う"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": [],
+                "secondary": [],
+                "modifiers": [],
+                "negative": [],
+                "confidence_boost": 0.5,
+            },
+            "risk_level": "low",
+            "priority": 10,  # 最低優先度（他に該当しない場合のフォールバック）
+        },
     },
     
     # ===== 将来の機能（enabled=False） =====
@@ -1018,7 +1239,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_query_company_knowledge",
         "requires_confirmation": False,
-        "required_data": []  # Phase 3 APIを使用するため外部データ不要
+        "required_data": [],  # Phase 3 APIを使用するため外部データ不要
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["ナレッジ検索", "知識を教えて", "会社について"],
+                "secondary": ["どうやって", "方法", "やり方"],
+                "negative": ["追加", "覚えて", "忘れて"],
+            },
+            "intent_keywords": {
+                "primary": ["教えて", "知りたい"],
+                "secondary": ["就業規則", "規則", "ルール", "マニュアル", "手順", "方法"],
+                "modifiers": [],
+                "negative": ["追加", "覚えて"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
     },
     
     "generate_image": {
@@ -1158,7 +1396,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_goal_registration",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id", "sender_name"]
+        "required_data": ["sender_account_id", "sender_name"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい"],
+                "secondary": ["目標", "ゴール"],
+                "negative": ["進捗", "報告", "確認"],
+            },
+            "intent_keywords": {
+                "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい", "目標を設定したい"],
+                "secondary": ["目標", "ゴール"],
+                "modifiers": ["設定", "立てたい", "決めたい", "作りたい"],
+                "negative": ["進捗", "報告", "状況", "確認", "どれくらい"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 4,
+        },
     },
 
     "goal_progress_report": {
@@ -1197,7 +1452,24 @@ SYSTEM_CAPABILITIES = {
         },
         "handler": "handle_goal_progress_report",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id", "sender_name"]
+        "required_data": ["sender_account_id", "sender_name"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標進捗", "目標報告", "進捗報告"],
+                "secondary": ["進捗", "どのくらい"],
+                "negative": ["設定", "立てたい"],
+            },
+            "intent_keywords": {
+                "primary": ["目標進捗", "目標報告"],
+                "secondary": ["目標", "ゴール"],
+                "modifiers": ["進捗", "報告", "どれくらい"],
+                "negative": ["設定", "立てたい"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 4,
+        },
     },
 
     "goal_status_check": {
@@ -1214,7 +1486,24 @@ SYSTEM_CAPABILITIES = {
         "params_schema": {},
         "handler": "handle_goal_status_check",
         "requires_confirmation": False,
-        "required_data": ["sender_account_id", "sender_name"]
+        "required_data": ["sender_account_id", "sender_name"],
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標確認", "目標状況", "達成率"],
+                "secondary": ["目標", "どうなった"],
+                "negative": ["設定", "立てたい", "進捗報告"],
+            },
+            "intent_keywords": {
+                "primary": ["目標状況", "目標確認"],
+                "secondary": ["目標", "ゴール"],
+                "modifiers": ["状況", "どうなった", "確認"],
+                "negative": ["設定", "報告"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 4,
+        },
     },
 
     # =====================================================
@@ -1246,7 +1535,24 @@ SYSTEM_CAPABILITIES = {
         "authorization": {
             "rooms": [405315911],
             "account_ids": ["1728974"]
-        }
+        },
+        # v10.30.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["アナウンス", "お知らせ", "連絡して", "伝えて"],
+                "secondary": ["全員に", "チャットに"],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["アナウンスして", "お知らせして"],
+                "secondary": ["アナウンス", "お知らせ", "連絡して", "送って"],
+                "modifiers": [],
+                "negative": [],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "medium",
+            "priority": 3,
+        },
     },
 }
 

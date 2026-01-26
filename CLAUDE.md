@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 15:45 JST**
+**最終更新: 2026-01-26 17:35 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,27 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 17:35 JST**: 脳アーキテクチャ アクション名不整合修正 (v10.29.9) ✅ **PR #192 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題**: SYSTEM_CAPABILITIESとhandlers辞書でアクション名が一致せず、脳アーキテクチャが正常に動作しない
+  - **発見した不整合**:
+    | 旧名（SYSTEM_CAPABILITIES） | 正しい名前（handlers） | 影響 |
+    |-------------------------|---------------------|------|
+    | `query_company_knowledge` | `query_knowledge` | ナレッジ検索不動作 |
+    | `announcement_request` | `announcement_create` | アナウンス不動作 |
+    | `approve_proposal` | `proposal_decision` | 提案承認不動作 |
+    | `general_chat` | `general_conversation` | 会話フォールバック不動作 |
+  - **修正内容**:
+    - SYSTEM_CAPABILITIES: 4つのキーをhandlers/brain層と統一
+    - CAPABILITY_KEYWORDS (decision.py): 3つのエントリを追加・修正
+  - **変更ファイル**:
+    - `chatwork-webhook/main.py`: SYSTEM_CAPABILITIESのキー名修正
+    - `lib/brain/decision.py`: CAPABILITY_KEYWORDSの修正
+    - `chatwork-webhook/lib/brain/decision.py`: 同期
+  - **テスト**: 1,744件全パス（脳アーキテクチャ456件含む）
+  - **デプロイ**: chatwork-webhook revision **00190-gob**
+  - **10の鉄則準拠**: DB操作変更なし、アクション名のリネームのみ
 
 - **2026-01-26 15:45 JST**: org-chart × Soul-kun ChatWork ID連携 (v10.29.1) ✅ **本番適用完了**
   - **実施者**: Claude Code

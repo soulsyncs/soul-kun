@@ -2357,13 +2357,46 @@ def _get_brain_integration():
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
         }
+        # BUG-018修正: execution.pyのインターフェースに合わせたラッパー関数
+        # execution.pyは (recent_conv, context_dict) で呼ぶが、
+        # get_ai_responseは (message, history, sender_name, context) を期待
+        def _brain_ai_response_wrapper(recent_conv, context_dict):
+            """脳アーキテクチャ用のAI応答ラッパー"""
+            try:
+                # 最後のユーザーメッセージを取得
+                message = ""
+                for msg in reversed(recent_conv or []):
+                    if isinstance(msg, dict):
+                        if msg.get("role") == "user":
+                            message = msg.get("content", "")
+                            break
+                    elif hasattr(msg, "role") and msg.role == "user":
+                        message = msg.content if hasattr(msg, "content") else ""
+                        break
+
+                # sender_nameをコンテキストから取得
+                sender_name = context_dict.get("sender_name", "") if context_dict else ""
+
+                # historyを準備（会話履歴形式に変換）
+                history = []
+                for msg in (recent_conv or []):
+                    if isinstance(msg, dict):
+                        history.append(msg)
+                    elif hasattr(msg, "to_dict"):
+                        history.append(msg.to_dict())
+
+                return get_ai_response(message, history, sender_name, context_dict)
+            except Exception as e:
+                print(f"⚠️ _brain_ai_response_wrapper error: {e}")
+                return "申し訳ないウル、応答生成中にエラーが発生したウル🐺"
+
         try:
             _brain_integration = create_integration(
                 pool=get_pool(),
                 org_id="org_soulsyncs",
                 handlers=handlers,
                 capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
-                get_ai_response_func=get_ai_response,
+                get_ai_response_func=_brain_ai_response_wrapper,
                 firestore_db=db,
             )
             mode = _brain_integration.get_mode().value if _brain_integration else "unknown"
@@ -6860,7 +6893,8 @@ def chatwork_webhook(request):
                             # コンテキスト準備（フォールバック用に簡易版）
                             # Note: get_all_persons_summary()は要約版を返す
                             fb_all_persons = get_all_persons_summary()
-                            fb_all_tasks = search_tasks_from_db(room_id=r_id, account_id=a_id, limit=50)
+                            # BUG-017修正: account_id → assigned_to_account_id, limit引数削除
+                            fb_all_tasks = search_tasks_from_db(room_id=r_id, assigned_to_account_id=a_id)
                             fb_chatwork_users = get_chatwork_users_for_room(r_id)
                             fb_conversation_history = get_conversation_history(r_id, a_id)
                             fb_context = {}

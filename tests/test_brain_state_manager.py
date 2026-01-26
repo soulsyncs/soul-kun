@@ -20,7 +20,10 @@ from lib.brain.exceptions import StateError
 # テストデータ
 # =============================================================================
 
-TEST_ORG_ID = "org_test"
+# Note: brain_conversation_statesテーブルはorganization_idがUUID型のため、
+# テストではUUID形式のorg_idを使用する必要がある
+TEST_ORG_ID = "550e8400-e29b-41d4-a716-446655440000"  # Valid UUID format
+TEST_ORG_ID_NON_UUID = "org_test"  # Non-UUID for skip behavior tests
 TEST_ROOM_ID = "room_123"
 TEST_USER_ID = "user_456"
 
@@ -32,11 +35,12 @@ def create_mock_row(
     expires_at: datetime = None,
     reference_type: str = None,
     reference_id: str = None,
+    org_id: str = None,
 ):
     """モック行データを作成"""
     row = MagicMock()
     row.id = uuid4()
-    row.organization_id = TEST_ORG_ID
+    row.organization_id = org_id or TEST_ORG_ID  # UUID形式を使用
     row.room_id = TEST_ROOM_ID
     row.user_id = TEST_USER_ID
     row.state_type = state_type
@@ -74,6 +78,46 @@ class TestBrainStateManagerInit:
         manager = BrainStateManager(pool=mock_pool, org_id="org_soulsyncs")
 
         assert manager.org_id == "org_soulsyncs"
+
+    def test_init_detects_uuid_format(self):
+        """UUID形式のorg_idを正しく検出する"""
+        mock_pool = MagicMock()
+
+        # UUID形式
+        manager_uuid = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
+        assert manager_uuid._org_id_is_uuid is True
+
+        # 非UUID形式
+        manager_non_uuid = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID_NON_UUID)
+        assert manager_non_uuid._org_id_is_uuid is False
+
+
+class TestNonUuidOrgIdBehavior:
+    """非UUID形式のorg_idの場合のスキップ動作テスト"""
+
+    @pytest.mark.asyncio
+    async def test_get_current_state_skips_for_non_uuid(self):
+        """非UUID形式のorg_idの場合はクエリをスキップしてNoneを返す"""
+        mock_pool = MagicMock()
+        # DBが呼ばれないことを確認するためにassertを設定
+        mock_pool.connect.assert_not_called()
+
+        manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID_NON_UUID)
+        state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
+
+        assert state is None
+        # DBへの接続が行われないことを確認
+        mock_pool.connect.assert_not_called()
+
+    def test_get_current_state_sync_skips_for_non_uuid(self):
+        """非UUID形式のorg_idの場合は同期版もスキップしてNoneを返す"""
+        mock_pool = MagicMock()
+
+        manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID_NON_UUID)
+        state = manager.get_current_state_sync(TEST_ROOM_ID, TEST_USER_ID)
+
+        assert state is None
+        mock_pool.connect.assert_not_called()
 
 
 # =============================================================================

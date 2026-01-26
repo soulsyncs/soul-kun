@@ -69,7 +69,22 @@ class BrainStateManager:
         # プールが同期か非同期かを検出
         self._is_async_pool = hasattr(pool, 'begin') and asyncio.iscoroutinefunction(getattr(pool, 'begin', None))
 
-        logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}")
+        # org_idがUUID形式かどうかを判定
+        # brain_conversation_statesテーブルはorganization_idがUUID型
+        # 'org_soulsyncs'などのテキスト形式の場合はクエリをスキップ
+        self._org_id_is_uuid = self._check_uuid_format(org_id)
+
+        logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}, uuid_org={self._org_id_is_uuid}")
+
+    def _check_uuid_format(self, org_id: str) -> bool:
+        """org_idがUUID形式かどうかをチェック"""
+        if not org_id:
+            return False
+        try:
+            UUID(org_id)
+            return True
+        except (ValueError, TypeError):
+            return False
 
     def _execute_sync(self, query, params: dict):
         """同期的にクエリを実行"""
@@ -99,6 +114,12 @@ class BrainStateManager:
         Returns:
             ConversationState: 現在の状態（存在しない場合はNone）
         """
+        # org_idがUUID形式でない場合はスキップ
+        # brain_conversation_statesテーブルはorganization_idがUUID型のため
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping brain_conversation_states query: org_id={self.org_id} is not UUID format")
+            return None
+
         try:
             query = text("""
                 SELECT
@@ -584,6 +605,11 @@ class BrainStateManager:
 
         既存のFlask/Cloud Functionsとの互換性のため。
         """
+        # org_idがUUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping brain_conversation_states query (sync): org_id={self.org_id} is not UUID format")
+            return None
+
         try:
             query = text("""
                 SELECT

@@ -66,6 +66,20 @@ def brain_memory_no_firestore(mock_pool):
     )
 
 
+@pytest.fixture
+def brain_memory_uuid(mock_pool, mock_firestore):
+    """UUID形式のorg_idを使用するBrainMemoryAccessインスタンス
+
+    goals/insightsテーブルはUUID型のorganization_idを使用するため、
+    これらのテストにはこのフィクスチャを使用する。
+    """
+    return BrainMemoryAccess(
+        pool=mock_pool,
+        org_id="550e8400-e29b-41d4-a716-446655440000",  # Valid UUID format
+        firestore_db=mock_firestore,
+    )
+
+
 # =============================================================================
 # データクラスのテスト
 # =============================================================================
@@ -513,7 +527,14 @@ class TestGoalInfoAdapter:
     """目標情報アダプターのテスト"""
 
     @pytest.mark.asyncio
-    async def test_get_active_goals_empty(self, brain_memory, mock_pool):
+    async def test_get_active_goals_non_uuid_org_id(self, brain_memory):
+        """非UUID形式のorg_idの場合はクエリをスキップして空リストを返す"""
+        # brain_memoryはorg_id="org_test"（非UUID形式）
+        result = await brain_memory.get_active_goals("user1")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_active_goals_empty(self, brain_memory_uuid, mock_pool):
         """目標がない場合は空リスト"""
         mock_conn = Mock()
         mock_result = Mock()
@@ -522,27 +543,29 @@ class TestGoalInfoAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_active_goals("user1")
+        result = await brain_memory_uuid.get_active_goals("user1")
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_active_goals_success(self, brain_memory, mock_pool):
-        """正常に目標を取得"""
+    async def test_get_active_goals_success(self, brain_memory_uuid, mock_pool):
+        """正常に目標を取得（UUID形式のorg_idが必要）"""
         goal_id = uuid4()
         deadline = datetime.now() + timedelta(days=30)
         mock_conn = Mock()
         mock_result = Mock()
+        # 実際のgoalsテーブルのカラム: title, description, target_value, current_value, status, progress, deadline
         mock_result.fetchall.return_value = [
-            (goal_id, "売上目標達成", "成長のため", "月100万", "新規開拓", "active", 0.3, deadline),
+            (goal_id, "売上目標達成", "月100万円の売上", 1000000, 300000, "active", deadline),
         ]
         mock_conn.execute.return_value = mock_result
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_active_goals("user1")
+        result = await brain_memory_uuid.get_active_goals("user1")
         assert len(result) == 1
         assert result[0].title == "売上目標達成"
-        assert result[0].progress == 0.3
+        # progress = current_value / target_value * 100 = 300000 / 1000000 * 100 = 30.0%
+        assert result[0].progress == 30.0
 
 
 # =============================================================================
@@ -595,8 +618,15 @@ class TestInsightAdapter:
     """インサイトアダプターのテスト"""
 
     @pytest.mark.asyncio
-    async def test_get_recent_insights_empty(self, brain_memory, mock_pool):
-        """インサイトがない場合は空リスト"""
+    async def test_get_recent_insights_non_uuid_org_id(self, brain_memory):
+        """非UUID形式のorg_idの場合はクエリをスキップして空リストを返す"""
+        # brain_memoryはorg_id="org_test"（非UUID形式）
+        result = await brain_memory.get_recent_insights()
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_recent_insights_empty(self, brain_memory_uuid, mock_pool):
+        """インサイトがない場合は空リスト（UUID形式のorg_idが必要）"""
         mock_conn = Mock()
         mock_result = Mock()
         mock_result.fetchall.return_value = []
@@ -604,12 +634,12 @@ class TestInsightAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_recent_insights()
+        result = await brain_memory_uuid.get_recent_insights()
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_recent_insights_success(self, brain_memory, mock_pool):
-        """正常にインサイトを取得"""
+    async def test_get_recent_insights_success(self, brain_memory_uuid, mock_pool):
+        """正常にインサイトを取得（UUID形式のorg_idが必要）"""
         insight_id = uuid4()
         mock_conn = Mock()
         mock_result = Mock()
@@ -620,7 +650,7 @@ class TestInsightAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_recent_insights()
+        result = await brain_memory_uuid.get_recent_insights()
         assert len(result) == 1
         assert result[0].insight_type == "frequent_question"
         assert result[0].importance == "high"

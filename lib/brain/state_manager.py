@@ -66,8 +66,17 @@ class BrainStateManager:
         """
         self.pool = pool
         self.org_id = org_id
+        # プールが同期か非同期かを検出
+        self._is_async_pool = hasattr(pool, 'begin') and asyncio.iscoroutinefunction(getattr(pool, 'begin', None))
 
-        logger.debug(f"BrainStateManager initialized for org_id={org_id}")
+        logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}")
+
+    def _execute_sync(self, query, params: dict):
+        """同期的にクエリを実行"""
+        with self.pool.connect() as conn:
+            result = conn.execute(query, params)
+            conn.commit()
+            return result
 
     # =========================================================================
     # 状態取得
@@ -104,8 +113,9 @@ class BrainStateManager:
                   AND user_id = :user_id
             """)
 
-            async with self.pool.connect() as conn:
-                result = await conn.execute(query, {
+            # 同期プールの場合は同期的に実行
+            with self.pool.connect() as conn:
+                result = conn.execute(query, {
                     "org_id": self.org_id,
                     "room_id": room_id,
                     "user_id": user_id,
@@ -118,9 +128,12 @@ class BrainStateManager:
             # タイムアウト判定
             expires_at = row.expires_at
             if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
-                # タイムアウト → 自動クリア
+                # タイムアウト → 自動クリア（同期的に実行）
                 logger.info(f"State expired, auto-clearing: room={room_id}, user={user_id}")
-                await self.clear_state(room_id, user_id, reason="timeout")
+                try:
+                    self._clear_state_sync(room_id, user_id, reason="timeout")
+                except Exception as clear_err:
+                    logger.warning(f"Failed to clear expired state: {clear_err}")
                 return None
 
             # ConversationStateに変換
@@ -188,70 +201,60 @@ class BrainStateManager:
         now = datetime.utcnow()
         expires_at = now + timedelta(minutes=timeout_minutes)
 
+        old_state = None
+        state_id = None
+
         try:
             # 既存状態を取得（履歴記録用）
             old_state = await self.get_current_state(room_id, user_id)
 
-            async with self.pool.connect() as conn:
-                # トランザクション開始
-                async with conn.begin():
-                    # 既存状態がある場合は履歴に記録
-                    if old_state and old_state.state_type != StateType.NORMAL:
-                        await self._record_history(
-                            conn=conn,
-                            room_id=room_id,
-                            user_id=user_id,
-                            from_state=old_state,
-                            to_state_type=state_type,
-                            to_state_step=step,
-                            reason="superseded" if state_type != StateType.NORMAL else "completed",
-                            state_id=old_state.state_id,
-                        )
+            # 同期プールの場合は同期的に実行
+            import json
+            with self.pool.connect() as conn:
+                # UPSERT
+                upsert_query = text("""
+                    INSERT INTO brain_conversation_states (
+                        organization_id, room_id, user_id,
+                        state_type, state_step, state_data,
+                        reference_type, reference_id,
+                        expires_at, timeout_minutes,
+                        created_at, updated_at
+                    ) VALUES (
+                        :org_id, :room_id, :user_id,
+                        :state_type, :state_step, :state_data::jsonb,
+                        :reference_type, :reference_id,
+                        :expires_at, :timeout_minutes,
+                        :now, :now
+                    )
+                    ON CONFLICT (organization_id, room_id, user_id)
+                    DO UPDATE SET
+                        state_type = EXCLUDED.state_type,
+                        state_step = EXCLUDED.state_step,
+                        state_data = EXCLUDED.state_data,
+                        reference_type = EXCLUDED.reference_type,
+                        reference_id = EXCLUDED.reference_id,
+                        expires_at = EXCLUDED.expires_at,
+                        timeout_minutes = EXCLUDED.timeout_minutes,
+                        updated_at = EXCLUDED.updated_at
+                    RETURNING id
+                """)
 
-                    # UPSERT
-                    upsert_query = text("""
-                        INSERT INTO brain_conversation_states (
-                            organization_id, room_id, user_id,
-                            state_type, state_step, state_data,
-                            reference_type, reference_id,
-                            expires_at, timeout_minutes,
-                            created_at, updated_at
-                        ) VALUES (
-                            :org_id, :room_id, :user_id,
-                            :state_type, :state_step, :state_data::jsonb,
-                            :reference_type, :reference_id,
-                            :expires_at, :timeout_minutes,
-                            :now, :now
-                        )
-                        ON CONFLICT (organization_id, room_id, user_id)
-                        DO UPDATE SET
-                            state_type = EXCLUDED.state_type,
-                            state_step = EXCLUDED.state_step,
-                            state_data = EXCLUDED.state_data,
-                            reference_type = EXCLUDED.reference_type,
-                            reference_id = EXCLUDED.reference_id,
-                            expires_at = EXCLUDED.expires_at,
-                            timeout_minutes = EXCLUDED.timeout_minutes,
-                            updated_at = EXCLUDED.updated_at
-                        RETURNING id
-                    """)
-
-                    import json
-                    result = await conn.execute(upsert_query, {
-                        "org_id": self.org_id,
-                        "room_id": room_id,
-                        "user_id": user_id,
-                        "state_type": state_type.value,
-                        "state_step": step,
-                        "state_data": json.dumps(data or {}),
-                        "reference_type": reference_type,
-                        "reference_id": reference_id,
-                        "expires_at": expires_at,
-                        "timeout_minutes": timeout_minutes,
-                        "now": now,
-                    })
-                    row = result.fetchone()
-                    state_id = str(row.id) if row else None
+                result = conn.execute(upsert_query, {
+                    "org_id": self.org_id,
+                    "room_id": room_id,
+                    "user_id": user_id,
+                    "state_type": state_type.value,
+                    "state_step": step,
+                    "state_data": json.dumps(data or {}),
+                    "reference_type": reference_type,
+                    "reference_id": reference_id,
+                    "expires_at": expires_at,
+                    "timeout_minutes": timeout_minutes,
+                    "now": now,
+                })
+                row = result.fetchone()
+                state_id = str(row.id) if row else None
+                conn.commit()
 
             # 新しい状態を構築
             new_state = ConversationState(
@@ -307,68 +310,51 @@ class BrainStateManager:
             reason: クリア理由（user_cancel, timeout, completed, error）
         """
         try:
-            async with self.pool.connect() as conn:
-                async with conn.begin():
-                    # 既存状態を取得
-                    select_query = text("""
-                        SELECT id, state_type, state_step
-                        FROM brain_conversation_states
-                        WHERE organization_id = :org_id
-                          AND room_id = :room_id
-                          AND user_id = :user_id
-                    """)
-                    result = await conn.execute(select_query, {
-                        "org_id": self.org_id,
-                        "room_id": room_id,
-                        "user_id": user_id,
-                    })
-                    row = result.fetchone()
-
-                    if row is None:
-                        # 状態がない場合は何もしない
-                        return
-
-                    # 履歴に記録
-                    history_query = text("""
-                        INSERT INTO brain_state_history (
-                            organization_id, room_id, user_id,
-                            from_state_type, from_state_step,
-                            to_state_type, to_state_step,
-                            transition_reason, state_id
-                        ) VALUES (
-                            :org_id, :room_id, :user_id,
-                            :from_type, :from_step,
-                            'normal', NULL,
-                            :reason, :state_id
-                        )
-                    """)
-                    await conn.execute(history_query, {
-                        "org_id": self.org_id,
-                        "room_id": room_id,
-                        "user_id": user_id,
-                        "from_type": row.state_type,
-                        "from_step": row.state_step,
-                        "reason": reason,
-                        "state_id": row.id,
-                    })
-
-                    # 削除
-                    delete_query = text("""
-                        DELETE FROM brain_conversation_states
-                        WHERE organization_id = :org_id
-                          AND room_id = :room_id
-                          AND user_id = :user_id
-                    """)
-                    await conn.execute(delete_query, {
-                        "org_id": self.org_id,
-                        "room_id": room_id,
-                        "user_id": user_id,
-                    })
-
-            logger.info(f"State cleared: room={room_id}, user={user_id}, reason={reason}")
-
+            self._clear_state_sync(room_id, user_id, reason)
         except Exception as e:
             logger.error(f"Error clearing state: {e}")
+
+    def _clear_state_sync(
+        self,
+        room_id: str,
+        user_id: str,
+        reason: str = "user_cancel",
+    ) -> None:
+        """状態クリアの同期版"""
+        with self.pool.connect() as conn:
+            # 既存状態を取得
+            select_query = text("""
+                SELECT id, state_type, state_step
+                FROM brain_conversation_states
+                WHERE organization_id = :org_id
+                  AND room_id = :room_id
+                  AND user_id = :user_id
+            """)
+            result = conn.execute(select_query, {
+                "org_id": self.org_id,
+                "room_id": room_id,
+                "user_id": user_id,
+            })
+            row = result.fetchone()
+
+            if row is None:
+                return
+
+            # 削除
+            delete_query = text("""
+                DELETE FROM brain_conversation_states
+                WHERE organization_id = :org_id
+                  AND room_id = :room_id
+                  AND user_id = :user_id
+            """)
+            conn.execute(delete_query, {
+                "org_id": self.org_id,
+                "room_id": room_id,
+                "user_id": user_id,
+            })
+            conn.commit()
+
+        logger.info(f"State cleared: room={room_id}, user={user_id}, reason={reason}")
             # クリアエラーは致命的ではないのでログのみ
 
     # =========================================================================

@@ -82,20 +82,23 @@ class TestBrainStateManagerInit:
 
 
 class TestGetCurrentState:
-    """get_current_stateメソッドのテスト"""
+    """get_current_stateメソッドのテスト
+
+    Note: get_current_stateは同期メソッドに変更されているが、
+    テストはasyncio.run()で呼び出されるawaitableとして扱う。
+    """
 
     @pytest.mark.asyncio
     async def test_returns_none_when_no_state(self):
         """状態がない場合はNoneを返す"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
+        mock_conn = MagicMock()
         mock_result = MagicMock()
         mock_result.fetchone.return_value = None
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        # 同期コンテキストマネージャー
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
         state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
@@ -106,17 +109,18 @@ class TestGetCurrentState:
     async def test_returns_state_when_exists(self):
         """状態が存在する場合はConversationStateを返す"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
+        mock_conn = MagicMock()
         # タイムゾーン問題を回避するため、datetime.now()基準で十分に未来の時間を設定
+        # tzinfoをNoneにして問題を回避
         future_time = datetime.now() + timedelta(hours=1)
+        future_time = future_time.replace(tzinfo=None)
         mock_row = create_mock_row(expires_at=future_time)
         mock_result = MagicMock()
         mock_result.fetchone.return_value = mock_row
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        # 同期コンテキストマネージャー
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
         state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
@@ -131,22 +135,23 @@ class TestGetCurrentState:
     async def test_returns_none_when_expired(self):
         """タイムアウト済みの場合はNoneを返す"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
-        # 過去の時刻を設定（datetime.now()基準）
+        mock_conn = MagicMock()
+        # 過去の時刻を設定（datetime.now()基準）、tzinfoをNoneに
         expired_time = datetime.now() - timedelta(minutes=10)
+        expired_time = expired_time.replace(tzinfo=None)
         mock_row = create_mock_row(expires_at=expired_time)
         mock_result = MagicMock()
         mock_result.fetchone.return_value = mock_row
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        mock_conn.commit = MagicMock()
+        # 同期コンテキストマネージャー
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
 
-        # clear_stateをモック
-        with patch.object(manager, 'clear_state', new_callable=AsyncMock) as mock_clear:
+        # _clear_state_syncをモック（同期版）
+        with patch.object(manager, '_clear_state_sync', MagicMock()) as mock_clear:
             state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
 
             # タイムアウト時はNoneを返し、クリアが呼ばれる
@@ -157,7 +162,11 @@ class TestGetCurrentState:
     async def test_returns_none_on_db_error(self):
         """DBエラー時はNoneを返す（安全側）"""
         mock_pool = MagicMock()
-        mock_pool.connect = MagicMock(side_effect=Exception("DB connection error"))
+        # connect().___enter__()で例外を発生させる
+        mock_context = MagicMock()
+        mock_context.__enter__ = MagicMock(side_effect=Exception("DB connection error"))
+        mock_context.__exit__ = MagicMock(return_value=False)
+        mock_pool.connect.return_value = mock_context
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
         state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
@@ -288,50 +297,44 @@ class TestTransitionTo:
 
 
 class TestClearState:
-    """clear_stateメソッドのテスト"""
+    """clear_stateメソッドのテスト
+
+    Note: clear_stateは_clear_state_sync（同期版）を内部で呼び出す。
+    """
 
     @pytest.mark.asyncio
     async def test_clears_existing_state(self):
         """既存の状態をクリアできる"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
-        mock_conn.begin = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=None),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn = MagicMock()
         mock_row = create_mock_row()
         mock_result = MagicMock()
         mock_result.fetchone.return_value = mock_row
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        mock_conn.commit = MagicMock()
+        # 同期コンテキストマネージャー
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
 
         # エラーなく完了することを確認
         await manager.clear_state(TEST_ROOM_ID, TEST_USER_ID, reason="user_cancel")
 
-        # executeが呼ばれたことを確認（SELECT + INSERT history + DELETE）
+        # executeが呼ばれたことを確認（SELECT + DELETE）
         assert mock_conn.execute.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_does_nothing_when_no_state(self):
         """状態がない場合は何もしない"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
-        mock_conn.begin = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=None),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn = MagicMock()
         mock_result = MagicMock()
         mock_result.fetchone.return_value = None  # 状態なし
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        # 同期コンテキストマネージャー
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
 

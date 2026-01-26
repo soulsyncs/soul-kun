@@ -2347,8 +2347,9 @@ def _get_brain():
             handlers=handlers,
             capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
             get_ai_response_func=get_ai_response,
+            firestore_db=db,  # v10.28.1: Firestoreを記憶アクセス層に渡す
         )
-        print("✅ SoulkunBrain instance initialized")
+        print("✅ SoulkunBrain instance initialized with memory access layer")
     return _brain_instance
 
 

@@ -488,10 +488,16 @@ class BrainUnderstanding:
                 parts.append(f"  - {task.body[:50]}（{task.assignee_name}）")
 
         # 人物情報
+        # person_infoはPersonInfoデータクラスまたはdictの可能性がある
         if context.person_info:
             parts.append("\n【記憶している人物】")
-            names = [p.name for p in context.person_info[:5]]
-            parts.append(f"  {', '.join(names)}")
+            names = []
+            for p in context.person_info[:5]:
+                name = p.get("name") if isinstance(p, dict) else getattr(p, "name", None)
+                if name:
+                    names.append(name)
+            if names:
+                parts.append(f"  {', '.join(names)}")
 
         # アクティブな目標
         if context.active_goals:
@@ -589,10 +595,13 @@ class BrainUnderstanding:
         entities: Dict[str, Any] = {}
 
         # 人物名の抽出
+        # person_infoはPersonInfoデータクラスまたはdictの可能性がある
         if context.person_info:
             for person in context.person_info:
-                if person.name in message:
-                    entities["person"] = person.name
+                # dictの場合とdataclassの場合の両方に対応
+                person_name = person.get("name") if isinstance(person, dict) else getattr(person, "name", None)
+                if person_name and person_name in message:
+                    entities["person"] = person_name
                     break
 
         # 時間表現の解決
@@ -785,8 +794,13 @@ class BrainUnderstanding:
             # 直近の会話で送信先が言及されていれば補完可能
             if context.recent_conversation:
                 for msg in reversed(context.recent_conversation[-3:]):
+                    # person_infoはPersonInfoデータクラスまたはdictの可能性がある
+                    person_names = [
+                        p.get("name") if isinstance(p, dict) else getattr(p, "name", None)
+                        for p in context.person_info
+                    ]
                     if "に" in msg.content and any(
-                        p.name in msg.content for p in context.person_info
+                        name and name in msg.content for name in person_names
                     ):
                         return True
             return False

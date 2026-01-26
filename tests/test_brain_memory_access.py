@@ -331,7 +331,14 @@ class TestConversationSummaryAdapter:
     """会話要約（B1）アダプターのテスト"""
 
     @pytest.mark.asyncio
-    async def test_get_conversation_summary_not_found(self, brain_memory, mock_pool):
+    async def test_get_conversation_summary_non_uuid_org_id(self, brain_memory):
+        """非UUID形式のorg_idの場合はクエリをスキップしてNoneを返す"""
+        # brain_memoryはorg_id="org_test"（非UUID形式）
+        result = await brain_memory.get_conversation_summary("user1")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_conversation_summary_not_found(self, brain_memory_uuid, mock_pool):
         """要約が見つからない場合"""
         mock_conn = Mock()
         mock_result = Mock()
@@ -340,12 +347,12 @@ class TestConversationSummaryAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_conversation_summary("user1")
+        result = await brain_memory_uuid.get_conversation_summary("user1")
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_get_conversation_summary_success(self, brain_memory, mock_pool):
-        """正常に要約を取得"""
+    async def test_get_conversation_summary_success(self, brain_memory_uuid, mock_pool):
+        """正常に要約を取得（UUID形式のorg_idが必要）"""
         test_id = uuid4()
         mock_conn = Mock()
         mock_result = Mock()
@@ -362,17 +369,17 @@ class TestConversationSummaryAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_conversation_summary("user1")
+        result = await brain_memory_uuid.get_conversation_summary("user1")
         assert result is not None
         assert result.summary_text == "テストの会話要約"
         assert result.message_count == 5
 
     @pytest.mark.asyncio
-    async def test_get_conversation_summary_error(self, brain_memory, mock_pool):
+    async def test_get_conversation_summary_error(self, brain_memory_uuid, mock_pool):
         """エラー時はNoneを返す"""
         mock_pool.connect.side_effect = Exception("DB error")
 
-        result = await brain_memory.get_conversation_summary("user1")
+        result = await brain_memory_uuid.get_conversation_summary("user1")
         assert result is None
 
 
@@ -385,8 +392,15 @@ class TestUserPreferencesAdapter:
     """ユーザー嗜好（B2）アダプターのテスト"""
 
     @pytest.mark.asyncio
-    async def test_get_user_preferences_empty(self, brain_memory, mock_pool):
-        """嗜好がない場合は空リスト"""
+    async def test_get_user_preferences_non_uuid_org_id(self, brain_memory):
+        """非UUID形式のorg_idの場合はクエリをスキップして空リストを返す"""
+        # brain_memoryはorg_id="org_test"（非UUID形式）
+        result = await brain_memory.get_user_preferences("user1")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_get_user_preferences_empty(self, brain_memory_uuid, mock_pool):
+        """嗜好がない場合は空リスト（UUID形式のorg_idが必要）"""
         mock_conn = Mock()
         mock_result = Mock()
         mock_result.fetchall.return_value = []
@@ -394,12 +408,12 @@ class TestUserPreferencesAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_user_preferences("user1")
+        result = await brain_memory_uuid.get_user_preferences("user1")
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_user_preferences_success(self, brain_memory, mock_pool):
-        """正常に嗜好を取得"""
+    async def test_get_user_preferences_success(self, brain_memory_uuid, mock_pool):
+        """正常に嗜好を取得（UUID形式のorg_idが必要）"""
         mock_conn = Mock()
         mock_result = Mock()
         mock_result.fetchall.return_value = [
@@ -410,7 +424,7 @@ class TestUserPreferencesAdapter:
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
-        result = await brain_memory.get_user_preferences("user1")
+        result = await brain_memory_uuid.get_user_preferences("user1")
         assert len(result) == 2
         assert result[0].preference_type == "response_style"
         assert result[0].confidence == 0.9
@@ -584,12 +598,17 @@ class TestKnowledgeAdapter:
 
     @pytest.mark.asyncio
     async def test_get_relevant_knowledge_success(self, brain_memory, mock_pool):
-        """正常に知識を取得"""
+        """正常に知識を取得
+
+        Note: soulkun_knowledgeテーブルはkey/valueカラムを使用。
+        relevance_scoreは類似度関数がないため固定値1.0を使用。
+        """
         knowledge_id = uuid4()
         mock_conn = Mock()
         mock_result = Mock()
+        # soulkun_knowledgeは id, key, value, category の4カラム
         mock_result.fetchall.return_value = [
-            (knowledge_id, "有給", "有給休暇は年間20日です", "人事", 0.95),
+            (knowledge_id, "有給", "有給休暇は年間20日です", "人事"),
         ]
         mock_conn.execute.return_value = mock_result
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
@@ -598,7 +617,7 @@ class TestKnowledgeAdapter:
         result = await brain_memory.get_relevant_knowledge("有給の日数")
         assert len(result) == 1
         assert result[0].keyword == "有給"
-        assert result[0].relevance_score == 0.95
+        assert result[0].relevance_score == 1.0  # 固定値（類似度関数なし）
 
     @pytest.mark.asyncio
     async def test_get_relevant_knowledge_error(self, brain_memory, mock_pool):

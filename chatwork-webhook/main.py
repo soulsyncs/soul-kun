@@ -2347,7 +2347,7 @@ def _get_brain_integration():
             "learn_knowledge": _brain_handle_learn_knowledge,
             "forget_knowledge": _brain_handle_forget_knowledge,
             "list_knowledge": _brain_handle_list_knowledge,
-            "goal_setting_start": _brain_handle_goal_setting_start,
+            "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
             "goal_progress_report": _brain_handle_goal_progress_report,
             "goal_status_check": _brain_handle_goal_status_check,
             "announcement_create": _brain_handle_announcement_create,
@@ -2434,7 +2434,7 @@ def _get_brain():
             "learn_knowledge": _brain_handle_learn_knowledge,
             "forget_knowledge": _brain_handle_forget_knowledge,
             "list_knowledge": _brain_handle_list_knowledge,
-            "goal_setting_start": _brain_handle_goal_setting_start,
+            "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
             "goal_progress_report": _brain_handle_goal_progress_report,
             "goal_status_check": _brain_handle_goal_status_check,
             "announcement_create": _brain_handle_announcement_create,

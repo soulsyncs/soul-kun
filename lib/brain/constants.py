@@ -219,7 +219,7 @@ RISK_LEVELS: Dict[str, str] = {
     "chatwork_task_create": "low",
     "chatwork_task_complete": "low",
     "chatwork_task_search": "low",
-    "goal_setting_start": "low",
+    "goal_registration": "low",  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
     "goal_progress_report": "low",
     "save_memory": "low",
     "query_memory": "low",

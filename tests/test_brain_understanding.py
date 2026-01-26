@@ -291,8 +291,8 @@ class TestIntentDetection:
             assert result.intent == "chatwork_task_complete", f"Failed for: {msg}"
 
     @pytest.mark.asyncio
-    async def test_goal_setting_start(self, understanding_without_llm, empty_context):
-        """目標設定開始の意図"""
+    async def test_goal_registration(self, understanding_without_llm, empty_context):
+        """目標設定開始の意図 (v10.29.6: goal_registrationに名前変更)"""
         messages = [
             "目標設定したい",
             "目標を立てたい",
@@ -300,7 +300,7 @@ class TestIntentDetection:
         ]
         for msg in messages:
             result = await understanding_without_llm.understand(msg, empty_context)
-            assert result.intent == "goal_setting_start", f"Failed for: {msg}"
+            assert result.intent == "goal_registration", f"Failed for: {msg}"
 
     @pytest.mark.asyncio
     async def test_goal_progress_report(self, understanding_without_llm, empty_context):
@@ -926,7 +926,7 @@ class TestConstants:
         """意図キーワードの構造"""
         assert "chatwork_task_create" in INTENT_KEYWORDS
         assert "chatwork_task_search" in INTENT_KEYWORDS
-        assert "goal_setting_start" in INTENT_KEYWORDS
+        assert "goal_registration" in INTENT_KEYWORDS  # v10.29.6: 名前変更
         assert "general_conversation" in INTENT_KEYWORDS
 
     def test_understanding_prompt_format(self):

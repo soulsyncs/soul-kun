@@ -27,6 +27,31 @@ from uuid import uuid4
 from sqlalchemy import text
 import json
 import re
+import os
+import httpx
+
+# LLM API設定
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+LLM_MODEL = "google/gemini-2.0-flash-001"
+LLM_TIMEOUT = 30.0
+
+# 長文の閾値（この文字数以上ならLLM解析を実行）
+LONG_RESPONSE_THRESHOLD = 100
+
+# 不満検出パターン
+FRUSTRATION_PATTERNS = [
+    "答えたじゃん", "答えたよ", "言ったじゃん", "言ったよ",
+    "さっき言った", "もう言った", "既に答えた", "同じこと",
+    "何回言えば", "繰り返し", "ちゃんと読んで", "聞いてる？"
+]
+
+# 確認OKパターン（LLM抽出後の確認に使用）
+CONFIRMATION_PATTERNS = [
+    "ok", "OK", "ｏｋ", "ＯＫ", "おっけー", "オッケー",
+    "合ってる", "あってる", "その通り", "そのとおり",
+    "うん", "はい", "いいよ", "大丈夫", "問題ない",
+    "それで", "それでいい", "いいです", "オーケー"
+]
 
 
 # =====================================================
@@ -39,6 +64,7 @@ STEPS = {
     "why": "WHY（内発的動機）",
     "what": "WHAT（結果目標）",
     "how": "HOW（行動目標）",
+    "confirm": "確認",  # v10.31.5: LLM抽出後の確認ステップ
     "complete": "完了"
 }
 
@@ -456,6 +482,123 @@ class GoalSettingDialogue:
         self.org_id = str(result[1]) if result[1] else None
         self.user_name = result[2] or "ユーザー"
         return True
+
+    def _detect_frustration(self, message: str) -> bool:
+        """ユーザーの不満を検出（「答えたじゃん」等）"""
+        message_lower = message.lower()
+        for pattern in FRUSTRATION_PATTERNS:
+            if pattern in message_lower:
+                return True
+        return False
+
+    def _analyze_long_response_with_llm(self, message: str, session: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """
+        長文の回答をLLMで解析してWHY/WHAT/HOWを抽出
+
+        Returns:
+            {"why": "...", "what": "...", "how": "..."} or None
+        """
+        if len(message) < LONG_RESPONSE_THRESHOLD:
+            return None
+
+        if not OPENROUTER_API_KEY:
+            print("⚠️ OPENROUTER_API_KEY未設定のためLLM解析をスキップ")
+            return None
+
+        # 既に回答済みの部分を考慮
+        existing_why = session.get("why_answer", "")
+        existing_what = session.get("what_answer", "")
+        existing_how = session.get("how_answer", "")
+
+        prompt = f"""以下のユーザーの回答から、目標設定の3要素を抽出してください。
+
+【ユーザーの回答】
+{message}
+
+【既に回答済みの内容】
+- WHY（なぜ・動機）: {existing_why or '未回答'}
+- WHAT（何を・目標）: {existing_what or '未回答'}
+- HOW（どうやって・行動）: {existing_how or '未回答'}
+
+【抽出ルール】
+1. WHY: なぜその目標を達成したいのか（動機、ビジョン、想い）
+2. WHAT: 具体的に何を達成したいのか（数値目標、成果、ゴール）
+3. HOW: どんな行動で達成するのか（具体的なアクション、習慣）
+
+【出力形式】JSON形式で出力してください。該当する内容がない場合は空文字を設定してください。
+{{"why": "抽出した内容", "what": "抽出した内容", "how": "抽出した内容"}}"""
+
+        try:
+            with httpx.Client(timeout=LLM_TIMEOUT) as client:
+                response = client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": LLM_MODEL,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0.3,
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+
+                # JSONを抽出
+                json_match = re.search(r'\{[^}]+\}', content, re.DOTALL)
+                if json_match:
+                    extracted = json.loads(json_match.group())
+                    print(f"🧠 LLM解析結果: {extracted}")
+                    return extracted
+
+        except Exception as e:
+            print(f"⚠️ LLM解析エラー: {e}")
+
+        return None
+
+    def _generate_understanding_response(self, extracted: Dict[str, str], session: Dict[str, Any]) -> str:
+        """抽出した内容を元に、理解を示す応答を生成"""
+        why = extracted.get("why", "") or session.get("why_answer", "")
+        what = extracted.get("what", "") or session.get("what_answer", "")
+        how = extracted.get("how", "") or session.get("how_answer", "")
+
+        response = f"""🐺 {self.user_name}さん、熱い想いを聞かせてくれてありがとうウル！
+
+ソウルくんなりに整理してみたウル：
+
+━━━━━━━━━━━━━━━━━━
+🔥 【WHY - {self.user_name}さんの想い】
+{why if why else '（まだ聞けていないウル）'}
+
+🎯 【WHAT - 目指すゴール】
+{what if what else '（まだ聞けていないウル）'}
+
+💪 【HOW - 具体的な行動】
+{how if how else '（まだ聞けていないウル）'}
+━━━━━━━━━━━━━━━━━━
+
+"""
+
+        # 足りない部分を確認
+        missing = []
+        if not why:
+            missing.append("WHY（なぜそれを目指すのか）")
+        if not what:
+            missing.append("WHAT（具体的な数値目標）")
+        if not how:
+            missing.append("HOW（毎日・毎週の行動）")
+
+        if missing:
+            response += f"もう少し教えてほしいのは：\n"
+            for m in missing:
+                response += f"  ❓ {m}\n"
+            response += f"\nこの部分を教えてくれたら、目標として登録できるウル🐺✨"
+        else:
+            response += "この理解で合ってるかな？\n\n「OK」と言ってくれたら目標として登録するウル！\n修正があれば教えてウル🐺✨"
+
+        return response
 
     def _get_active_session(self, conn) -> Optional[Dict[str, Any]]:
         """
@@ -1029,6 +1172,220 @@ class GoalSettingDialogue:
                     "step": current_step,
                     "pattern": "exit"
                 }
+
+        # =====================================================
+        # v10.31.5: 確認ステップの処理（LLM抽出後）
+        # =====================================================
+        if current_step == "confirm":
+            print(f"   📋 確認ステップ: ユーザー応答「{user_message[:30]}...」")
+
+            # OKパターンをチェック
+            message_lower = user_message.lower().strip()
+            is_confirmed = any(pattern in message_lower for pattern in CONFIRMATION_PATTERNS)
+
+            if is_confirmed:
+                print(f"   ✅ 確認OK - 目標を登録します")
+                # セッションから保存済みの回答を取得
+                why_answer = session.get("why_answer", "")
+                what_answer = session.get("what_answer", "")
+                how_answer = session.get("how_answer", "")
+
+                # 目標登録
+                goal_id = self._register_goal(conn, session)
+                self._update_session(
+                    conn, session_id,
+                    current_step="complete",
+                    status="completed",
+                    goal_id=goal_id
+                )
+
+                response = TEMPLATES["complete"].format(
+                    user_name=self.user_name,
+                    why_answer=why_answer,
+                    what_answer=what_answer,
+                    how_answer=how_answer
+                )
+
+                self._log_interaction(
+                    conn, session_id, "confirm",
+                    user_message, response,
+                    detected_pattern="confirmed",
+                    result="accepted",
+                    step_attempt=step_attempt
+                )
+
+                # Phase 2.5 + B Memory統合: セッション完了時の学習
+                self._update_session_stats_on_complete(conn, session)
+
+                return {
+                    "success": True,
+                    "message": response,
+                    "session_id": session_id,
+                    "step": "complete",
+                    "pattern": "confirmed"
+                }
+            else:
+                # 修正リクエストの可能性
+                print(f"   🔄 修正リクエストを処理")
+                # LLMで修正内容を解析
+                extracted = self._analyze_long_response_with_llm(user_message, session)
+
+                if extracted:
+                    # 修正内容を更新
+                    updates = {}
+                    if extracted.get("why"):
+                        updates["why_answer"] = extracted["why"]
+                        session["why_answer"] = extracted["why"]
+                    if extracted.get("what"):
+                        updates["what_answer"] = extracted["what"]
+                        session["what_answer"] = extracted["what"]
+                    if extracted.get("how"):
+                        updates["how_answer"] = extracted["how"]
+                        session["how_answer"] = extracted["how"]
+
+                    if updates:
+                        self._update_session(conn, session_id, **updates)
+
+                # 修正後の内容で再確認
+                response = self._generate_understanding_response(
+                    {"why": session.get("why_answer", ""),
+                     "what": session.get("what_answer", ""),
+                     "how": session.get("how_answer", "")},
+                    session
+                )
+
+                self._log_interaction(
+                    conn, session_id, "confirm",
+                    user_message, response,
+                    detected_pattern="modification_request",
+                    result="retry",
+                    step_attempt=step_attempt
+                )
+
+                return {
+                    "success": True,
+                    "message": response,
+                    "session_id": session_id,
+                    "step": "confirm",
+                    "pattern": "modification_request"
+                }
+
+        # =====================================================
+        # v10.31.5: 不満検出（「答えたじゃん」等）
+        # =====================================================
+        if self._detect_frustration(user_message):
+            print(f"   😤 不満を検出: {user_message[:30]}...")
+            # 今までの回答を要約して確認
+            extracted = {
+                "why": session.get("why_answer", ""),
+                "what": session.get("what_answer", ""),
+                "how": session.get("how_answer", "")
+            }
+            response = f"""🙏 ごめんなさいウル！ちゃんと聞けてなかったウル...
+
+{self.user_name}さんが教えてくれた内容をもう一度整理させてウル：
+
+━━━━━━━━━━━━━━━━━━
+🔥 【WHY】{extracted['why'][:100] if extracted['why'] else '（まだ聞けていないウル）'}
+🎯 【WHAT】{extracted['what'][:100] if extracted['what'] else '（まだ聞けていないウル）'}
+💪 【HOW】{extracted['how'][:100] if extracted['how'] else '（まだ聞けていないウル）'}
+━━━━━━━━━━━━━━━━━━
+
+さっきの内容で足りない部分があれば、もう一度教えてほしいウル。
+この理解で合ってたら「OK」と言ってウル🐺✨"""
+
+            self._log_interaction(
+                conn, session_id, current_step,
+                user_message, response,
+                detected_pattern="frustration_detected",
+                result="retry",
+                step_attempt=step_attempt
+            )
+            return {
+                "success": True,
+                "message": response,
+                "session_id": session_id,
+                "step": current_step,
+                "pattern": "frustration_detected"
+            }
+
+        # =====================================================
+        # v10.31.5: 長文の場合はLLMで解析してWHY/WHAT/HOWを抽出
+        # =====================================================
+        if len(user_message) >= LONG_RESPONSE_THRESHOLD:
+            print(f"   📝 長文を検出（{len(user_message)}文字）- LLM解析を実行")
+            extracted = self._analyze_long_response_with_llm(user_message, session)
+
+            if extracted:
+                # 抽出した内容をセッションに保存
+                updates = {}
+                if extracted.get("why") and not session.get("why_answer"):
+                    updates["why_answer"] = extracted["why"]
+                    session["why_answer"] = extracted["why"]
+                if extracted.get("what") and not session.get("what_answer"):
+                    updates["what_answer"] = extracted["what"]
+                    session["what_answer"] = extracted["what"]
+                if extracted.get("how") and not session.get("how_answer"):
+                    updates["how_answer"] = extracted["how"]
+                    session["how_answer"] = extracted["how"]
+
+                if updates:
+                    # セッションを更新
+                    self._update_session(conn, session_id, **updates)
+
+                # すべて揃ったか確認
+                has_why = bool(session.get("why_answer"))
+                has_what = bool(session.get("what_answer"))
+                has_how = bool(session.get("how_answer"))
+
+                if has_why and has_what and has_how:
+                    # すべて揃ったら確認画面へ
+                    response = self._generate_understanding_response(extracted, session)
+                    # v10.31.5: current_stepを'confirm'に更新
+                    self._update_session(conn, session_id, current_step="confirm")
+
+                    self._log_interaction(
+                        conn, session_id, "llm_analysis",
+                        user_message, response,
+                        detected_pattern="llm_extracted_all",
+                        result="pending_confirmation",
+                        step_attempt=step_attempt
+                    )
+                    return {
+                        "success": True,
+                        "message": response,
+                        "session_id": session_id,
+                        "step": "confirm",
+                        "pattern": "llm_extracted_all"
+                    }
+                else:
+                    # 足りない部分がある場合は、理解を示しつつ足りない部分を聞く
+                    response = self._generate_understanding_response(extracted, session)
+
+                    # 次のステップを決定
+                    if not has_why:
+                        next_step = "why"
+                    elif not has_what:
+                        next_step = "what"
+                    else:
+                        next_step = "how"
+
+                    self._update_session(conn, session_id, current_step=next_step)
+
+                    self._log_interaction(
+                        conn, session_id, "llm_analysis",
+                        user_message, response,
+                        detected_pattern="llm_extracted_partial",
+                        result="need_more",
+                        step_attempt=step_attempt
+                    )
+                    return {
+                        "success": True,
+                        "message": response,
+                        "session_id": session_id,
+                        "step": next_step,
+                        "pattern": "llm_extracted_partial"
+                    }
 
         # v1.7: コンテキスト情報を構築
         context = {

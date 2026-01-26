@@ -99,6 +99,11 @@ ROOT_FOLDER_ID = os.getenv('ROOT_FOLDER_ID')
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1000'))
 CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '200'))
 
+# Feature Flag: 動的部署マッピング
+# true: DBから部署マスタを取得してマッピング（Phase 3.5連携）
+# false: 静的な DEPARTMENT_MAP を使用（従来動作）
+USE_DYNAMIC_DEPARTMENT_MAPPING = os.getenv('USE_DYNAMIC_DEPARTMENT_MAPPING', 'true').lower() == 'true'
+
 
 # ================================================================
 # データベース操作
@@ -916,7 +921,20 @@ def watch_google_drive(request: Request):
         )
         embedding_client = EmbeddingClient()
         pinecone_client = PineconeClient()
-        folder_mapper = FolderMapper(organization_id)
+
+        # FolderMapper 初期化
+        # USE_DYNAMIC_DEPARTMENT_MAPPING=true の場合、DBから部署マスタを取得
+        folder_mapper = FolderMapper(
+            organization_id=organization_id,
+            db_pool=db_pool if USE_DYNAMIC_DEPARTMENT_MAPPING else None,
+            use_dynamic_departments=USE_DYNAMIC_DEPARTMENT_MAPPING
+        )
+
+        # 動的マッピングの有効状態をログ出力
+        if folder_mapper.is_dynamic_mapping_enabled():
+            logger.info("Dynamic department mapping enabled (Phase 3.5)")
+        else:
+            logger.info("Using static department mapping")
     except Exception as e:
         logger.error(f"初期化エラー: {str(e)}")
         return {

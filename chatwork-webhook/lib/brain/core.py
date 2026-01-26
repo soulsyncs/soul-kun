@@ -289,7 +289,9 @@ class SoulkunBrain:
 
             # 6. 記憶更新（非同期で実行、エラーは無視）
             asyncio.create_task(
-                self._update_memory_safely(message, result, context, account_id)
+                self._update_memory_safely(
+                    message, result, context, room_id, account_id, sender_name
+                )
             )
 
             # 7. 判断ログ記録（非同期で実行）

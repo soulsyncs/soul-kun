@@ -264,18 +264,30 @@ class AnnouncementHandler:
 
             # DBから pending announcement をチェック（リクエスト間でのコンテキスト保持）
             pending = self._get_pending_announcement(room_id, account_id)
-            if pending:
-                # pending announcement があればフォローアップとして処理
-                context = {
-                    "awaiting_announcement_response": True,
-                    "pending_announcement_id": str(pending["id"]),
-                }
-                return self._handle_follow_up_response(
-                    params, room_id, account_id, sender_name, context
-                )
-
-            # 依頼解析
             raw_message = params.get("raw_message", "")
+
+            if pending:
+                # v10.26.7: 新しいアナウンス依頼キーワードがあれば、古いpendingをキャンセルして新規処理
+                new_request_keywords = ["アナウンス", "伝えて", "連絡して", "お知らせ", "送って"]
+                is_new_request = any(kw in raw_message for kw in new_request_keywords)
+
+                if is_new_request:
+                    # 古いpendingをキャンセル
+                    print(f"📢 新しいアナウンス依頼検出 → 古いpending ({pending['id']}) をキャンセル")
+                    self._cancel_announcement(str(pending["id"]), "新しいアナウンス依頼により自動キャンセル")
+                    # pendingをNoneにして新規処理に進む
+                    pending = None
+                else:
+                    # フォローアップとして処理
+                    context = {
+                        "awaiting_announcement_response": True,
+                        "pending_announcement_id": str(pending["id"]),
+                    }
+                    return self._handle_follow_up_response(
+                        params, room_id, account_id, sender_name, context
+                    )
+
+            # 依頼解析（raw_messageは上で取得済み）
             parsed = self._parse_announcement_request(raw_message, account_id)
 
             # 不足情報があれば質問

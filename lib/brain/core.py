@@ -74,6 +74,7 @@ from lib.brain.memory_access import (
     InsightInfo,
 )
 from lib.brain.understanding import BrainUnderstanding
+from lib.brain.decision import BrainDecision
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,14 @@ class SoulkunBrain:
             get_ai_response_func=get_ai_response_func,
             org_id=org_id,
             use_llm=True,  # LLMを使用（曖昧表現がある場合）
+        )
+
+        # 判断層の初期化
+        self.decision = BrainDecision(
+            capabilities=capabilities,
+            get_ai_response_func=get_ai_response_func,
+            org_id=org_id,
+            use_llm=False,  # ルールベース判断（高速）
         )
 
         # 内部状態
@@ -789,44 +798,16 @@ class SoulkunBrain:
         context: BrainContext,
     ) -> DecisionResult:
         """
-        理解した意図に基づいてアクションを決定
+        BrainDecisionクラスに委譲。
+        v10.28.4: 判断層に強化（Phase E完了）
 
-        SYSTEM_CAPABILITIESから適切な機能を選択する。
+        理解した意図に基づいてアクションを決定する。
+        - SYSTEM_CAPABILITIESから適切な機能を選択
+        - 確信度・リスクレベルに基づく確認要否判断
+        - MVV整合性チェック
+        - 複数アクション検出
         """
-        start_time = time.time()
-
-        # 意図に対応するアクションを探す
-        action = understanding.intent
-        params = understanding.entities.copy()
-
-        # 確信度の判定
-        confidence = understanding.intent_confidence
-        needs_confirmation = False
-        confirmation_question = None
-        confirmation_options = []
-
-        # 確信度が低い場合、または危険な操作の場合は確認
-        if confidence < CONFIRMATION_THRESHOLD:
-            needs_confirmation = True
-            confirmation_question = (
-                f"「{understanding.raw_message}」は「{action}」でいいウル？"
-            )
-            confirmation_options = ["はい", "いいえ"]
-        elif action in DANGEROUS_ACTIONS:
-            needs_confirmation = True
-            confirmation_question = f"本当に{action}を実行していいウル？"
-            confirmation_options = ["はい", "いいえ"]
-
-        return DecisionResult(
-            action=action,
-            params=params,
-            confidence=confidence,
-            needs_confirmation=needs_confirmation,
-            confirmation_question=confirmation_question,
-            confirmation_options=confirmation_options,
-            reasoning=f"Selected {action} with confidence {confidence}",
-            processing_time_ms=self._elapsed_ms(start_time),
-        )
+        return await self.decision.decide(understanding, context)
 
     # =========================================================================
     # 実行層

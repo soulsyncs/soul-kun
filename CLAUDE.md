@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-27 00:45 JST**
+**最終更新: 2026-01-27 01:30 JST**
 
 ## Phase一覧と状態
 
@@ -809,7 +809,62 @@ git status
 
 ## 直近の主な成果
 
-- **2026-01-27 00:45 JST**: 脳アーキテクチャ Phase D 完了 (v10.28.4) 🔄 **PR作成中**
+- **2026-01-27 01:30 JST**: 脳アーキテクチャ Phase E 完了 (v10.28.5) 🔄 **PR作成中**
+  - **実施者**: Claude Code
+  - **概要**: 判断層（Decision Layer）を実装。SYSTEM_CAPABILITIES ベースの能力スコアリング、複数アクション検出、MVV整合性チェックを実現
+  - **進捗**: 80%（Phase A + B + C + D + E 完了）
+  - **7つの鉄則対応**: 「4. 確認を怠らない」を具現化（危険操作・低確信度で確認モード発動）
+  - **作成ファイル**:
+    | ファイル | 行数 | 内容 |
+    |---------|------|------|
+    | `lib/brain/decision.py` | 840+ | BrainDecisionクラス（能力スコアリング・MVV連携） |
+    | `chatwork-webhook/lib/brain/decision.py` | 840+ | lib/のコピー |
+    | `tests/test_brain_decision.py` | 1000+ | 64件のユニットテスト |
+  - **BrainDecisionクラス主要機能**:
+    | 機能 | 詳細 |
+    |------|------|
+    | 5ステップ判断プロセス | 状態チェック→能力抽出→確認判定→MVV チェック→実行コマンド生成 |
+    | CAPABILITY_KEYWORDS | 各能力に対するprimary/secondary/negativeキーワード定義 |
+    | スコアリング公式 | keyword_match(40%) + intent_match(30%) + context_match(30%) |
+    | 複数アクション検出 | 「あと」「それと」「それから」「ついでに」で分割 |
+    | MVV整合性チェック | lib/mvv_context.py 連携、NGパターン検出 |
+    | 確認モード発動条件 | 確信度<0.7、危険操作、高リスクレベル |
+  - **定義された能力キーワード（13種）**:
+    - chatwork_task_create: primary=["タスク作成", "タスクを追加", "やることを登録"]
+    - chatwork_task_search: primary=["タスク検索", "タスクを探す", "自分のタスク"]
+    - chatwork_task_complete: primary=["タスク完了", "終わった", "完了にして"]
+    - goal_setting_start: primary=["目標設定", "目標を立てる", "ゴール設定"]
+    - その他9種
+  - **リスクレベル定義**:
+    | アクション | リスクレベル |
+    |-----------|-------------|
+    | chatwork_task_complete | high |
+    | forget_knowledge | high |
+    | announcement_create | high |
+    | learn_knowledge | medium |
+    | その他 | low |
+  - **constants.py追加定数**:
+    - SPLIT_PATTERNS: 複数アクション分割パターン（4種）
+    - CAPABILITY_MIN_SCORE_THRESHOLD: 0.1
+    - RISK_LEVELS: アクション別リスク定義
+    - CONFIRMATION_REQUIRED_RISK_LEVELS: {"high"}
+  - **core.py変更**:
+    - `__init__`にBrainDecision初期化追加
+    - `_decide()`がBrainDecisionに完全委譲（~200行→1行）
+  - **テスト**: 64件の判断層テスト全パス
+    - 初期化テスト（4件）
+    - キーワード定数テスト（5件）
+    - 単一アクション検出テスト（4件）
+    - 複数アクション検出テスト（5件）
+    - 能力スコアリングテスト（8件）
+    - MVVチェックテスト（6件）
+    - 確認モードテスト（6件）
+    - 状態別判断テスト（8件）
+    - LLM判断テスト（5件）
+    - 統合テスト（13件）
+  - **10の鉄則準拠**: フォールバック設計、MVV連携エラー時の安全な継続
+
+- **2026-01-27 00:45 JST**: 脳アーキテクチャ Phase D 完了 (v10.28.4) ✅ **PR #164 マージ完了**
   - **実施者**: Claude Code
   - **概要**: LLM理解層を実装。曖昧な入力（代名詞、省略）をLLMで解決し、確信度に基づく確認モードを実現
   - **進捗**: 72%（Phase A + B + C + D完了）

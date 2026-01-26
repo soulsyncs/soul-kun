@@ -2600,16 +2600,19 @@ async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name,
 
 
 async def _brain_handle_goal_setting_start(params, room_id, account_id, sender_name, context):
+    """目標設定開始ハンドラー（v10.29.8）"""
     from lib.brain.models import HandlerResult
     try:
         if USE_GOAL_SETTING_LIB:
             pool = get_pool()
             result = process_goal_setting_message(pool, room_id, account_id, "目標を設定したい")
-            if result and result.get("success"):
-                return HandlerResult(success=True, message=result.get("message", ""))
+            if result:
+                message = result.get("message", "")
+                if message:
+                    return HandlerResult(success=result.get("success", False), message=message)
         return HandlerResult(success=True, message="目標設定を始めるウル🐺")
     except Exception as e:
-        return HandlerResult(success=False, message=f"目標設定でエラーが発生したウル🐺")
+        return HandlerResult(success=False, message="目標設定でエラーが発生したウル🐺")
 
 
 async def _brain_handle_goal_progress_report(params, room_id, account_id, sender_name, context):

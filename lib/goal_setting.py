@@ -439,14 +439,14 @@ class GoalSettingDialogue:
         self.pattern_analyzer = None
 
     def _get_user_info(self, conn) -> bool:
-        """ユーザー情報を取得"""
+        """ユーザー情報を取得（v10.29.8: 文字列変換対応）"""
         result = conn.execute(
             text("""
                 SELECT id, organization_id, name FROM users
                 WHERE chatwork_account_id = :account_id
                 LIMIT 1
             """),
-            {"account_id": self.account_id}
+            {"account_id": str(self.account_id)}
         ).fetchone()
 
         if not result:

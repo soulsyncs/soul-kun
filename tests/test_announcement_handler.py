@@ -909,10 +909,36 @@ class TestMessageModification:
         handler = self._create_handler()
 
         # _handle_follow_up_responseでキーワード検出されることを確認
-        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        # v10.26.4: 「伝えて」「言って」等を追加
+        modification_keywords = [
+            "追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて",
+            "伝えて", "言って", "にして", "メッセージ", "内容"
+        ]
         for keyword in modification_keywords:
             test_message = f"「テスト」を{keyword}して"
             assert keyword in test_message
+
+    def test_natural_language_modification_detected(self):
+        """v10.26.4: 自然な表現での修正リクエストが検出されること"""
+        handler = self._create_handler()
+
+        # 自然な表現でのリクエスト
+        natural_requests = [
+            "これはテストだよっていうことを伝えてほしい",
+            "テストですって言って",
+            "シンプルにしてほしい",
+            "メッセージをもっと短くして",
+            "内容を変えてほしい",
+        ]
+
+        modification_keywords = [
+            "追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて",
+            "伝えて", "言って", "にして", "メッセージ", "内容"
+        ]
+
+        for request in natural_requests:
+            detected = any(kw in request for kw in modification_keywords)
+            assert detected, f"'{request}' should be detected as modification request"
 
     def test_apply_modification_fallback_append(self):
         """LLMエラー時のフォールバック追記処理"""
@@ -1129,7 +1155,10 @@ class TestFollowUpModificationDetection:
             "〇〇を入れて",
         ]
 
-        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        modification_keywords = [
+            "追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて",
+            "伝えて", "言って", "にして", "メッセージ", "内容"
+        ]
 
         for request in modification_requests:
             detected = any(kw in request for kw in modification_keywords)
@@ -1139,7 +1168,10 @@ class TestFollowUpModificationDetection:
         """OKやキャンセルは修正リクエストとして検出されないこと"""
         non_modification = ["OK", "ok", "キャンセル", "やめる", "はい", "送信"]
 
-        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        modification_keywords = [
+            "追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて",
+            "伝えて", "言って", "にして", "メッセージ", "内容"
+        ]
 
         for response in non_modification:
             detected = any(kw in response for kw in modification_keywords)

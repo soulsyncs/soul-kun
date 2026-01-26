@@ -998,7 +998,11 @@ class AnnouncementHandler:
             )
 
         # v10.26.2: メッセージ内容の修正リクエスト
-        modification_keywords = ["追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて"]
+        # v10.26.4: 「〇〇って伝えて」「〇〇って言って」等の自然な表現を追加
+        modification_keywords = [
+            "追記", "追加", "変更", "修正", "書き換え", "直して", "変えて", "入れて",
+            "伝えて", "言って", "にして", "メッセージ", "内容"
+        ]
         if any(kw in raw_message for kw in modification_keywords) and announcement_id:
             return self._update_message_content(
                 announcement_id, raw_message, room_id, account_id, sender_name

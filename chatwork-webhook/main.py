@@ -900,7 +900,8 @@ SYSTEM_CAPABILITIES = {
         "required_data": []
     },
     
-    "approve_proposal": {
+    # v10.29.9: approve_proposal → proposal_decision（handlers/brain層と統一）
+    "proposal_decision": {
         "name": "提案を承認",
         "description": "スタッフからの知識提案を承認する。管理者のみ実行可能。",
         "category": "learning",
@@ -954,7 +955,8 @@ SYSTEM_CAPABILITIES = {
     },
 
     # ===== 一般会話 =====
-    "general_chat": {
+    # v10.29.9: general_chat → general_conversation（handlers/brain層と統一）
+    "general_conversation": {
         "name": "一般会話",
         "description": "上記のどの機能にも当てはまらない一般的な会話、質問、雑談、挨拶などに対応。",
         "category": "chat",
@@ -993,7 +995,8 @@ SYSTEM_CAPABILITIES = {
         "required_data": ["google_docs_api"]
     },
     
-    "query_company_knowledge": {
+    # v10.29.9: query_company_knowledge → query_knowledge（handlers/brain層と統一）
+    "query_knowledge": {
         "name": "会社知識の参照",
         "description": "就業規則、マニュアル、社内ルールなど会社の知識ベースを参照して回答する。有給休暇、経費精算、各種手続きなどの質問に対応。",
         "category": "knowledge",
@@ -1217,7 +1220,8 @@ SYSTEM_CAPABILITIES = {
     # =====================================================
     # v10.26.0: アナウンス機能
     # =====================================================
-    "announcement_request": {
+    # v10.29.9: announcement_request → announcement_create（handlers/brain層と統一）
+    "announcement_create": {
         "name": "アナウンス依頼",
         "description": "指定したグループチャットにオールメンション（[toall]）でアナウンスを送信する。タスク一括作成や定期実行も可能。管理部チャットまたはカズさんDMからのみ使用可能。",
         "category": "communication",

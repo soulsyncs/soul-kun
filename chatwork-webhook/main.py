@@ -2391,11 +2391,12 @@ def _get_brain_integration():
                 return "申し訳ないウル、応答生成中にエラーが発生したウル🐺"
 
         try:
+            # v10.29.7: SYSTEM_CAPABILITIESは必ずモジュールレベルで定義されている
             _brain_integration = create_integration(
                 pool=get_pool(),
                 org_id="org_soulsyncs",
                 handlers=handlers,
-                capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
+                capabilities=SYSTEM_CAPABILITIES,  # 直接参照（in dir()は機能しない）
                 get_ai_response_func=_brain_ai_response_wrapper,
                 firestore_db=db,
             )
@@ -2448,7 +2449,7 @@ def _get_brain():
             pool=get_pool(),
             org_id="org_soulsyncs",
             handlers=handlers,
-            capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
+            capabilities=SYSTEM_CAPABILITIES,  # v10.29.7: 直接参照（in dir()は機能しない）
             get_ai_response_func=get_ai_response,
             firestore_db=db,
         )

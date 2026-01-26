@@ -729,7 +729,8 @@ class TestDecideMethod:
             entities={},
         )
         result = await brain_decision.decide(understanding, empty_context)
-        assert result.action == "general_response"
+        # v10.29.7: general_response → general_conversation（ハンドラー名と統一）
+        assert result.action == "general_conversation"
         assert result.confidence == 0.3
 
     @pytest.mark.asyncio

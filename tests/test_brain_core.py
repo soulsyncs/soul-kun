@@ -373,10 +373,10 @@ class TestDecision:
 
         result = await brain._decide(understanding, context)
 
-        # マッチする機能がないのでgeneral_response
-        # general_responseは確認不要（スキップテストに変更）
+        # マッチする機能がないのでgeneral_conversation
+        # v10.29.7: general_response → general_conversation（ハンドラー名と統一）
         # Phase E: 機能にマッチしない場合は汎用応答を返す
-        assert result.action == "general_response"
+        assert result.action == "general_conversation"
         assert result.confidence == 0.3
 
 

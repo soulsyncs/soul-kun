@@ -809,6 +809,34 @@ git status
 
 ## 直近の主な成果
 
+- **2026-01-26 11:45 JST**: 脳アーキテクチャ Phase A 完了 (v10.28.0) 🔄 **PR作成中**
+  - **実施者**: Claude Code
+  - **概要**: ソウルくんの中央処理装置「脳」を新設。全てのユーザー入力が脳を通るようになる
+  - **進捗**: 18%（Phase A バイパスルート排除完了）
+  - **作成ファイル**:
+    | ファイル | 行数 | 内容 |
+    |---------|------|------|
+    | `lib/brain/__init__.py` | 50 | エクスポート定義 |
+    | `lib/brain/constants.py` | 120 | 定数定義（キャンセルキーワード、閾値等） |
+    | `lib/brain/exceptions.py` | 120 | 例外クラス階層 |
+    | `lib/brain/models.py` | 350 | データモデル（BrainContext, BrainResponse等） |
+    | `lib/brain/core.py` | 960 | SoulkunBrainクラス（中央処理装置） |
+    | `docs/13_brain_architecture.md` | 1606 | 設計書 |
+    | `tests/test_brain_core.py` | 540 | 49件のユニットテスト |
+  - **main.py変更**:
+    - Feature Flag追加（`USE_BRAIN_ARCHITECTURE`）
+    - `_get_brain()`シングルトン初期化関数
+    - 19種の脳用ハンドラーラッパー追加
+    - chatwork_webhook()に脳処理分岐追加
+  - **効果**:
+    - 全入力が脳を経由するため、一貫した判断が可能に
+    - 確信度が低い場合は確認を求める
+    - キャンセル処理が統一される
+    - エラー時は従来フローにフォールバック
+  - **テスト**: 49件の脳テスト + 1171件全パス
+  - **10の鉄則準拠**: organization_id、フォールバック設計、Feature Flag
+  - **Feature Flag**: `USE_BRAIN_ARCHITECTURE=false`（デフォルト無効）
+
 - **2026-01-26 11:10 JST**: Phase X アナウンス機能 ルーム選択フロー修正 (v10.26.4〜v10.26.9b) 🔄 **テスト待ち**
   - **実施者**: Claude Code
   - **概要**: アナウンス確認フローで発生した複数のバグを連続修正

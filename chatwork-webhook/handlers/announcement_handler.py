@@ -961,10 +961,35 @@ class AnnouncementHandler:
         account_id: str,
         sender_name: str,
         context: Dict[str, Any]
-    ) -> str:
-        """確認応答やルーム選択の処理"""
+    ) -> Optional[str]:
+        """確認応答やルーム選択の処理
+
+        Returns:
+            str: 応答メッセージ
+            None: フォローアップではないと判断した場合（AI司令塔に委ねる）
+        """
         response_text = params.get("raw_message", "").strip().lower()
+        raw_message = params.get("raw_message", "")
         announcement_id = context.get("pending_announcement_id")
+
+        # v10.26.5: 明らかにフォローアップではないメッセージはAI司令塔に委ねる
+        # 質問パターン（「教えて」「確認して」「見せて」等）
+        query_patterns = ["教えて", "確認して", "見せて", "調べて", "探して", "検索して", "一覧", "リスト"]
+        # 自己参照パターン（「自分の」「私の」「俺の」「僕の」等）
+        self_reference = ["自分の", "私の", "俺の", "僕の", "わたしの"]
+
+        is_query = any(p in raw_message for p in query_patterns)
+        is_self_ref = any(p in raw_message for p in self_reference)
+
+        # 質問+自己参照は明らかに別のリクエスト（例: 「自分のタスク教えて」）
+        if is_query and is_self_ref:
+            print(f"📢 フォローアップではない（質問+自己参照）: {raw_message[:50]}")
+            return None  # AI司令塔に委ねる
+
+        # 質問パターンのみでも、アナウンス関連でなければスキップ
+        if is_query and "アナウンス" not in raw_message and "送信" not in raw_message:
+            print(f"📢 フォローアップではない（質問パターン）: {raw_message[:50]}")
+            return None  # AI司令塔に委ねる
 
         # 確認応答
         if response_text in ["ok", "おっけー", "送信", "実行", "はい", "yes"]:

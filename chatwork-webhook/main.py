@@ -6549,7 +6549,10 @@ def chatwork_webhook(request):
                             account_id=sender_account_id,
                             sender_name=sender_name,
                         )
-                        if response:
+                        # v10.26.5: Noneが返った場合はフォローアップではないのでAI司令塔に委ねる
+                        if response is None:
+                            print(f"📢 フォローアップではない判定 → AI司令塔に委ねる")
+                        elif response:
                             show_guide = should_show_guide(room_id, sender_account_id)
                             send_chatwork_message(room_id, response, sender_account_id, show_guide)
                             update_conversation_timestamp(room_id, sender_account_id)

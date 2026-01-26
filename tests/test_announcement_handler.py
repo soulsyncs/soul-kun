@@ -1176,3 +1176,174 @@ class TestFollowUpModificationDetection:
         for response in non_modification:
             detected = any(kw in response for kw in modification_keywords)
             assert not detected, f"'{response}' should NOT be detected as modification request"
+
+
+# =====================================================
+# v10.26.5: 非フォローアップ検出テスト
+# =====================================================
+
+class TestNonFollowUpDetection:
+    """フォローアップではないメッセージの検出テスト"""
+
+    def _create_handler(self):
+        return AnnouncementHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(),
+            call_chatwork_api_with_retry=MagicMock(),
+            get_room_members=MagicMock(),
+            get_all_rooms=MagicMock(),
+            create_chatwork_task=MagicMock(),
+            send_chatwork_message=MagicMock(),
+        )
+
+    def test_self_task_query_returns_none(self):
+        """「自分のタスク教えて」はフォローアップではない（Noneを返す）"""
+        handler = self._create_handler()
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "自分のタスク教えて"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        # Noneが返ってAI司令塔に処理が委ねられる
+        assert result is None
+
+    def test_my_task_query_returns_none(self):
+        """「私のタスクを確認して」はフォローアップではない"""
+        handler = self._create_handler()
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "私のタスクを確認して"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        assert result is None
+
+    def test_general_query_returns_none(self):
+        """「今日の予定教えて」はフォローアップではない"""
+        handler = self._create_handler()
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "今日の予定教えて"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        assert result is None
+
+    def test_task_addition_is_follow_up(self):
+        """「タスク追加して」はフォローアップとして処理される（Noneではない）"""
+        handler = self._create_handler()
+
+        # DBモック
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = {
+            "id": "test-id",
+            "message_content": "テストメッセージ",
+            "target_room_id": "100",
+            "target_room_name": "テストルーム",
+            "create_tasks": False,
+            "task_deadline": None,
+            "task_assign_all_members": False,
+            "task_include_account_ids": None,
+            "task_exclude_account_ids": None,
+            "schedule_type": "immediate",
+            "scheduled_at": None,
+            "cron_expression": None,
+        }
+        mock_conn.execute.return_value = mock_result
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        handler.get_pool().connect.return_value = mock_conn
+
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "タスク追加して"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        # Noneではなく、何らかの応答が返る（確認メッセージ）
+        assert result is not None
+
+    def test_ok_is_follow_up(self):
+        """「OK」はフォローアップとして処理される"""
+        handler = self._create_handler()
+
+        # DBモック（execute_announcement_by_idで使用）
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None  # 実行対象なしでエラーになる
+        mock_conn.execute.return_value = mock_result
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        handler.get_pool().connect.return_value = mock_conn
+
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "OK"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        # Noneではなく、何らかの応答が返る
+        assert result is not None
+
+    def test_cancel_is_follow_up(self):
+        """「キャンセル」はフォローアップとして処理される"""
+        handler = self._create_handler()
+
+        # _cancel_announcementのDBモック
+        mock_conn = MagicMock()
+        mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+        mock_conn.__exit__ = MagicMock(return_value=False)
+        handler.get_pool().connect.return_value = mock_conn
+
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": "test-id",
+        }
+
+        result = handler._handle_follow_up_response(
+            params={"raw_message": "キャンセル"},
+            room_id="123",
+            account_id="456",
+            sender_name="テスト太郎",
+            context=context,
+        )
+
+        assert result is not None
+        assert "キャンセル" in result

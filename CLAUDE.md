@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 21:00 JST**
+**最終更新: 2026-01-26 15:15 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,38 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 15:15 JST**: Google Drive 認識できないフォルダ アラート機能 (v10.28.0) ✅ **PR #177 マージ・本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **概要**: Google Drive同期時に「部署別」フォルダ配下で組織図に存在しない部署名のフォルダがあった場合、管理部グループチャットにアラートを送信する機能
+  - **背景**: 組織図の変更やGoogle Driveのフォルダ名誤変更を検知し、管理者に通知するための安全機構
+  - **変更内容**:
+    - `watch-google-drive/main.py`: アラート送信ロジック追加（+116行）
+      - `ENABLE_UNMATCHED_FOLDER_ALERT` Feature Flag（デフォルト: true）
+      - `ADMIN_ROOM_ID` 定数（405315911）
+      - `send_unmatched_folder_alert()` 関数追加
+      - `process_file()` の戻り値に `unmatched_folder` を追加
+      - 同期完了後にアラート送信
+    - `watch-google-drive/lib/chatwork.py`: lib/からコピー（ChatworkClient用）
+    - `watch-google-drive/requirements.txt`: httpx依存関係追加
+  - **アラートメッセージ内容**:
+    - 認識できなかったフォルダ名一覧
+    - 考えられる原因（3点）
+    - 登録済み部署一覧
+  - **デプロイ**: watch-google-drive revision 00018-bav
+  - **テスト**: Quality Checks 4/4パス
+  - **10の鉄則準拠**: organization_idフィルタ維持、エラーメッセージに機密情報含まず
+
+- **2026-01-26 14:10 JST**: Google Drive 動的部署マッピング pg8000互換性修正 (v10.27.5) ✅ **PR #172 マージ・本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **概要**: DepartmentMappingServiceのSQL構文をpg8000互換に修正
+  - **問題**: `::uuid` キャスト構文がpg8000でサポートされていなかった
+  - **修正**: `WHERE CAST(organization_id AS TEXT) = :org_id` に変更
+  - **変更ファイル**:
+    - `lib/department_mapping.py`: SQL構文修正
+    - `watch-google-drive/lib/department_mapping.py`: 同期
+  - **デプロイ**: watch-google-drive revision 00017-xxx
+  - **動作確認**: 8部署のキャッシュ取得成功、ファイル同期成功
 
 - **2026-01-26 21:00 JST**: 脳アーキテクチャ本番統合 (v10.29.0) ✅ **PR #170 マージ完了**
   - **実施者**: Claude Code

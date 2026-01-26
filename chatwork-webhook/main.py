@@ -1876,18 +1876,26 @@ def get_department_members(dept_name):
         return dept_full_name, members
 
 
-def get_all_chatwork_users():
-    """ChatWorkユーザー一覧を取得（AI司令塔用）"""
+def get_all_chatwork_users(organization_id: str = None):
+    """ChatWorkユーザー一覧を取得（AI司令塔用）
+
+    v10.30.0: 10の鉄則準拠 - organization_idフィルタ必須化
+    """
+    if organization_id is None:
+        organization_id = MEMORY_DEFAULT_ORG_ID
+
     try:
         pool = get_pool()
         with pool.connect() as conn:
             result = conn.execute(
                 sqlalchemy.text("""
-                    SELECT DISTINCT account_id, name 
-                    FROM chatwork_users 
-                    WHERE name IS NOT NULL AND name != ''
+                    SELECT DISTINCT account_id, name
+                    FROM chatwork_users
+                    WHERE organization_id = :org_id
+                      AND name IS NOT NULL AND name != ''
                     ORDER BY name
-                """)
+                """),
+                {"org_id": organization_id}
             ).fetchall()
             return [{"account_id": row[0], "name": row[1]} for row in result]
     except Exception as e:
@@ -1937,10 +1945,16 @@ def delete_task(task_id):
 
 # ===== ChatWorkタスク機能 =====
 
-def get_chatwork_account_id_by_name(name):
-    """担当者名からChatWorkアカウントIDを取得（敬称除去・スペース正規化対応）"""
+def get_chatwork_account_id_by_name(name, organization_id: str = None):
+    """担当者名からChatWorkアカウントIDを取得（敬称除去・スペース正規化対応）
+
+    v10.30.0: 10の鉄則準拠 - organization_idフィルタ必須化
+    """
+    if organization_id is None:
+        organization_id = MEMORY_DEFAULT_ORG_ID
+
     pool = get_pool()
-    
+
     # ★ 敬称を除去（さん、くん、ちゃん、様、氏）
     clean_name = re.sub(r'(さん|くん|ちゃん|様|氏)$', '', name.strip())
     # ★ スペースを除去して正規化（半角・全角両方）
@@ -1950,46 +1964,59 @@ def get_chatwork_account_id_by_name(name):
     with pool.connect() as conn:
         # 完全一致で検索（クリーニング後の名前）
         result = conn.execute(
-            sqlalchemy.text("SELECT account_id FROM chatwork_users WHERE name = :name LIMIT 1"),
-            {"name": clean_name}
+            sqlalchemy.text("""
+                SELECT account_id FROM chatwork_users
+                WHERE organization_id = :org_id AND name = :name
+                LIMIT 1
+            """),
+            {"org_id": organization_id, "name": clean_name}
         ).fetchone()
         if result:
             print(f"✅ 完全一致で発見: {clean_name} → {result[0]}")
             return result[0]
-        
+
         # 部分一致で検索（クリーニング後の名前）
         result = conn.execute(
-            sqlalchemy.text("SELECT account_id, name FROM chatwork_users WHERE name ILIKE :pattern LIMIT 1"),
-            {"pattern": f"%{clean_name}%"}
+            sqlalchemy.text("""
+                SELECT account_id, name FROM chatwork_users
+                WHERE organization_id = :org_id AND name ILIKE :pattern
+                LIMIT 1
+            """),
+            {"org_id": organization_id, "pattern": f"%{clean_name}%"}
         ).fetchone()
         if result:
             print(f"✅ 部分一致で発見: {clean_name} → {result[0]} ({result[1]})")
             return result[0]
-        
+
         # ★ スペース除去して正規化した名前で検索（NEW）
         # DBの名前からもスペースを除去して比較
         result = conn.execute(
             sqlalchemy.text("""
-                SELECT account_id, name FROM chatwork_users 
-                WHERE REPLACE(REPLACE(name, ' ', ''), '　', '') ILIKE :pattern 
+                SELECT account_id, name FROM chatwork_users
+                WHERE organization_id = :org_id
+                  AND REPLACE(REPLACE(name, ' ', ''), '　', '') ILIKE :pattern
                 LIMIT 1
             """),
-            {"pattern": f"%{normalized_name}%"}
+            {"org_id": organization_id, "pattern": f"%{normalized_name}%"}
         ).fetchone()
         if result:
             print(f"✅ 正規化検索で発見: {normalized_name} → {result[0]} ({result[1]})")
             return result[0]
-        
+
         # 元の名前でも検索（念のため）
         if clean_name != name:
             result = conn.execute(
-                sqlalchemy.text("SELECT account_id, name FROM chatwork_users WHERE name ILIKE :pattern LIMIT 1"),
-                {"pattern": f"%{name}%"}
+                sqlalchemy.text("""
+                    SELECT account_id, name FROM chatwork_users
+                    WHERE organization_id = :org_id AND name ILIKE :pattern
+                    LIMIT 1
+                """),
+                {"org_id": organization_id, "pattern": f"%{name}%"}
             ).fetchone()
             if result:
                 print(f"✅ 元の名前で部分一致: {name} → {result[0]} ({result[1]})")
                 return result[0]
-        
+
         print(f"❌ 担当者が見つかりません: {name} (クリーニング後: {clean_name}, 正規化: {normalized_name})")
         return None
 
@@ -9831,28 +9858,32 @@ def send_completion_notification(room_id, task, assigned_by_name):
     #     print(f"Failed to send completion notification: {response.status_code}")
 
 def sync_room_members():
-    """全ルームのメンバーをchatwork_usersテーブルに同期"""
+    """全ルームのメンバーをchatwork_usersテーブルに同期
+
+    v10.30.0: 10の鉄則準拠 - organization_id追加
+    """
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    
+    organization_id = MEMORY_DEFAULT_ORG_ID
+
     try:
         # 全ルームを取得
         rooms = get_all_rooms()
-        
+
         if not rooms:
             print("No rooms found")
             return
-        
+
         pool = get_pool()
         synced_count = 0
-        
+
         for room in rooms:
             room_id = room.get("room_id")
             room_type = room.get("type")
-            
+
             # マイチャットはスキップ
             if room_type == "my":
                 continue
-            
+
             try:
                 # ルームメンバーを取得
                 response = httpx.get(
@@ -9860,44 +9891,46 @@ def sync_room_members():
                     headers={"X-ChatWorkToken": api_token},
                     timeout=10.0
                 )
-                
+
                 if response.status_code != 200:
                     print(f"Failed to get members for room {room_id}: {response.status_code}")
                     continue
-                
+
                 members = response.json()
-                
+
                 with pool.begin() as conn:
                     for member in members:
                         account_id = member.get("account_id")
                         name = member.get("name", "")
-                        
+
                         if not account_id or not name:
                             continue
-                        
+
                         # UPSERT: 存在すれば更新、なければ挿入
+                        # v10.30.0: organization_id追加（複合ユニーク制約対応）
                         conn.execute(
                             sqlalchemy.text("""
-                                INSERT INTO chatwork_users (account_id, name, room_id, updated_at)
-                                VALUES (:account_id, :name, :room_id, CURRENT_TIMESTAMP)
-                                ON CONFLICT (account_id) 
-                                DO UPDATE SET name = :name, updated_at = CURRENT_TIMESTAMP
+                                INSERT INTO chatwork_users (organization_id, account_id, name, room_id, updated_at)
+                                VALUES (:org_id, :account_id, :name, :room_id, CURRENT_TIMESTAMP)
+                                ON CONFLICT (organization_id, account_id)
+                                DO UPDATE SET name = :name, room_id = :room_id, updated_at = CURRENT_TIMESTAMP
                             """),
                             {
+                                "org_id": organization_id,
                                 "account_id": account_id,
                                 "name": name,
                                 "room_id": room_id
                             }
                         )
                         synced_count += 1
-                    
+
             except Exception as e:
                 print(f"Error syncing members for room {room_id}: {e}")
                 traceback.print_exc()
                 continue
-        
+
         print(f"Synced {synced_count} members")
-        
+
     except Exception as e:
         print(f"Error in sync_room_members: {e}")
         traceback.print_exc()

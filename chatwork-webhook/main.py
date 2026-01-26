@@ -7294,14 +7294,23 @@ def chatwork_webhook(request):
         # v10.31.4: 目標設定セッションは脳より先にチェック
         # BUG-FIX: 脳アーキテクチャが目標設定セッションを無視するバグ修正
         # 目標設定モード中のメッセージは、脳を通さず直接対話フローへ
+        # v10.31.6: 「目標設定したい」キーワードでも新規セッション開始
         # =====================================================
         if USE_GOAL_SETTING_LIB:
             try:
                 pool = get_pool()
                 has_session = has_active_goal_session(pool, room_id, sender_account_id)
-                print(f"🎯 目標設定セッションチェック（脳より先）: room_id={room_id}, has_session={has_session}")
 
-                if has_session:
+                # v10.31.6: 目標設定開始キーワードの検出
+                goal_start_keywords = [
+                    "目標設定したい", "目標を設定したい", "目標を立てたい", "目標を決めたい",
+                    "目標設定", "目標登録", "今月の目標を設定", "個人目標を設定"
+                ]
+                wants_goal_setting = any(kw in clean_message for kw in goal_start_keywords)
+
+                print(f"🎯 目標設定セッションチェック（脳より先）: room_id={room_id}, has_session={has_session}, wants_goal_setting={wants_goal_setting}")
+
+                if has_session or wants_goal_setting:
                     print(f"🎯 アクティブなセッションを検出 - 対話フローにルーティング（脳をバイパス）")
                     result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
 

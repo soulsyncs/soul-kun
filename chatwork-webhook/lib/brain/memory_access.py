@@ -429,9 +429,14 @@ class BrainMemoryAccess:
         Returns:
             ConversationSummaryData: 会話要約（なければNone）
         """
+        # conversation_summaries.organization_id は UUID型
+        # org_idがUUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping conversation_summaries query: org_id={self.org_id} is not UUID format")
+            return None
+
         try:
             # Note: user_idはChatWork account_idなので、users.chatwork_account_idと照合が必要
-            # 現状はuser_idがUUIDでない場合を考慮して、ChatWork account_idで検索
             with self.pool.connect() as conn:
                 result = conn.execute(
                     text("""
@@ -446,7 +451,7 @@ class BrainMemoryAccess:
                         FROM conversation_summaries cs
                         JOIN users u ON cs.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND cs.organization_id = :org_id
+                          AND cs.organization_id = :org_id::uuid
                         ORDER BY cs.created_at DESC
                         LIMIT 1
                     """),
@@ -488,6 +493,12 @@ class BrainMemoryAccess:
         Returns:
             List[UserPreferenceData]: ユーザー嗜好のリスト
         """
+        # user_preferences.organization_id は UUID型
+        # org_idがUUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping user_preferences query: org_id={self.org_id} is not UUID format")
+            return []
+
         try:
             with self.pool.connect() as conn:
                 result = conn.execute(
@@ -500,7 +511,7 @@ class BrainMemoryAccess:
                         FROM user_preferences up
                         JOIN users u ON up.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND up.organization_id = :org_id
+                          AND up.organization_id = :org_id::uuid
                         ORDER BY up.confidence DESC
                         LIMIT 20
                     """),
@@ -744,21 +755,25 @@ class BrainMemoryAccess:
 
         try:
             with self.pool.connect() as conn:
-                # キーワードマッチで関連知識を検索
-                # TODO: 将来的にはベクトル検索（Pinecone）と組み合わせる
+                # soulkun_knowledge テーブルの実際のカラム名:
+                # - key (NOT keyword)
+                # - value (NOT answer)
+                # - category
+                # 注意: このテーブルにはorganization_idがない（Phase 4前の設計）
                 # 注意: ILIKE の % は CONCAT を使用（SQLAlchemy が %s と誤解するため）
+                # 注意: pg_trgm拡張がない場合はsimilarity関数が使えないため、
+                #       単純なILIKEマッチングのみ使用
                 result = conn.execute(
                     text("""
                         SELECT
                             id,
-                            keyword,
-                            answer,
-                            category,
-                            COALESCE(similarity(keyword, :query), 0) AS score
+                            key,
+                            value,
+                            category
                         FROM soulkun_knowledge
-                        WHERE keyword ILIKE CONCAT('%%', :query, '%%')
-                           OR answer ILIKE CONCAT('%%', :query, '%%')
-                        ORDER BY score DESC
+                        WHERE key ILIKE CONCAT('%%', :query, '%%')
+                           OR value ILIKE CONCAT('%%', :query, '%%')
+                        ORDER BY id DESC
                         LIMIT :limit
                     """),
                     {"query": query, "limit": limit},
@@ -768,10 +783,10 @@ class BrainMemoryAccess:
                 return [
                     KnowledgeInfo(
                         id=row[0],
-                        keyword=row[1] or "",
-                        answer=row[2] or "",
+                        keyword=row[1] or "",  # key → keyword (データクラスのフィールド名)
+                        answer=row[2] or "",   # value → answer (データクラスのフィールド名)
                         category=row[3],
-                        relevance_score=row[4] or 0.0,
+                        relevance_score=1.0,   # similarity関数なしのため固定値
                     )
                     for row in rows
                 ]

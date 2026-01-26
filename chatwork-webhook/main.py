@@ -2747,6 +2747,7 @@ def get_user_id_from_chatwork_account(conn, chatwork_account_id):
             sqlalchemy.text("""
                 SELECT id FROM users
                 WHERE chatwork_account_id = :chatwork_account_id
+                  AND is_active = TRUE
                 LIMIT 1
             """),
             {"chatwork_account_id": str(chatwork_account_id)}
@@ -5464,6 +5465,7 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
                 text("""
                     SELECT id, organization_id, name FROM users
                     WHERE chatwork_account_id = :account_id
+                      AND is_active = TRUE
                     LIMIT 1
                 """),
                 {"account_id": str(account_id)}
@@ -5588,6 +5590,7 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
                 text("""
                     SELECT id, organization_id, name FROM users
                     WHERE chatwork_account_id = :account_id
+                      AND is_active = TRUE
                     LIMIT 1
                 """),
                 {"account_id": str(account_id)}
@@ -5781,6 +5784,7 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
                 text("""
                     SELECT id, organization_id, name FROM users
                     WHERE chatwork_account_id = :account_id
+                      AND is_active = TRUE
                     LIMIT 1
                 """),
                 {"account_id": str(account_id)}
@@ -6063,6 +6067,7 @@ def process_memory_after_conversation(
                 sqlalchemy.text("""
                     SELECT id, organization_id FROM users
                     WHERE chatwork_account_id = :account_id
+                      AND is_active = TRUE
                     LIMIT 1
                 """),
                 {"account_id": str(account_id)}
@@ -6853,7 +6858,8 @@ def chatwork_webhook(request):
                         """従来のAI司令塔フロー"""
                         try:
                             # コンテキスト準備（フォールバック用に簡易版）
-                            fb_all_persons = get_all_persons()
+                            # Note: get_all_persons_summary()は要約版を返す
+                            fb_all_persons = get_all_persons_summary()
                             fb_all_tasks = search_tasks_from_db(room_id=r_id, account_id=a_id, limit=50)
                             fb_chatwork_users = get_chatwork_users_for_room(r_id)
                             fb_conversation_history = get_conversation_history(r_id, a_id)

@@ -7291,6 +7291,52 @@ def chatwork_webhook(request):
             print(f"🔒 処理開始マーク: message_id={message_id}")
 
         # =====================================================
+        # v10.31.4: 目標設定セッションは脳より先にチェック
+        # BUG-FIX: 脳アーキテクチャが目標設定セッションを無視するバグ修正
+        # 目標設定モード中のメッセージは、脳を通さず直接対話フローへ
+        # =====================================================
+        if USE_GOAL_SETTING_LIB:
+            try:
+                pool = get_pool()
+                has_session = has_active_goal_session(pool, room_id, sender_account_id)
+                print(f"🎯 目標設定セッションチェック（脳より先）: room_id={room_id}, has_session={has_session}")
+
+                if has_session:
+                    print(f"🎯 アクティブなセッションを検出 - 対話フローにルーティング（脳をバイパス）")
+                    result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
+
+                    if result and result.get("success"):
+                        response_message = result.get("message", "")
+                        if response_message:
+                            show_guide = should_show_guide(room_id, sender_account_id)
+                            send_chatwork_message(room_id, response_message, sender_account_id, show_guide)
+                            update_conversation_timestamp(room_id, sender_account_id)
+                            return jsonify({"status": "ok", "goal_session": True})
+                        else:
+                            print(f"⚠️ 目標設定処理成功だがメッセージが空")
+                            return jsonify({"status": "ok", "goal_session": True})
+                    else:
+                        error_msg = result.get("message") if result else None
+                        if not error_msg:
+                            error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
+                        print(f"⚠️ 目標設定処理失敗: {error_msg}")
+                        send_chatwork_message(room_id, error_msg, sender_account_id, False)
+                        return jsonify({"status": "ok", "goal_session": True})
+
+            except Exception as e:
+                print(f"❌ 目標設定セッション処理で例外（脳より先のチェック）: {e}")
+                import traceback
+                traceback.print_exc()
+                # has_sessionがTrueで例外発生した場合も脳に渡さない
+                if 'has_session' in dir() and has_session:
+                    send_chatwork_message(
+                        room_id,
+                        "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺",
+                        sender_account_id, False
+                    )
+                    return jsonify({"status": "ok", "goal_session": True})
+
+        # =====================================================
         # v10.29.0: 脳アーキテクチャ（BrainIntegration経由）
         # USE_BRAIN_ARCHITECTURE で制御:
         #   - false: 無効（従来フロー）
@@ -7385,6 +7431,8 @@ def chatwork_webhook(request):
         # =====================================================
         # v10.19.0: Phase 2.5 目標設定対話セッションのチェック
         # v10.19.4: セッション処理の堅牢化（AI司令塔フォールバック防止）
+        # v10.31.4: 脳より先のチェック（7293行目）を追加したため、
+        #           ここは脳がエラーの場合のフォールバックとして残す
         # =====================================================
         # アクティブな目標設定セッションがある場合は、
         # メッセージを目標設定対話フローにルーティングする

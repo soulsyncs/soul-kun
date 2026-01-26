@@ -82,6 +82,7 @@ from lib.embedding import EmbeddingClient
 from lib.pinecone_client import PineconeClient
 from lib.db import get_db_pool
 from lib.secrets import get_secret
+from lib.chatwork import ChatworkClient
 
 from sqlalchemy import text
 
@@ -103,6 +104,13 @@ CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '200'))
 # true: DBから部署マスタを取得してマッピング（Phase 3.5連携）
 # false: 静的な DEPARTMENT_MAP を使用（従来動作）
 USE_DYNAMIC_DEPARTMENT_MAPPING = os.getenv('USE_DYNAMIC_DEPARTMENT_MAPPING', 'true').lower() == 'true'
+
+# Feature Flag: 認識できないフォルダのアラート
+# true: 部署別フォルダ配下で認識できないフォルダがあった場合、管理部にアラートを送信
+ENABLE_UNMATCHED_FOLDER_ALERT = os.getenv('ENABLE_UNMATCHED_FOLDER_ALERT', 'true').lower() == 'true'
+
+# 管理部グループチャットのルームID（アラート送信先）
+ADMIN_ROOM_ID = int(os.getenv('ADMIN_ROOM_ID', '405315911'))
 
 
 # ================================================================
@@ -643,6 +651,7 @@ async def process_file(
     document_id = None  # エラーハンドリング用に先に定義
     new_version = None
     status = None
+    unmatched_folder = None  # 認識できなかったフォルダ名
 
     try:
         # スキップチェック
@@ -653,6 +662,20 @@ async def process_file(
 
         # 権限情報を取得
         permissions = folder_mapper.map_folder_to_permissions(folder_path)
+
+        # 認識できなかったフォルダを検出
+        # classification が "confidential"（部署別フォルダ）かつ department_id が None の場合
+        unmatched_folder = None
+        if permissions["classification"] == "confidential" and permissions["department_id"] is None:
+            # 「部署別」フォルダの次のフォルダ名を取得
+            for i, folder_name in enumerate(folder_path):
+                if folder_name == "部署別" and i + 1 < len(folder_path):
+                    unmatched_folder = folder_path[i + 1]
+                    logger.warning(
+                        f"認識できないフォルダ: '{unmatched_folder}' "
+                        f"(file: {file.name}, path: {folder_path})"
+                    )
+                    break
 
         # 既存ドキュメントを確認
         existing_doc = db_ops.get_document_by_drive_id(
@@ -667,7 +690,7 @@ async def process_file(
         # 既存ドキュメントがあり、ハッシュが同じなら更新不要
         if existing_doc and existing_doc.get("file_hash") == file_hash:
             logger.info(f"変更なし: {file.name}")
-            return {"status": "skipped", "reason": "ファイル内容に変更なし"}
+            return {"status": "skipped", "reason": "ファイル内容に変更なし", "unmatched_folder": unmatched_folder}
 
         # テキスト抽出とチャンク分割（品質フィルタリング適用 v10.13.2）
         extracted_doc, chunks, excluded_chunks = doc_processor.process_with_quality_filter(
@@ -691,7 +714,7 @@ async def process_file(
 
         if not chunks:
             logger.warning(f"有効なチャンクがありません: {file.name}")
-            return {"status": "skipped", "reason": "有効なチャンクなし（全て低品質）"}
+            return {"status": "skipped", "reason": "有効なチャンクなし（全て低品質）", "unmatched_folder": unmatched_folder}
 
         # エンベディング生成（この段階でエラーが発生してもDB変更なし）
         chunk_texts = [chunk.content for chunk in chunks]
@@ -844,7 +867,7 @@ async def process_file(
         )
 
         logger.info(f"{status}: {file.name} ({len(chunks)} chunks)")
-        return {"status": status}
+        return {"status": status, "unmatched_folder": unmatched_folder}
 
     except Exception as e:
         logger.error(f"処理エラー: {file.name} - {str(e)}")
@@ -860,7 +883,77 @@ async def process_file(
             except Exception as db_error:
                 logger.error(f"ステータス更新エラー: {document_id} - {str(db_error)}")
 
-        return {"status": "failed", "reason": str(e)}
+        return {"status": "failed", "reason": str(e), "unmatched_folder": unmatched_folder}
+
+
+# ================================================================
+# アラート送信
+# ================================================================
+
+def send_unmatched_folder_alert(
+    unmatched_folders: list[str],
+    folder_mapper: FolderMapper
+) -> None:
+    """
+    認識できなかったフォルダについて管理部にアラートを送信
+
+    Args:
+        unmatched_folders: 認識できなかったフォルダ名のリスト
+        folder_mapper: FolderMapper インスタンス（登録済み部署の取得用）
+    """
+    if not unmatched_folders:
+        return
+
+    try:
+        # ChatWorkクライアントを初期化
+        chatwork = ChatworkClient()
+
+        # 登録済み部署一覧を取得
+        registered_departments = folder_mapper.get_all_departments()
+        dept_names = list(registered_departments.keys())
+
+        # メッセージを作成
+        message_lines = [
+            "[info][title]⚠️ Google Drive フォルダ認識アラート[/title]",
+            "以下のフォルダ名が組織図の部署と一致しませんでした：",
+            ""
+        ]
+
+        for folder_name in sorted(unmatched_folders):
+            message_lines.append(f"・{folder_name}")
+
+        message_lines.extend([
+            "",
+            "【考えられる原因】",
+            "1. 組織図に部署が登録されていない",
+            "2. Google Driveのフォルダ名が組織図と異なる",
+            "3. フォルダ名のスペース・表記ゆれ",
+            "",
+            "【登録済み部署】",
+        ])
+
+        # 登録済み部署を表示（正規化版を除外）
+        displayed_depts = set()
+        for name in sorted(dept_names):
+            # 正規化版（小文字）は除外
+            if name.lower() != name:
+                displayed_depts.add(name)
+        for name in sorted(displayed_depts):
+            message_lines.append(f"・{name}")
+
+        message_lines.append("[/info]")
+
+        message = "\n".join(message_lines)
+
+        # アラートを送信
+        chatwork.send_message(room_id=ADMIN_ROOM_ID, message=message)
+        logger.info(
+            f"認識できないフォルダのアラートを送信しました: "
+            f"room_id={ADMIN_ROOM_ID}, folders={unmatched_folders}"
+        )
+
+    except Exception as e:
+        logger.error(f"アラート送信エラー: {str(e)}")
 
 
 # ================================================================
@@ -964,6 +1057,7 @@ def watch_google_drive(request: Request):
         "failed": 0
     }
     failed_files = []
+    unmatched_folders = set()  # 認識できなかったフォルダ名（重複排除）
 
     try:
         # asyncio イベントループを取得または作成
@@ -974,7 +1068,7 @@ def watch_google_drive(request: Request):
             asyncio.set_event_loop(loop)
 
         async def run_sync():
-            nonlocal stats, failed_files
+            nonlocal stats, failed_files, unmatched_folders
 
             # ページトークンを取得（初回の場合）
             if not start_page_token:
@@ -1017,6 +1111,10 @@ def watch_google_drive(request: Request):
                             "file_name": file.name,
                             "error": result.get("reason", "Unknown error")
                         })
+
+                    # 認識できなかったフォルダを収集
+                    if result.get("unmatched_folder"):
+                        unmatched_folders.add(result["unmatched_folder"])
 
                 # 新しいページトークンを取得
                 new_token = await drive_client.get_start_page_token()
@@ -1074,6 +1172,10 @@ def watch_google_drive(request: Request):
                                 "error": result.get("reason", "Unknown error")
                             })
 
+                        # 認識できなかったフォルダを収集
+                        if result.get("unmatched_folder"):
+                            unmatched_folders.add(result["unmatched_folder"])
+
             return new_token
 
         # 同期を実行
@@ -1108,6 +1210,10 @@ def watch_google_drive(request: Request):
             f"updated={stats['updated']}, deleted={stats['deleted']}, "
             f"skipped={stats['skipped']}, failed={stats['failed']}"
         )
+
+        # 認識できなかったフォルダがあればアラートを送信
+        if unmatched_folders and ENABLE_UNMATCHED_FOLDER_ALERT:
+            send_unmatched_folder_alert(list(unmatched_folders), folder_mapper)
 
         return {
             "sync_id": sync_id,

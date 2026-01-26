@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 19:45 JST**
+**最終更新: 2026-01-26 19:46 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,33 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 19:46 JST**: Phase 4準備 - ユーザーテーブル設計修正 (v10.30.0) ✅ **PR #195 マージ・本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **概要**: 10の鉄則準拠のためのユーザーテーブル設計修正（Phase 4マルチテナント対応準備）
+  - **問題の発見経緯**: スタッフ「長谷川 創」が目標設定機能でエラー → 調査中に設計上の問題を発見
+  - **発見された問題**:
+    1. chatwork_users.organization_id が VARCHAR型（'soul_syncs'）で、users.organization_id（UUID型）と不整合
+    2. chatwork_usersへのクエリにorganization_idフィルタがない（10の鉄則 #1違反）
+    3. users.(organization_id, chatwork_account_id) の複合ユニーク制約がない
+  - **DBマイグレーション**（実行済み）:
+    - `chatwork_users.organization_id`: VARCHAR → UUID変換（58件）
+    - `chatwork_users`: 複合ユニーク制約 (organization_id, account_id) 追加
+    - `chatwork_users.room_id`: 新規カラム追加
+    - `users`: 複合ユニーク制約 (organization_id, chatwork_account_id) 追加
+  - **コード修正**:
+    - `get_all_chatwork_users()`: organization_idパラメータ・フィルタ追加
+    - `get_chatwork_account_id_by_name()`: organization_idフィルタ追加（4クエリ）
+    - `sync_room_members()`: organization_idをINSERTに追加
+  - **変更ファイル**:
+    - `migrations/phase4_prep_user_tables_fix.sql`: 新規（127行）
+    - `chatwork-webhook/main.py`: +159行（organization_idフィルタ追加）
+  - **デプロイ**: chatwork-webhook 2026-01-26 10:46 UTC
+  - **テスト**: Quality Checks 4/4パス
+  - **10の鉄則準拠**:
+    - organization_id: 全クエリに追加 ✅
+    - SQLインジェクション対策: パラメータ化クエリ ✅
+    - 後方互換性: デフォルト引数で既存動作維持 ✅
 
 - **2026-01-26 19:45 JST**: Google Drive権限管理 監査ログ・キャッシュ・テナント分離改善 (v10.28.0) ✅ **PR #194 マージ完了**
   - **実施者**: Claude Code

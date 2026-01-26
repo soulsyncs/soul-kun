@@ -174,7 +174,7 @@ class DepartmentMappingService:
                     text("""
                         SELECT id, name
                         FROM departments
-                        WHERE organization_id = CAST(:org_id AS UUID)
+                        WHERE organization_id = :org_id::uuid
                           AND is_active = TRUE
                         ORDER BY name
                     """),

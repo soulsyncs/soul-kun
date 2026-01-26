@@ -333,7 +333,7 @@ pool = create_engine(
 - [x] validate_capabilities_handlers() 実装
 - [x] lib/brain/validation.py 新規作成（25件テスト）
 - [x] 後方互換性維持（capabilities未指定時はフォールバック）
-- [x] 全1783件テストパス
+- [x] 全1822件テストパス
 
 ### Phase C/D（未実施）
 - [ ] lib/feature_flags.py 実装

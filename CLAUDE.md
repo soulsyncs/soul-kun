@@ -809,6 +809,49 @@ git status
 
 ## 直近の主な成果
 
+- **2026-01-26 22:30 JST**: Phase B 脳アーキテクチャ CAPABILITY_KEYWORDS統合 (v10.30.0) ✅ **PR #198 マージ完了**
+  - **実施者**: Claude Code
+  - **概要**: CAPABILITY_KEYWORDS/INTENT_KEYWORDSをSYSTEM_CAPABILITIESのbrain_metadataに統合
+  - **設計書**: docs/14_brain_refactoring_plan.md
+  - **目的**: 新機能追加時の更新箇所を5箇所→2箇所に削減
+  - **実装内容**:
+    1. **SYSTEM_CAPABILITIES拡張** (chatwork-webhook/main.py)
+       - 18アクションにbrain_metadataを追加
+       - 構造: decision_keywords, intent_keywords, risk_level, priority
+    2. **decision.py動的キーワード化**
+       - `_build_capability_keywords()`メソッド追加
+       - SYSTEM_CAPABILITIESから動的にキーワード辞書を構築
+       - 後方互換性: capabilitiesが渡されない場合は静的CAPABILITY_KEYWORDSを使用
+    3. **understanding.py動的キーワード化**
+       - capabilitiesパラメータをコンストラクタに追加
+       - `_build_intent_keywords()`メソッド追加
+       - `_calculate_intent_score()`にnegativeキーワード処理追加
+    4. **validation.py新規作成**
+       - `validate_capabilities_handlers()`: CAPABILITIES-HANDLERS整合性チェック
+       - `validate_brain_metadata()`: brain_metadataの構造検証
+       - `check_capabilities_coverage()`: brain_metadataカバレッジ計算
+  - **変更ファイル**:
+    - `lib/brain/decision.py`: +129行（動的キーワード構築）
+    - `lib/brain/understanding.py`: +154行（動的キーワード構築）
+    - `lib/brain/validation.py`: 新規（435行）
+    - `lib/brain/__init__.py`: +38行（バリデーションエクスポート）
+    - `chatwork-webhook/main.py`: +362行（18アクションにbrain_metadata追加）
+    - `chatwork-webhook/lib/brain/`: lib/brain/と同期
+    - `tests/test_brain_validation.py`: 新規（474行、25テストケース）
+    - `docs/14_brain_refactoring_plan.md`: 新規（379行）
+  - **テスト**:
+    - validation.py: 25件のユニットテスト
+    - brain全体: 481件パス
+    - 全テスト: 1,822件パス
+  - **効果**:
+    - 新機能追加時: 5箇所→2箇所の更新で済む
+    - brain_metadataカバレッジ: 90%（18/20有効アクション）
+    - 設計書準拠率: 60%→95%に向上
+  - **10の鉄則準拠**:
+    - SQLインジェクション対策: 該当なし（DB操作なし）
+    - 後方互換性: 静的定数へのフォールバック維持
+    - フォールバック設計: capabilities未指定時も動作
+
 - **2026-01-26 19:46 JST**: Phase 4準備 - ユーザーテーブル設計修正 (v10.30.0) ✅ **PR #195 マージ・本番デプロイ完了**
   - **実施者**: Claude Code
   - **概要**: 10の鉄則準拠のためのユーザーテーブル設計修正（Phase 4マルチテナント対応準備）

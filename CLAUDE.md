@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 15:15 JST**
+**最終更新: 2026-01-26 15:45 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,41 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 15:45 JST**: org-chart × Soul-kun ChatWork ID連携 (v10.29.1) ✅ **本番適用完了**
+  - **実施者**: Claude Code
+  - **概要**: org-chartからSoul-kunへの組織同期パイプラインを改善し、ChatWork IDを連携可能に
+  - **背景**: ソウルくんがタスクリマインドやメンションをする際に、正確なChatWork IDでメンションできるようにする
+  - **実施内容**:
+    1. **CORS設定修正**
+       - `lib/config.py`: `CORS_ORIGINS`に`https://org-chart.soulsyncs.jp`を追加
+       - Soul-kun API (Cloud Run) revision 00042にデプロイ
+    2. **ChatWork ID同期基盤**
+       - `org-chart/js/features/sync.js`: `chatworkAccountId`フィールド追加
+       - `api/app/schemas/organization.py`: `EmployeeInput`に`chatworkAccountId`追加
+       - `api/app/services/organization_sync.py`: INSERT/UPDATEクエリに`chatwork_account_id`追加
+    3. **ChatWork ID自動マッチング**
+       - `/contacts` APIから33名のChatWorkコンタクト抽出
+       - org-chart社員と自動マッチング（名前の完全一致/部分一致）
+       - Supabaseに26名分のChatWork ID登録
+    4. **Soul-kun DB直接更新**
+       - 34名のChatWork IDを登録（既存12名 + 新規22名）
+       - 名前不一致3件を手動対応
+    5. **データ修正**
+       - 和気 隆智: 新規追加（第一営業チーム）
+       - 五代 智暁: 漢字修正（智明→智暁）
+       - 小野 拓哉: 非アクティブ化（退職済み）
+       - 塩野 佑介: 新規追加（ChatWork ID: 7456689）
+  - **変更ファイル**:
+    - `lib/config.py`: CORS設定追加
+    - `api/app/schemas/organization.py`: chatworkAccountIdフィールド追加
+    - `api/app/services/organization_sync.py`: chatwork_account_id同期処理追加
+    - `org-chart/js/features/sync.js`: chatworkAccountId送信追加
+  - **デプロイ**: soulkun-api revision 00042-7rc
+  - **10の鉄則準拠**:
+    - organization_idフィルタ: 全クエリに含む
+    - SQLインジェクション対策: パラメータ化クエリ使用
+  - **効果**: ソウルくんが34名を正確にChatWorkメンション可能に
 
 - **2026-01-26 15:15 JST**: Google Drive 認識できないフォルダ アラート機能 (v10.28.0) ✅ **PR #177 マージ・本番デプロイ完了**
   - **実施者**: Claude Code

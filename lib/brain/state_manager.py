@@ -242,7 +242,7 @@ class BrainStateManager:
                         created_at, updated_at
                     ) VALUES (
                         :org_id, :room_id, :user_id,
-                        :state_type, :state_step, :state_data::jsonb,
+                        :state_type, :state_step, CAST(:state_data AS jsonb),
                         :reference_type, :reference_id,
                         :expires_at, :timeout_minutes,
                         :now, :now
@@ -459,7 +459,7 @@ class BrainStateManager:
                     update_query = text("""
                         UPDATE brain_conversation_states
                         SET state_step = :new_step,
-                            state_data = :state_data::jsonb,
+                            state_data = CAST(:state_data AS jsonb),
                             expires_at = :expires_at,
                             updated_at = :now
                         WHERE organization_id = :org_id
@@ -695,7 +695,7 @@ class BrainStateManager:
                             created_at, updated_at
                         ) VALUES (
                             :org_id, :room_id, :user_id,
-                            :state_type, :state_step, :state_data::jsonb,
+                            :state_type, :state_step, CAST(:state_data AS jsonb),
                             :reference_type, :reference_id,
                             :expires_at, :timeout_minutes,
                             :now, :now

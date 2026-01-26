@@ -1160,11 +1160,11 @@ class GoalSettingDialogue:
                     conn, session_id, current_step,
                     user_message, response,
                     detected_pattern="exit",
-                    result="cancelled",
+                    result="abandoned",  # DB constraint: accepted, retry, abandoned
                     step_attempt=step_attempt
                 )
-                # セッションをキャンセル
-                self._update_session(conn, session_id, current_step=current_step, status="cancelled")
+                # セッションを終了（DB constraint: in_progress, completed, abandoned）
+                self._update_session(conn, session_id, current_step=current_step, status="abandoned")
                 return {
                     "success": True,
                     "message": response,
@@ -1348,7 +1348,7 @@ class GoalSettingDialogue:
                         conn, session_id, "llm_analysis",
                         user_message, response,
                         detected_pattern="llm_extracted_all",
-                        result="pending_confirmation",
+                        result="retry",  # DB constraint: accepted, retry, abandoned
                         step_attempt=step_attempt
                     )
                     return {
@@ -1376,7 +1376,7 @@ class GoalSettingDialogue:
                         conn, session_id, "llm_analysis",
                         user_message, response,
                         detected_pattern="llm_extracted_partial",
-                        result="need_more",
+                        result="retry",  # DB constraint: accepted, retry, abandoned
                         step_attempt=step_attempt
                     )
                     return {

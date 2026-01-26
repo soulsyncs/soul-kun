@@ -54,6 +54,13 @@ from lib.org_chart_service import (
     Department,
 )
 from lib.google_drive import GoogleDriveClient
+from lib.drive_permission_change_detector import (
+    ChangeDetector,
+    ChangeDetectionConfig,
+    ChangeAlert,
+    AlertLevel,
+    create_detector_from_env,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -247,6 +254,8 @@ class DrivePermissionSyncService:
         dry_run: bool = True,
         remove_unlisted: bool = False,
         max_changes_per_folder: int = 50,
+        change_detector: Optional['ChangeDetector'] = None,
+        send_alerts: bool = True,
     ) -> SyncReport:
         """
         全フォルダの権限を同期
@@ -255,11 +264,26 @@ class DrivePermissionSyncService:
             dry_run: Trueの場合、実際には変更しない
             remove_unlisted: リストにないユーザーの権限を削除するか
             max_changes_per_folder: フォルダあたりの最大変更数（超えたら警告）
+            change_detector: 変更検知器（省略時は自動生成）
+            send_alerts: アラートをChatworkに送信するか
 
         Returns:
             同期レポート
         """
         report = SyncReport(dry_run=dry_run)
+
+        # 変更検知器を初期化
+        if change_detector is None:
+            change_detector = create_detector_from_env()
+        change_detector.config.max_changes_per_folder = max_changes_per_folder
+
+        # 緊急停止チェック
+        if change_detector.check_emergency_stop():
+            report.warnings.append("緊急停止フラグが有効なため、同期を中止しました")
+            if send_alerts:
+                change_detector.send_all_critical_alerts()
+            report.completed_at = datetime.now()
+            return report
 
         try:
             # 1. 同期計画を作成
@@ -268,6 +292,13 @@ class DrivePermissionSyncService:
 
             # 2. 各フォルダを同期
             for spec in plan.folder_specs:
+                # 停止チェック
+                if change_detector.should_stop():
+                    report.warnings.append(
+                        f"大量変更検知により同期を中止しました（{change_detector._result.folders_processed}フォルダ処理済み）"
+                    )
+                    break
+
                 try:
                     result = await self._sync_folder(
                         spec=spec,
@@ -283,19 +314,28 @@ class DrivePermissionSyncService:
                     report.permissions_unchanged += result.permissions_unchanged
                     report.errors += result.errors
 
-                    # 大量変更の警告
-                    if result.total_changes > max_changes_per_folder:
-                        warning = (
-                            f"フォルダ '{spec.folder_name}' で大量の変更が検出されました: "
-                            f"{result.total_changes}件"
-                        )
-                        report.warnings.append(warning)
-                        logger.warning(warning)
+                    # 変更検知
+                    alert = change_detector.check_folder_changes(
+                        folder_id=spec.folder_id,
+                        folder_name=spec.folder_name,
+                        additions=result.permissions_added,
+                        removals=result.permissions_removed,
+                        updates=result.permissions_updated,
+                    )
+
+                    # アラートが発生した場合
+                    if alert:
+                        report.warnings.append(alert.message)
+                        if alert.level in (AlertLevel.CRITICAL, AlertLevel.EMERGENCY):
+                            logger.warning(f"Critical alert: {alert.message}")
 
                 except Exception as e:
                     logger.error(f"Error syncing folder {spec.folder_name}: {e}")
                     report.errors += 1
                     report.warnings.append(f"フォルダ '{spec.folder_name}' でエラー: {str(e)}")
+
+            # 全体の変更数チェック
+            change_detector.check_total_changes()
 
         except Exception as e:
             logger.error(f"Error during sync: {e}")
@@ -304,6 +344,19 @@ class DrivePermissionSyncService:
         finally:
             report.completed_at = datetime.now()
             await self.org_chart.close()
+
+            # アラート送信
+            if send_alerts:
+                # CRITICALアラートを送信
+                if change_detector.get_critical_alerts():
+                    change_detector.send_all_critical_alerts()
+
+                # サマリーを送信（アラートがある場合のみ）
+                if change_detector._result.alerts:
+                    change_detector.send_summary_alert(
+                        dry_run=dry_run,
+                        additional_message=f"処理フォルダ: {report.folders_processed}件"
+                    )
 
         return report
 
@@ -646,4 +699,10 @@ __all__ = [
     'FOLDER_TYPE_MAP',
     'FOLDER_MIN_ROLE_LEVEL',
     'FOLDER_DEFAULT_ROLE',
+    # Phase E: 変更検知
+    'ChangeDetector',
+    'ChangeDetectionConfig',
+    'ChangeAlert',
+    'AlertLevel',
+    'create_detector_from_env',
 ]

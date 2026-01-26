@@ -21,6 +21,8 @@ from handlers.announcement_handler import (
     AnnouncementStatus,
     PATTERN_THRESHOLD,
     ROOM_MATCH_AUTO_SELECT_THRESHOLD,
+    DEFAULT_ORG_ID,
+    ADMIN_ACCOUNT_ID,
 )
 
 
@@ -44,8 +46,9 @@ class TestAnnouncementHandlerInit:
         )
         assert handler.get_pool is not None
         assert handler.get_secret is not None
-        assert handler._admin_account_id == "1728974"
-        assert handler._organization_id == "org_soulsyncs"
+        # Phase A: 管理者設定DB化により、admin_configから取得した値を使用
+        assert handler._admin_account_id == ADMIN_ACCOUNT_ID
+        assert handler._organization_id == DEFAULT_ORG_ID
 
     def test_init_with_custom_authorized_rooms(self):
         """カスタム認可ルームで初期化できること"""

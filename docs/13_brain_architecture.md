@@ -264,15 +264,16 @@
 | 優先度 | 記憶の種類 | データソース | 参照タイミング | 重要度 |
 |--------|-----------|-------------|---------------|--------|
 | 1 | **現在の状態** | brain_conversation_states | 常に最初 | ★★★ |
-| 2 | **直近の会話** | conversation_history (Firestore) | 常に | ★★★ |
-| 3 | **会話要約** | conversation_summaries (B1) | 文脈補完時 | ★★☆ |
-| 4 | **ユーザー嗜好** | user_preferences (B2) | 応答生成時 | ★★☆ |
-| 5 | **人物情報** | persons | 名前解決時 | ★★★ |
-| 6 | **タスク情報** | chatwork_tasks | タスク関連時 | ★★☆ |
-| 7 | **目標情報** | goals, goal_setting_sessions | 目標関連時 | ★★☆ |
-| 8 | **会社知識** | documents, soulkun_knowledge | 質問時 | ★★☆ |
-| 9 | **インサイト** | soulkun_insights (A1-A4) | 気づき参照時 | ★☆☆ |
-| 10 | **会話検索** | conversation_index (B4) | 過去参照時 | ★☆☆ |
+| 2 | **CEO教え** | ceo_teachings (Phase 2D) | 判断・応答生成時 | ★★★ |
+| 3 | **直近の会話** | conversation_history (Firestore) | 常に | ★★★ |
+| 4 | **会話要約** | conversation_summaries (B1) | 文脈補完時 | ★★☆ |
+| 5 | **ユーザー嗜好** | user_preferences (B2) | 応答生成時 | ★★☆ |
+| 6 | **人物情報** | persons | 名前解決時 | ★★★ |
+| 7 | **タスク情報** | chatwork_tasks | タスク関連時 | ★★☆ |
+| 8 | **目標情報** | goals, goal_setting_sessions | 目標関連時 | ★★☆ |
+| 9 | **会社知識** | documents, soulkun_knowledge | 質問時 | ★★☆ |
+| 10 | **インサイト** | soulkun_insights (A1-A4) | 気づき参照時 | ★☆☆ |
+| 11 | **会話検索** | conversation_index (B4) | 過去参照時 | ★☆☆ |
 
 ### 5.3 記憶アクセスインターフェース
 
@@ -342,6 +343,9 @@ class BrainContext:
     # 現在の状態（最優先）
     current_state: Optional[ConversationState]
 
+    # CEO教え（Phase 2D）- 判断の最上位根拠
+    ceo_teachings: List[CEOTeachingInfo]             # CEOの教え（優先度2）
+
     # 会話関連
     recent_conversation: List[ConversationMessage]  # 直近10件
     conversation_summary: Optional[SummaryData]      # 過去の要約
@@ -378,6 +382,7 @@ class BrainContext:
 | 記憶の種類 | 更新タイミング | 更新処理 |
 |-----------|--------------|---------|
 | 現在の状態 | 状態遷移時 | 脳が直接更新 |
+| CEO教え | CEO会話検出時 | CEOLearningLayer.extract_and_save() (Phase 2D) |
 | 直近の会話 | 毎メッセージ | save_conversation_history() |
 | 会話要約 | 10件超過時 | ConversationSummary.generate_and_save() |
 | ユーザー嗜好 | 学習検出時 | UserPreference.learn() |
@@ -386,6 +391,7 @@ class BrainContext:
 | 目標情報 | 目標操作時 | GoalSettingSession更新 |
 | 会社知識 | ドキュメント更新時 | watch_google_drive() |
 | インサイト | 検出時 | pattern-detection Cloud Function |
+| 会話検索 | 毎メッセージ | ConversationSearch.index() |
 | 会話検索 | 毎メッセージ | ConversationSearch.index() |
 
 ---

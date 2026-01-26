@@ -54,6 +54,8 @@ class AuditResourceType(str, Enum):
     MEETING = "meeting"
     ORGANIZATION = "organization"
     SUMMARY = "summary"  # 要約
+    DRIVE_PERMISSION = "drive_permission"  # Google Drive権限（v10.28.0追加）
+    DRIVE_FOLDER = "drive_folder"  # Google Driveフォルダ（v10.28.0追加）
 
 
 def log_audit(
@@ -237,6 +239,179 @@ def log_audit_batch(
 
 
 # =====================================================
+# 非同期版（Google Drive権限管理等で使用）
+# =====================================================
+
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+async def log_audit_async(
+    organization_id: str,
+    action: str,
+    resource_type: str,
+    resource_id: Optional[str] = None,
+    resource_name: Optional[str] = None,
+    user_id: Optional[str] = None,
+    classification: str = "confidential",
+    details: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """
+    非同期版監査ログ記録
+
+    ★★★ v10.28.0: 新規追加 ★★★
+
+    Google Drive権限管理などの非同期処理から呼び出される。
+    DB接続がない場合はログ出力のみ行う（フォールバック設計）。
+
+    Args:
+        organization_id: テナントID（必須）
+        action: アクション（create, update, delete, sync等）
+        resource_type: リソースタイプ（drive_permission, drive_folder等）
+        resource_id: リソースID
+        resource_name: リソース名
+        user_id: 実行ユーザーID（省略時はsystem）
+        classification: 機密区分（デフォルト: confidential）
+        details: 詳細情報（JSON）
+
+    Returns:
+        True: 成功, False: 失敗
+
+    Example:
+        await log_audit_async(
+            organization_id="org_soulsyncs",
+            action="create",
+            resource_type="drive_permission",
+            resource_id="folder_abc123",
+            resource_name="営業部",
+            details={"email": "user@example.com", "role": "reader"}
+        )
+    """
+    try:
+        # 構造化ログ出力（Cloud Loggingで検索可能）
+        log_entry = {
+            "audit": True,
+            "organization_id": organization_id,
+            "action": action,
+            "resource_type": resource_type,
+            "resource_id": resource_id,
+            "resource_name": resource_name,
+            "user_id": user_id or "system",
+            "classification": classification,
+            "details": details,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        logger.info(f"📝 Audit: {json.dumps(log_entry, ensure_ascii=False)}")
+
+        # TODO: Phase 4でDB書き込みを追加
+        # async with get_async_db_pool() as conn:
+        #     await conn.execute(...)
+
+        return True
+
+    except Exception as e:
+        logger.warning(f"⚠️ Audit log failed (non-blocking): {e}")
+        return False
+
+
+async def log_drive_permission_change(
+    organization_id: str,
+    folder_id: str,
+    folder_name: str,
+    action: str,
+    email: str,
+    role: Optional[str] = None,
+    old_role: Optional[str] = None,
+    dry_run: bool = False,
+) -> bool:
+    """
+    Google Drive権限変更の監査ログ
+
+    ★★★ v10.28.0: 新規追加 ★★★
+
+    Args:
+        organization_id: テナントID
+        folder_id: フォルダID
+        folder_name: フォルダ名
+        action: アクション（add, remove, update）
+        email: 対象メールアドレス
+        role: 新しい権限ロール（add/updateの場合）
+        old_role: 旧権限ロール（remove/updateの場合）
+        dry_run: dry_runモードかどうか
+
+    Returns:
+        True: 成功
+    """
+    details = {
+        "email": email,
+        "dry_run": dry_run,
+    }
+    if role:
+        details["role"] = role
+    if old_role:
+        details["old_role"] = old_role
+
+    return await log_audit_async(
+        organization_id=organization_id,
+        action=f"drive_permission_{action}",
+        resource_type="drive_permission",
+        resource_id=folder_id,
+        resource_name=folder_name,
+        classification="confidential",
+        details=details,
+    )
+
+
+async def log_drive_sync_summary(
+    organization_id: str,
+    folders_processed: int,
+    permissions_added: int,
+    permissions_removed: int,
+    permissions_updated: int,
+    errors: int,
+    dry_run: bool = False,
+    snapshot_id: Optional[str] = None,
+) -> bool:
+    """
+    Google Drive権限同期のサマリー監査ログ
+
+    ★★★ v10.28.0: 新規追加 ★★★
+
+    Args:
+        organization_id: テナントID
+        folders_processed: 処理フォルダ数
+        permissions_added: 追加された権限数
+        permissions_removed: 削除された権限数
+        permissions_updated: 更新された権限数
+        errors: エラー数
+        dry_run: dry_runモードかどうか
+        snapshot_id: 事前スナップショットID
+
+    Returns:
+        True: 成功
+    """
+    return await log_audit_async(
+        organization_id=organization_id,
+        action="drive_permission_sync",
+        resource_type="drive_folder",
+        resource_id=f"batch_{folders_processed}_folders",
+        classification="confidential",
+        details={
+            "folders_processed": folders_processed,
+            "permissions_added": permissions_added,
+            "permissions_removed": permissions_removed,
+            "permissions_updated": permissions_updated,
+            "total_changes": permissions_added + permissions_removed + permissions_updated,
+            "errors": errors,
+            "dry_run": dry_run,
+            "snapshot_id": snapshot_id,
+        },
+    )
+
+
+# =====================================================
 # エクスポート
 # =====================================================
 __all__ = [
@@ -244,4 +419,8 @@ __all__ = [
     "AuditResourceType",
     "log_audit",
     "log_audit_batch",
+    # 非同期版（v10.28.0追加）
+    "log_audit_async",
+    "log_drive_permission_change",
+    "log_drive_sync_summary",
 ]

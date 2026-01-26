@@ -100,6 +100,7 @@ class PermissionSnapshot:
     created_at: str  # ISO format
     created_by: str
     folder_states: List[FolderPermissionState]
+    organization_id: str = "org_soulsyncs"  # テナント分離（v10.28.0追加）
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -116,6 +117,7 @@ class PermissionSnapshot:
             'description': self.description,
             'created_at': self.created_at,
             'created_by': self.created_by,
+            'organization_id': self.organization_id,
             'folder_states': [fs.to_dict() for fs in self.folder_states],
             'metadata': self.metadata
         }
@@ -132,6 +134,7 @@ class PermissionSnapshot:
             created_at=data['created_at'],
             created_by=data.get('created_by', 'unknown'),
             folder_states=folder_states,
+            organization_id=data.get('organization_id', 'org_soulsyncs'),
             metadata=data.get('metadata', {})
         )
 
@@ -195,6 +198,7 @@ class SnapshotManager:
         service_account_info: Optional[dict] = None,
         service_account_file: Optional[str] = None,
         max_snapshots: int = DEFAULT_MAX_SNAPSHOTS,
+        organization_id: str = "org_soulsyncs",
     ):
         """
         Args:
@@ -202,7 +206,9 @@ class SnapshotManager:
             service_account_info: Google サービスアカウント情報
             service_account_file: Google サービスアカウントファイルパス
             max_snapshots: 最大保持スナップショット数
+            organization_id: テナントID（Phase 4マルチテナント対応）
         """
+        self.organization_id = organization_id
         self.storage_path = Path(
             storage_path or os.getenv('SNAPSHOT_STORAGE_PATH', '/tmp/drive_snapshots')
         )
@@ -269,6 +275,7 @@ class SnapshotManager:
             created_at=created_at,
             created_by=created_by,
             folder_states=folder_states,
+            organization_id=self.organization_id,
             metadata=metadata or {}
         )
 
@@ -316,9 +323,12 @@ class SnapshotManager:
     # スナップショット管理
     # ================================================================
 
-    def list_snapshots(self) -> List[Dict[str, Any]]:
+    def list_snapshots(self, include_all_orgs: bool = False) -> List[Dict[str, Any]]:
         """
         スナップショット一覧を取得
+
+        Args:
+            include_all_orgs: Trueの場合、全組織のスナップショットを返す（管理者用）
 
         Returns:
             スナップショットのサマリーリスト（新しい順）
@@ -328,11 +338,18 @@ class SnapshotManager:
             try:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+
+                    # テナント分離: organization_idでフィルタ（Phase 4対応）
+                    snapshot_org_id = data.get('organization_id', 'org_soulsyncs')
+                    if not include_all_orgs and snapshot_org_id != self.organization_id:
+                        continue
+
                     snapshots.append({
                         'id': data['id'],
                         'description': data['description'],
                         'created_at': data['created_at'],
                         'created_by': data.get('created_by', 'unknown'),
+                        'organization_id': snapshot_org_id,
                         'folder_count': len(data.get('folder_states', [])),
                         'file_path': str(file_path)
                     })

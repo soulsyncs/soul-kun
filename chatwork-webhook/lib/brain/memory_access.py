@@ -263,8 +263,20 @@ class BrainMemoryAccess:
         self.pool = pool
         self.org_id = org_id
         self.firestore_db = firestore_db
+        # org_idがUUID形式かどうかをチェック（soulkun_insights等はUUID型を要求）
+        self._org_id_is_uuid = self._check_is_uuid(org_id)
 
-        logger.info(f"BrainMemoryAccess initialized for org_id={org_id}")
+        logger.info(f"BrainMemoryAccess initialized for org_id={org_id}, is_uuid={self._org_id_is_uuid}")
+
+    @staticmethod
+    def _check_is_uuid(value: str) -> bool:
+        """値がUUID形式かどうかをチェック"""
+        try:
+            import uuid
+            uuid.UUID(value)
+            return True
+        except (ValueError, AttributeError):
+            return False
 
     # =========================================================================
     # 統合アクセス（並列取得）
@@ -596,6 +608,7 @@ class BrainMemoryAccess:
             now = datetime.now()
 
             with self.pool.connect() as conn:
+                # limit_time は BIGINT (Unix timestamp) なので to_timestamp() で比較
                 result = conn.execute(
                     text("""
                         SELECT
@@ -612,7 +625,7 @@ class BrainMemoryAccess:
                         WHERE assigned_to_account_id = :user_id
                           AND status = 'open'
                         ORDER BY
-                            CASE WHEN limit_time IS NOT NULL AND limit_time < CURRENT_TIMESTAMP
+                            CASE WHEN limit_time IS NOT NULL AND to_timestamp(limit_time) < NOW()
                                  THEN 0 ELSE 1 END,
                             limit_time ASC NULLS LAST
                         LIMIT :limit
@@ -658,23 +671,29 @@ class BrainMemoryAccess:
         Returns:
             List[GoalInfo]: 目標情報のリスト
         """
+        # goals テーブルは organization_id が UUID 型
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping goals query: org_id={self.org_id} is not UUID format")
+            return []
+
         try:
             with self.pool.connect() as conn:
+                # 実際のgoalsテーブルスキーマに合わせたクエリ
+                # カラム: id, title, description, target_value, current_value, deadline, status
                 result = conn.execute(
                     text("""
                         SELECT
                             g.id,
                             g.title,
-                            g.why_reason,
-                            g.what_action,
-                            g.how_method,
+                            g.description,
+                            g.target_value,
+                            g.current_value,
                             g.status,
-                            g.progress,
                             g.deadline
                         FROM goals g
                         JOIN users u ON g.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND g.organization_id = :org_id
+                          AND g.organization_id = :org_id::uuid
                           AND g.status = 'active'
                         ORDER BY g.created_at DESC
                         LIMIT 5
@@ -687,12 +706,12 @@ class BrainMemoryAccess:
                     GoalInfo(
                         id=row[0],
                         title=row[1] or "",
-                        why=row[2],
-                        what=row[3],
-                        how=row[4],
+                        why=None,  # goalsテーブルにwhy_reasonカラムは存在しない
+                        what=row[2],  # descriptionをwhatとして使用
+                        how=None,  # goalsテーブルにhow_methodカラムは存在しない
                         status=row[5] or "active",
-                        progress=row[6] or 0.0,
-                        deadline=row[7],
+                        progress=float(row[4] / row[3] * 100) if row[3] and row[4] else 0.0,
+                        deadline=row[6],
                     )
                     for row in rows
                 ]
@@ -727,6 +746,7 @@ class BrainMemoryAccess:
             with self.pool.connect() as conn:
                 # キーワードマッチで関連知識を検索
                 # TODO: 将来的にはベクトル検索（Pinecone）と組み合わせる
+                # 注意: ILIKE の % は CONCAT を使用（SQLAlchemy が %s と誤解するため）
                 result = conn.execute(
                     text("""
                         SELECT
@@ -734,10 +754,10 @@ class BrainMemoryAccess:
                             keyword,
                             answer,
                             category,
-                            similarity(keyword, :query) AS score
+                            COALESCE(similarity(keyword, :query), 0) AS score
                         FROM soulkun_knowledge
-                        WHERE keyword % :query
-                           OR answer ILIKE '%' || :query || '%'
+                        WHERE keyword ILIKE CONCAT('%%', :query, '%%')
+                           OR answer ILIKE CONCAT('%%', :query, '%%')
                         ORDER BY score DESC
                         LIMIT :limit
                     """),
@@ -780,6 +800,11 @@ class BrainMemoryAccess:
         Returns:
             List[InsightInfo]: インサイト情報のリスト
         """
+        # soulkun_insights テーブルは organization_id が UUID 型
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping insights query: org_id={self.org_id} is not UUID format")
+            return []
+
         try:
             with self.pool.connect() as conn:
                 # 重要度フィルタの組み立て
@@ -802,7 +827,7 @@ class BrainMemoryAccess:
                             status,
                             created_at
                         FROM soulkun_insights
-                        WHERE organization_id = :org_id
+                        WHERE organization_id = :org_id::uuid
                           AND status IN ('new', 'acknowledged')
                           {importance_clause}
                         ORDER BY

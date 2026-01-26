@@ -6895,7 +6895,7 @@ def chatwork_webhook(request):
                             fb_all_persons = get_all_persons_summary()
                             # BUG-017修正: account_id → assigned_to_account_id, limit引数削除
                             fb_all_tasks = search_tasks_from_db(room_id=r_id, assigned_to_account_id=a_id)
-                            fb_chatwork_users = get_chatwork_users_for_room(r_id)
+                            fb_chatwork_users = get_all_chatwork_users()
                             fb_conversation_history = get_conversation_history(r_id, a_id)
                             fb_context = {}
 

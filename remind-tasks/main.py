@@ -72,6 +72,20 @@ except ImportError as e:
             return "日曜日"
         return None
 
+# ★★★ v10.30.1: 管理者設定モジュール（Phase A） ★★★
+try:
+    from lib.admin_config import (
+        get_admin_config,
+        get_admin_account_id,
+        get_admin_room_id,
+        is_admin_account,
+    )
+    USE_ADMIN_CONFIG = True
+    print("✅ lib/admin_config.py loaded for admin configuration")
+except ImportError as e:
+    print(f"⚠️ lib/admin_config.py not available (using fallback): {e}")
+    USE_ADMIN_CONFIG = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -104,7 +118,13 @@ MY_ACCOUNT_ID = "10909425"
 BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
 
 # 管理部チャットルームID
-ADMIN_ROOM_ID = 405315911
+# v10.30.1: Phase A - DB化（lib/admin_config.py）
+if USE_ADMIN_CONFIG:
+    _admin_config = get_admin_config()
+    ADMIN_ROOM_ID = int(_admin_config.admin_room_id)
+    print(f"✅ Admin room loaded from DB: room={ADMIN_ROOM_ID}")
+else:
+    ADMIN_ROOM_ID = 405315911
 
 # 遅延管理設定
 ESCALATION_DAYS = 3  # エスカレーションまでの日数
@@ -138,7 +158,11 @@ TEST_ACCOUNT_ID = os.environ.get("TEST_ACCOUNT_ID", "")
 TEST_ROOM_ID = os.environ.get("TEST_ROOM_ID", "")
 
 # カズさん（菊地雅克）のChatWork account_id（テスト時の参考用）
-ADMIN_ACCOUNT_ID = "1728974"
+# v10.30.1: Phase A - DB化（lib/admin_config.py）
+if USE_ADMIN_CONFIG:
+    ADMIN_ACCOUNT_ID = _admin_config.admin_account_id
+else:
+    ADMIN_ACCOUNT_ID = "1728974"
 
 
 def get_effective_admin_room():
@@ -201,12 +225,18 @@ def log_dry_run_message(action_type, recipient, message_preview):
 # =====================================================
 
 # テスト送信許可リスト
-TEST_ALLOWED_ROOMS = {
-    405315911,  # 管理部チャット
-}
+# v10.30.1: Phase A - DB化
+if USE_ADMIN_CONFIG:
+    TEST_ALLOWED_ROOMS = {int(_admin_config.admin_room_id)}
+else:
+    TEST_ALLOWED_ROOMS = {405315911}
 
 # カズさん（菊地雅克）のaccount_id
-KAZU_ACCOUNT_ID = 1728974
+# v10.30.1: Phase A - DB化
+if USE_ADMIN_CONFIG:
+    KAZU_ACCOUNT_ID = int(_admin_config.admin_account_id)
+else:
+    KAZU_ACCOUNT_ID = 1728974
 
 # テストモードフラグ（本番稼働時はFalseに変更）
 REMINDER_TEST_MODE = False  # ★★★ v10.10.0: 本番稼働開始 - 全スタッフにリマインド送信 ★★★

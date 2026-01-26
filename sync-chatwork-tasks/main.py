@@ -49,6 +49,22 @@ except ImportError as e:
     USE_LIB = False
     print(f"⚠️ lib/ モジュールが見つかりません。インライン関数を使用します: {e}")
 
+# =====================================================
+# v10.30.1: 管理者設定モジュール（Phase A）
+# =====================================================
+try:
+    from lib.admin_config import (
+        get_admin_config,
+        get_admin_account_id,
+        get_admin_room_id,
+        is_admin_account,
+    )
+    USE_ADMIN_CONFIG = True
+    print("✅ lib/admin_config.py loaded for admin configuration")
+except ImportError as e:
+    print(f"⚠️ lib/admin_config.py not available (using fallback): {e}")
+    USE_ADMIN_CONFIG = False
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -89,13 +105,17 @@ BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
 
 # =====================================================
 # v6.9.0: 管理者学習機能
+# v10.30.1: Phase A - DB化（lib/admin_config.py）
 # =====================================================
-# 管理者（カズさん）のaccount_id
-# v6.9.2修正: 417892193はroom_idだった。正しいaccount_idは1728974
-ADMIN_ACCOUNT_ID = "1728974"
-
-# 管理部チャットルームID
-ADMIN_ROOM_ID = 405315911
+if USE_ADMIN_CONFIG:
+    _admin_config = get_admin_config()
+    ADMIN_ACCOUNT_ID = _admin_config.admin_account_id
+    ADMIN_ROOM_ID = int(_admin_config.admin_room_id)
+    print(f"✅ Admin config loaded from DB: account={ADMIN_ACCOUNT_ID}, room={ADMIN_ROOM_ID}")
+else:
+    ADMIN_ACCOUNT_ID = "1728974"
+    ADMIN_ROOM_ID = 405315911
+    print(f"⚠️ Using hardcoded admin config: account={ADMIN_ACCOUNT_ID}, room={ADMIN_ROOM_ID}")
 
 # =====================================================
 # v6.9.1: ローカルコマンド判定（API制限対策）
@@ -5514,7 +5534,13 @@ def ensure_knowledge_tables():
 
 
 def is_admin(account_id):
-    """管理者（カズさん）かどうかを判定"""
+    """
+    管理者（カズさん）かどうかを判定
+
+    v10.30.1: lib/admin_config.py を使用（DB取得、キャッシュ付き）
+    """
+    if USE_ADMIN_CONFIG:
+        return is_admin_account(str(account_id))
     return str(account_id) == str(ADMIN_ACCOUNT_ID)
 
 

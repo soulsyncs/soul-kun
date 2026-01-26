@@ -60,6 +60,43 @@ def mock_async_db_conn():
 
 
 # ================================================================
+# 管理者設定モック（v10.30.1: Phase A）
+# ================================================================
+
+@pytest.fixture
+def mock_admin_config():
+    """lib/admin_config.pyのモック"""
+    from lib.admin_config import AdminConfig
+
+    mock_config = AdminConfig(
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+        admin_account_id="1728974",
+        admin_name="菊地雅克",
+        admin_room_id="405315911",
+        admin_room_name="管理部",
+        admin_dm_room_id="217825794",
+        authorized_room_ids=frozenset([405315911]),
+        bot_account_id="7399137",
+        is_active=True
+    )
+
+    with patch('lib.admin_config.get_admin_config', return_value=mock_config):
+        with patch('lib.admin_config._fetch_from_db', return_value=mock_config):
+            yield mock_config
+
+
+@pytest.fixture(autouse=True)
+def clear_admin_config_cache_fixture():
+    """各テスト後に管理者設定キャッシュをクリア"""
+    yield
+    try:
+        from lib.admin_config import clear_admin_config_cache
+        clear_admin_config_cache()
+    except ImportError:
+        pass
+
+
+# ================================================================
 # Gemini Embedding モック（v10.12.0: OpenAI → Gemini に変更）
 # ★★★ v10.25.0: google-genai SDKに対応 ★★★
 # ================================================================

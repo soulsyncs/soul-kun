@@ -48,3 +48,28 @@ from .goal_setting import (
     has_active_goal_session,
     process_goal_setting_message,
 )
+
+# v10.30.1: Phase A 管理者設定のDB化
+from .admin_config import (
+    # データクラス
+    AdminConfig,
+    # メイン関数
+    get_admin_config,
+    # ショートカット関数
+    is_admin_account,
+    get_admin_room_id,
+    get_admin_account_id,
+    # キャッシュ操作
+    clear_admin_config_cache,
+    # 定数
+    DEFAULT_ORG_ID,
+    DEFAULT_ADMIN_ACCOUNT_ID,
+    DEFAULT_ADMIN_ROOM_ID,
+    DEFAULT_ADMIN_DM_ROOM_ID,
+    DEFAULT_BOT_ACCOUNT_ID,
+    # 後方互換性エイリアス
+    ADMIN_ACCOUNT_ID,
+    ADMIN_ROOM_ID,
+    KAZU_CHATWORK_ACCOUNT_ID,
+    KAZU_ACCOUNT_ID,
+)

@@ -34,7 +34,7 @@ Phase 4対応:
     - Cloud Run 100インスタンス対応のコネクションプール設計
 """
 
-__version__ = "1.8.0"  # v10.24.9: 営業日判定追加（土日祝日リマインドスキップ）
+__version__ = "1.9.0"  # v10.31.0: Feature Flags一元管理追加
 
 # 設定
 from lib.config import (
@@ -271,6 +271,27 @@ from lib.business_day import (
     get_non_business_day_reason,
 )
 
+# v10.31.0: Feature Flags一元管理（Phase C）
+from lib.feature_flags import (
+    # クラス
+    FeatureFlags,
+    FlagCategory,
+    FlagType,
+    FlagInfo,
+    # 定数
+    FLAG_DEFINITIONS,
+    # 関数
+    get_flags,
+    reset_flags,
+    init_flags,
+    # ヘルパー
+    is_handler_enabled,
+    is_library_available,
+    is_feature_enabled,
+    get_brain_mode,
+    is_dry_run,
+)
+
 __all__ = [
     # Config
     "Settings",
@@ -425,4 +446,18 @@ __all__ = [
     "is_holiday",
     "get_holiday_name",
     "get_non_business_day_reason",
+    # v10.31.0: Feature Flags（Phase C）
+    "FeatureFlags",
+    "FlagCategory",
+    "FlagType",
+    "FlagInfo",
+    "FLAG_DEFINITIONS",
+    "get_flags",
+    "reset_flags",
+    "init_flags",
+    "is_handler_enabled",
+    "is_library_available",
+    "is_feature_enabled",
+    "get_brain_mode",
+    "is_dry_run",
 ]

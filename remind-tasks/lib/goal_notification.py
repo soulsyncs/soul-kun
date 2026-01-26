@@ -39,6 +39,15 @@ JST = pytz.timezone('Asia/Tokyo')
 
 logger = logging.getLogger(__name__)
 
+# =====================================================
+# v10.30.1: 管理者設定モジュール（Phase A）
+# =====================================================
+try:
+    from lib.admin_config import get_admin_config
+    _USE_ADMIN_CONFIG = True
+except ImportError:
+    _USE_ADMIN_CONFIG = False
+
 
 # =====================================================
 # ===== ★★★ v10.17.1: テストガード設定 ★★★ =====
@@ -56,14 +65,21 @@ logger = logging.getLogger(__name__)
 GOAL_TEST_MODE = os.environ.get("GOAL_TEST_MODE", "").lower() in ("true", "1", "yes")
 
 # カズさん（菊地雅克）のChatWork account_id
-KAZU_CHATWORK_ACCOUNT_ID = "1728974"
+# v10.30.1: Phase A - DB化
+if _USE_ADMIN_CONFIG:
+    _admin_cfg = get_admin_config()
+    KAZU_CHATWORK_ACCOUNT_ID = _admin_cfg.admin_account_id
+else:
+    KAZU_CHATWORK_ACCOUNT_ID = "1728974"
 
 # テスト送信許可リスト: ChatWork room_id
 # - 管理部チャット: 405315911
 # - カズさんとのDMルームは GOAL_TEST_ROOM_IDS 環境変数で追加設定
-GOAL_TEST_ALLOWED_ROOM_IDS = {
-    405315911,  # 管理部チャット
-}
+# v10.30.1: Phase A - DB化
+if _USE_ADMIN_CONFIG:
+    GOAL_TEST_ALLOWED_ROOM_IDS = {int(_admin_cfg.admin_room_id)}
+else:
+    GOAL_TEST_ALLOWED_ROOM_IDS = {405315911}
 
 # 環境変数からテスト許可ルームIDを追加
 # 例: GOAL_TEST_ROOM_IDS="123456,789012" で複数指定可能

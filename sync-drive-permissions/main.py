@@ -85,29 +85,69 @@ DEFAULT_REMOVE_UNLISTED = False  # 未登録ユーザーの削除はデフォル
 DEFAULT_CREATE_SNAPSHOT = True  # 事前スナップショットを作成
 
 
-def get_service_account_info() -> dict:
-    """サービスアカウント情報を取得"""
-    sa_json = get_secret('GOOGLE_SERVICE_ACCOUNT_JSON')
-    if sa_json:
-        return json.loads(sa_json)
+def get_service_account_info() -> Optional[dict]:
+    """サービスアカウント情報を取得
+
+    Returns:
+        dict: サービスアカウント情報
+        None: ADC（Application Default Credentials）を使用する場合
+
+    優先順位:
+    1. Secret Manager の GOOGLE_SERVICE_ACCOUNT_JSON
+    2. 環境変数 GOOGLE_APPLICATION_CREDENTIALS のファイル
+    3. None（ADCを使用）
+    """
+    # Secret Managerから取得
+    try:
+        sa_json = get_secret('GOOGLE_SERVICE_ACCOUNT_JSON')
+        if sa_json:
+            logger.info("Using service account from Secret Manager")
+            return json.loads(sa_json)
+    except Exception as e:
+        logger.debug(f"Secret Manager lookup failed (expected): {e}")
 
     # ファイルから読み込み（ローカル開発用）
     sa_file = os.getenv('GOOGLE_APPLICATION_CREDENTIALS')
     if sa_file and os.path.exists(sa_file):
+        logger.info(f"Using service account from file: {sa_file}")
         with open(sa_file, 'r') as f:
             return json.load(f)
 
-    raise ValueError("Service account credentials not found")
+    # ADCを使用
+    logger.info("Using Application Default Credentials (ADC)")
+    return None
 
 
 def get_supabase_key() -> str:
-    """Supabase APIキーを取得"""
-    key = get_secret('SUPABASE_SERVICE_ROLE_KEY')
-    if not key:
-        key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
-    if not key:
-        raise ValueError("Supabase API key not found")
-    return key
+    """Supabase APIキーを取得
+
+    優先順位:
+    1. Secret Manager の SUPABASE_SERVICE_ROLE_KEY
+    2. 環境変数 SUPABASE_SERVICE_ROLE_KEY
+    3. 環境変数 SUPABASE_ANON_KEY（読み取り専用操作用）
+    """
+    # Service Role Key from Secret Manager（推奨）
+    try:
+        key = get_secret('SUPABASE_SERVICE_ROLE_KEY')
+        if key:
+            logger.info("Using Supabase service role key from Secret Manager")
+            return key
+    except Exception as e:
+        logger.debug(f"Secret Manager lookup for SUPABASE_SERVICE_ROLE_KEY failed (expected): {e}")
+
+    # Service Role Key from environment
+    key = os.getenv('SUPABASE_SERVICE_ROLE_KEY')
+    if key:
+        logger.info("Using Supabase service role key from environment")
+        return key
+
+    # Anon Key（フォールバック - 読み取り専用操作には十分）
+    key = os.getenv('SUPABASE_ANON_KEY')
+    if key:
+        logger.info("Using Supabase anon key (read-only operations)")
+        return key
+
+    raise ValueError("Supabase API key not found (SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY)")
 
 
 # ================================================================

@@ -920,11 +920,12 @@ class AnnouncementHandler:
                 "正確なルーム名を教えてもらえるウル？"
             )
 
-        # v10.26.8: ルーム選択待ちとしてDBに保存
-        # status='awaiting_room_selection'で保存し、フォローアップで継続できるようにする
+        # v10.26.9: ルーム選択待ちとしてDBに保存
+        # status='pending_room'で保存し、フォローアップで継続できるようにする
+        # Note: 'pending_room'は22文字でVARCHAR(20)に収まらないため短縮
         self._save_pending_announcement(
             parsed, room_id, account_id, sender_name,
-            status="awaiting_room_selection"
+            status="pending_room"
         )
         print(f"📢 ルーム選択待ちとしてpending保存: room_candidates={len(parsed.target_room_candidates)}件")
 
@@ -1054,9 +1055,9 @@ class AnnouncementHandler:
             print(f"📢 フォローアップではない（質問パターン）: {raw_message[:50]}")
             return None  # AI司令塔に委ねる
 
-        # v10.26.8: awaiting_room_selection状態の場合、ルーム選択として処理
+        # v10.26.8: pending_room状態の場合、ルーム選択として処理
         pending_status = context.get("pending_status")
-        if pending_status == "awaiting_room_selection":
+        if pending_status == "pending_room":
             return self._handle_room_selection(
                 raw_message, announcement_id, room_id, account_id, sender_name
             )
@@ -1073,7 +1074,7 @@ class AnnouncementHandler:
                 self._cancel_announcement(announcement_id, "ユーザーによるキャンセル")
             return "アナウンスをキャンセルしましたウル 📭"
 
-        # ルーム番号選択（レガシー - 通常は上のawaiting_room_selectionで処理される）
+        # ルーム番号選択（レガシー - 通常は上のpending_roomで処理される）
         if response_text.isdigit():
             candidates = context.get("room_candidates", [])
             idx = int(response_text) - 1
@@ -1113,7 +1114,7 @@ class AnnouncementHandler:
         account_id: str,
         sender_name: str
     ) -> str:
-        """v10.26.8: awaiting_room_selection状態でのルーム選択を処理"""
+        """v10.26.8: pending_room状態でのルーム選択を処理"""
         pool = self.get_pool()
 
         try:
@@ -1695,7 +1696,7 @@ class AnnouncementHandler:
     ) -> Optional[Dict[str, Any]]:
         """このユーザー/ルームのpending announcementを取得
 
-        v10.26.8: 'awaiting_room_selection'も取得対象に追加
+        v10.26.8: 'pending_room'も取得対象に追加
         """
         pool = self.get_pool()
 
@@ -1710,7 +1711,7 @@ class AnnouncementHandler:
                         WHERE organization_id = :org_id
                           AND requested_by_account_id = :account_id
                           AND requested_from_room_id = :room_id
-                          AND status IN ('pending', 'awaiting_room_selection')
+                          AND status IN ('pending', 'pending_room')
                           AND created_at > NOW() - INTERVAL '30 minutes'
                         ORDER BY created_at DESC
                         LIMIT 1
@@ -1735,7 +1736,7 @@ class AnnouncementHandler:
         room_id: str,
         account_id: str,
         sender_name: str,
-        status: str = "pending"  # v10.26.8: 'pending' or 'awaiting_room_selection'
+        status: str = "pending"  # v10.26.8: 'pending' or 'pending_room'
     ) -> Optional[str]:
         """アナウンスをDBに保存"""
         pool = self.get_pool()

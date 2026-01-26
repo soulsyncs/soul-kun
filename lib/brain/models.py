@@ -276,7 +276,14 @@ class BrainContext:
 
     def get_recent_task_names(self) -> List[str]:
         """直近のタスク名リストを取得"""
-        return [t.summary or t.body[:50] for t in self.recent_tasks[:5]]
+        result = []
+        for t in self.recent_tasks[:5]:
+            if isinstance(t, dict):
+                summary = t.get('summary') or t.get('body', '')[:50]
+            else:
+                summary = t.summary or (t.body[:50] if hasattr(t, 'body') else '')
+            result.append(summary)
+        return result
 
     def get_known_persons(self) -> List[str]:
         """記憶している人物名リストを取得"""
@@ -318,8 +325,13 @@ class BrainContext:
         if self.recent_tasks:
             parts.append("【関連タスク】")
             for task in self.recent_tasks[:3]:
-                task_name = task.summary or task.body[:40]
-                parts.append(f"  - {task_name} ({task.status})")
+                if isinstance(task, dict):
+                    task_name = task.get('summary') or task.get('body', '')[:40]
+                    task_status = task.get('status', 'unknown')
+                else:
+                    task_name = task.summary or (task.body[:40] if hasattr(task, 'body') else '')
+                    task_status = task.status if hasattr(task, 'status') else 'unknown'
+                parts.append(f"  - {task_name} ({task_status})")
 
         # 目標
         if self.active_goals:

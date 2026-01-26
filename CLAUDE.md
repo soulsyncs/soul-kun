@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 07:35 JST**
+**最終更新: 2026-01-26 07:45 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,25 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 07:45 JST**: アナウンス タスク対象者指定バグ修正 (v10.26.3) ✅ **PR #144 本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **問題**: 「麻美にタスクついか」と指定しても「対象: ルーム全員」になり、7人全員にタスクが作成された
+  - **原因**:
+    1. 解析プロンプトに「〇〇にタスク」のルールがなかった
+    2. `task_include_names` → `task_include_account_ids` への変換処理がなかった
+    3. LLMがデフォルトで `task_assign_all: true` を設定
+  - **修正内容**:
+    - 解析プロンプトに「〇〇にタスク」→ `task_include_names`, `task_assign_all: false` のルールを追加
+    - `_resolve_names_to_account_ids()`: 名前からアカウントIDへの変換
+    - `_match_name_to_member()`: 完全一致、部分一致、敬称（さん、様）対応
+    - 名前解決時に `task_assign_all = False` を強制設定
+  - **変更ファイル**:
+    - `chatwork-webhook/handlers/announcement_handler.py`: +110行（名前解決機能）
+    - `tests/test_announcement_handler.py`: +118行（6件の新規テスト）
+  - **テスト**: 60件全パス
+  - **デプロイ**: chatwork-webhook revision 00164-bid
+  - **10の鉄則準拠**: 既存のorganization_idフィルタ維持、パラメータ化クエリ使用
 
 - **2026-01-26 07:35 JST**: アナウンス確認フロー メッセージ修正機能 (v10.26.2) ✅ **PR #142 本番デプロイ完了**
   - **実施者**: Claude Code

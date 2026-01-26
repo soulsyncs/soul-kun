@@ -256,7 +256,7 @@ class TestUnderstanding:
         context = BrainContext(organization_id="org_test")
         result = await brain._understand("目標を設定したい", context)
 
-        assert result.intent == "goal_setting_start"
+        assert result.intent == "goal_registration"  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
         assert result.intent_confidence >= 0.7
 
     @pytest.mark.asyncio

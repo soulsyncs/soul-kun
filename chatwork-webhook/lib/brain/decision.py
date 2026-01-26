@@ -109,8 +109,8 @@ CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "secondary": ["完了", "終わり", "done"],
         "negative": ["作成", "追加", "検索"],
     },
-    "goal_setting_start": {
-        "primary": ["目標設定", "目標を立てたい", "目標を決めたい"],
+    "goal_registration": {  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
+        "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい"],
         "secondary": ["目標", "ゴール"],
         "negative": ["進捗", "報告", "確認"],
     },

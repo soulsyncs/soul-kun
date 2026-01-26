@@ -90,10 +90,11 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "modifiers": ["完了", "終わった", "できた", "done", "済み"],
         "confidence_boost": 0.85,
     },
-    "goal_setting_start": {
-        "primary": ["目標設定", "目標を立てたい", "目標を決めたい"],
+    "goal_registration": {  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
+        "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい", "目標を設定したい"],
         "secondary": ["目標", "ゴール"],
         "modifiers": ["設定", "立てたい", "決めたい", "作りたい"],
+        "negative": ["進捗", "報告", "状況", "確認", "どれくらい"],  # 進捗報告・状況確認と区別
         "confidence_boost": 0.85,
     },
     "goal_progress_report": {
@@ -182,7 +183,7 @@ UNDERSTANDING_PROMPT = """あなたは「ソウルくん」の理解層です。
 - chatwork_task_create: タスクを作成・追加・依頼
 - chatwork_task_search: タスクを検索・確認・一覧表示
 - chatwork_task_complete: タスクを完了
-- goal_setting_start: 目標設定を開始
+- goal_registration: 目標設定を開始
 - goal_progress_report: 目標の進捗を報告
 - goal_status_check: 目標の状況を確認
 - save_memory: 人物情報を記憶

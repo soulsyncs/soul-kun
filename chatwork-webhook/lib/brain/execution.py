@@ -97,7 +97,7 @@ SUGGESTION_TEMPLATES: Dict[str, List[str]] = {
         "他にも完了にするタスクはある？",
         "次のタスクを確認する？",
     ],
-    "goal_setting_start": [
+    "goal_registration": [  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
         "目標について質問がある？",
     ],
     "learn_knowledge": [
@@ -840,7 +840,7 @@ class BrainExecution:
             "forget_knowledge": "knowledge",
             "query_knowledge": "knowledge",
             "save_memory": "memory",
-            "goal_setting_start": "goal",
+            "goal_registration": "goal",  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
             "goal_progress_report": "goal",
             "announcement_create": "announcement",
         }

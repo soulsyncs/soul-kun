@@ -31,6 +31,19 @@ from googleapiclient.errors import HttpError
 
 from lib.config import get_settings
 
+# 動的部署マッピング（オプショナル）
+# DB接続がない場合は静的マッピングにフォールバック
+try:
+    from lib.department_mapping import (
+        DepartmentMappingService,
+        resolve_legacy_department_id,
+        LEGACY_DEPARTMENT_ID_TO_NAME,
+    )
+    DEPARTMENT_MAPPING_AVAILABLE = True
+except ImportError:
+    DEPARTMENT_MAPPING_AVAILABLE = False
+    DepartmentMappingService = None
+
 
 logger = logging.getLogger(__name__)
 
@@ -585,12 +598,23 @@ class FolderMapper:
     """
     フォルダパスから権限情報を決定するクラス
 
-    使用例:
+    使用例（静的マッピング）:
         mapper = FolderMapper("org_soulsyncs")
 
         path = ["ソウルくん用フォルダ", "社員限定", "業務マニュアル"]
         permissions = mapper.map_folder_to_permissions(path)
         # → {"classification": "internal", "category": "B", "department_id": None}
+
+    使用例（動的マッピング - Phase 3.5 DB連携）:
+        mapper = FolderMapper(
+            "org_soulsyncs",
+            db_pool=db_pool,
+            use_dynamic_departments=True
+        )
+
+        path = ["ソウルくん用フォルダ", "部署別", "営業部"]
+        permissions = mapper.map_folder_to_permissions(path)
+        # → {"classification": "confidential", "category": "B", "department_id": "550e8400-..."}
     """
 
     DEFAULT_CLASSIFICATION = "internal"
@@ -600,10 +624,59 @@ class FolderMapper:
     def __init__(
         self,
         organization_id: str,
-        config: Optional[FolderMappingConfig] = None
+        config: Optional[FolderMappingConfig] = None,
+        db_pool=None,
+        use_dynamic_departments: bool = True
     ):
+        """
+        FolderMapper を初期化
+
+        Args:
+            organization_id: 組織ID
+            config: フォルダマッピング設定（静的マッピング用）
+            db_pool: SQLAlchemy Engine または Connection Pool（動的マッピング用）
+            use_dynamic_departments: 動的部署マッピングを使用するか
+
+        動的マッピングの条件:
+        - use_dynamic_departments=True
+        - db_pool が指定されている
+        - DepartmentMappingService が利用可能
+        """
         self.organization_id = organization_id
         self.config = config or FolderMappingConfig()
+
+        # 動的部署マッピングサービス
+        self._dept_service: Optional[DepartmentMappingService] = None
+
+        if (
+            use_dynamic_departments
+            and db_pool is not None
+            and DEPARTMENT_MAPPING_AVAILABLE
+        ):
+            try:
+                self._dept_service = DepartmentMappingService(
+                    db_pool=db_pool,
+                    organization_id=organization_id
+                )
+                logger.info(
+                    f"FolderMapper: Dynamic department mapping enabled "
+                    f"for organization {organization_id}"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"FolderMapper: Failed to initialize DepartmentMappingService, "
+                    f"falling back to static mapping: {e}"
+                )
+                self._dept_service = None
+        elif use_dynamic_departments and db_pool is None:
+            logger.debug(
+                f"FolderMapper: db_pool not provided, using static department mapping"
+            )
+        elif use_dynamic_departments and not DEPARTMENT_MAPPING_AVAILABLE:
+            logger.debug(
+                f"FolderMapper: DepartmentMappingService not available, "
+                f"using static department mapping"
+            )
 
     def determine_classification(self, folder_path: list[str]) -> str:
         """
@@ -643,9 +716,13 @@ class FolderMapper:
 
         決定ロジック:
         1. classification が "confidential" でない場合は None を返す
-        2. フォルダパスを上から順にチェック
-        3. DEPARTMENT_MAP に一致するフォルダ名があれば、その値を返す
+        2. 動的マッピング（DB）が有効な場合、部署名から UUID を取得
+        3. 静的マッピング（DEPARTMENT_MAP）をフォールバックとして使用
         4. 一致するものがなければ None を返す
+
+        Returns:
+            部署ID（動的マッピング時はUUID、静的マッピング時はテキスト形式）
+            見つからない場合はNone
         """
         classification = self.determine_classification(folder_path)
         if classification != "confidential":
@@ -653,10 +730,83 @@ class FolderMapper:
 
         for folder_name in folder_path:
             folder_name_normalized = folder_name.strip()
+
+            # 動的マッピング（DB）を優先
+            if self._dept_service is not None:
+                dept_id = self._dept_service.get_department_id(folder_name_normalized)
+                if dept_id is not None:
+                    logger.debug(
+                        f"Department ID resolved dynamically: "
+                        f"'{folder_name_normalized}' -> {dept_id}"
+                    )
+                    return dept_id
+
+            # 静的マッピング（フォールバック）
             if folder_name_normalized in self.config.DEPARTMENT_MAP:
-                return self.config.DEPARTMENT_MAP[folder_name_normalized]
+                legacy_id = self.config.DEPARTMENT_MAP[folder_name_normalized]
+
+                # 動的マッピングが有効な場合、レガシーIDをUUIDに変換
+                if self._dept_service is not None:
+                    uuid_id = self._resolve_legacy_department_id(legacy_id)
+                    if uuid_id is not None:
+                        logger.debug(
+                            f"Legacy department ID converted: "
+                            f"'{legacy_id}' -> {uuid_id}"
+                        )
+                        return uuid_id
+
+                # 動的マッピングが無効な場合、レガシーIDをそのまま返す
+                logger.debug(
+                    f"Department ID resolved statically: "
+                    f"'{folder_name_normalized}' -> {legacy_id}"
+                )
+                return legacy_id
 
         return self.DEFAULT_DEPARTMENT_ID
+
+    def _resolve_legacy_department_id(self, legacy_id: str) -> Optional[str]:
+        """
+        レガシー形式（"dept_sales"）の部署IDをUUIDに変換
+
+        Args:
+            legacy_id: レガシー形式の部署ID（例: "dept_sales"）
+
+        Returns:
+            UUID形式の部署ID、変換できない場合はNone
+
+        注意:
+        - 後方互換性のための一時的な機能
+        - Phase 4以降に削除予定
+        """
+        if self._dept_service is None:
+            return None
+
+        if not DEPARTMENT_MAPPING_AVAILABLE:
+            return None
+
+        try:
+            return resolve_legacy_department_id(self._dept_service, legacy_id)
+        except Exception as e:
+            logger.warning(
+                f"Failed to resolve legacy department ID '{legacy_id}': {e}"
+            )
+            return None
+
+    def is_dynamic_mapping_enabled(self) -> bool:
+        """動的部署マッピングが有効かチェック"""
+        return self._dept_service is not None
+
+    def get_all_departments(self) -> dict[str, str]:
+        """
+        全部署マッピングを取得
+
+        Returns:
+            動的マッピング有効時: DBから取得した部署名→UUID辞書
+            動的マッピング無効時: 静的マッピング（DEPARTMENT_MAP）
+        """
+        if self._dept_service is not None:
+            return self._dept_service.get_all_departments()
+        return self.config.DEPARTMENT_MAP.copy()
 
     def map_folder_to_permissions(self, folder_path: list[str]) -> dict:
         """
@@ -689,4 +839,5 @@ __all__ = [
     'FolderMappingConfig',
     'SUPPORTED_MIME_TYPES',
     'MAX_FILE_SIZE',
+    'DEPARTMENT_MAPPING_AVAILABLE',
 ]

@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 21:30 JST**
+**最終更新: 2026-01-26 23:30 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,54 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 23:30 JST**: Google Drive 動的部署マッピング (v10.28.3) 🔄 **PR #163 レビュー中**
+  - **実施者**: Claude Code
+  - **概要**: Phase 3.5拡張 - 組織図システムの departments テーブルから部署マッピングを動的に取得
+  - **目的**: 組織図で部署名・チーム名を変更した場合、自動的にGoogle Drive連携に反映される
+  - **新規ファイル**:
+    | ファイル | 行数 | 内容 |
+    |---------|------|------|
+    | `lib/department_mapping.py` | 370 | DepartmentMappingService クラス |
+    | `watch-google-drive/lib/department_mapping.py` | 370 | lib/のコピー |
+    | `tests/test_department_mapping.py` | 606 | 31件のユニットテスト |
+  - **修正ファイル**:
+    | ファイル | 変更行数 | 内容 |
+    |---------|----------|------|
+    | `lib/google_drive.py` | +161 | FolderMapper拡張（db_pool, use_dynamic_departments） |
+    | `watch-google-drive/lib/google_drive.py` | 同期 | lib/と同一 |
+    | `watch-google-drive/main.py` | +20 | Feature Flag、FolderMapper初期化 |
+  - **DepartmentMappingService 機能**:
+    | メソッド | 機能 |
+    |---------|------|
+    | `get_department_id()` | フォルダ名→UUID（完全一致、正規化版） |
+    | `get_all_departments()` | 全部署マッピング取得 |
+    | `_refresh_cache()` | DBから部署マスタ取得（TTL 5分） |
+    | `_normalize_name()` | 全角スペース→半角、前後空白除去、小文字変換 |
+  - **FolderMapper 拡張**:
+    | 機能 | 詳細 |
+    |------|------|
+    | 動的マッピング | DB優先、静的マッピングへフォールバック |
+    | 後方互換性 | レガシーID（"dept_sales"）→UUID変換 |
+    | Feature Flag | `USE_DYNAMIC_DEPARTMENT_MAPPING` 環境変数 |
+  - **テスト**: 31件全パス
+    - キャッシュ有効/無効判定（4件）
+    - organization_id解決（4件）
+    - 部署マッピング取得（5件）
+    - 逆引き（3件）
+    - レガシーID変換（3件）
+    - DB接続失敗時フォールバック（2件）
+    - 名前正規化（4件）
+    - FolderMapper統合（4件）
+    - カスタムTTL（2件）
+  - **10の鉄則準拠**:
+    - #1 organization_id: 全クエリにフィルタ
+    - #6 キャッシュTTL: 5分（300秒）
+    - #9 SQLインジェクション対策: パラメータ化クエリ
+  - **デプロイ手順**:
+    1. `USE_DYNAMIC_DEPARTMENT_MAPPING=false` でデプロイ（安全策）
+    2. 動作確認後 `true` に変更
+    3. 即時ロールバック可能
 
 - **2026-01-26 21:30 JST**: 脳アーキテクチャ Phase C 完了 (v10.28.2) 🔄 **PR作成中**
   - **実施者**: Claude Code

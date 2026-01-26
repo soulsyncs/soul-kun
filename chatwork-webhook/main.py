@@ -337,6 +337,33 @@ else:
 # AnnouncementHandlerインスタンス（後で初期化）
 _announcement_handler = None
 
+# =====================================================
+# v10.28.0: 脳アーキテクチャ（Brain Architecture）
+# 環境変数 USE_BRAIN_ARCHITECTURE=true で有効化（段階的導入）
+# 設計書: docs/13_brain_architecture.md
+# =====================================================
+_USE_BRAIN_ARCHITECTURE_ENV = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower() == "true"
+
+if _USE_BRAIN_ARCHITECTURE_ENV:
+    try:
+        from lib.brain import (
+            SoulkunBrain,
+            BrainResponse,
+            BrainContext,
+            StateType,
+        )
+        USE_BRAIN_ARCHITECTURE = True
+        print("✅ lib/brain loaded for Brain Architecture (v10.28.0)")
+    except ImportError as e:
+        print(f"⚠️ lib/brain not available (using fallback): {e}")
+        USE_BRAIN_ARCHITECTURE = False
+else:
+    print("⚠️ Brain Architecture disabled by environment variable USE_BRAIN_ARCHITECTURE=false")
+    USE_BRAIN_ARCHITECTURE = False
+
+# SoulkunBrainインスタンス（後で初期化）
+_brain_instance = None
+
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
@@ -2282,6 +2309,245 @@ def _get_announcement_handler():
             kazu_dm_room_id=None,  # 後で設定
         )
     return _announcement_handler
+
+
+# =====================================================
+# v10.28.0: 脳アーキテクチャ - SoulkunBrain初期化
+# =====================================================
+def _get_brain():
+    """
+    SoulkunBrainのシングルトンインスタンスを取得
+    """
+    global _brain_instance
+    if _brain_instance is None and USE_BRAIN_ARCHITECTURE:
+        handlers = {
+            "chatwork_task_search": _brain_handle_task_search,
+            "chatwork_task_create": _brain_handle_task_create,
+            "chatwork_task_complete": _brain_handle_task_complete,
+            "query_knowledge": _brain_handle_query_knowledge,
+            "save_memory": _brain_handle_save_memory,
+            "query_memory": _brain_handle_query_memory,
+            "delete_memory": _brain_handle_delete_memory,
+            "learn_knowledge": _brain_handle_learn_knowledge,
+            "forget_knowledge": _brain_handle_forget_knowledge,
+            "list_knowledge": _brain_handle_list_knowledge,
+            "goal_setting_start": _brain_handle_goal_setting_start,
+            "goal_progress_report": _brain_handle_goal_progress_report,
+            "goal_status_check": _brain_handle_goal_status_check,
+            "announcement_create": _brain_handle_announcement_create,
+            "query_org_chart": _brain_handle_query_org_chart,
+            "daily_reflection": _brain_handle_daily_reflection,
+            "proposal_decision": _brain_handle_proposal_decision,
+            "api_limitation": _brain_handle_api_limitation,
+            "general_conversation": _brain_handle_general_conversation,
+        }
+        _brain_instance = SoulkunBrain(
+            pool=get_pool(),
+            org_id="org_soulsyncs",
+            handlers=handlers,
+            capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
+            get_ai_response_func=get_ai_response,
+        )
+        print("✅ SoulkunBrain instance initialized")
+    return _brain_instance
+
+
+# =====================================================
+# v10.28.0: 脳用ハンドラーラッパー関数
+# =====================================================
+
+async def _brain_handle_task_search(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_chatwork_task_search(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "タスクが見つからなかったウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"タスク検索でエラーが発生したウル🐺")
+
+
+async def _brain_handle_task_create(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_chatwork_task_create(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "タスクを作成したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"タスク作成でエラーが発生したウル🐺")
+
+
+async def _brain_handle_task_complete(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        handler_context = {}
+        if context and hasattr(context, 'recent_tasks') and context.recent_tasks:
+            handler_context["recent_tasks_context"] = context.recent_tasks
+        result = handle_chatwork_task_complete(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=handler_context)
+        return HandlerResult(success=True, message=result if result else "タスクを完了にしたウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"タスク完了でエラーが発生したウル🐺")
+
+
+async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_query_company_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "ナレッジが見つからなかったウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"ナレッジ検索でエラーが発生したウル🐺")
+
+
+async def _brain_handle_save_memory(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_save_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "覚えたウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"記憶保存でエラーが発生したウル🐺")
+
+
+async def _brain_handle_query_memory(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_query_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "記憶が見つからなかったウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"記憶検索でエラーが発生したウル🐺")
+
+
+async def _brain_handle_delete_memory(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_delete_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "忘れたウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"記憶削除でエラーが発生したウル🐺")
+
+
+async def _brain_handle_learn_knowledge(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_learn_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "覚えたウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"知識学習でエラーが発生したウル🐺")
+
+
+async def _brain_handle_forget_knowledge(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_forget_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "忘れたウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"知識削除でエラーが発生したウル🐺")
+
+
+async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "知識一覧を取得したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"知識一覧でエラーが発生したウル🐺")
+
+
+async def _brain_handle_goal_setting_start(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        if USE_GOAL_SETTING_LIB:
+            pool = get_pool()
+            result = process_goal_setting_message(pool, room_id, account_id, "目標を設定したい")
+            if result and result.get("success"):
+                return HandlerResult(success=True, message=result.get("message", ""))
+        return HandlerResult(success=True, message="目標設定を始めるウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"目標設定でエラーが発生したウル🐺")
+
+
+async def _brain_handle_goal_progress_report(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_goal_progress_report(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "進捗を報告したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"進捗報告でエラーが発生したウル🐺")
+
+
+async def _brain_handle_goal_status_check(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_goal_status_check(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "目標状況を確認したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"目標状況確認でエラーが発生したウル🐺")
+
+
+async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        if USE_ANNOUNCEMENT_FEATURE:
+            handler = _get_announcement_handler()
+            if handler:
+                result = handler.handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
+                if result:
+                    return HandlerResult(success=True, message=result)
+        return HandlerResult(success=True, message="アナウンス機能は現在準備中ウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"アナウンスでエラーが発生したウル🐺")
+
+
+async def _brain_handle_query_org_chart(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_query_org_chart(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "組織情報を取得したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"組織図クエリでエラーが発生したウル🐺")
+
+
+async def _brain_handle_daily_reflection(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_daily_reflection(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "振り返りを記録したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"振り返りでエラーが発生したウル🐺")
+
+
+async def _brain_handle_proposal_decision(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_proposal_decision(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "提案を処理したウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"提案処理でエラーが発生したウル🐺")
+
+
+async def _brain_handle_api_limitation(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_api_limitation(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "API制限の説明ウル🐺")
+    except Exception as e:
+        return HandlerResult(success=False, message=f"API制限説明でエラーが発生したウル🐺")
+
+
+async def _brain_handle_general_conversation(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        history = get_conversation_history(room_id, account_id)
+        room_context = get_room_context(room_id, limit=30)
+        all_persons = get_all_persons_summary()
+        context_parts = []
+        if room_context:
+            context_parts.append(f"【このルームの最近の会話】\n{room_context}")
+        if all_persons:
+            persons_str = "\n".join([f"・{p['name']}: {p['attributes']}" for p in all_persons[:5] if p['attributes']])
+            if persons_str:
+                context_parts.append(f"【覚えている人物】\n{persons_str}")
+        context_str = "\n\n".join(context_parts) if context_parts else None
+        ai_response = get_ai_response(params.get("message", ""), history, sender_name, context_str, "ja")
+        return HandlerResult(success=True, message=ai_response)
+    except Exception as e:
+        return HandlerResult(success=False, message=f"ごめんウル...もう一度試してほしいウル🐺")
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
@@ -6447,7 +6713,43 @@ def chatwork_webhook(request):
             # 処理開始を即座にマーク（他のプロセスが処理しないように）
             mark_as_processed(message_id, room_id)
             print(f"🔒 処理開始マーク: message_id={message_id}")
-        
+
+        # =====================================================
+        # v10.28.0: 脳アーキテクチャ
+        # USE_BRAIN_ARCHITECTURE=true の場合、全ての入力を脳経由で処理
+        # =====================================================
+        if USE_BRAIN_ARCHITECTURE:
+            try:
+                brain = _get_brain()
+                if brain:
+                    print(f"🧠 脳アーキテクチャで処理開始")
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        response = loop.run_until_complete(
+                            brain.process_message(
+                                message=clean_message,
+                                room_id=room_id,
+                                account_id=sender_account_id,
+                                sender_name=sender_name,
+                            )
+                        )
+                    finally:
+                        loop.close()
+                    if response and response.message:
+                        print(f"🧠 脳アーキテクチャ応答: action={response.action_taken}")
+                        show_guide = should_show_guide(room_id, sender_account_id)
+                        send_chatwork_message(room_id, response.message, sender_account_id, show_guide)
+                        update_conversation_timestamp(room_id, sender_account_id)
+                        return jsonify({"status": "ok", "brain": True})
+            except Exception as e:
+                print(f"⚠️ 脳アーキテクチャエラー（フォールバック）: {e}")
+
+        # =====================================================
+        # 従来のフロー
+        # =====================================================
+
         # ★★★ pending_taskのフォローアップを最初にチェック ★★★
         pending_response = handle_pending_task_followup(clean_message, room_id, sender_account_id, sender_name)
         if pending_response:

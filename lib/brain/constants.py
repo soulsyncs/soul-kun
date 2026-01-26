@@ -203,6 +203,40 @@ CONJUNCTION_PATTERNS: List[str] = [
     "したら",
 ]
 
+# 複数アクション分割用の正規表現パターン
+SPLIT_PATTERNS: List[str] = [
+    r"。\s*(?:あと|それと|それから|ついでに)",  # 句点 + 接続詞
+    r"、\s*(?:あと|それと|それから|ついでに)",  # 読点 + 接続詞
+    r"(?:あと|それと|それから|ついでに)\s*(?:、|。)?",  # 接続詞単体
+    r"(?:して|したら|できたら)\s*(?:、|。)?",  # 依頼の連結
+]
+
+# 機能候補の最低スコア閾値
+CAPABILITY_MIN_SCORE_THRESHOLD: float = 0.1
+
+# リスクレベル定義
+RISK_LEVELS: Dict[str, str] = {
+    "chatwork_task_create": "low",
+    "chatwork_task_complete": "low",
+    "chatwork_task_search": "low",
+    "goal_setting_start": "low",
+    "goal_progress_report": "low",
+    "save_memory": "low",
+    "query_memory": "low",
+    "delete_memory": "medium",
+    "learn_knowledge": "low",
+    "query_knowledge": "low",
+    "forget_knowledge": "medium",
+    "query_org_chart": "low",
+    "send_announcement": "medium",
+    "delete": "high",
+    "remove": "high",
+    "send_all": "high",
+}
+
+# 確認が必要なリスクレベル
+CONFIRMATION_REQUIRED_RISK_LEVELS: Set[str] = {"high"}
+
 # =============================================================================
 # 状態タイプ
 # =============================================================================

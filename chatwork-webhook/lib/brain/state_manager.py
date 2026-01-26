@@ -1,4 +1,6 @@
 # lib/brain/state_manager.py
+# Version: v10.29.4 (2026-01-26)
+# Codex Review Target: 脳アーキテクチャ全面有効化前レビュー
 """
 ソウルくんの脳 - 状態管理層
 

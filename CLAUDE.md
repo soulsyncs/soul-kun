@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 13:30 JST**
+**最終更新: 2026-01-26 21:00 JST**
 
 ## Phase一覧と状態
 
@@ -808,6 +808,26 @@ git status
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 21:00 JST**: 脳アーキテクチャ本番統合 (v10.29.0) ✅ **PR #170 マージ完了**
+  - **実施者**: Claude Code
+  - **概要**: Phase H で作成した BrainIntegration を chatwork-webhook/main.py に統合
+  - **変更内容**:
+    - インポート部分変更: `BrainIntegration`, `IntegrationResult`, `create_integration`, `is_brain_enabled` 追加
+    - `_get_brain_integration()`: シングルトンで BrainIntegration を遅延初期化、19個のハンドラー登録
+    - `_build_bypass_context()`: 目標設定セッション、アナウンス確認待ちのバイパス検出
+    - Webhook処理: `integration.process_message()` で処理、`fallback_ai_commander` でフォールバック
+  - **登録ハンドラー（19個）**:
+    - タスク管理: task_search, task_create, task_complete
+    - ナレッジ: query_knowledge, save_memory, query_memory, delete_memory, learn_knowledge, forget_knowledge, list_knowledge
+    - 目標設定: goal_setting_start, goal_progress_report, goal_status_check
+    - その他: announcement_create, query_org_chart, daily_reflection, proposal_decision, api_limitation, general_conversation
+  - **変更ファイル**:
+    - `chatwork-webhook/main.py`: +199行（BrainIntegration統合）
+    - `lib/department_mapping.py`: SQL書式変更
+  - **テスト**: 449件パス（Integration: 67件）
+  - **10の鉄則準拠**: organization_idフィルタ維持、フォールバック設計、エラーメッセージに機密情報含まず
+  - **次のステップ**: シャドウモードでデプロイ → 段階的ロールアウト → 全面有効化
 
 - **2026-01-26 13:30 JST**: 脳アーキテクチャ Phase H 完了 (v10.28.8) ✅ **全Phase完了・PR作成準備完了**
   - **実施者**: Claude Code

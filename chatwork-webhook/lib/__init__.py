@@ -73,3 +73,14 @@ from .admin_config import (
     KAZU_CHATWORK_ACCOUNT_ID,
     KAZU_ACCOUNT_ID,
 )
+
+# v10.31.1: Phase D 接続設定集約
+from .config import get_settings, Settings, settings
+from .secrets import get_secret, get_secret_cached
+from .db import (
+    get_db_pool,
+    get_db_connection,
+    get_db_session,
+    close_all_connections,
+    health_check,
+)

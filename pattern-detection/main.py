@@ -32,12 +32,12 @@ Phase 2 A1/A2/A3/A4: パターン検知・属人化検出・ボトルネック�
 Author: Claude Code（経営参謀・SE・PM）
 Created: 2026-01-23
 Updated: 2026-01-24 (A2/A3/A4追加)
-Version: 1.3
+Updated: 2026-01-26 (Phase D: 接続設定集約)
+Version: 1.4
 """
 
 import functions_framework
 from flask import jsonify, Request
-from google.cloud import secretmanager
 import json
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -47,16 +47,93 @@ import os
 import pg8000
 import sqlalchemy
 from sqlalchemy import text
-from google.cloud.sql.connector import Connector
 
 # =====================================================
-# 設定
+# Phase D: 接続設定集約（v10.31.1）
 # =====================================================
+# ハードコードされていたDB接続設定をlib/に集約
+# - INSTANCE_CONNECTION_NAME -> lib/config.py
+# - DB_NAME, DB_USER -> lib/config.py
+# - get_db_pool() -> lib/db.py
+# - get_secret() -> lib/secrets.py
+# =====================================================
+try:
+    from lib.db import get_db_pool as _lib_get_db_pool
+    from lib.secrets import get_secret_cached as get_secret
+    from lib.config import get_settings
+    USE_LIB_DB = True
+    print("✅ lib/db.py loaded for database connection (Phase D)")
+except ImportError as e:
+    print(f"⚠️ lib/db.py not available (using fallback): {e}")
+    USE_LIB_DB = False
 
-PROJECT_ID = "soulkun-production"
-INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-DB_NAME = "soulkun_tasks"
-DB_USER = "soulkun_user"
+    # フォールバック: 旧実装
+    from google.cloud import secretmanager
+    from google.cloud.sql.connector import Connector
+
+    PROJECT_ID = "soulkun-production"
+    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
+    DB_NAME = "soulkun_tasks"
+    DB_USER = "soulkun_user"
+
+    _pool = None
+    _connector = None
+
+    def get_secret(secret_id: str) -> str:
+        """Secret Managerからシークレットを取得（フォールバック）"""
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+
+    def _fallback_get_db_pool():
+        """Cloud SQL接続プールを取得（フォールバック）"""
+        global _pool, _connector
+
+        if _pool is not None:
+            return _pool
+
+        try:
+            db_password = get_secret("cloudsql-password")
+
+            _connector = Connector()
+
+            def getconn():
+                return _connector.connect(
+                    INSTANCE_CONNECTION_NAME,
+                    "pg8000",
+                    user=DB_USER,
+                    password=db_password,
+                    db=DB_NAME,
+                )
+
+            _pool = sqlalchemy.create_engine(
+                "postgresql+pg8000://",
+                creator=getconn,
+                pool_size=3,
+                max_overflow=2,
+                pool_timeout=30,
+                pool_recycle=1800,
+            )
+
+            print(f"✅ Cloud SQL接続プール作成完了（フォールバック）")
+            return _pool
+
+        except Exception as e:
+            print(f"❌ Cloud SQL接続エラー: {e}")
+            raise
+
+# 統一インターフェース
+def get_db_pool():
+    """Cloud SQL接続プールを取得"""
+    if USE_LIB_DB:
+        return _lib_get_db_pool()
+    else:
+        return _fallback_get_db_pool()
+
+# =====================================================
+# 設定（フォールバック時以外は lib/config.py を使用）
+# =====================================================
 
 # ソウルシンクスの組織ID
 DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
@@ -70,64 +147,6 @@ JST = timezone(timedelta(hours=9))
 # テストモード設定
 DRY_RUN = os.environ.get("DRY_RUN", "").lower() in ("true", "1", "yes")
 TEST_MODE = os.environ.get("TEST_MODE", "").lower() in ("true", "1", "yes")
-
-# グローバル変数
-_pool = None
-_connector = None
-
-
-# =====================================================
-# シークレット取得
-# =====================================================
-
-def get_secret(secret_id: str) -> str:
-    """Secret Managerからシークレットを取得"""
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
-
-
-# =====================================================
-# データベース接続
-# =====================================================
-
-def get_db_pool():
-    """Cloud SQL接続プールを取得"""
-    global _pool, _connector
-
-    if _pool is not None:
-        return _pool
-
-    try:
-        db_password = get_secret("cloudsql-password")
-
-        _connector = Connector()
-
-        def getconn():
-            return _connector.connect(
-                INSTANCE_CONNECTION_NAME,
-                "pg8000",
-                user=DB_USER,
-                password=db_password,
-                db=DB_NAME,
-            )
-
-        _pool = sqlalchemy.create_engine(
-            "postgresql+pg8000://",
-            creator=getconn,
-            pool_size=3,
-            max_overflow=2,
-            pool_timeout=30,
-            pool_recycle=1800,
-        )
-
-        print(f"✅ Cloud SQL接続プール作成完了")
-        return _pool
-
-    except Exception as e:
-        print(f"❌ Cloud SQL接続エラー: {e}")
-        raise
 
 
 # =====================================================

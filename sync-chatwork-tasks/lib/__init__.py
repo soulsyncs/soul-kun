@@ -6,7 +6,22 @@ sync-chatwork-tasks/lib - Cloud Functions用ローカルライブラリ
 
 v10.14.1: audit追加
 v10.17.0: text_utils追加
+v10.31.1: Phase D - db, config, secrets追加（接続設定集約）
 """
+
+# =============================================================================
+# Phase D: 接続設定集約（v10.31.1）
+# =============================================================================
+from .config import get_settings, Settings, settings
+from .secrets import get_secret, get_secret_cached
+from .db import (
+    get_db_pool,
+    get_db_connection,
+    get_db_session,
+    close_all_connections,
+    health_check,
+)
+
 from .text_utils import (
     # パターン定義
     GREETING_PATTERNS,

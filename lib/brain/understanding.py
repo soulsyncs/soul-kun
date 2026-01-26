@@ -609,7 +609,11 @@ class BrainUnderstanding:
         if context.recent_tasks:
             parts.append("\n【直近のタスク】")
             for task in context.recent_tasks[:3]:  # 最新3件
-                parts.append(f"  - {task.body[:50]}（{task.assignee_name}）")
+                # taskはdictまたはオブジェクトの可能性がある
+                body = task.get("body", "") if isinstance(task, dict) else getattr(task, "body", "")
+                assignee = task.get("assignee_name", "") if isinstance(task, dict) else getattr(task, "assignee_name", "")
+                if body:
+                    parts.append(f"  - {body[:50]}（{assignee}）")
 
         # 人物情報
         # person_infoはPersonInfoデータクラスまたはdictの可能性がある
@@ -873,11 +877,14 @@ class BrainUnderstanding:
             # 直近のタスクから候補を抽出
             if context.recent_tasks:
                 for task in context.recent_tasks[:3]:
-                    candidates.append({
-                        "value": task.body[:30],
-                        "type": "task",
-                        "source": "recent_tasks",
-                    })
+                    # taskはdictまたはオブジェクトの可能性がある
+                    body = task.get("body", "") if isinstance(task, dict) else getattr(task, "body", "")
+                    if body:
+                        candidates.append({
+                            "value": body[:30],
+                            "type": "task",
+                            "source": "recent_tasks",
+                        })
 
             # 直近の会話から話題を抽出
             if context.recent_conversation:

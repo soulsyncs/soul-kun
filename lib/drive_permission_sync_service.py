@@ -61,6 +61,11 @@ from lib.drive_permission_change_detector import (
     AlertLevel,
     create_detector_from_env,
 )
+from lib.audit import (
+    log_audit_async,
+    log_drive_permission_change,
+    log_drive_sync_summary,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -272,6 +277,10 @@ class DrivePermissionSyncService:
         """
         report = SyncReport(dry_run=dry_run)
 
+        # キャッシュをクリア（組織図の最新状態を反映）
+        self.clear_caches()
+        logger.info("Cleared caches before sync")
+
         # 変更検知器を初期化
         if change_detector is None:
             change_detector = create_detector_from_env()
@@ -357,6 +366,20 @@ class DrivePermissionSyncService:
                         dry_run=dry_run,
                         additional_message=f"処理フォルダ: {report.folders_processed}件"
                     )
+
+            # 監査ログ記録（10の鉄則 #3）
+            try:
+                await log_drive_sync_summary(
+                    organization_id=self.organization_id,
+                    folders_processed=report.folders_processed,
+                    permissions_added=report.permissions_added,
+                    permissions_removed=report.permissions_removed,
+                    permissions_updated=report.permissions_updated,
+                    errors=report.errors,
+                    dry_run=dry_run,
+                )
+            except Exception as e:
+                logger.warning(f"Failed to log audit (non-blocking): {e}")
 
         return report
 

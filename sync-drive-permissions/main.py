@@ -249,6 +249,7 @@ async def _run_sync(
             snapshot_manager = SnapshotManager(
                 storage_path=SNAPSHOT_STORAGE_PATH,
                 service_account_info=service_account_info,
+                organization_id=ORGANIZATION_ID,  # テナント分離（v10.28.0）
             )
         except Exception as e:
             logger.warning(f"Failed to initialize snapshot manager: {e}")
@@ -350,6 +351,7 @@ def list_snapshots(request: Request):
         manager = SnapshotManager(
             storage_path=SNAPSHOT_STORAGE_PATH,
             service_account_info=service_account_info,
+            organization_id=ORGANIZATION_ID,  # テナント分離（v10.28.0）
         )
 
         snapshots = manager.list_snapshots()
@@ -412,6 +414,7 @@ def rollback_snapshot(request: Request):
         manager = SnapshotManager(
             storage_path=SNAPSHOT_STORAGE_PATH,
             service_account_info=service_account_info,
+            organization_id=ORGANIZATION_ID,  # テナント分離（v10.28.0）
         )
 
         # ロールバックを非同期で実行

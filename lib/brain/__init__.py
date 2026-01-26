@@ -75,6 +75,18 @@ from lib.brain.constants import (
     MAX_RETRY_COUNT,
 )
 
+from lib.brain.integration import (
+    BrainIntegration,
+    IntegrationResult,
+    IntegrationConfig,
+    IntegrationMode,
+    BypassType,
+    BypassDetectionResult,
+    create_integration,
+    is_brain_enabled,
+    FEATURE_FLAG_NAME,
+)
+
 __all__ = [
     # メインクラス
     "SoulkunBrain",
@@ -115,6 +127,16 @@ __all__ = [
     "CONFIRMATION_THRESHOLD",
     "SESSION_TIMEOUT_MINUTES",
     "MAX_RETRY_COUNT",
+    # 統合層
+    "BrainIntegration",
+    "IntegrationResult",
+    "IntegrationConfig",
+    "IntegrationMode",
+    "BypassType",
+    "BypassDetectionResult",
+    "create_integration",
+    "is_brain_enabled",
+    "FEATURE_FLAG_NAME",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"  # Phase H: Integration Layer

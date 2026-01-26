@@ -346,15 +346,16 @@ class BrainUnderstanding:
 
         except Exception as e:
             logger.error(f"Error in understanding: {e}")
-            # エラー時はフォールバック
+            # v10.29.5: Codex指摘修正 - エラー詳細をユーザーに見せない（10の鉄則準拠）
+            # 内部エラー情報はログのみに記録し、ユーザーには汎用メッセージを表示
             return UnderstandingResult(
                 raw_message=message,
                 intent="general_conversation",
                 intent_confidence=0.3,
                 entities={},
                 needs_confirmation=True,
-                confirmation_reason=f"理解できませんでした: {str(e)[:50]}",
-                reasoning=f"Error: {e}",
+                confirmation_reason="もう少し詳しく教えていただけますか？",
+                reasoning="Understanding error occurred",  # 内部用（ユーザーには非表示）
                 processing_time_ms=self._elapsed_ms(start_time),
             )
 

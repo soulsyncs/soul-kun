@@ -935,15 +935,19 @@ class BrainMemoryAccess:
                     user_clause = "AND ci.user_id = (SELECT id FROM users WHERE chatwork_account_id = :user_id)"
                     params["user_id"] = user_id
 
+                # v10.29.5: Codex指摘修正 - カラム名をDBスキーマに合わせる
+                # - role → message_type (CHECK: 'user', 'assistant')
+                # - message → message_text
+                # - keywords @> ARRAY[:query] は動作しないため、単純なキーワードANY検索に変更
                 result = conn.execute(
                     text(f"""
                         SELECT
-                            ci.role,
-                            ci.message,
+                            ci.message_type,
+                            ci.message_text,
                             ci.message_time
                         FROM conversation_index ci
-                        WHERE ci.organization_id = :org_id
-                          AND (ci.message ILIKE :query OR ci.keywords @> ARRAY[:query])
+                        WHERE ci.organization_id = :org_id::uuid
+                          AND ci.message_text ILIKE :query
                           {user_clause}
                         ORDER BY ci.message_time DESC
                         LIMIT :limit
@@ -954,9 +958,9 @@ class BrainMemoryAccess:
 
                 return [
                     ConversationMessage(
-                        role=row[0] or "user",
-                        content=row[1] or "",
-                        timestamp=row[2],
+                        role=row[0] or "user",  # message_type: 'user' or 'assistant'
+                        content=row[1] or "",   # message_text
+                        timestamp=row[2],       # message_time
                     )
                     for row in rows
                 ]

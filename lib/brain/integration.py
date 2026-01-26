@@ -18,6 +18,7 @@ chatwork-webhookとの統合を担当する層です。
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import time
@@ -624,23 +625,32 @@ class BrainIntegration:
     ) -> None:
         """
         シャドウモードの比較結果をログ
+
+        v10.29.5: Codex指摘修正 - プライバシー保護のため、
+        メッセージ本文ではなく文字数のみをログ出力する
         """
-        brain_msg = ""
-        fallback_msg = ""
+        brain_len = 0
+        brain_status = "unknown"
+        fallback_len = 0
+        fallback_status = "unknown"
 
         if isinstance(brain_result, IntegrationResult):
-            brain_msg = brain_result.message[:100]
+            brain_len = len(brain_result.message)
+            brain_status = "success" if brain_result.success else "failed"
         elif isinstance(brain_result, Exception):
-            brain_msg = f"[ERROR] {brain_result}"
+            brain_status = "error"
 
         if isinstance(fallback_result, IntegrationResult):
-            fallback_msg = fallback_result.message[:100]
+            fallback_len = len(fallback_result.message)
+            fallback_status = "success" if fallback_result.success else "failed"
         elif isinstance(fallback_result, Exception):
-            fallback_msg = f"[ERROR] {fallback_result}"
+            fallback_status = "error"
 
+        # プライバシー保護: 本文ではなく文字数のみ記録
         logger.info(
-            f"[SHADOW] input={message[:50]}... | "
-            f"brain={brain_msg} | fallback={fallback_msg}"
+            "[SHADOW] input_len=%d brain_len=%d brain_status=%s "
+            "fallback_len=%d fallback_status=%s",
+            len(message), brain_len, brain_status, fallback_len, fallback_status
         )
 
     # =========================================================================
@@ -682,8 +692,10 @@ class BrainIntegration:
 
         # 段階的移行モードの場合
         if self.config.mode == IntegrationMode.GRADUAL:
-            # アカウントIDのハッシュで確率的に判定
-            hash_value = hash(account_id) % 100
+            # v10.29.5: Codex指摘修正 - hash()はプロセス間で不安定なためsha256を使用
+            # sha256は決定論的で、同じaccount_idは常に同じ結果を返す
+            hash_digest = hashlib.sha256(account_id.encode("utf-8")).hexdigest()
+            hash_value = int(hash_digest, 16) % 100
             if hash_value >= self.config.gradual_percentage:
                 return False
 

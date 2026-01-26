@@ -375,13 +375,19 @@ class AnnouncementHandler:
 
     def _get_parsing_system_prompt(self) -> str:
         """解析用システムプロンプトを取得"""
-        return """あなたはアナウンス依頼を解析するアシスタントです。
+        # 今日の日付を取得（相対日付の計算用）
+        from datetime import datetime, timedelta
+        today = datetime.now(JST)
+        tomorrow = today + timedelta(days=1)
+        day_after_tomorrow = today + timedelta(days=2)
+
+        return f"""あなたはアナウンス依頼を解析するアシスタントです。
 
 ユーザーからのアナウンス依頼を分析し、以下の情報をJSON形式で抽出してください:
 
-{
+{{
   "target_room_query": "送信先ルームの検索キーワード（ユーザーの言葉そのまま）",
-  "message_content": "送信するメッセージ内容（ユーザーが指定した内容、または推測した内容）",
+  "message_content": "送信するメッセージ内容（★重要: ユーザーが伝えたい内容をそのまま抽出）",
   "create_tasks": true/false,
   "task_deadline": "YYYY-MM-DD HH:MM",
   "task_assign_all": true/false,
@@ -395,22 +401,57 @@ class AnnouncementHandler:
   "confidence": 0.0-1.0,
   "needs_clarification": true/false,
   "clarification_questions": ["不明点1", "不明点2"]
-}
+}}
+
+【今日の日付】
+- 今日: {today.strftime('%Y-%m-%d')}
+- 明日: {tomorrow.strftime('%Y-%m-%d')}
+- あさって: {day_after_tomorrow.strftime('%Y-%m-%d')}
+
+【message_content の抽出ルール - 最重要】
+★ ユーザーが「〜っていうのを伝えて」「〜ということを伝えて」と言った場合、その前の内容がmessage_contentです。
+★ 「おはよう」「こんにちは」等の単純な挨拶でない限り、ユーザーの指示内容をそのまま抽出してください。
+
+例1: 「管理部に、Chatworkのタスクで終わっているものは完了してっていうのを伝えて」
+→ message_content: "Chatworkのタスクで終わっているものは完了してください"
+
+例2: 「合宿チャットにおはようって伝えて」
+→ message_content: "おはよう"
+
+例3: 「営業部に、来週の会議が延期になったっていうことを連絡して」
+→ message_content: "来週の会議が延期になりました"
 
 【判断基準】
 - 「連絡して」「伝えて」「お知らせして」→ アナウンス
-- 「タスクも振って」「依頼して」「お願いして」→ create_tasks: true
-- 「〜まで」「〜日まで」→ task_deadline
-- 「全員」「みんな」→ task_assign_all: true
-- 「〇〇にタスク」「〇〇さんにタスク」→ task_include_names: ["〇〇"], task_assign_all: false
+- 「タスクも振って」「依頼して」「タスク追加」→ create_tasks: true
+- 「〜まで」「〜日まで」「あさってまで」→ task_deadline
+- 「全員」「みんな」と明示的に言われた場合のみ → task_assign_all: true
+- 「〇〇にタスク」「〇〇さんにタスク追加」→ task_include_names: ["〇〇"], task_assign_all: false
 - 「〜以外」「〜を除く」→ task_exclude_names, task_assign_all: true
 - 「毎週」「毎月」「毎日」→ schedule_type: recurring
 - 「明日」「来週月曜」→ schedule_type: one_time + scheduled_at
 
 【重要ルール】
-- 特定の人名が指定された場合（例:「麻美にタスク」）は必ず task_assign_all: false にして、task_include_names にその名前を入れる
-- 「全員」「みんな」と明示的に言われた場合のみ task_assign_all: true にする
-- 名前が指定されていない場合でも、デフォルトは task_assign_all: false にする
+1. 特定の人名が指定された場合（例:「月宮さんにタスク」）は必ず task_assign_all: false にして、task_include_names にその名前を入れる
+2. 「全員」「みんな」と明示的に言われた場合のみ task_assign_all: true にする
+3. 名前が指定されていない場合でも、デフォルトは task_assign_all: false にする
+4. 複数の名前がある場合（「月宮さんと管理部のアカウントにタスク」）、すべての名前を task_include_names に入れる
+
+【複雑な例】
+入力: 「管理部に対して、管理部のチャットグループで、管理部のアカウントと月宮さんに向けて、Chatworkのタスクで、すでに終わっているものは完了するように全員にアナウンスをお願いします、っていうのを伝えてほしい。タスクは月宮さんと管理部のアカウントにタスク追加で、期限はあさってまで。」
+
+正解:
+{{
+  "target_room_query": "管理部のチャットグループ",
+  "message_content": "Chatworkのタスクで、すでに終わっているものは完了するようにお願いします",
+  "create_tasks": true,
+  "task_deadline": "{day_after_tomorrow.strftime('%Y-%m-%d')} 23:59",
+  "task_assign_all": false,
+  "task_include_names": ["月宮", "管理部のアカウント"],
+  "task_exclude_names": [],
+  "schedule_type": "immediate",
+  "confidence": 0.9
+}}
 
 【必須確認項目】
 メッセージ内容が明確でない場合はneeds_clarification: trueにしてください。

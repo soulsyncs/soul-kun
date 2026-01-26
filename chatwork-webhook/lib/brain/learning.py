@@ -1,4 +1,6 @@
 # lib/brain/learning.py
+# Version: v10.29.4 (2026-01-26)
+# Codex Review Target: 脳アーキテクチャ全面有効化前レビュー
 """
 ソウルくんの脳 - 学習層（Learning Layer）
 

@@ -726,9 +726,14 @@ git status
 > これを「データベースから取得する」方式に変えた。これで将来、別の会社でソウルくんを使う時も対応できる。
 > chatwork-webhookが本番でDBから設定を取得していることを確認済み。
 
-**次にやること（Phase C）:**
-> 15個のFeature Flagが色々なファイルに散らばっていて、どの機能がON/OFFか把握しづらい。
-> これを「1つの設定ファイル」で管理できるようにする。
+**完了したこと（Phase C）:** ✅ 2026-01-26 完了
+> 15個のFeature Flagが色々なファイルに散らばっていて、どの機能がON/OFFか把握しづらかった。
+> これを「1つの設定ファイル（lib/feature_flags.py）」で管理できるようにした。
+> 92件のテストで品質を担保。6つのCloud Functionsにコピー済み。
+
+**次にやること（Phase D）:**
+> 7ファイルに同じDB接続文字列がある。
+> これを「lib/config.py」で一元管理できるようにする。
 
 ---
 
@@ -737,8 +742,8 @@ git status
 | 優先度 | タスク | 理由 | 工数目安 | 設計書 |
 |--------|--------|------|----------|--------|
 | ~~★★★~~ | ~~Phase A: 管理者設定のDB化~~ | ~~Phase 4（マルチテナント）の前提条件~~ | ~~2時間~~ | ✅ **完了 (v10.30.1)** |
-| **★★★** | **Phase C: Feature Flag集約** | 15個のフラグが散らばっていて保守性が悪い | 1時間 | `docs/14_brain_refactoring_plan.md` |
-| ★★☆ | Phase D: 接続設定集約 | 7ファイルに同じDB接続文字列がある | 1時間 | `docs/14_brain_refactoring_plan.md` |
+| ~~★★★~~ | ~~Phase C: Feature Flag集約~~ | ~~15個のフラグが散らばっていて保守性が悪い~~ | ~~1時間~~ | ✅ **完了 (v10.31.0)** |
+| **★★☆** | **Phase D: 接続設定集約** | 7ファイルに同じDB接続文字列がある | 1時間 | `docs/14_brain_refactoring_plan.md` |
 | ★☆☆ | 脳アーキテクチャ本番有効化 | シャドウモード→段階的ロールアウト | 1-2週間 | `~/.claude/plans/linear-questing-cosmos.md` |
 
 ---
@@ -760,6 +765,50 @@ ADMIN_ROOM_ID = "405315911"    # 管理部のルームID
 5. ✅ 20件のテスト追加
 6. ✅ 本番デプロイ完了（revision 00192-fej）
 7. ✅ ログで動作確認: `Admin config loaded from DB: account=1728974, room=405315911`
+
+---
+
+### Phase C完了報告（2026-01-26）
+
+**問題（解決済み）:**
+```python
+# 15+個のFeature Flagがバラバラに散らばっていた
+_USE_NEW_PROPOSAL_HANDLER_ENV = os.environ.get("USE_NEW_PROPOSAL_HANDLER", "true")
+_USE_NEW_MEMORY_HANDLER_ENV = os.environ.get("USE_NEW_MEMORY_HANDLER", "true")
+# ...など各ファイルに散在
+```
+
+**解決:**
+1. ✅ `lib/feature_flags.py`新規作成（525行）
+2. ✅ `FeatureFlags`クラス（22フラグを5カテゴリで管理）
+   - handler: 6フラグ（proposal, memory, task, overdue, goal, knowledge）
+   - library: 9フラグ（admin_config, text_utils, user_utils等）
+   - feature: 4フラグ（brain, announcement, mvv, phase3_knowledge）
+   - detection: 2フラグ（dynamic_department_mapping, unmatched_folder_alert）
+   - infra: 2フラグ（dry_run, department_access_control）
+3. ✅ 環境変数読み込み（from_env）
+4. ✅ インポート結果設定（set_import_result）
+5. ✅ ヘルパー関数（is_handler_enabled, is_library_available, is_feature_enabled等）
+6. ✅ シングルトンパターン（get_flags, reset_flags, init_flags）
+7. ✅ 92件のユニットテスト追加（全パス）
+8. ✅ 6つのCloud Functionsにコピー
+
+**使い方:**
+```python
+from lib.feature_flags import get_flags, is_handler_enabled
+
+# 基本的な使い方
+flags = get_flags()
+if flags.use_brain_architecture:
+    brain.process(message)
+
+# ヘルパー関数
+if is_handler_enabled("proposal"):
+    ...
+
+# フラグ一覧表示
+flags.print_status()
+```
 
 ---
 
@@ -856,6 +905,56 @@ ADMIN_ROOM_ID = "405315911"    # 管理部のルームID
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 22:00 JST**: Phase C Feature Flag集約 (v10.31.0) ✅ **完了**
+  - **実施者**: Claude Code
+  - **概要**: 15+個のFeature Flagを1つのファイル（lib/feature_flags.py）に集約
+  - **背景**: Feature Flagが各ファイルに散在していて、どの機能がON/OFFか把握しづらかった
+  - **新規ファイル**:
+    - `lib/feature_flags.py`: 新規（525行）
+    - `tests/test_feature_flags.py`: 新規（92件のテスト）
+  - **FeatureFlagsクラス機能**:
+    - 22フラグを5カテゴリで管理（handler, library, feature, detection, infra）
+    - 環境変数読み込み（from_env）
+    - インポート結果設定（set_import_result）
+    - ヘルパー関数（is_handler_enabled, is_library_available, is_feature_enabled等）
+    - シングルトンパターン（get_flags, reset_flags, init_flags）
+    - JSON出力（to_json）、状態表示（print_status）
+  - **対応フラグ一覧**:
+    | カテゴリ | フラグ数 | 内容 |
+    |---------|---------|------|
+    | handler | 6 | proposal, memory, task, overdue, goal, knowledge |
+    | library | 9 | admin_config, text_utils, user_utils, business_day, goal_setting, memory_framework, mvv_context, date_utils, chatwork_utils |
+    | feature | 4 | brain_architecture, announcement_feature, phase3_knowledge, brain_mode |
+    | detection | 2 | dynamic_department_mapping, unmatched_folder_alert |
+    | infra | 2 | dry_run, department_access_control |
+  - **コピー先Cloud Functions**:
+    - chatwork-webhook/lib/feature_flags.py
+    - remind-tasks/lib/feature_flags.py
+    - sync-chatwork-tasks/lib/feature_flags.py
+    - watch-google-drive/lib/feature_flags.py
+    - pattern-detection/lib/feature_flags.py
+  - **テスト**: 92件のユニットテスト（全パス）
+    - 基本機能テスト（6件）
+    - 環境変数読み込みテスト（10件）
+    - 脳アーキテクチャモードテスト（5件）
+    - MVVコンテキストテスト（4件）
+    - インポート結果設定テスト（4件）
+    - フラグ取得ユーティリティテスト（7件）
+    - ヘルパー関数テスト（9件）
+    - シングルトンテスト（4件）
+    - 定数テスト（4件）
+    - FlagInfoテスト（2件）
+    - エッジケーステスト（5件）
+    - 全ハンドラーフラグテスト（12件）
+    - 全ライブラリフラグテスト（14件）
+    - 統合テスト（4件）
+    - 後方互換性テスト（2件）
+  - **10の鉄則準拠**:
+    - DB操作なし（設定管理のみ）
+    - 後方互換性維持（既存コードは引き続き動作）
+    - フォールバック設計（環境変数未設定時はデフォルト値）
+  - **次のステップ**: chatwork-webhook/main.pyの段階的移行
 
 - **2026-01-26 21:15 JST**: Phase A 管理者設定のDB化 本番デプロイ (v10.30.1) ✅ **本番デプロイ完了**
   - **実施者**: Claude Code

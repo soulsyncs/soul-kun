@@ -43,7 +43,7 @@ __author__ = "Claude Code"
 # 定数のエクスポート
 # ================================================================
 
-from lib.memory.constants import (
+from .constants import (
     # パラメータ
     MemoryParameters,
     # 嗜好タイプ
@@ -58,7 +58,7 @@ from lib.memory.constants import (
 # 例外のエクスポート
 # ================================================================
 
-from lib.memory.exceptions import (
+from .exceptions import (
     MemoryBaseException,
     MemoryError,
     SummarySaveError,
@@ -71,7 +71,7 @@ from lib.memory.exceptions import (
 # 基底クラスのエクスポート
 # ================================================================
 
-from lib.memory.base import (
+from .base import (
     BaseMemory,
     MemoryResult,
 )
@@ -80,22 +80,22 @@ from lib.memory.base import (
 # 記憶機能のエクスポート
 # ================================================================
 
-from lib.memory.conversation_summary import (
+from .conversation_summary import (
     ConversationSummary,
     SummaryData,
 )
 
-from lib.memory.user_preference import (
+from .user_preference import (
     UserPreference,
     PreferenceData,
 )
 
-from lib.memory.auto_knowledge import (
+from .auto_knowledge import (
     AutoKnowledge,
     KnowledgeData,
 )
 
-from lib.memory.conversation_search import (
+from .conversation_search import (
     ConversationSearch,
     SearchResult,
 )
@@ -104,7 +104,7 @@ from lib.memory.conversation_search import (
 # Phase 2.5統合のエクスポート
 # ================================================================
 
-from lib.memory.goal_integration import (
+from .goal_integration import (
     GoalSettingContextEnricher,
 )
 

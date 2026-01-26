@@ -33,12 +33,12 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from lib.brain.constants import (
+from .constants import (
     RECENT_CONVERSATION_LIMIT,
     RECENT_TASKS_LIMIT,
     INSIGHTS_LIMIT,
 )
-from lib.brain.exceptions import MemoryAccessError, MemoryNotFoundError, MemoryConnectionError
+from .exceptions import MemoryAccessError, MemoryNotFoundError, MemoryConnectionError
 
 logger = logging.getLogger(__name__)
 

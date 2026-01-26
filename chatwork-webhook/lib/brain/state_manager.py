@@ -24,9 +24,9 @@ from uuid import UUID
 
 from sqlalchemy import text
 
-from lib.brain.models import ConversationState, StateType
-from lib.brain.constants import SESSION_TIMEOUT_MINUTES
-from lib.brain.exceptions import StateError
+from .models import ConversationState, StateType
+from .constants import SESSION_TIMEOUT_MINUTES
+from .exceptions import StateError
 
 logger = logging.getLogger(__name__)
 

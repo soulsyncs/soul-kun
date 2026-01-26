@@ -22,13 +22,15 @@ import json
 import re
 import random
 
-from lib.db import get_db_pool
-from lib.chatwork import ChatworkClient
+# v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+from .db import get_db_pool
+from .chatwork import ChatworkClient
 from sqlalchemy import text
 
 # MVVコンテキストをインポート（Phase 2C-1）
+# v10.31.4: 相対インポートに変更
 try:
-    from lib.mvv_context import (
+    from .mvv_context import (
         SOULSYNC_MVV,
         BEHAVIORAL_GUIDELINES_10,
         BasicNeed,

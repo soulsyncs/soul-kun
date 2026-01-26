@@ -18,8 +18,8 @@ import re
 import json
 import httpx
 
-from lib.memory.constants import MemoryParameters
-from lib.memory.exceptions import ValidationError, LLMError
+from .constants import MemoryParameters
+from .exceptions import ValidationError, LLMError
 
 
 # ================================================================

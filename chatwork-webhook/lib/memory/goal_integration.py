@@ -56,7 +56,8 @@ class GoalSettingContextEnricher:
         """ConversationSummaryサービスをlazy loadで取得"""
         if self._summary_service is None:
             try:
-                from lib.memory.conversation_summary import ConversationSummary
+                # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+                from .conversation_summary import ConversationSummary
                 self._summary_service = ConversationSummary(
                     conn=self.conn,
                     org_id=UUID(self.org_id),
@@ -70,7 +71,8 @@ class GoalSettingContextEnricher:
         """UserPreferenceサービスをlazy loadで取得"""
         if self._preference_service is None:
             try:
-                from lib.memory.user_preference import UserPreference
+                # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+                from .user_preference import UserPreference
                 self._preference_service = UserPreference(
                     conn=self.conn,
                     org_id=UUID(self.org_id),

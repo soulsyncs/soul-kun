@@ -2932,12 +2932,9 @@ def chatwork_webhook(request):
             ensure_processed_messages_table()
         except Exception as e:
             print(f"⚠️ processed_messagesテーブル確認エラー（続行）: {e}")
-        
+
         data = request.get_json()
-        
-        # デバッグ: 受信したデータ全体をログ出力
-        print(f"🔍 受信データ全体: {json.dumps(data, ensure_ascii=False)}")
-        
+
         if not data or "webhook_event" not in data:
             return jsonify({"status": "ok", "message": "No event data"})
         
@@ -5432,8 +5429,6 @@ def sync_chatwork_tasks(request):
                 # limit_timeをUNIXタイムスタンプに変換
                 limit_datetime = None
                 if limit_time:
-                    print(f"🔍 DEBUG: limit_time = {limit_time}, type = {type(limit_time)}")
-                    
                     if isinstance(limit_time, str):
                         # ISO 8601形式の文字列をUNIXタイムスタンプに変換
                         try:

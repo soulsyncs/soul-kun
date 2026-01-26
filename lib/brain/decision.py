@@ -287,8 +287,9 @@ class BrainDecision:
 
             if not candidates:
                 # 候補がない場合は汎用応答
+                # v10.29.7: general_response → general_conversation（ハンドラー名と統一）
                 return DecisionResult(
-                    action="general_response",
+                    action="general_conversation",
                     params={"message": understanding.raw_message},
                     confidence=0.3,
                     reasoning="No matching capability found",

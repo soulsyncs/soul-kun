@@ -75,6 +75,7 @@ from lib.brain.memory_access import (
 )
 from lib.brain.understanding import BrainUnderstanding
 from lib.brain.decision import BrainDecision
+from lib.brain.execution import BrainExecution
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +148,15 @@ class SoulkunBrain:
             get_ai_response_func=get_ai_response_func,
             org_id=org_id,
             use_llm=False,  # ルールベース判断（高速）
+        )
+
+        # 実行層の初期化
+        self.execution = BrainExecution(
+            handlers=handlers,
+            get_ai_response_func=get_ai_response_func,
+            org_id=org_id,
+            enable_suggestions=True,
+            enable_retry=True,
         )
 
         # 内部状態
@@ -822,115 +832,23 @@ class SoulkunBrain:
         sender_name: str,
     ) -> HandlerResult:
         """
-        アクションを実行
+        BrainExecutionクラスに委譲。
+        v10.28.6: 実行層に強化（Phase F完了）
 
-        対応するハンドラーを呼び出し、結果を返す。
+        判断層からの指令に基づいてハンドラーを呼び出し、結果を統合する。
+        - 5ステップ実行フロー（取得→検証→実行→統合→提案）
+        - リトライ付き実行（最大3回）
+        - タイムアウト処理（30秒）
+        - 先読み提案生成
         """
-        action = decision.action
-        params = decision.params
-
-        # ハンドラーを取得
-        handler = self.handlers.get(action)
-
-        if handler is None:
-            # ハンドラーがない場合は汎用応答
-            logger.warning(f"No handler for action: {action}")
-
-            # 汎用AI応答を生成
-            if self.get_ai_response:
-                try:
-                    response = self.get_ai_response(
-                        context.recent_conversation[-5:] if context.recent_conversation else [],
-                        context.to_prompt_context(),
-                    )
-                    return HandlerResult(
-                        success=True,
-                        message=response,
-                    )
-                except Exception as e:
-                    logger.error(f"Error generating AI response: {e}")
-
-            return HandlerResult(
-                success=True,
-                message="了解ウル！🐺",
-            )
-
-        # ハンドラーを実行
-        try:
-            result = await asyncio.wait_for(
-                self._call_handler(
-                    handler=handler,
-                    params=params,
-                    room_id=room_id,
-                    account_id=account_id,
-                    sender_name=sender_name,
-                    context=context,
-                ),
-                timeout=EXECUTION_TIMEOUT_SECONDS,
-            )
-            return result
-        except asyncio.TimeoutError:
-            logger.error(f"Handler timeout: {action}")
-            raise HandlerTimeoutError(
-                message=f"Handler {action} timed out",
-                action=action,
-                timeout_seconds=EXECUTION_TIMEOUT_SECONDS,
-            )
-        except Exception as e:
-            logger.error(f"Handler error: {action}, {e}")
-            return HandlerResult(
-                success=False,
-                message=ERROR_MESSAGE,
-                error_code="HANDLER_ERROR",
-                error_details=str(e),
-            )
-
-    async def _call_handler(
-        self,
-        handler: Callable,
-        params: Dict[str, Any],
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        context: BrainContext,
-    ) -> HandlerResult:
-        """ハンドラーを呼び出す"""
-        # ハンドラーが同期関数か非同期関数かを判定
-        if asyncio.iscoroutinefunction(handler):
-            result = await handler(
-                params=params,
-                room_id=room_id,
-                account_id=account_id,
-                sender_name=sender_name,
-                context=context,
-            )
-        else:
-            # 同期関数の場合はスレッドプールで実行
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None,
-                lambda: handler(
-                    params=params,
-                    room_id=room_id,
-                    account_id=account_id,
-                    sender_name=sender_name,
-                    context=context,
-                ),
-            )
-
-        # 結果をHandlerResultに変換
-        if isinstance(result, HandlerResult):
-            return result
-        elif isinstance(result, str):
-            return HandlerResult(success=True, message=result)
-        elif isinstance(result, dict):
-            return HandlerResult(
-                success=result.get("success", True),
-                message=result.get("message", "完了ウル🐺"),
-                data=result,
-            )
-        else:
-            return HandlerResult(success=True, message="完了ウル🐺")
+        result = await self.execution.execute(
+            decision=decision,
+            context=context,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+        )
+        return result.to_handler_result()
 
     # =========================================================================
     # ユーティリティ

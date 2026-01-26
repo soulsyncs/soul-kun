@@ -338,31 +338,43 @@ else:
 _announcement_handler = None
 
 # =====================================================
-# v10.28.0: 脳アーキテクチャ（Brain Architecture）
-# 環境変数 USE_BRAIN_ARCHITECTURE=true で有効化（段階的導入）
+# v10.29.0: 脳アーキテクチャ（Brain Architecture）
+# 環境変数 USE_BRAIN_ARCHITECTURE で有効化（段階的導入）
+# 設定値: false（無効）/ true（有効）/ shadow（シャドウ）/ gradual（段階的）
 # 設計書: docs/13_brain_architecture.md
 # =====================================================
-_USE_BRAIN_ARCHITECTURE_ENV = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower() == "true"
-
-if _USE_BRAIN_ARCHITECTURE_ENV:
-    try:
-        from lib.brain import (
-            SoulkunBrain,
-            BrainResponse,
-            BrainContext,
-            StateType,
-        )
-        USE_BRAIN_ARCHITECTURE = True
-        print("✅ lib/brain loaded for Brain Architecture (v10.28.0)")
-    except ImportError as e:
-        print(f"⚠️ lib/brain not available (using fallback): {e}")
-        USE_BRAIN_ARCHITECTURE = False
-else:
-    print("⚠️ Brain Architecture disabled by environment variable USE_BRAIN_ARCHITECTURE=false")
+try:
+    from lib.brain import (
+        # Core classes
+        SoulkunBrain,
+        BrainResponse,
+        BrainContext,
+        StateType,
+        # Integration Layer (Phase H)
+        BrainIntegration,
+        IntegrationResult,
+        IntegrationConfig,
+        IntegrationMode,
+        create_integration,
+        is_brain_enabled,
+    )
+    USE_BRAIN_ARCHITECTURE = is_brain_enabled()  # 環境変数から判定
+    _brain_mode = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower()
+    print(f"✅ lib/brain loaded (v10.29.0), enabled={USE_BRAIN_ARCHITECTURE}, mode={_brain_mode}")
+except ImportError as e:
+    print(f"⚠️ lib/brain not available: {e}")
     USE_BRAIN_ARCHITECTURE = False
+    BrainIntegration = None
+    IntegrationResult = None
+    IntegrationConfig = None
+    IntegrationMode = None
+    create_integration = None
+    is_brain_enabled = None
 
-# SoulkunBrainインスタンス（後で初期化）
+# SoulkunBrainインスタンス（後方互換用）
 _brain_instance = None
+# BrainIntegrationインスタンス（v10.29.0: Phase H統合層）
+_brain_integration = None
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -2312,13 +2324,71 @@ def _get_announcement_handler():
 
 
 # =====================================================
-# v10.28.0: 脳アーキテクチャ - SoulkunBrain初期化
+# v10.29.0: 脳アーキテクチャ - BrainIntegration初期化
+# =====================================================
+def _get_brain_integration():
+    """
+    BrainIntegrationのシングルトンインスタンスを取得
+
+    v10.29.0: SoulkunBrain直接使用からBrainIntegrationへ移行
+    - シャドウモード、段階的ロールアウト、フォールバックをサポート
+    - 環境変数 USE_BRAIN_ARCHITECTURE で制御
+    """
+    global _brain_integration
+    if _brain_integration is None and USE_BRAIN_ARCHITECTURE and create_integration:
+        handlers = {
+            "chatwork_task_search": _brain_handle_task_search,
+            "chatwork_task_create": _brain_handle_task_create,
+            "chatwork_task_complete": _brain_handle_task_complete,
+            "query_knowledge": _brain_handle_query_knowledge,
+            "save_memory": _brain_handle_save_memory,
+            "query_memory": _brain_handle_query_memory,
+            "delete_memory": _brain_handle_delete_memory,
+            "learn_knowledge": _brain_handle_learn_knowledge,
+            "forget_knowledge": _brain_handle_forget_knowledge,
+            "list_knowledge": _brain_handle_list_knowledge,
+            "goal_setting_start": _brain_handle_goal_setting_start,
+            "goal_progress_report": _brain_handle_goal_progress_report,
+            "goal_status_check": _brain_handle_goal_status_check,
+            "announcement_create": _brain_handle_announcement_create,
+            "query_org_chart": _brain_handle_query_org_chart,
+            "daily_reflection": _brain_handle_daily_reflection,
+            "proposal_decision": _brain_handle_proposal_decision,
+            "api_limitation": _brain_handle_api_limitation,
+            "general_conversation": _brain_handle_general_conversation,
+        }
+        try:
+            _brain_integration = create_integration(
+                pool=get_pool(),
+                org_id="org_soulsyncs",
+                handlers=handlers,
+                capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
+                get_ai_response_func=get_ai_response,
+                firestore_db=db,
+            )
+            mode = _brain_integration.get_mode().value if _brain_integration else "unknown"
+            print(f"✅ BrainIntegration initialized: mode={mode}")
+        except Exception as e:
+            print(f"⚠️ BrainIntegration initialization failed: {e}")
+            _brain_integration = None
+    return _brain_integration
+
+
+# =====================================================
+# v10.28.0: 脳アーキテクチャ - SoulkunBrain初期化（後方互換）
 # =====================================================
 def _get_brain():
     """
-    SoulkunBrainのシングルトンインスタンスを取得
+    SoulkunBrainのシングルトンインスタンスを取得（後方互換用）
+
+    v10.29.0: BrainIntegrationから内部のbrainを取得するように変更
     """
     global _brain_instance
+    # BrainIntegrationがある場合はそちらのbrainを使用
+    integration = _get_brain_integration()
+    if integration:
+        return integration.get_brain()
+    # フォールバック: 直接SoulkunBrainを初期化
     if _brain_instance is None and USE_BRAIN_ARCHITECTURE:
         handlers = {
             "chatwork_task_search": _brain_handle_task_search,
@@ -2347,10 +2417,55 @@ def _get_brain():
             handlers=handlers,
             capabilities=SYSTEM_CAPABILITIES if 'SYSTEM_CAPABILITIES' in dir() else {},
             get_ai_response_func=get_ai_response,
-            firestore_db=db,  # v10.28.1: Firestoreを記憶アクセス層に渡す
+            firestore_db=db,
         )
-        print("✅ SoulkunBrain instance initialized with memory access layer")
+        print("✅ SoulkunBrain instance initialized (fallback)")
     return _brain_instance
+
+
+# =====================================================
+# v10.29.0: バイパスコンテキスト構築
+# =====================================================
+def _build_bypass_context(room_id: str, account_id: str) -> dict:
+    """
+    バイパス検出用のコンテキストを構築
+
+    BrainIntegrationのバイパス検出機能で使用。
+    目標設定セッション、アナウンス確認待ち、タスク作成待ち等を検出。
+    """
+    context = {
+        "has_active_goal_session": False,
+        "goal_session_id": None,
+        "has_pending_announcement": False,
+        "announcement_id": None,
+        "has_pending_task": False,
+        "is_local_command": False,
+    }
+
+    # 目標設定セッションチェック
+    if USE_GOAL_SETTING_LIB:
+        try:
+            pool = get_pool()
+            session = has_active_goal_session(pool, room_id, account_id)
+            if session:
+                context["has_active_goal_session"] = True
+                context["goal_session_id"] = session.get("session_id") if isinstance(session, dict) else None
+        except Exception as e:
+            print(f"⚠️ Goal session check failed: {e}")
+
+    # アナウンス確認待ちチェック
+    if USE_ANNOUNCEMENT_FEATURE:
+        try:
+            handler = _get_announcement_handler()
+            if handler:
+                pending = handler._get_pending_announcement(room_id, account_id)
+                if pending:
+                    context["has_pending_announcement"] = True
+                    context["announcement_id"] = pending.get("id") if isinstance(pending, dict) else None
+        except Exception as e:
+            print(f"⚠️ Announcement check failed: {e}")
+
+    return context
 
 
 # =====================================================
@@ -6716,36 +6831,81 @@ def chatwork_webhook(request):
             print(f"🔒 処理開始マーク: message_id={message_id}")
 
         # =====================================================
-        # v10.28.0: 脳アーキテクチャ
-        # USE_BRAIN_ARCHITECTURE=true の場合、全ての入力を脳経由で処理
+        # v10.29.0: 脳アーキテクチャ（BrainIntegration経由）
+        # USE_BRAIN_ARCHITECTURE で制御:
+        #   - false: 無効（従来フロー）
+        #   - true/enabled: 有効（脳で処理、エラー時フォールバック）
+        #   - shadow: シャドウモード（新旧並列実行、旧結果を返却）
+        #   - gradual: 段階的ロールアウト（一部ユーザーのみ脳）
         # =====================================================
         if USE_BRAIN_ARCHITECTURE:
             try:
-                brain = _get_brain()
-                if brain:
-                    print(f"🧠 脳アーキテクチャで処理開始")
+                integration = _get_brain_integration()
+                if integration and integration.is_brain_enabled():
+                    mode = integration.get_mode().value
+                    print(f"🧠 脳アーキテクチャで処理開始: mode={mode}")
+
+                    # バイパスコンテキストを構築
+                    bypass_context = _build_bypass_context(room_id, sender_account_id)
+
+                    # フォールバック関数（従来のai_commander + execute_action + get_ai_response）
+                    async def fallback_ai_commander(msg, r_id, a_id, s_name):
+                        """従来のAI司令塔フロー"""
+                        try:
+                            # コンテキスト準備（フォールバック用に簡易版）
+                            fb_all_persons = get_all_persons()
+                            fb_all_tasks = search_tasks_from_db(room_id=r_id, account_id=a_id, limit=50)
+                            fb_chatwork_users = get_chatwork_users_for_room(r_id)
+                            fb_conversation_history = get_conversation_history(r_id, a_id)
+                            fb_context = {}
+
+                            # AI司令塔
+                            command = ai_commander(msg, fb_all_persons, fb_all_tasks, fb_chatwork_users, s_name)
+
+                            # アクション実行
+                            if command and hasattr(command, 'action') and command.action != "general_chat":
+                                result = execute_action(command, s_name, r_id, a_id, fb_context)
+                                return result
+                            else:
+                                # 通常会話
+                                return get_ai_response(msg, fb_conversation_history, s_name, fb_context)
+                        except Exception as fb_e:
+                            print(f"⚠️ フォールバック処理でエラー: {fb_e}")
+                            return "申し訳ないウル、処理中にエラーが発生したウル🐺"
+
+                    # BrainIntegration経由で処理
                     import asyncio
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        response = loop.run_until_complete(
-                            brain.process_message(
+                        result = loop.run_until_complete(
+                            integration.process_message(
                                 message=clean_message,
                                 room_id=room_id,
                                 account_id=sender_account_id,
                                 sender_name=sender_name,
+                                fallback_func=fallback_ai_commander,
+                                bypass_context=bypass_context,
                             )
                         )
                     finally:
                         loop.close()
-                    if response and response.message:
-                        print(f"🧠 脳アーキテクチャ応答: action={response.action_taken}")
+
+                    if result and result.success and result.message:
+                        print(f"🧠 応答: brain={result.used_brain}, fallback={result.fallback_used}, time={result.processing_time_ms}ms")
                         show_guide = should_show_guide(room_id, sender_account_id)
-                        send_chatwork_message(room_id, response.message, sender_account_id, show_guide)
+                        send_chatwork_message(room_id, result.to_chatwork_message(), sender_account_id, show_guide)
                         update_conversation_timestamp(room_id, sender_account_id)
-                        return jsonify({"status": "ok", "brain": True})
+                        return jsonify({
+                            "status": "ok",
+                            "brain": result.used_brain,
+                            "fallback": result.fallback_used,
+                            "mode": mode,
+                        })
             except Exception as e:
-                print(f"⚠️ 脳アーキテクチャエラー（フォールバック）: {e}")
+                print(f"⚠️ 脳アーキテクチャエラー（従来フローにフォールバック）: {e}")
+                import traceback
+                traceback.print_exc()
 
         # =====================================================
         # 従来のフロー

@@ -3560,10 +3560,17 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     except:
                         pass
 
-                # v10.25.5: summaryは使わず、常にprepare_task_display_text()で生成
-                # DBのsummaryは信頼できないため、リアルタイム生成が最も確実
-                clean_body = clean_chatwork_tags(body)
-                body_short = prepare_task_display_text(clean_body, max_length=40)
+                # v10.27.0: AI生成のsummaryを優先使用（有効な場合のみ）
+                body_short = None
+                if summary and USE_TEXT_UTILS_LIB:
+                    if validate_summary(summary, body):
+                        body_short = summary
+                    else:
+                        print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
+
+                if not body_short:
+                    clean_body = clean_chatwork_tags(body)
+                    body_short = prepare_task_display_text(clean_body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -3583,9 +3590,17 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 except:
                     pass
 
-            # v10.25.4: summaryは使わず、常にprepare_task_display_text()で生成
-            clean_body = clean_chatwork_tags(body)
-            body_short = prepare_task_display_text(clean_body, max_length=40)
+            # v10.27.0: AI生成のsummaryを優先使用（有効な場合のみ）
+            body_short = None
+            if summary and USE_TEXT_UTILS_LIB:
+                if validate_summary(summary, body):
+                    body_short = summary
+                else:
+                    print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
+
+            if not body_short:
+                clean_body = clean_chatwork_tags(body)
+                body_short = prepare_task_display_text(clean_body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"

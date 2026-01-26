@@ -17,13 +17,13 @@ import json
 
 from sqlalchemy import text
 
-from lib.memory.base import BaseMemory, MemoryResult
-from lib.memory.constants import (
+from .base import BaseMemory, MemoryResult
+from .constants import (
     MemoryParameters,
     PreferenceType,
     LearnedFrom,
 )
-from lib.memory.exceptions import (
+from .exceptions import (
     PreferenceSaveError,
     PreferenceNotFoundError,
     DatabaseError,

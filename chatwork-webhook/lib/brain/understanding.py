@@ -31,14 +31,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Callable
 
-from lib.brain.models import (
+from .models import (
     BrainContext,
     UnderstandingResult,
     ResolvedEntity,
     UrgencyLevel,
     ConfidenceLevel,
 )
-from lib.brain.constants import (
+from .constants import (
     PRONOUNS,
     TIME_EXPRESSIONS,
     URGENCY_KEYWORDS,

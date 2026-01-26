@@ -49,7 +49,7 @@
     print(f"brain_metadata coverage: {coverage['percentage']:.1f}%")
 """
 
-from lib.brain.models import (
+from .models import (
     BrainContext,
     BrainResponse,
     UnderstandingResult,
@@ -62,11 +62,11 @@ from lib.brain.models import (
     StateType,
 )
 
-from lib.brain.core import SoulkunBrain
+from .core import SoulkunBrain
 
-from lib.brain.state_manager import BrainStateManager
+from .state_manager import BrainStateManager
 
-from lib.brain.memory_access import (
+from .memory_access import (
     BrainMemoryAccess,
     ConversationMessage,
     ConversationSummaryData,
@@ -78,7 +78,7 @@ from lib.brain.memory_access import (
     InsightInfo,
 )
 
-from lib.brain.exceptions import (
+from .exceptions import (
     BrainError,
     UnderstandingError,
     DecisionError,
@@ -88,14 +88,14 @@ from lib.brain.exceptions import (
     ConfirmationTimeoutError,
 )
 
-from lib.brain.constants import (
+from .constants import (
     CANCEL_KEYWORDS,
     CONFIRMATION_THRESHOLD,
     SESSION_TIMEOUT_MINUTES,
     MAX_RETRY_COUNT,
 )
 
-from lib.brain.integration import (
+from .integration import (
     BrainIntegration,
     IntegrationResult,
     IntegrationConfig,
@@ -107,7 +107,7 @@ from lib.brain.integration import (
     FEATURE_FLAG_NAME,
 )
 
-from lib.brain.validation import (
+from .validation import (
     ValidationResult,
     ValidationError,
     validate_capabilities_handlers,

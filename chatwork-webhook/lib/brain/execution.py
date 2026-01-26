@@ -20,19 +20,19 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from lib.brain.models import (
+from .models import (
     BrainContext,
     DecisionResult,
     HandlerResult,
 )
-from lib.brain.exceptions import (
+from .exceptions import (
     BrainError,
     ExecutionError,
     HandlerTimeoutError,
     HandlerNotFoundError,
     ParameterValidationError,
 )
-from lib.brain.constants import (
+from .constants import (
     EXECUTION_TIMEOUT_SECONDS,
     MAX_RETRY_COUNT,
     ERROR_MESSAGE,

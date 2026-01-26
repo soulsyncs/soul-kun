@@ -22,14 +22,14 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from enum import Enum
 
-from lib.brain.models import (
+from .models import (
     BrainContext,
     UnderstandingResult,
     DecisionResult,
     HandlerResult,
     ConversationMessage,
 )
-from lib.brain.constants import (
+from .constants import (
     CONFIRMATION_THRESHOLD,
     SAVE_DECISION_LOGS,
 )

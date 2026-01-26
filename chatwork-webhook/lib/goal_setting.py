@@ -1368,7 +1368,8 @@ class GoalSettingDialogue:
 
         try:
             # GoalSettingContextEnricherをlazy load
-            from lib.memory.goal_integration import GoalSettingContextEnricher
+            # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+            from .memory.goal_integration import GoalSettingContextEnricher
 
             enricher = GoalSettingContextEnricher(conn, self.org_id)
             # 同期版として呼び出し（asyncioがない環境向け）
@@ -1510,7 +1511,8 @@ class GoalSettingDialogue:
     def _update_preference_on_complete(self, conn, session: Dict[str, Any]) -> None:
         """セッション完了時にB2嗜好を更新"""
         try:
-            from lib.memory.user_preference import UserPreference
+            # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+            from .memory.user_preference import UserPreference
             from uuid import UUID
 
             pref_service = UserPreference(conn, UUID(self.org_id))

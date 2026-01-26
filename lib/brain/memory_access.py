@@ -616,7 +616,8 @@ class BrainMemoryAccess:
             List[TaskInfo]: タスク情報のリスト
         """
         try:
-            now = datetime.now()
+            import time
+            now_timestamp = int(time.time())
 
             with self.pool.connect() as conn:
                 # limit_time は BIGINT (Unix timestamp) なので to_timestamp() で比較
@@ -645,18 +646,38 @@ class BrainMemoryAccess:
                 )
                 rows = result.fetchall()
 
+                def _parse_limit_time(lt):
+                    """limit_timeをdatetimeに変換（int or datetime対応）"""
+                    if lt is None:
+                        return None
+                    if isinstance(lt, datetime):
+                        return lt
+                    if isinstance(lt, (int, float)):
+                        return datetime.fromtimestamp(lt)
+                    return None
+
+                def _is_overdue(lt):
+                    """期限超過判定（int or datetime対応）"""
+                    if lt is None:
+                        return False
+                    if isinstance(lt, datetime):
+                        return lt < datetime.now()
+                    if isinstance(lt, (int, float)):
+                        return lt < now_timestamp
+                    return False
+
                 return [
                     TaskInfo(
                         task_id=str(row[0]) if row[0] else "",
                         body=row[1] or "",
                         summary=row[2],
                         status=row[3] or "open",
-                        limit_time=row[4],
+                        limit_time=_parse_limit_time(row[4]),
                         room_id=str(row[5]) if row[5] else None,
                         room_name=row[6],
                         assigned_to_name=row[7],
                         assigned_by_name=row[8],
-                        is_overdue=(row[4] < now if row[4] else False),
+                        is_overdue=_is_overdue(row[4]),
                     )
                     for row in rows
                 ]
@@ -760,7 +781,8 @@ class BrainMemoryAccess:
                 # - value (NOT answer)
                 # - category
                 # 注意: このテーブルにはorganization_idがない（Phase 4前の設計）
-                # 注意: ILIKE の % は CONCAT を使用（SQLAlchemy が %s と誤解するため）
+                # 注意: pg8000ドライバでCONCATのパラメータ型推論が失敗するため、
+                #       || 演算子と明示的CASTを使用
                 # 注意: pg_trgm拡張がない場合はsimilarity関数が使えないため、
                 #       単純なILIKEマッチングのみ使用
                 result = conn.execute(
@@ -771,8 +793,8 @@ class BrainMemoryAccess:
                             value,
                             category
                         FROM soulkun_knowledge
-                        WHERE key ILIKE CONCAT('%%', :query, '%%')
-                           OR value ILIKE CONCAT('%%', :query, '%%')
+                        WHERE key ILIKE '%' || CAST(:query AS TEXT) || '%'
+                           OR value ILIKE '%' || CAST(:query AS TEXT) || '%'
                         ORDER BY id DESC
                         LIMIT :limit
                     """),

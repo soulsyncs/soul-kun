@@ -93,7 +93,8 @@ CLOSING_PATTERNS = [
 ]
 
 # 挨拶開始パターン（バリデーション用）
-GREETING_STARTS = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
+# v10.27.1: おはよう、こんにち、こんばんを追加
+GREETING_STARTS = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し', 'おはよう', 'こんにち', 'こんばん']
 
 # 途切れインジケータ（バリデーション用）
 TRUNCATION_INDICATORS = ['…', '...', '。。', '、、']
@@ -275,6 +276,21 @@ def validate_summary(summary: str, original_body: str) -> bool:
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False
 
+    # 4.5 v10.27.1: 読点「、」「,」で終わる場合はNG（途中で切れている）
+    if summary.endswith('、') or summary.endswith(','):
+        return False
+
+    # 4.6 v10.27.1: 記号「●」「■」等で始まり、不完全な文の場合はNG
+    if summary.startswith(('●', '■', '◆', '▼', '★', '☆', '□', '○', '◇')):
+        # 記号を除いた部分が助詞で終わる場合は無効
+        summary_without_symbol = summary[1:].strip()
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary_without_symbol.endswith(ending):
+                return False
+        # 読点で終わる場合も無効
+        if summary_without_symbol.endswith('、') or summary_without_symbol.endswith(','):
+            return False
+
     # 5. v10.25.3: 短いsummaryが助詞で終わる場合は常に無効
     #    例: "決算書の"(4文字), "資料を"(3文字) → 明らかに途切れている
     if len(summary) <= 10:
@@ -452,6 +468,19 @@ def validate_and_get_reason(summary: str, original_body: str) -> Tuple[bool, Opt
 
     if any(summary.startswith(g) for g in GREETING_STARTS):
         return False, "starts_with_greeting"
+
+    # v10.27.1: 読点で終わる場合は無効
+    if summary.endswith('、') or summary.endswith(','):
+        return False, "ends_with_comma"
+
+    # v10.27.1: 記号で始まり不完全な文の場合は無効
+    if summary.startswith(('●', '■', '◆', '▼', '★', '☆', '□', '○', '◇')):
+        summary_without_symbol = summary[1:].strip()
+        for ending in MID_SENTENCE_ENDINGS:
+            if summary_without_symbol.endswith(ending):
+                return False, "symbol_incomplete"
+        if summary_without_symbol.endswith('、') or summary_without_symbol.endswith(','):
+            return False, "symbol_ends_with_comma"
 
     # v10.25.3: 短いsummaryが助詞で終わる場合は常に無効
     if len(summary) <= 10:

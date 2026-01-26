@@ -217,6 +217,24 @@ class TestValidateSummary:
         original = "経費精算書の提出依頼です"  # 11文字（50未満）
         assert validate_summary("経費精算書の提出依頼", original) is True
 
+    def test_invalid_ends_with_comma(self):
+        """v10.27.1: 読点「、」で終わる場合は無効"""
+        assert validate_summary("こちら後ほど内容の再確認をしたいとのことでしたので、", "長い本文...") is False
+
+    def test_invalid_starts_with_ohayou(self):
+        """v10.27.1: 「おはよう」で始まる場合は無効"""
+        assert validate_summary("おはようウル！", "長い本文...") is False
+
+    def test_invalid_starts_with_konnichiwa(self):
+        """v10.27.1: 「こんにちは」で始まる場合は無効"""
+        assert validate_summary("こんにちはウル！", "長い本文...") is False
+
+    def test_invalid_symbol_with_incomplete_sentence(self):
+        """v10.27.1: 記号で始まり助詞で終わる場合は無効"""
+        assert validate_summary("●こちら後ほど内容の再確認をしたいとのことでしたので、", "長い本文...") is False
+        assert validate_summary("■資料を", "長い本文...") is False
+        assert validate_summary("◆確認事項について", "長い本文...") is True  # 「について」は有効な終わり
+
 
 class TestIsGreetingOnly:
     """is_greeting_only() のテスト"""

@@ -16,9 +16,10 @@ echo ""
 echo "=== Step 1: Copying lib files ==="
 
 LIB_FILES=(
+    "__init__.py"
     "config.py"
     "secrets.py"
-    "db.py"
+    "audit.py"
     "chatwork.py"
     "google_drive.py"
     "drive_permission_manager.py"
@@ -43,6 +44,8 @@ echo "=== Step 2: Deploying Cloud Function ==="
 
 cd "$SCRIPT_DIR"
 
+# 注意: SUPABASE_ANON_KEYは公開情報のため環境変数として直接設定
+# より高度な操作が必要な場合はSUPABASE_SERVICE_ROLE_KEYをSecret Managerに登録
 gcloud functions deploy sync_drive_permissions \
     --gen2 \
     --runtime python311 \
@@ -53,8 +56,7 @@ gcloud functions deploy sync_drive_permissions \
     --region=asia-northeast1 \
     --max-instances=1 \
     --entry-point=sync_drive_permissions \
-    --set-env-vars="ORGANIZATION_ID=org_soulsyncs" \
-    --set-secrets="GOOGLE_SERVICE_ACCOUNT_JSON=GOOGLE_SERVICE_ACCOUNT_JSON:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest"
+    --set-env-vars="ORGANIZATION_ID=org_soulsyncs,SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_DRIVE_ROOT_FOLDER_ID=1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp,SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFkenhwZWJvYW9pb2plcGN4bHljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjUxNzM4NDEsImV4cCI6MjA4MDc0OTg0MX0.j8cx0JjX0Y7npzTDF5-lyWqKEfVrfJv2148T2iK17as"
 
 echo ""
 echo "=== Step 3: Creating Cloud Scheduler job ==="

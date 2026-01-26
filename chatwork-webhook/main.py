@@ -19,6 +19,27 @@ import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
 
 # =====================================================
+# v10.30.1: 管理者設定モジュール（Phase A）
+# =====================================================
+# ハードコードされていた ADMIN_ACCOUNT_ID, ADMIN_ROOM_ID を
+# データベースから取得するモジュール
+try:
+    from lib.admin_config import (
+        get_admin_config,
+        get_admin_account_id,
+        get_admin_room_id,
+        is_admin_account,
+        clear_admin_config_cache,
+        AdminConfig,
+        DEFAULT_ORG_ID as ADMIN_CONFIG_DEFAULT_ORG_ID,
+    )
+    USE_ADMIN_CONFIG = True
+    print("✅ lib/admin_config.py loaded for admin configuration")
+except ImportError as e:
+    print(f"⚠️ lib/admin_config.py not available (using fallback): {e}")
+    USE_ADMIN_CONFIG = False
+
+# =====================================================
 # v10.18.1: summary生成用ライブラリ
 # =====================================================
 try:
@@ -522,13 +543,22 @@ BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
 
 # =====================================================
 # v6.9.0: 管理者学習機能
+# v10.30.1: Phase A - DB化（lib/admin_config.py）
 # =====================================================
-# 管理者（カズさん）のaccount_id
-# v6.9.2修正: 417892193はroom_idだった。正しいaccount_idは1728974
-ADMIN_ACCOUNT_ID = "1728974"
-
-# 管理部チャットルームID
-ADMIN_ROOM_ID = 405315911
+# 管理者設定はDBから取得。フォールバック値も維持。
+# USE_ADMIN_CONFIG=True の場合はDBから取得
+# USE_ADMIN_CONFIG=False の場合は従来のハードコード値を使用
+if USE_ADMIN_CONFIG:
+    # DBから取得した値を使用（キャッシュ付き）
+    _admin_config = get_admin_config()
+    ADMIN_ACCOUNT_ID = _admin_config.admin_account_id
+    ADMIN_ROOM_ID = int(_admin_config.admin_room_id)
+    print(f"✅ Admin config loaded from DB: account={ADMIN_ACCOUNT_ID}, room={ADMIN_ROOM_ID}")
+else:
+    # フォールバック: 従来のハードコード値
+    ADMIN_ACCOUNT_ID = "1728974"
+    ADMIN_ROOM_ID = 405315911
+    print(f"⚠️ Using hardcoded admin config: account={ADMIN_ACCOUNT_ID}, room={ADMIN_ROOM_ID}")
 
 # =====================================================
 # v6.9.1: ローカルコマンド判定（API制限対策）
@@ -2642,6 +2672,19 @@ def _get_announcement_handler():
     """AnnouncementHandlerのシングルトンインスタンスを取得"""
     global _announcement_handler
     if _announcement_handler is None and USE_ANNOUNCEMENT_FEATURE:
+        # v10.30.1: admin_configからDB設定を取得
+        if USE_ADMIN_CONFIG:
+            admin_cfg = get_admin_config()
+            authorized_rooms = set(admin_cfg.authorized_room_ids) or {int(admin_cfg.admin_room_id)}
+            admin_acct_id = admin_cfg.admin_account_id
+            admin_dm_room = admin_cfg.admin_dm_room_id
+            org_id = admin_cfg.organization_id
+        else:
+            authorized_rooms = {405315911}
+            admin_acct_id = ADMIN_ACCOUNT_ID
+            admin_dm_room = None
+            org_id = "org_soulsyncs"
+
         _announcement_handler = _NewAnnouncementHandler(
             get_pool=get_pool,
             get_secret=get_secret,
@@ -2652,10 +2695,10 @@ def _get_announcement_handler():
             send_chatwork_message=send_chatwork_message,
             is_business_day=is_business_day if USE_BUSINESS_DAY_LIB else None,
             get_non_business_day_reason=get_non_business_day_reason if USE_BUSINESS_DAY_LIB else None,
-            authorized_room_ids={405315911},  # 管理部チャット
-            admin_account_id=ADMIN_ACCOUNT_ID,
-            organization_id="org_soulsyncs",
-            kazu_dm_room_id=None,  # 後で設定
+            authorized_room_ids=authorized_rooms,
+            admin_account_id=admin_acct_id,
+            organization_id=org_id,
+            kazu_dm_room_id=admin_dm_room,
         )
     return _announcement_handler
 
@@ -8031,7 +8074,14 @@ def ensure_knowledge_tables():
 
 
 def is_admin(account_id):
-    """管理者（カズさん）かどうかを判定"""
+    """
+    管理者（カズさん）かどうかを判定
+
+    v10.30.1: lib/admin_config.py を使用（DB取得、キャッシュ付き）
+    フォールバック時は従来のハードコード比較を使用
+    """
+    if USE_ADMIN_CONFIG:
+        return is_admin_account(str(account_id))
     return str(account_id) == str(ADMIN_ACCOUNT_ID)
 
 

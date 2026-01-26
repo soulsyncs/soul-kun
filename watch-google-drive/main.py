@@ -110,7 +110,13 @@ USE_DYNAMIC_DEPARTMENT_MAPPING = os.getenv('USE_DYNAMIC_DEPARTMENT_MAPPING', 'tr
 ENABLE_UNMATCHED_FOLDER_ALERT = os.getenv('ENABLE_UNMATCHED_FOLDER_ALERT', 'true').lower() == 'true'
 
 # 管理部グループチャットのルームID（アラート送信先）
-ADMIN_ROOM_ID = int(os.getenv('ADMIN_ROOM_ID', '405315911'))
+# v10.30.1: Phase A - 環境変数フォールバック維持、admin_configを優先
+try:
+    from lib.admin_config import get_admin_config
+    _admin_cfg = get_admin_config()
+    ADMIN_ROOM_ID = int(os.getenv('ADMIN_ROOM_ID', _admin_cfg.admin_room_id))
+except ImportError:
+    ADMIN_ROOM_ID = int(os.getenv('ADMIN_ROOM_ID', '405315911'))
 
 
 # ================================================================

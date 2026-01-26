@@ -44,7 +44,13 @@ logger = logging.getLogger(__name__)
 # ================================================================
 
 # デフォルトのアラート送信先（管理部チャット）
-DEFAULT_ALERT_ROOM_ID = os.getenv('SOULKUN_ADMIN_ROOM_ID', '405315911')
+# v10.30.1: Phase A - admin_configを優先、環境変数をフォールバック
+try:
+    from lib.admin_config import get_admin_config
+    _admin_cfg = get_admin_config()
+    DEFAULT_ALERT_ROOM_ID = os.getenv('SOULKUN_ADMIN_ROOM_ID', _admin_cfg.admin_room_id)
+except ImportError:
+    DEFAULT_ALERT_ROOM_ID = os.getenv('SOULKUN_ADMIN_ROOM_ID', '405315911')
 
 # デフォルトの閾値
 DEFAULT_MAX_CHANGES_PER_FOLDER = 50

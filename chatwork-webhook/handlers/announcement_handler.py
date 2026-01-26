@@ -31,6 +31,15 @@ import pytz
 
 JST = pytz.timezone('Asia/Tokyo')
 
+# =====================================================
+# v10.30.1: 管理者設定モジュール（Phase A）
+# =====================================================
+try:
+    from lib.admin_config import get_admin_config, DEFAULT_ORG_ID as ADMIN_CONFIG_DEFAULT_ORG_ID
+    _USE_ADMIN_CONFIG = True
+except ImportError:
+    _USE_ADMIN_CONFIG = False
+
 
 # =====================================================
 # 定数
@@ -63,16 +72,26 @@ ROOM_MATCH_AUTO_SELECT_THRESHOLD = 0.8
 ROOM_MATCH_CANDIDATE_THRESHOLD = 0.3
 
 # 認可されたルームID
-AUTHORIZED_ROOM_IDS = {
-    405315911,  # 管理部グループチャット
-    # カズさん1on1のroom_idはmain.pyから取得
-}
+# v10.30.1: Phase A - DB化
+if _USE_ADMIN_CONFIG:
+    _admin_cfg = get_admin_config()
+    AUTHORIZED_ROOM_IDS = set(_admin_cfg.authorized_room_ids) or {int(_admin_cfg.admin_room_id)}
+else:
+    AUTHORIZED_ROOM_IDS = {405315911}
 
 # 認可されたアカウントID
-ADMIN_ACCOUNT_ID = "1728974"  # カズさん
+# v10.30.1: Phase A - DB化
+if _USE_ADMIN_CONFIG:
+    ADMIN_ACCOUNT_ID = _admin_cfg.admin_account_id
+else:
+    ADMIN_ACCOUNT_ID = "1728974"
 
 # デフォルトorganization_id
-DEFAULT_ORG_ID = "org_soulsyncs"
+# v10.30.1: Phase A - DB化
+if _USE_ADMIN_CONFIG:
+    DEFAULT_ORG_ID = _admin_cfg.organization_id
+else:
+    DEFAULT_ORG_ID = "org_soulsyncs"
 
 
 # =====================================================

@@ -713,7 +713,7 @@ git status
 
 # 📈 現在の進捗状況（手動更新セクション）
 
-**最終更新: 2026-01-26 20:30 JST**
+**最終更新: 2026-01-26 21:20 JST**
 
 ---
 
@@ -721,13 +721,14 @@ git status
 
 ### 今どこにいるのか？（素人向け説明）
 
-**完了したこと（Phase B）:**
-> ソウルくんの「脳」が新しい機能を覚える時、今までは5冊のノートに同じことを書かないといけなかった。
-> これを「1冊のマスターノートを見る」方式に変えた。これで新機能追加がめっちゃ楽になった。
+**完了したこと（Phase A）:** ✅ 2026-01-26 完了
+> 「カズさんのID」「管理部のチャットルームID」が10個以上のファイルにハードコードされていた。
+> これを「データベースから取得する」方式に変えた。これで将来、別の会社でソウルくんを使う時も対応できる。
+> chatwork-webhookが本番でDBから設定を取得していることを確認済み。
 
-**次にやること（Phase A）:**
-> 「カズさんのID」「管理部のチャットルームID」が10個以上のファイルにハードコードされてる。
-> これを「データベースから取得する」方式に変えないと、将来、別の会社でソウルくんを使う時に困る。
+**次にやること（Phase C）:**
+> 15個のFeature Flagが色々なファイルに散らばっていて、どの機能がON/OFFか把握しづらい。
+> これを「1つの設定ファイル」で管理できるようにする。
 
 ---
 
@@ -735,34 +736,30 @@ git status
 
 | 優先度 | タスク | 理由 | 工数目安 | 設計書 |
 |--------|--------|------|----------|--------|
-| **★★★** | **Phase A: 管理者設定のDB化** | Phase 4（マルチテナント）の前提条件 | 2時間 | `docs/14_brain_refactoring_plan.md` |
-| ★★☆ | Phase C: Feature Flag集約 | 15個のフラグが散らばっていて保守性が悪い | 1時間 | `docs/14_brain_refactoring_plan.md` |
+| ~~★★★~~ | ~~Phase A: 管理者設定のDB化~~ | ~~Phase 4（マルチテナント）の前提条件~~ | ~~2時間~~ | ✅ **完了 (v10.30.1)** |
+| **★★★** | **Phase C: Feature Flag集約** | 15個のフラグが散らばっていて保守性が悪い | 1時間 | `docs/14_brain_refactoring_plan.md` |
 | ★★☆ | Phase D: 接続設定集約 | 7ファイルに同じDB接続文字列がある | 1時間 | `docs/14_brain_refactoring_plan.md` |
 | ★☆☆ | 脳アーキテクチャ本番有効化 | シャドウモード→段階的ロールアウト | 1-2週間 | `~/.claude/plans/linear-questing-cosmos.md` |
 
 ---
 
-### Phase Aの詳細（次回最初にやること）
+### Phase A完了報告（2026-01-26）
 
-**問題:**
+**問題（解決済み）:**
 ```python
-# 10+ファイルにこれがハードコードされている
+# 10+ファイルにこれがハードコードされていた
 ADMIN_ACCOUNT_ID = "1728974"  # カズさんのChatWork ID
 ADMIN_ROOM_ID = "405315911"    # 管理部のルームID
 ```
 
-**解決策:**
-1. `organization_admin_configs`テーブルを作成
-2. `lib/admin_config.py`を新規作成（DBから取得する関数）
-3. 10+ファイルのハードコードを`get_admin_config(org_id)`に置換
-
-**やること（順番に）:**
-1. DBマイグレーション実行（`docs/14_brain_refactoring_plan.md`のSQLをコピー）
-2. `lib/admin_config.py`を作成
-3. `chatwork-webhook/main.py`のハードコードを置換
-4. 他のCloud Functionsも順次置換
-5. テスト追加
-6. PR作成・マージ
+**解決:**
+1. ✅ `organization_admin_configs`テーブル作成・データ投入
+2. ✅ `lib/admin_config.py`新規作成（DBから取得する関数）
+3. ✅ `chatwork-webhook/main.py`のハードコードを置換
+4. ✅ 依存ファイル（db.py, config.py, secrets.py）をchatwork-webhook/lib/にコピー
+5. ✅ 20件のテスト追加
+6. ✅ 本番デプロイ完了（revision 00192-fej）
+7. ✅ ログで動作確認: `Admin config loaded from DB: account=1728974, room=405315911`
 
 ---
 
@@ -859,6 +856,44 @@ ADMIN_ROOM_ID = "405315911"    # 管理部のルームID
 ---
 
 ## 直近の主な成果
+
+- **2026-01-26 21:15 JST**: Phase A 管理者設定のDB化 本番デプロイ (v10.30.1) ✅ **本番デプロイ完了**
+  - **実施者**: Claude Code
+  - **概要**: ハードコードされた管理者設定（ADMIN_ACCOUNT_ID, ADMIN_ROOM_ID等）をDBから取得する機能の本番デプロイ
+  - **背景**: 10+ファイルにハードコードされていた設定をDB化し、Phase 4マルチテナント対応の基盤を構築
+  - **DBマイグレーション**（実行完了）:
+    - `organization_admin_configs`テーブル作成（12カラム、3インデックス）
+    - ソウルシンクス初期データ投入
+      - admin_account_id: 1728974
+      - admin_name: 菊地雅克
+      - admin_room_id: 405315911
+      - admin_dm_room_id: 217825794
+      - authorized_room_ids: {405315911}
+      - bot_account_id: 7399137
+  - **Cloud Functionsデプロイ**:
+    - chatwork-webhook: revision 00192-fej
+    - 追加ファイル: admin_config.py, db.py, config.py, secrets.py
+  - **動作確認**:
+    - ✅ lib/admin_config.py loaded for admin configuration
+    - ✅ Admin config loaded from DB: account=1728974, room=405315911
+    - ✅ 全ハンドラー正常ロード、エラーなし
+  - **変更ファイル**:
+    - `migrations/phase_a_admin_config.sql`: 新規（237行）
+    - `lib/admin_config.py`: 新規（464行）
+    - `chatwork-webhook/lib/admin_config.py`: lib/からコピー
+    - `chatwork-webhook/lib/db.py`: lib/からコピー
+    - `chatwork-webhook/lib/config.py`: lib/からコピー
+    - `chatwork-webhook/lib/secrets.py`: lib/からコピー
+    - `chatwork-webhook/lib/__init__.py`: admin_configエクスポート追加
+  - **テスト**: 20件のユニットテスト（tests/test_admin_config.py）
+  - **10の鉄則準拠**:
+    - organization_id: テーブルとクエリに含む
+    - SQLインジェクション対策: パラメータ化クエリ使用
+    - フォールバック設計: DB接続エラー時はハードコード値を返す
+  - **アーキテクチャ**:
+    - AdminConfigデータクラス（frozen=True、不変）
+    - キャッシュ（TTL 1時間、スレッドセーフ）
+    - フォールバック（DB接続エラー時はデフォルト値）
 
 - **2026-01-26 20:25 JST**: Phase F sync-drive-permissions 本番デプロイ (v10.28.1) 🔄 **PR #201 マージ待ち**
   - **実施者**: Claude Code

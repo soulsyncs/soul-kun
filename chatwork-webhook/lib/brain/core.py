@@ -76,6 +76,7 @@ from lib.brain.memory_access import (
 from lib.brain.understanding import BrainUnderstanding
 from lib.brain.decision import BrainDecision
 from lib.brain.execution import BrainExecution
+from lib.brain.learning import BrainLearning
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +158,15 @@ class SoulkunBrain:
             org_id=org_id,
             enable_suggestions=True,
             enable_retry=True,
+        )
+
+        # 学習層の初期化
+        self.learning = BrainLearning(
+            pool=pool,
+            org_id=org_id,
+            firestore_db=firestore_db,
+            enable_logging=True,
+            enable_learning=True,
         )
 
         # 内部状態
@@ -899,12 +909,25 @@ class SoulkunBrain:
         message: str,
         result: HandlerResult,
         context: BrainContext,
+        room_id: str,
         account_id: str,
+        sender_name: str,
     ) -> None:
-        """記憶を安全に更新（エラーを無視）"""
+        """
+        BrainLearningクラスに委譲。
+        v10.28.7: 学習層に強化（Phase G完了）
+
+        記憶を安全に更新（エラーを無視）
+        """
         try:
-            # TODO: 記憶更新の実装
-            pass
+            await self.learning.update_memory(
+                message=message,
+                result=result,
+                context=context,
+                room_id=room_id,
+                account_id=account_id,
+                sender_name=sender_name,
+            )
         except Exception as e:
             logger.warning(f"Error updating memory: {e}")
 
@@ -916,13 +939,27 @@ class SoulkunBrain:
         result: HandlerResult,
         room_id: str,
         account_id: str,
+        understanding_time_ms: int = 0,
+        execution_time_ms: int = 0,
+        total_time_ms: int = 0,
     ) -> None:
-        """判断ログを安全に記録（エラーを無視）"""
+        """
+        BrainLearningクラスに委譲。
+        v10.28.7: 学習層に強化（Phase G完了）
+
+        判断ログを安全に記録（エラーを無視）
+        """
         try:
-            # TODO: brain_decision_logsテーブルへの記録
-            logger.debug(
-                f"Decision log: intent={understanding.intent}, "
-                f"action={decision.action}, success={result.success}"
+            await self.learning.log_decision(
+                message=message,
+                understanding=understanding,
+                decision=decision,
+                result=result,
+                room_id=room_id,
+                account_id=account_id,
+                understanding_time_ms=understanding_time_ms,
+                execution_time_ms=execution_time_ms,
+                total_time_ms=total_time_ms,
             )
         except Exception as e:
             logger.warning(f"Error logging decision: {e}")

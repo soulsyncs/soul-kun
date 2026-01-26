@@ -73,6 +73,7 @@ from lib.brain.memory_access import (
     KnowledgeInfo,
     InsightInfo,
 )
+from lib.brain.understanding import BrainUnderstanding
 
 logger = logging.getLogger(__name__)
 
@@ -130,6 +131,13 @@ class SoulkunBrain:
         self.state_manager = BrainStateManager(
             pool=pool,
             org_id=org_id,
+        )
+
+        # 理解層の初期化
+        self.understanding = BrainUnderstanding(
+            get_ai_response_func=get_ai_response_func,
+            org_id=org_id,
+            use_llm=True,  # LLMを使用（曖昧表現がある場合）
         )
 
         # 内部状態
@@ -758,144 +766,18 @@ class SoulkunBrain:
         """
         ユーザーの入力から意図を推論
 
-        省略の補完、曖昧性の解消、感情の検出等を行う。
+        BrainUnderstandingクラスに委譲。
+        省略の補完、代名詞解決、曖昧性の解消、感情の検出等を行う。
 
-        v10.28.0: 19種のアクションを認識可能
+        v10.28.3: LLM理解層に強化（Phase D完了）
+        - LLMベースの意図推論（フォールバック: キーワードマッチング）
+        - 代名詞解決: 「あれ」「それ」「あの人」→ 具体的な対象
+        - 省略補完: 「完了にして」→ 直近のタスク
+        - 感情検出: ポジティブ/ネガティブ/ニュートラル
+        - 緊急度検出: 「至急」「急いで」等
+        - 確認モード: 確信度0.7未満で発動
         """
-        start_time = time.time()
-        normalized = message.lower().strip()
-
-        # TODO: LLMを使った本格的な意図推論を実装（Phase B-D）
-        # 現在は簡易的なキーワードマッチング
-
-        intent = "general_conversation"
-        confidence = 0.5
-        entities = {}
-
-        # =================================================================
-        # タスク関連のキーワード（高優先度）
-        # =================================================================
-        task_keywords = ["タスク", "仕事", "やること", "todo", "作業"]
-        if any(kw in message for kw in task_keywords):
-            if any(kw in message for kw in ["作成", "追加", "作って", "お願い", "依頼"]):
-                intent = "chatwork_task_create"
-                confidence = 0.85
-            elif any(kw in message for kw in ["検索", "教えて", "見せて", "一覧", "確認"]):
-                intent = "chatwork_task_search"
-                confidence = 0.85
-            elif any(kw in message for kw in ["完了", "終わった", "できた", "done", "済み"]):
-                intent = "chatwork_task_complete"
-                confidence = 0.85
-
-        # =================================================================
-        # 目標関連のキーワード
-        # =================================================================
-        goal_keywords = ["目標", "ゴール"]
-        if any(kw in message for kw in goal_keywords):
-            if any(kw in message for kw in ["設定", "立てたい", "決めたい", "作りたい"]):
-                intent = "goal_setting_start"
-                confidence = 0.85
-            elif any(kw in message for kw in ["進捗", "報告", "どれくらい"]):
-                intent = "goal_progress_report"
-                confidence = 0.8
-            elif any(kw in message for kw in ["状況", "どうなった", "確認"]):
-                intent = "goal_status_check"
-                confidence = 0.8
-            else:
-                intent = "goal_setting_start"
-                confidence = 0.7
-
-        # =================================================================
-        # 記憶・ナレッジ関連のキーワード
-        # =================================================================
-        # 覚える系
-        if any(kw in message for kw in ["覚えて", "記憶して", "メモして"]):
-            if any(kw in message for kw in ["人", "さん", "社員"]):
-                intent = "save_memory"
-                confidence = 0.85
-            else:
-                intent = "learn_knowledge"
-                confidence = 0.8
-
-        # 忘れる系
-        if any(kw in message for kw in ["忘れて", "削除して", "消して"]):
-            if any(kw in message for kw in ["人", "さん", "社員"]):
-                intent = "delete_memory"
-                confidence = 0.85
-            else:
-                intent = "forget_knowledge"
-                confidence = 0.8
-
-        # 一覧系
-        if any(kw in message for kw in ["覚えてること", "何覚えてる", "一覧"]):
-            if any(kw in message for kw in ["知識", "ナレッジ", "設定"]):
-                intent = "list_knowledge"
-                confidence = 0.8
-            elif any(kw in message for kw in ["人", "さん"]):
-                intent = "query_memory"
-                confidence = 0.8
-
-        # ナレッジ検索（会社知識クエリ）
-        knowledge_query_keywords = ["就業規則", "規則", "ルール", "マニュアル", "手順", "方法"]
-        if any(kw in message for kw in knowledge_query_keywords):
-            intent = "query_knowledge"
-            confidence = 0.8
-            entities["query"] = message
-
-        # =================================================================
-        # 組織図関連のキーワード
-        # =================================================================
-        org_keywords = ["組織", "部署", "チーム", "誰が", "担当者", "上司", "部下"]
-        if any(kw in message for kw in org_keywords):
-            intent = "query_org_chart"
-            confidence = 0.75
-
-        # =================================================================
-        # アナウンス関連のキーワード
-        # =================================================================
-        announcement_keywords = ["アナウンス", "お知らせ", "連絡して", "送って"]
-        if any(kw in message for kw in announcement_keywords):
-            intent = "announcement_create"
-            confidence = 0.8
-
-        # =================================================================
-        # 提案関連のキーワード
-        # =================================================================
-        proposal_keywords = ["承認", "却下", "提案"]
-        if any(kw in message for kw in proposal_keywords):
-            intent = "proposal_decision"
-            confidence = 0.75
-
-        # =================================================================
-        # 振り返り関連のキーワード
-        # =================================================================
-        reflection_keywords = ["振り返り", "今日一日", "反省", "日報"]
-        if any(kw in message for kw in reflection_keywords):
-            intent = "daily_reflection"
-            confidence = 0.75
-
-        # =================================================================
-        # 汎用検索（上記で判定できなかった場合）
-        # =================================================================
-        if intent == "general_conversation" and confidence < 0.6:
-            general_query_keywords = ["教えて", "知りたい", "どう", "何"]
-            if any(kw in message for kw in general_query_keywords):
-                intent = "query_knowledge"
-                confidence = 0.55
-                entities["query"] = message
-
-        # 確認が必要か判定
-        needs_confirmation = confidence < CONFIRMATION_THRESHOLD
-
-        return UnderstandingResult(
-            raw_message=message,
-            intent=intent,
-            intent_confidence=confidence,
-            entities=entities,
-            needs_confirmation=needs_confirmation,
-            reasoning=f"Keyword matching: {intent} (confidence: {confidence:.2f})",
-            processing_time_ms=self._elapsed_ms(start_time),
-        )
+        return await self.understanding.understand(message, context)
 
     # =========================================================================
     # 判断層

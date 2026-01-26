@@ -6,6 +6,7 @@
 SYSTEM_CAPABILITIESカタログから機能を動的に選択し、MVVに沿った判断を行います。
 
 設計書: docs/13_brain_architecture.md
+設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
 
 【判断の5ステップ】
 1. 状態チェック: マルチステップセッション中か、pending操作があるか
@@ -13,6 +14,11 @@ SYSTEM_CAPABILITIESカタログから機能を動的に選択し、MVVに沿っ�
 3. 確認要否の判断: 確信度・危険度に基づき確認モードを発動
 4. MVV整合性チェック: NGパターン検出、トーン適切性
 5. 実行コマンドの生成: アクション名・パラメータ・確信度・理由
+
+【v10.30.0 変更点】
+- CAPABILITY_KEYWORDSの静的定義を非推奨化
+- SYSTEM_CAPABILITIESのbrain_metadata.decision_keywordsから動的にキーワード辞書を構築
+- 新機能追加時はSYSTEM_CAPABILITIESへの追加のみで対応可能に（設計書7.3準拠）
 """
 
 import json
@@ -87,12 +93,26 @@ DECISION_PROMPT = """あなたはソウルくんの脳の「判断層」です�
 
 
 # =============================================================================
-# 機能選択キーワード（スコアリング用）
+# 機能選択キーワード（スコアリング用）- フォールバック専用
 # =============================================================================
 
-# 各機能に対するキーワードマッピング
-# intent_keywords は SYSTEM_CAPABILITIES に追加予定の拡張フィールド
-# 現状は trigger_examples + description から抽出
+# ⚠️ DEPRECATED (v10.30.0): このCAPABILITY_KEYWORDS定数は非推奨です。
+# 新しいアクションを追加する場合は、SYSTEM_CAPABILITIESのbrain_metadata.decision_keywords
+# を使用してください。
+#
+# この定数は以下の目的でのみ残しています：
+# 1. 後方互換性: brain_metadataがないアクションのフォールバック
+# 2. 移行期間中のバックアップ
+#
+# 設計書参照: docs/13_brain_architecture.md セクション7.3
+# 設計書参照: docs/14_brain_refactoring_plan.md Phase B
+#
+# 推奨される新しい方法:
+# SYSTEM_CAPABILITIES["action_name"]["brain_metadata"]["decision_keywords"] = {
+#     "primary": [...],
+#     "secondary": [...],
+#     "negative": [...],
+# }
 CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
     "chatwork_task_create": {
         "primary": ["タスク作成", "タスク追加", "タスク作って", "依頼して", "お願いして"],
@@ -256,11 +276,88 @@ class BrainDecision:
             if cap.get("enabled", True)
         }
 
+        # v10.30.0: SYSTEM_CAPABILITIESのbrain_metadataから動的にキーワードを構築
+        # 設計書7.3準拠: CAPABILITY_KEYWORDSをSYSTEM_CAPABILITIESに統合
+        self.capability_keywords = self._build_capability_keywords()
+
         logger.info(
             f"BrainDecision initialized: "
             f"capabilities={len(self.enabled_capabilities)}, "
+            f"capability_keywords={len(self.capability_keywords)}, "
             f"use_llm={use_llm}"
         )
+
+    # =========================================================================
+    # キーワード辞書の動的構築（v10.30.0）
+    # =========================================================================
+
+    def _build_capability_keywords(self) -> Dict[str, Dict[str, List[str]]]:
+        """
+        SYSTEM_CAPABILITIESのbrain_metadataからキーワード辞書を動的に構築
+
+        設計書7.3準拠: CAPABILITY_KEYWORDSをSYSTEM_CAPABILITIESに統合
+        これにより、新機能追加時にSYSTEM_CAPABILITIESへの追加のみで対応可能に。
+
+        後方互換性: capabilitiesが渡されていない場合は、静的なCAPABILITY_KEYWORDSを返す
+
+        構築される辞書の形式:
+        {
+            "action_key": {
+                "primary": ["キーワード1", "キーワード2"],
+                "secondary": ["キーワード3"],
+                "negative": ["除外ワード"],
+            }
+        }
+
+        Returns:
+            Dict[str, Dict[str, List[str]]]: アクション名をキーとしたキーワード辞書
+        """
+        # 後方互換性: capabilitiesが渡されていない場合は静的CAPABILITY_KEYWORDSを使用
+        if not self.enabled_capabilities:
+            logger.debug(
+                "No capabilities provided, using static CAPABILITY_KEYWORDS for backward compatibility"
+            )
+            return CAPABILITY_KEYWORDS.copy()
+
+        keywords = {}
+
+        for key, cap in self.enabled_capabilities.items():
+            brain_metadata = cap.get("brain_metadata", {})
+            decision_keywords = brain_metadata.get("decision_keywords", {})
+
+            if decision_keywords:
+                # brain_metadataから取得
+                keywords[key] = {
+                    "primary": decision_keywords.get("primary", []),
+                    "secondary": decision_keywords.get("secondary", []),
+                    "negative": decision_keywords.get("negative", []),
+                }
+            else:
+                # brain_metadataがない場合はフォールバック（後方互換性）
+                # CAPABILITY_KEYWORDS（静的定義）から取得
+                fallback = CAPABILITY_KEYWORDS.get(key, {})
+                if fallback:
+                    keywords[key] = fallback
+                    logger.debug(
+                        f"Using fallback CAPABILITY_KEYWORDS for '{key}' "
+                        "(brain_metadata.decision_keywords not found)"
+                    )
+
+        # 統計情報をログ出力
+        from_metadata = sum(
+            1 for k in keywords
+            if self.enabled_capabilities.get(k, {}).get("brain_metadata", {}).get("decision_keywords")
+        )
+        from_fallback = len(keywords) - from_metadata
+
+        logger.debug(
+            f"Capability keywords built: "
+            f"total={len(keywords)}, "
+            f"from_metadata={from_metadata}, "
+            f"from_fallback={from_fallback}"
+        )
+
+        return keywords
 
     # =========================================================================
     # メイン判断メソッド
@@ -540,10 +637,28 @@ class BrainDecision:
         cap_key: str,
         message: str,
     ) -> float:
-        """キーワードマッチスコアを計算"""
-        keywords = CAPABILITY_KEYWORDS.get(cap_key, {})
+        """
+        キーワードマッチスコアを計算
+
+        v10.30.0: SYSTEM_CAPABILITIESのbrain_metadata.decision_keywordsから
+        動的に構築されたself.capability_keywordsを使用。
+
+        スコアリングロジック:
+        - ネガティブキーワードがあれば即座に0.0
+        - プライマリキーワード: マッチ数 * 0.5（最大1.0）
+        - セカンダリキーワード: マッチ数 * 0.3（最大0.7）
+
+        Args:
+            cap_key: アクション名
+            message: 小文字化されたメッセージ
+
+        Returns:
+            float: キーワードマッチスコア（0.0〜1.0）
+        """
+        # v10.30.0: インスタンス変数から動的に取得（旧: CAPABILITY_KEYWORDS定数）
+        keywords = self.capability_keywords.get(cap_key, {})
         if not keywords:
-            # キーワード定義がない場合はcapabilityのdescriptionから
+            # キーワード定義がない場合はスコア0
             return 0.0
 
         primary = keywords.get("primary", [])

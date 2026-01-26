@@ -154,9 +154,22 @@ CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "secondary": ["組織", "構造", "チーム"],
         "negative": [],
     },
-    "send_announcement": {
+    # v10.29.9: send_announcement → announcement_create（SYSTEM_CAPABILITIESと統一）
+    "announcement_create": {
         "primary": ["アナウンス", "お知らせ", "連絡して", "伝えて"],
         "secondary": ["全員に", "チャットに"],
+        "negative": [],
+    },
+    # v10.29.9: 追加（SYSTEM_CAPABILITIESと統一）
+    "proposal_decision": {
+        "primary": ["承認", "却下", "反映して"],
+        "secondary": ["OK", "いいよ", "ダメ", "やめて"],
+        "negative": [],
+    },
+    # v10.29.9: 追加（SYSTEM_CAPABILITIESと統一）
+    "general_conversation": {
+        "primary": [],
+        "secondary": ["こんにちは", "ありがとう", "どう思う"],
         "negative": [],
     },
 }

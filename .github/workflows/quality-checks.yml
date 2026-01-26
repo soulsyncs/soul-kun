@@ -277,6 +277,75 @@ jobs:
 
           echo "✅ No forbidden truncation patterns found!"
 
+      - name: Check for debug print statements
+        run: |
+          echo "🔍 Checking for debug print statements..."
+          echo "   (Debug prints should not be committed to production code)"
+          echo ""
+
+          # 検出対象ファイル（全main.pyファイル）
+          TARGET_FILES=(
+            "main.py"
+            "chatwork-webhook/main.py"
+            "sync-chatwork-tasks/main.py"
+            "remind-tasks/main.py"
+            "check-reply-messages/main.py"
+            "cleanup-old-data/main.py"
+            "pattern-detection/main.py"
+          )
+
+          ERRORS_FOUND=0
+
+          for file in "${TARGET_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+
+              # パターン1: 🔍 DEBUG: パターン（明らかなデバッグ用）
+              if grep -n '🔍 DEBUG:' "$file" > /tmp/debug_matches.txt 2>/dev/null; then
+                if [ -s /tmp/debug_matches.txt ]; then
+                  echo "❌ Found debug print in $file:"
+                  cat /tmp/debug_matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン2: 受信データ全体をログ出力（セキュリティリスク）
+              if grep -n '受信データ全体' "$file" > /tmp/debug_matches.txt 2>/dev/null; then
+                if [ -s /tmp/debug_matches.txt ]; then
+                  echo "❌ Found full request data logging in $file:"
+                  cat /tmp/debug_matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+
+              # パターン3: json.dumps(data) をそのままprint（セキュリティリスク）
+              if grep -n 'print.*json\.dumps(data' "$file" > /tmp/debug_matches.txt 2>/dev/null; then
+                if [ -s /tmp/debug_matches.txt ]; then
+                  echo "❌ Found raw data dump in $file:"
+                  cat /tmp/debug_matches.txt
+                  ERRORS_FOUND=1
+                fi
+              fi
+            fi
+          done
+
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Debug print statements found!"
+            echo ""
+            echo "These patterns are forbidden in production code:"
+            echo "  - print(f\"🔍 DEBUG: ...\") - Use logging instead"
+            echo "  - print(f\"🔍 受信データ全体: ...\") - Security risk"
+            echo "  - print(json.dumps(data)) - Security risk"
+            echo ""
+            echo "Remove these debug statements before merging."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+
+          echo "✅ No debug print statements found!"
+
   # =====================================================
   # 3. ユニットテスト実行
   # =====================================================
@@ -318,5 +387,5 @@ jobs:
           echo ""
           echo "Checks completed:"
           echo "  - lib/ copies sync check (7 modules, 20+ targets)"
-          echo "  - Forbidden patterns check"
+          echo "  - Forbidden patterns check (truncation + debug prints)"
           echo "  - Unit tests"

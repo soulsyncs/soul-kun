@@ -320,19 +320,28 @@ class StateError(BrainError):
     def __init__(
         self,
         message: str,
+        room_id: Optional[str] = None,
+        user_id: Optional[str] = None,
         state_type: Optional[str] = None,
         current_state: Optional[str] = None,
+        target_state: Optional[str] = None,
         **kwargs,
     ):
         """
         Args:
             message: エラーメッセージ
+            room_id: ルームID
+            user_id: ユーザーID
             state_type: 状態タイプ
             current_state: 現在の状態
+            target_state: 遷移先の状態
         """
         details = kwargs.pop("details", {})
+        details["room_id"] = room_id
+        details["user_id"] = user_id
         details["state_type"] = state_type
         details["current_state"] = current_state
+        details["target_state"] = target_state
         super().__init__(
             message=message,
             error_code=kwargs.pop("error_code", "STATE_ERROR"),

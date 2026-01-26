@@ -44,6 +44,8 @@ from lib.brain.models import (
 
 from lib.brain.core import SoulkunBrain
 
+from lib.brain.state_manager import BrainStateManager
+
 from lib.brain.memory_access import (
     BrainMemoryAccess,
     ConversationMessage,
@@ -76,6 +78,8 @@ from lib.brain.constants import (
 __all__ = [
     # メインクラス
     "SoulkunBrain",
+    # 状態管理層
+    "BrainStateManager",
     # 記憶アクセス層
     "BrainMemoryAccess",
     "ConversationMessage",

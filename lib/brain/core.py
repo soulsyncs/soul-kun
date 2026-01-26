@@ -61,6 +61,7 @@ from lib.brain.exceptions import (
     HandlerNotFoundError,
     HandlerTimeoutError,
 )
+from lib.brain.state_manager import BrainStateManager
 from lib.brain.memory_access import (
     BrainMemoryAccess,
     ConversationMessage as MemoryConversationMessage,
@@ -123,6 +124,12 @@ class SoulkunBrain:
             pool=pool,
             org_id=org_id,
             firestore_db=firestore_db,
+        )
+
+        # 状態管理層の初期化
+        self.state_manager = BrainStateManager(
+            pool=pool,
+            org_id=org_id,
         )
 
         # 内部状態
@@ -504,10 +511,9 @@ class SoulkunBrain:
         現在の状態を取得
 
         タイムアウトしている場合は自動的にクリアしてNoneを返す。
+        BrainStateManagerに委譲。
         """
-        # TODO: brain_conversation_statesテーブルから取得
-        # 現在はNoneを返す（状態なし = 通常状態）
-        return None
+        return await self.state_manager.get_current_state(room_id, user_id)
 
     async def _transition_to_state(
         self,
@@ -520,22 +526,21 @@ class SoulkunBrain:
         reference_id: Optional[str] = None,
         timeout_minutes: int = SESSION_TIMEOUT_MINUTES,
     ) -> ConversationState:
-        """状態を遷移"""
-        # TODO: brain_conversation_statesテーブルにUPSERT
-        expires_at = datetime.now() + timedelta(minutes=timeout_minutes)
-        state = ConversationState(
-            organization_id=self.org_id,
+        """
+        状態を遷移
+
+        BrainStateManagerに委譲してDBにUPSERT。
+        """
+        return await self.state_manager.transition_to(
             room_id=room_id,
             user_id=user_id,
             state_type=state_type,
-            state_step=step,
-            state_data=data or {},
+            step=step,
+            data=data,
             reference_type=reference_type,
             reference_id=reference_id,
-            expires_at=expires_at,
+            timeout_minutes=timeout_minutes,
         )
-        logger.info(f"State transition: {state_type.value}, step={step}")
-        return state
 
     async def _clear_state(
         self,
@@ -543,9 +548,12 @@ class SoulkunBrain:
         user_id: str,
         reason: str = "user_cancel",
     ) -> None:
-        """状態をクリア（通常状態に戻す）"""
-        # TODO: brain_conversation_statesテーブルから削除
-        logger.info(f"State cleared: room={room_id}, user={user_id}, reason={reason}")
+        """
+        状態をクリア（通常状態に戻す）
+
+        BrainStateManagerに委譲してDBから削除。
+        """
+        await self.state_manager.clear_state(room_id, user_id, reason)
 
     async def _update_state_step(
         self,
@@ -554,10 +562,17 @@ class SoulkunBrain:
         new_step: str,
         additional_data: Optional[Dict] = None,
     ) -> ConversationState:
-        """現在の状態内でステップを進める"""
-        # TODO: brain_conversation_statesテーブルを更新
-        logger.info(f"State step updated: {new_step}")
-        return ConversationState(state_step=new_step)
+        """
+        現在の状態内でステップを進める
+
+        BrainStateManagerに委譲してDBを更新。
+        """
+        return await self.state_manager.update_step(
+            room_id=room_id,
+            user_id=user_id,
+            new_step=new_step,
+            additional_data=additional_data,
+        )
 
     # =========================================================================
     # セッション継続処理

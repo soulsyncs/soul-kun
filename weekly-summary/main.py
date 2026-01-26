@@ -4,68 +4,80 @@
 # ============================================
 # ファイル名: main.py
 # エントリポイント: weekly_summary
+# v10.31.1: Phase D - 接続設定集約
 # ============================================
 
 import functions_framework
 import sqlalchemy
-from google.cloud.sql.connector import Connector
-from google.cloud import secretmanager
 import httpx
 from datetime import datetime, timedelta
 import time
 import json
 
 # ============================================
-# 設定
+# Phase D: 接続設定集約（v10.31.1）
 # ============================================
-PROJECT_ID = "soulkun-production"
-INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-DB_NAME = "soulkun_tasks"
-DB_USER = "soulkun_user"
-
-# グローバル変数（コネクションプール用）
-connector = None
-pool = None
-
-
+# ハードコードされていたDB接続設定をlib/に集約
+# - INSTANCE_CONNECTION_NAME -> lib/config.py
+# - DB_NAME, DB_USER -> lib/config.py
+# - get_pool() -> lib/db.py
+# - get_secret() -> lib/secrets.py
 # ============================================
-# データベース接続
-# ============================================
+try:
+    from lib.db import get_db_pool
+    from lib.secrets import get_secret_cached as get_secret
+    from lib.config import get_settings
+    USE_LIB_DB = True
+    print("✅ lib/db.py loaded for database connection (Phase D)")
+except ImportError as e:
+    print(f"⚠️ lib/db.py not available (using fallback): {e}")
+    USE_LIB_DB = False
 
-def get_secret(secret_id):
-    """Secret Managerからシークレットを取得"""
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    # フォールバック: 旧実装
+    from google.cloud.sql.connector import Connector
+    from google.cloud import secretmanager
 
+    PROJECT_ID = "soulkun-production"
+    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
+    DB_NAME = "soulkun_tasks"
+    DB_USER = "soulkun_user"
 
-def get_pool():
-    """データベース接続プールを取得"""
-    global connector, pool
-    
-    if pool is not None:
-        return pool
-    
-    connector = Connector()
-    
-    def getconn():
-        password = get_secret("cloudsql-password")
-        conn = connector.connect(
-            INSTANCE_CONNECTION_NAME,
-            "pg8000",
-            user=DB_USER,
-            password=password,
-            db=DB_NAME
+    _connector = None
+    _pool = None
+
+    def get_secret(secret_id):
+        """Secret Managerからシークレットを取得（フォールバック）"""
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+
+    def get_db_pool():
+        """データベース接続プールを取得（フォールバック）"""
+        global _connector, _pool
+
+        if _pool is not None:
+            return _pool
+
+        _connector = Connector()
+
+        def getconn():
+            password = get_secret("cloudsql-password")
+            conn = _connector.connect(
+                INSTANCE_CONNECTION_NAME,
+                "pg8000",
+                user=DB_USER,
+                password=password,
+                db=DB_NAME
+            )
+            return conn
+
+        _pool = sqlalchemy.create_engine(
+            "postgresql+pg8000://",
+            creator=getconn,
         )
-        return conn
-    
-    pool = sqlalchemy.create_engine(
-        "postgresql+pg8000://",
-        creator=getconn,
-    )
-    
-    return pool
+
+        return _pool
 
 
 # ============================================
@@ -110,7 +122,7 @@ def get_weekly_task_summary(account_id, start_date, end_date):
     Returns:
         dict: 集計結果
     """
-    db_pool = get_pool()
+    db_pool = get_db_pool()
     
     # 日付をUNIXタイムスタンプに変換
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
@@ -209,7 +221,7 @@ def generate_weekly_summary_message(name, summary):
 
 def get_dm_room_id(account_id):
     """dm_room_cacheからDMルームIDを取得"""
-    db_pool = get_pool()
+    db_pool = get_db_pool()
     
     with db_pool.connect() as conn:
         result = conn.execute(
@@ -246,7 +258,7 @@ def send_weekly_summaries():
     print(f"[週次サマリー] 集計期間: {start_date} ~ {end_date}")
     
     # 全スタッフを取得
-    db_pool = get_pool()
+    db_pool = get_db_pool()
     with db_pool.connect() as conn:
         users = conn.execute(
             sqlalchemy.text("SELECT account_id, name FROM chatwork_users")

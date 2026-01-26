@@ -40,6 +40,21 @@ except ImportError as e:
     USE_ADMIN_CONFIG = False
 
 # =====================================================
+# v10.31.1: Phase D - 接続設定集約
+# =====================================================
+# DB接続設定（INSTANCE_CONNECTION_NAME, DB_NAME, DB_USER）を
+# lib/db.py + lib/config.py で一元管理
+try:
+    from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
+    from lib.secrets import get_secret_cached as _lib_get_secret
+    from lib.config import get_settings
+    USE_LIB_DB = True
+    print("✅ lib/db.py loaded for database connection (Phase D)")
+except ImportError as e:
+    print(f"⚠️ lib/db.py not available (using fallback): {e}")
+    USE_LIB_DB = False
+
+# =====================================================
 # v10.18.1: summary生成用ライブラリ
 # =====================================================
 try:
@@ -400,10 +415,12 @@ _brain_integration = None
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
-# Cloud SQL設定
-INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-DB_NAME = "soulkun_tasks"
-DB_USER = "soulkun_user"
+# Cloud SQL設定（フォールバック用）
+# v10.31.1: USE_LIB_DB=True の場合は lib/config.py から取得
+if not USE_LIB_DB:
+    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
+    DB_NAME = "soulkun_tasks"
+    DB_USER = "soulkun_user"
 
 # 会話履歴の設定
 MAX_HISTORY_COUNT = 100      # 100件に増加
@@ -1668,43 +1685,64 @@ def get_connector():
         _connector = Connector()
     return _connector
 
+# =====================================================
+# v10.31.1: Phase D - DB接続関数
+# =====================================================
+# USE_LIB_DB=True: lib/db.py を使用（設定を一元管理）
+# USE_LIB_DB=False: 従来のフォールバック実装
+# =====================================================
+
 # Phase 1-B用: pg8000接続を返す関数
 def get_db_connection():
-    connector = get_connector()
-    conn = connector.connect(
-        INSTANCE_CONNECTION_NAME,
-        "pg8000",
-        user=DB_USER,
-        password=get_db_password(),
-        db=DB_NAME,
-    )
-    return conn
+    """DB接続を取得"""
+    if USE_LIB_DB:
+        return _lib_get_db_connection()
+    else:
+        # フォールバック
+        connector = get_connector()
+        conn = connector.connect(
+            INSTANCE_CONNECTION_NAME,
+            "pg8000",
+            user=DB_USER,
+            password=get_db_password(),
+            db=DB_NAME,
+        )
+        return conn
 
 def get_db_password():
     return get_secret("cloudsql-password")
 
 def get_pool():
-    global _pool
-    if _pool is None:
-        connector = get_connector()
-        def getconn():
-            return connector.connect(
-                INSTANCE_CONNECTION_NAME, "pg8000",
-                user=DB_USER, password=get_db_password(), db=DB_NAME,
+    """Cloud SQL接続プールを取得"""
+    if USE_LIB_DB:
+        return _lib_get_db_pool()
+    else:
+        # フォールバック
+        global _pool
+        if _pool is None:
+            connector = get_connector()
+            def getconn():
+                return connector.connect(
+                    INSTANCE_CONNECTION_NAME, "pg8000",
+                    user=DB_USER, password=get_db_password(), db=DB_NAME,
+                )
+            _pool = sqlalchemy.create_engine(
+                "postgresql+pg8000://", creator=getconn,
+                pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
             )
-        _pool = sqlalchemy.create_engine(
-            "postgresql+pg8000://", creator=getconn,
-            pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
-        )
-    return _pool
+        return _pool
 
 @lru_cache(maxsize=32)
 def get_secret(secret_id):
     """Secret Managerからシークレットを取得（キャッシュ付き）"""
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    if USE_LIB_DB:
+        return _lib_get_secret(secret_id)
+    else:
+        # フォールバック
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
 
 
 # =====================================================

@@ -1,14 +1,28 @@
 import functions_framework
 from flask import jsonify
-from google.cloud import secretmanager, firestore
+from google.cloud import firestore
 import httpx
 import re
 from datetime import datetime, timedelta, timezone
 import pg8000
 import sqlalchemy
-from google.cloud.sql.connector import Connector
 import json
 import traceback
+
+# ★★★ v10.31.1: Phase D - 接続設定集約 ★★★
+try:
+    from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
+    from lib.secrets import get_secret_cached as _lib_get_secret
+    from lib.config import get_settings
+    USE_LIB_DB = True
+    print("✅ lib/db.py loaded for database connection (Phase D)")
+except ImportError as e:
+    print(f"⚠️ lib/db.py not available (using fallback): {e}")
+    USE_LIB_DB = False
+
+    # フォールバック: 旧実装で必要なインポート
+    from google.cloud import secretmanager
+    from google.cloud.sql.connector import Connector
 
 # ★★★ v10.18.1: lib/テキスト処理ユーティリティ ★★★
 try:
@@ -39,10 +53,11 @@ except ImportError as e:
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
 
-# Cloud SQL設定
-INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-DB_NAME = "soulkun_tasks"
-DB_USER = "soulkun_user"
+# Cloud SQL設定（フォールバック用）
+if not USE_LIB_DB:
+    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
+    DB_NAME = "soulkun_tasks"
+    DB_USER = "soulkun_user"
 
 # 会話履歴の設定
 MAX_HISTORY_COUNT = 100      # 100件に増加
@@ -79,41 +94,63 @@ def get_chatwork_headers():
 
 HEADERS = None  # 遅延初期化用
 
-# Phase 1-B用: pg8000接続を返す関数
-def get_db_connection():
-    connector = Connector()
-    conn = connector.connect(
-        INSTANCE_CONNECTION_NAME,
-        "pg8000",
-        user=DB_USER,
-        password=get_db_password(),
-        db=DB_NAME,
-    )
-    return conn
+# =============================================================================
+# Phase D: 接続設定集約（v10.31.1）
+# =============================================================================
 
-def get_db_password():
-    return get_secret("cloudsql-password")
-
-def get_pool():
-    global _pool
-    if _pool is None:
-        connector = Connector()
-        def getconn():
-            return connector.connect(
-                INSTANCE_CONNECTION_NAME, "pg8000",
-                user=DB_USER, password=get_db_password(), db=DB_NAME,
-            )
-        _pool = sqlalchemy.create_engine(
-            "postgresql+pg8000://", creator=getconn,
-            pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
-        )
-    return _pool
+# Cloud SQL接続プール（フォールバック用）
+_pool = None
 
 def get_secret(secret_id):
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-    response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    """Secret Managerからシークレットを取得"""
+    if USE_LIB_DB:
+        return _lib_get_secret(secret_id)
+    else:
+        # フォールバック
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+
+def get_db_password():
+    """DBパスワードを取得"""
+    return get_secret("cloudsql-password")
+
+def get_db_connection():
+    """Phase 1-B用: pg8000接続を返す"""
+    if USE_LIB_DB:
+        return _lib_get_db_connection()
+    else:
+        # フォールバック
+        connector = Connector()
+        conn = connector.connect(
+            INSTANCE_CONNECTION_NAME,
+            "pg8000",
+            user=DB_USER,
+            password=get_db_password(),
+            db=DB_NAME,
+        )
+        return conn
+
+def get_pool():
+    """Cloud SQL接続プールを取得"""
+    if USE_LIB_DB:
+        return _lib_get_db_pool()
+    else:
+        # フォールバック
+        global _pool
+        if _pool is None:
+            connector = Connector()
+            def getconn():
+                return connector.connect(
+                    INSTANCE_CONNECTION_NAME, "pg8000",
+                    user=DB_USER, password=get_db_password(), db=DB_NAME,
+                )
+            _pool = sqlalchemy.create_engine(
+                "postgresql+pg8000://", creator=getconn,
+                pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
+            )
+        return _pool
 
 def clean_chatwork_message(body):
     """ChatWorkメッセージをクリーニング

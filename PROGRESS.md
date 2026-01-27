@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 15:00 JST**
+**最終更新: 2026-01-28 15:50 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -330,6 +330,24 @@
 > - **テスト**: 44件（16件追加）全パス
 > - **chatwork-webhook同期**: 完了
 
+**完了したこと（chatwork-webhook v10.39.0 デプロイ）:** ✅ 2026-01-28 15:45 JST 完了
+> CapabilityBridgeハンドラー統合強化を本番環境にデプロイした。
+> - **旧リビジョン**: chatwork-webhook-00216-xac
+> - **新リビジョン**: chatwork-webhook-00220-hid
+> - **デプロイ過程**:
+>   1. revision 00219-hol: デプロイ成功したが、env-vars.yamlがUSE_BRAIN_ARCHITECTUREを上書きし、脳が無効化された
+>   2. 環境変数を手動更新: `USE_BRAIN_ARCHITECTURE=true, BRAIN_FALLBACK_ENABLED=true, USE_CAPABILITY_BRIDGE=true`
+>   3. revision 00220-hid: 環境変数更新でデプロイ、脳が再有効化された
+> - **検証結果**:
+>   - 脳アーキテクチャ: enabled=True, mode=true
+>   - CapabilityBridge: 正常ロード
+>   - 新ハンドラー: 8件登録確認
+>   - エラー: なし
+> - **追加された機能**:
+>   - `調査して`、`リサーチして`→ディープリサーチハンドラー
+>   - `スプレッドシート作って/読んで/書いて`→Google Sheetsハンドラー
+>   - `スライド作って/読んで`→Google Slidesハンドラー
+
 **実装中（Phase 2L 実行力強化）:** 🔧 2026-01-28 基盤実装完了
 > ソウルくんに「完璧にやり遂げる」能力を追加中。複雑なリクエストを自動分解して実行できるようになる。
 > - **設計書完成**: docs/21_phase2l_execution_excellence.md（456行）
@@ -432,13 +450,13 @@
 
 ## 本番環境インフラ状態
 
-**最終確認: 2026-01-27**
+**最終確認: 2026-01-28**
 
 ### Cloud Functions（18個）
 
 | 関数名 | 状態 | 用途 | 最終更新 |
 |--------|------|------|----------|
-| chatwork-webhook | ACTIVE | メインWebhook | 2026-01-27 |
+| chatwork-webhook | ACTIVE | メインWebhook (revision 00220-hid) | 2026-01-28 |
 | chatwork-main | ACTIVE | Chatwork API | 2026-01-24 |
 | remind-tasks | ACTIVE | タスクリマインド（土日祝スキップ） | 2026-01-25 |
 | sync-chatwork-tasks | ACTIVE | タスク同期 | 2026-01-25 |

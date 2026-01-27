@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 18:00 JST**
+**最終更新: 2026-01-27 17:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -66,11 +66,20 @@
 > - テスト32件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase 2G Memory Enhancement）:** ✅ 2026-01-27 完了
+> エピソード記憶と知識グラフの基盤を構築した。
+> - 5ファイル実装完了（lib/brain/memory_enhancement/）
+> - エピソード記憶の保存・想起、知識グラフの構築
+> - 7テーブルのDBマイグレーション
+> - テスト38件全パス
+> - chatwork-webhookに同期済み
+
 **次にやること:**
-> 1. Phase 2Gの実装開始（記憶の強化）
+> 1. Phase 2Hの実装開始（自己認識）
 >    - docs/17_brain_completion_roadmap.md参照
-> 2. 本番ログ監視継続 - 脳の判断ログを確認
-> 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
+> 2. DBマイグレーション実行（Phase 2F, 2G）
+> 3. 本番ログ監視継続 - 脳の判断ログを確認
+> 4. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
 
 ---
 
@@ -85,7 +94,8 @@
 | ~~★★★~~ | ~~Phase 2D CEO Learning~~ | ~~DB・コード・統合完了~~ | ✅ **完了 (v10.32.1)** |
 | ~~★★★~~ | ~~Phase 2E Learning Foundation~~ | ~~12ファイル・119テスト完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase 2F 結果からの学習~~ | ~~8ファイル・32テスト完了~~ | ✅ **完了** |
-| **★★★** | **Phase 2G 記憶の強化** | 長期記憶管理・エピソード記憶強化 | 📋 次の作業 |
+| ~~★★★~~ | ~~Phase 2G 記憶の強化~~ | ~~5ファイル・38テスト完了~~ | ✅ **完了** |
+| **★★★** | **Phase 2H 自己認識** | 能力の自己評価・限界の認識 | 📋 次の作業 |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
 ---
@@ -113,8 +123,8 @@
 | 2D | CEO教え＆守護者層 | ✅ 完了 | 2026-01-27 | v10.32.1、DB+コード+統合+56テスト完了 |
 | 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |
 | 2F | 結果からの学習 | ✅ 完了 | 2026-01-27 | 8ファイル・32テスト完了 |
-| 2G | 記憶の強化 | 📋 次の作業 | - | 長期記憶管理・エピソード記憶強化 |
-| 2H | 自己認識 | 📋 計画中 | - | 2026年4-5月予定 |
+| 2G | 記憶の強化 | ✅ 完了 | 2026-01-27 | 5ファイル・38テスト完了 |
+| 2H | 自己認識 | 📋 次の作業 | - | 能力の自己評価・限界の認識 |
 | 2I | 理解力強化 | 📋 計画中 | - | 2026年5-6月予定 |
 | 2J | 判断力強化 | 📋 計画中 | - | 2026年6-7月予定 |
 | 2K | 能動性 | 📋 計画中 | - | 2026年7-8月予定 |
@@ -188,6 +198,34 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **17:30 JST**: Phase 2G Memory Enhancement 実装完了 ✅ **脳みそ完全化計画 4/11 完了**
+  - **概要**: エピソード記憶と知識グラフの基盤を構築
+  - **設計書**: `docs/17_brain_completion_roadmap.md` セクション Phase 2G
+  - **新規ファイル（5ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/brain/memory_enhancement/__init__.py` | BrainMemoryEnhancement統合クラス |
+    | `lib/brain/memory_enhancement/constants.py` | Enum定義、閾値定数 |
+    | `lib/brain/memory_enhancement/models.py` | Episode, KnowledgeNode, KnowledgeEdge等 |
+    | `lib/brain/memory_enhancement/episode_repository.py` | EpisodeRepository（エピソード永続化） |
+    | `lib/brain/memory_enhancement/knowledge_graph.py` | KnowledgeGraph（知識グラフ管理） |
+  - **DBマイグレーション**: `migrations/phase2g_memory_enhancement.sql`
+    - `brain_episodes`: エピソード記憶（17カラム、5インデックス）
+    - `brain_episode_entities`: エピソード-エンティティ関連（9カラム、2インデックス）
+    - `brain_knowledge_nodes`: 知識グラフノード（14カラム、4インデックス）
+    - `brain_knowledge_edges`: 知識グラフエッジ（15カラム、3インデックス）
+    - `brain_temporal_events`: 時系列イベント（15カラム、4インデックス）
+    - `brain_temporal_comparisons`: 時系列比較（17カラム、2インデックス）
+    - `brain_memory_consolidations`: 記憶統合ログ（14カラム、3インデックス）
+  - **主な機能**:
+    - エピソード記憶の保存・想起（キーワード、エンティティ、時間ベース）
+    - 知識グラフの構築（ノード、エッジ、サブグラフ取得）
+    - 記憶の減衰・忘却（人間の記憶をモデル化）
+    - 便利メソッド（record_achievement, record_failure等）
+  - **テスト**: 38件全パス
+  - **同期**: chatwork-webhook/lib/brain/memory_enhancement/に同期済み
+  - **脳みそ完全化計画 進捗**: 4/11 Phase完了（2D, 2E, 2F, 2G）
 
 - **18:00 JST**: Phase 2F Outcome Learning 実装完了 ✅ **脳みそ完全化計画 3/11 完了**
   - **概要**: 暗黙のフィードバックから学ぶ仕組みを構築

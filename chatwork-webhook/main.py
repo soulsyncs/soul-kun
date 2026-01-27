@@ -166,209 +166,102 @@ else:
         ORGANIZATIONAL_THEORY_PROMPT = ""  # フォールバック
 
 # =====================================================
-# v10.24.0: 日付処理ユーティリティ（リファクタリング）
+# utils/date_utils.py 日付処理ユーティリティ
+# v10.33.0: フォールバック削除
 # =====================================================
-# utils/date_utils.py に分割された日付処理関数
-# 環境変数 USE_NEW_DATE_UTILS=false で旧実装に戻せる
-# =====================================================
-_USE_NEW_DATE_UTILS_ENV = os.environ.get("USE_NEW_DATE_UTILS", "true").lower() == "true"
-
-if _USE_NEW_DATE_UTILS_ENV:
-    try:
-        from utils.date_utils import (
-            parse_date_from_text as _new_parse_date_from_text,
-            check_deadline_proximity as _new_check_deadline_proximity,
-            get_overdue_days as _new_get_overdue_days,
-            JST as _utils_JST,
-            DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
-        )
-        USE_NEW_DATE_UTILS = True
-        print("✅ utils/date_utils.py loaded for date processing")
-    except ImportError as e:
-        print(f"⚠️ utils/date_utils.py not available (using fallback): {e}")
-        USE_NEW_DATE_UTILS = False
-else:
-    print("⚠️ New date utils disabled by environment variable USE_NEW_DATE_UTILS=false")
-    USE_NEW_DATE_UTILS = False
+from utils.date_utils import (
+    parse_date_from_text as _new_parse_date_from_text,
+    check_deadline_proximity as _new_check_deadline_proximity,
+    get_overdue_days as _new_get_overdue_days,
+    JST as _utils_JST,
+    DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
+)
+USE_NEW_DATE_UTILS = True
+print("✅ utils/date_utils.py loaded for date processing")
 
 # =====================================================
-# v10.24.0: ChatWork APIユーティリティ（リファクタリング）
+# utils/chatwork_utils.py ChatWork APIユーティリティ
+# v10.33.0: フォールバック削除
 # =====================================================
-# utils/chatwork_utils.py に分割されたChatWork API関数
-# 環境変数 USE_NEW_CHATWORK_UTILS=false で旧実装に戻せる
-# =====================================================
-_USE_NEW_CHATWORK_UTILS_ENV = os.environ.get("USE_NEW_CHATWORK_UTILS", "true").lower() == "true"
-
-if _USE_NEW_CHATWORK_UTILS_ENV:
-    try:
-        from utils.chatwork_utils import (
-            APICallCounter as _new_APICallCounter,
-            get_api_call_counter as _new_get_api_call_counter,
-            reset_api_call_counter as _new_reset_api_call_counter,
-            clear_room_members_cache as _new_clear_room_members_cache,
-            call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
-            get_room_members as _new_get_room_members,
-            get_room_members_cached as _new_get_room_members_cached,
-            is_room_member as _new_is_room_member,
-        )
-        USE_NEW_CHATWORK_UTILS = True
-        print("✅ utils/chatwork_utils.py loaded for ChatWork API")
-    except ImportError as e:
-        print(f"⚠️ utils/chatwork_utils.py not available (using fallback): {e}")
-        USE_NEW_CHATWORK_UTILS = False
-else:
-    print("⚠️ New ChatWork utils disabled by environment variable USE_NEW_CHATWORK_UTILS=false")
-    USE_NEW_CHATWORK_UTILS = False
+from utils.chatwork_utils import (
+    APICallCounter as _new_APICallCounter,
+    get_api_call_counter as _new_get_api_call_counter,
+    reset_api_call_counter as _new_reset_api_call_counter,
+    clear_room_members_cache as _new_clear_room_members_cache,
+    call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
+    get_room_members as _new_get_room_members,
+    get_room_members_cached as _new_get_room_members_cached,
+    is_room_member as _new_is_room_member,
+)
+USE_NEW_CHATWORK_UTILS = True
+print("✅ utils/chatwork_utils.py loaded for ChatWork API")
 
 # =====================================================
-# handlers/proposal_handler.py に分割された提案管理機能
-# 環境変数 USE_NEW_PROPOSAL_HANDLER=false で旧実装に戻せる
+# handlers/proposal_handler.py 提案管理ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-_USE_NEW_PROPOSAL_HANDLER_ENV = os.environ.get("USE_NEW_PROPOSAL_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_PROPOSAL_HANDLER_ENV:
-    try:
-        from handlers.proposal_handler import ProposalHandler as _NewProposalHandler
-        USE_NEW_PROPOSAL_HANDLER = True
-        print("✅ handlers/proposal_handler.py loaded for Proposal management")
-    except ImportError as e:
-        print(f"⚠️ handlers/proposal_handler.py not available (using fallback): {e}")
-        USE_NEW_PROPOSAL_HANDLER = False
-else:
-    print("⚠️ New Proposal handler disabled by environment variable USE_NEW_PROPOSAL_HANDLER=false")
-    USE_NEW_PROPOSAL_HANDLER = False
+from handlers.proposal_handler import ProposalHandler as _NewProposalHandler
+print("✅ handlers/proposal_handler.py loaded for Proposal management")
 
 # ProposalHandlerインスタンス（後で初期化）
 _proposal_handler = None
 
 # =====================================================
-# handlers/memory_handler.py に分割されたメモリ管理機能
-# 環境変数 USE_NEW_MEMORY_HANDLER=false で旧実装に戻せる
+# handlers/memory_handler.py メモリ管理ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-_USE_NEW_MEMORY_HANDLER_ENV = os.environ.get("USE_NEW_MEMORY_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_MEMORY_HANDLER_ENV:
-    try:
-        from handlers.memory_handler import MemoryHandler as _NewMemoryHandler
-        USE_NEW_MEMORY_HANDLER = True
-        print("✅ handlers/memory_handler.py loaded for Memory management")
-    except ImportError as e:
-        print(f"⚠️ handlers/memory_handler.py not available (using fallback): {e}")
-        USE_NEW_MEMORY_HANDLER = False
-else:
-    print("⚠️ New Memory handler disabled by environment variable USE_NEW_MEMORY_HANDLER=false")
-    USE_NEW_MEMORY_HANDLER = False
+from handlers.memory_handler import MemoryHandler as _NewMemoryHandler
+print("✅ handlers/memory_handler.py loaded for Memory management")
 
 # MemoryHandlerインスタンス（後で初期化）
 _memory_handler = None
 
 # =====================================================
-# handlers/task_handler.py に分割されたタスク管理機能
-# 環境変数 USE_NEW_TASK_HANDLER=false で旧実装に戻せる
+# handlers/task_handler.py タスク管理ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-_USE_NEW_TASK_HANDLER_ENV = os.environ.get("USE_NEW_TASK_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_TASK_HANDLER_ENV:
-    try:
-        from handlers.task_handler import TaskHandler as _NewTaskHandler
-        USE_NEW_TASK_HANDLER = True
-        print("✅ handlers/task_handler.py loaded for Task management")
-    except ImportError as e:
-        print(f"⚠️ handlers/task_handler.py not available (using fallback): {e}")
-        USE_NEW_TASK_HANDLER = False
-else:
-    print("⚠️ New Task handler disabled by environment variable USE_NEW_TASK_HANDLER=false")
-    USE_NEW_TASK_HANDLER = False
+from handlers.task_handler import TaskHandler as _NewTaskHandler
+print("✅ handlers/task_handler.py loaded for Task management")
 
 # TaskHandlerインスタンス（後で初期化）
 _task_handler = None
 
 # =====================================================
-# v10.24.5: 遅延管理ハンドラー（handlers/overdue_handler.py）
+# handlers/overdue_handler.py 遅延管理ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-# 環境変数 USE_NEW_OVERDUE_HANDLER=false で旧実装に戻せる
-
-_USE_NEW_OVERDUE_HANDLER_ENV = os.environ.get("USE_NEW_OVERDUE_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_OVERDUE_HANDLER_ENV:
-    try:
-        from handlers.overdue_handler import OverdueHandler as _NewOverdueHandler
-        USE_NEW_OVERDUE_HANDLER = True
-        print("✅ handlers/overdue_handler.py loaded for Overdue management")
-    except ImportError as e:
-        print(f"⚠️ handlers/overdue_handler.py not available (using fallback): {e}")
-        USE_NEW_OVERDUE_HANDLER = False
-else:
-    print("⚠️ New Overdue handler disabled by environment variable USE_NEW_OVERDUE_HANDLER=false")
-    USE_NEW_OVERDUE_HANDLER = False
+from handlers.overdue_handler import OverdueHandler as _NewOverdueHandler
+print("✅ handlers/overdue_handler.py loaded for Overdue management")
 
 # OverdueHandlerインスタンス（後で初期化）
 _overdue_handler = None
 
 # =====================================================
-# v10.24.6: 目標達成支援ハンドラー（handlers/goal_handler.py）
+# handlers/goal_handler.py 目標達成支援ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-# 環境変数 USE_NEW_GOAL_HANDLER=false で旧実装に戻せる
-
-_USE_NEW_GOAL_HANDLER_ENV = os.environ.get("USE_NEW_GOAL_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_GOAL_HANDLER_ENV:
-    try:
-        from handlers.goal_handler import GoalHandler as _NewGoalHandler
-        USE_NEW_GOAL_HANDLER = True
-        print("✅ handlers/goal_handler.py loaded for Goal management")
-    except ImportError as e:
-        print(f"⚠️ handlers/goal_handler.py not available (using fallback): {e}")
-        USE_NEW_GOAL_HANDLER = False
-else:
-    print("⚠️ New Goal handler disabled by environment variable USE_NEW_GOAL_HANDLER=false")
-    USE_NEW_GOAL_HANDLER = False
+from handlers.goal_handler import GoalHandler as _NewGoalHandler
+print("✅ handlers/goal_handler.py loaded for Goal management")
 
 # GoalHandlerインスタンス（後で初期化）
 _goal_handler = None
 
 # =====================================================
-# v10.24.7: ナレッジ管理ハンドラー（handlers/knowledge_handler.py）
+# handlers/knowledge_handler.py ナレッジ管理ハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-# 環境変数 USE_NEW_KNOWLEDGE_HANDLER=false で旧実装に戻せる
-
-_USE_NEW_KNOWLEDGE_HANDLER_ENV = os.environ.get("USE_NEW_KNOWLEDGE_HANDLER", "true").lower() == "true"
-
-if _USE_NEW_KNOWLEDGE_HANDLER_ENV:
-    try:
-        from handlers.knowledge_handler import KnowledgeHandler as _NewKnowledgeHandler
-        USE_NEW_KNOWLEDGE_HANDLER = True
-        print("✅ handlers/knowledge_handler.py loaded for Knowledge management")
-    except ImportError as e:
-        print(f"⚠️ handlers/knowledge_handler.py not available (using fallback): {e}")
-        USE_NEW_KNOWLEDGE_HANDLER = False
-else:
-    print("⚠️ New Knowledge handler disabled by environment variable USE_NEW_KNOWLEDGE_HANDLER=false")
-    USE_NEW_KNOWLEDGE_HANDLER = False
+from handlers.knowledge_handler import KnowledgeHandler as _NewKnowledgeHandler
+print("✅ handlers/knowledge_handler.py loaded for Knowledge management")
 
 # KnowledgeHandlerインスタンス（後で初期化）
 _knowledge_handler = None
 
 # =====================================================
-# v10.26.0: アナウンス機能ハンドラー（handlers/announcement_handler.py）
+# handlers/announcement_handler.py アナウンスハンドラー
+# v10.33.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
-# 環境変数 USE_ANNOUNCEMENT_FEATURE=false で無効化可能
-
-_USE_ANNOUNCEMENT_FEATURE_ENV = os.environ.get("USE_ANNOUNCEMENT_FEATURE", "true").lower() == "true"
-
-if _USE_ANNOUNCEMENT_FEATURE_ENV:
-    try:
-        from handlers.announcement_handler import AnnouncementHandler as _NewAnnouncementHandler
-        USE_ANNOUNCEMENT_FEATURE = True
-        print("✅ handlers/announcement_handler.py loaded for Announcement feature")
-    except ImportError as e:
-        print(f"⚠️ handlers/announcement_handler.py not available: {e}")
-        USE_ANNOUNCEMENT_FEATURE = False
-        _NewAnnouncementHandler = None
-else:
-    print("⚠️ Announcement feature disabled by environment variable USE_ANNOUNCEMENT_FEATURE=false")
-    USE_ANNOUNCEMENT_FEATURE = False
-    _NewAnnouncementHandler = None
+from handlers.announcement_handler import AnnouncementHandler as _NewAnnouncementHandler
+print("✅ handlers/announcement_handler.py loaded for Announcement feature")
 
 # AnnouncementHandlerインスタンス（後で初期化）
 _announcement_handler = None
@@ -2619,11 +2512,12 @@ def is_room_member(room_id, account_id):
 
 # =====================================================
 # TaskHandler初期化（v10.24.4）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_task_handler():
     """TaskHandlerのシングルトンインスタンスを取得"""
     global _task_handler
-    if _task_handler is None and USE_NEW_TASK_HANDLER:
+    if _task_handler is None:
         _task_handler = _NewTaskHandler(
             get_pool=get_pool,
             get_secret=get_secret,
@@ -2639,9 +2533,9 @@ def _get_task_handler():
 
 
 def _get_overdue_handler():
-    """OverdueHandlerのシングルトンインスタンスを取得"""
+    """OverdueHandlerのシングルトンインスタンスを取得（v10.33.0: フラグチェック削除）"""
     global _overdue_handler
-    if _overdue_handler is None and USE_NEW_OVERDUE_HANDLER:
+    if _overdue_handler is None:
         _overdue_handler = _NewOverdueHandler(
             get_pool=get_pool,
             get_secret=get_secret,
@@ -2656,11 +2550,12 @@ def _get_overdue_handler():
 
 # =====================================================
 # GoalHandler初期化（v10.24.6）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_goal_handler():
     """GoalHandlerのシングルトンインスタンスを取得"""
     global _goal_handler
-    if _goal_handler is None and USE_NEW_GOAL_HANDLER:
+    if _goal_handler is None:
         _goal_handler = _NewGoalHandler(
             get_pool=get_pool,
             process_goal_setting_message_func=process_goal_setting_message if USE_GOAL_SETTING_LIB else None,
@@ -2671,11 +2566,12 @@ def _get_goal_handler():
 
 # =====================================================
 # KnowledgeHandler初期化（v10.24.7）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_knowledge_handler():
     """KnowledgeHandlerのシングルトンインスタンスを取得"""
     global _knowledge_handler
-    if _knowledge_handler is None and USE_NEW_KNOWLEDGE_HANDLER:
+    if _knowledge_handler is None:
         # MVV関数の取得
         mvv_question_func = None
         mvv_info_func = None
@@ -2705,11 +2601,12 @@ def _get_knowledge_handler():
 
 # =====================================================
 # AnnouncementHandler初期化（v10.26.0）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_announcement_handler():
     """AnnouncementHandlerのシングルトンインスタンスを取得"""
     global _announcement_handler
-    if _announcement_handler is None and USE_ANNOUNCEMENT_FEATURE:
+    if _announcement_handler is None:
         # v10.30.1: admin_configからDB設定を取得
         if USE_ADMIN_CONFIG:
             admin_cfg = get_admin_config()
@@ -2905,17 +2802,16 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
         except Exception as e:
             print(f"⚠️ Goal session check failed: {e}")
 
-    # アナウンス確認待ちチェック
-    if USE_ANNOUNCEMENT_FEATURE:
-        try:
-            handler = _get_announcement_handler()
-            if handler:
-                pending = handler._get_pending_announcement(room_id, account_id)
-                if pending:
-                    context["has_pending_announcement"] = True
-                    context["announcement_id"] = pending.get("id") if isinstance(pending, dict) else None
-        except Exception as e:
-            print(f"⚠️ Announcement check failed: {e}")
+    # アナウンス確認待ちチェック（v10.33.0: フラグチェック削除）
+    try:
+        handler = _get_announcement_handler()
+        if handler:
+            pending = handler._get_pending_announcement(room_id, account_id)
+            if pending:
+                context["has_pending_announcement"] = True
+                context["announcement_id"] = pending.get("id") if isinstance(pending, dict) else None
+    except Exception as e:
+        print(f"⚠️ Announcement check failed: {e}")
 
     return context
 
@@ -3052,14 +2948,14 @@ async def _brain_handle_goal_status_check(params, room_id, account_id, sender_na
 
 
 async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):
+    """v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除"""
     from lib.brain.models import HandlerResult
     try:
-        if USE_ANNOUNCEMENT_FEATURE:
-            handler = _get_announcement_handler()
-            if handler:
-                result = handler.handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
-                if result:
-                    return HandlerResult(success=True, message=result)
+        handler = _get_announcement_handler()
+        if handler:
+            result = handler.handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
+            if result:
+                return HandlerResult(success=True, message=result)
         return HandlerResult(success=True, message="アナウンス機能は現在準備中ウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"アナウンスでエラーが発生したウル🐺")
@@ -4860,20 +4756,7 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
     return False
 
 
-def notify_proposal_result(proposal: dict, approved: bool):
-    """
-    提案の結果を提案者に通知
-
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.25.0: category='memory'の場合は人物情報用メッセージ
-    v10.32.0: フォールバック削除（ハンドラー必須化）
-    """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.notify_proposal_result(proposal, approved)
-
-    print("❌ ProposalHandler not available - cannot notify proposal result")
-    return None
+# v10.33.0: notify_proposal_result は handlers/proposal_handler.py に移行済み（未使用のため削除）
 
 
 def handle_query_org_chart(params, room_id, account_id, sender_name, context=None):
@@ -5241,11 +5124,12 @@ HANDLERS = {
 
 # =====================================================
 # MemoryHandler初期化（v10.24.3）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_memory_handler():
     """MemoryHandlerのシングルトンインスタンスを取得"""
     global _memory_handler
-    if _memory_handler is None and USE_NEW_MEMORY_HANDLER:
+    if _memory_handler is None:
         _memory_handler = _NewMemoryHandler(
             firestore_db=db,
             get_pool=get_pool,
@@ -6226,29 +6110,29 @@ def chatwork_webhook(request):
         chatwork_users = get_all_chatwork_users()  # ★ ChatWorkユーザー一覧を取得
 
         # ★ Phase X: pending announcement があればそちらを優先処理
-        if USE_ANNOUNCEMENT_FEATURE:
-            try:
-                announcement_handler = _get_announcement_handler()
-                if announcement_handler:
-                    pending = announcement_handler._get_pending_announcement(room_id, sender_account_id)
-                    if pending:
-                        print(f"📢 pending announcement検出: {pending['id']}")
-                        response = announcement_handler.handle_announcement_request(
-                            params={"raw_message": clean_message},
-                            room_id=room_id,
-                            account_id=sender_account_id,
-                            sender_name=sender_name,
-                        )
-                        # v10.26.5: Noneが返った場合はフォローアップではないのでAI司令塔に委ねる
-                        if response is None:
-                            print(f"📢 フォローアップではない判定 → AI司令塔に委ねる")
-                        elif response:
-                            show_guide = should_show_guide(room_id, sender_account_id)
-                            send_chatwork_message(room_id, response, sender_account_id, show_guide)
-                            update_conversation_timestamp(room_id, sender_account_id)
-                            return jsonify({"status": "ok"})
-            except Exception as e:
-                print(f"❌ pending announcement チェックエラー: {e}")
+        # v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除
+        try:
+            announcement_handler = _get_announcement_handler()
+            if announcement_handler:
+                pending = announcement_handler._get_pending_announcement(room_id, sender_account_id)
+                if pending:
+                    print(f"📢 pending announcement検出: {pending['id']}")
+                    response = announcement_handler.handle_announcement_request(
+                        params={"raw_message": clean_message},
+                        room_id=room_id,
+                        account_id=sender_account_id,
+                        sender_name=sender_name,
+                    )
+                    # v10.26.5: Noneが返った場合はフォローアップではないのでAI司令塔に委ねる
+                    if response is None:
+                        print(f"📢 フォローアップではない判定 → AI司令塔に委ねる")
+                    elif response:
+                        show_guide = should_show_guide(room_id, sender_account_id)
+                        send_chatwork_message(room_id, response, sender_account_id, show_guide)
+                        update_conversation_timestamp(room_id, sender_account_id)
+                        return jsonify({"status": "ok"})
+        except Exception as e:
+            print(f"❌ pending announcement チェックエラー: {e}")
 
         # AI司令塔に判断を委ねる（AIの判断力を最大活用）
         command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
@@ -6871,343 +6755,11 @@ KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
 
 
 # =====================================================
-# v10.13.0: Phase 3 ナレッジ検索API クライアント
+# v10.33.0: Phase 3 ナレッジ検索関連の旧関数を削除
+# search_phase3_knowledge, format_phase3_results,
+# integrated_knowledge_search, search_legacy_knowledge は
+# handlers/knowledge_handler.py に移行済み
 # =====================================================
-# Pineconeベクトル検索APIを呼び出すクライアント
-# 旧システム（soulkun_knowledge）と併用して統合ナレッジ検索を実現
-# =====================================================
-
-def search_phase3_knowledge(query: str, user_id: str = "user_default", top_k: int = 5):
-    """
-    Phase 3 ナレッジ検索APIを呼び出し（v10.13.3: ハイブリッド検索対応）
-
-    処理フロー:
-    1. キーワード抽出
-    2. クエリ拡張（キーワードがある場合）
-    3. 拡張クエリでベクトル検索API呼び出し
-    4. ハイブリッドスコア計算（キーワード40% + ベクトル60%）
-    5. スコア順に並び替えて返却
-
-    Args:
-        query: 検索クエリ
-        user_id: ユーザーID
-        top_k: 取得する結果数
-
-    Returns:
-        検索結果のリスト（見つからない場合やエラー時はNone）
-    """
-    # Phase 3が無効化されている場合
-    if not PHASE3_KNOWLEDGE_CONFIG["enabled"]:
-        print("📚 Phase 3 ナレッジ検索は無効化されています")
-        return None
-
-    try:
-        api_url = PHASE3_KNOWLEDGE_CONFIG["api_url"]
-        timeout = PHASE3_KNOWLEDGE_CONFIG["timeout"]
-        organization_id = PHASE3_KNOWLEDGE_CONFIG["organization_id"]
-        threshold = PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]
-        keyword_weight = PHASE3_KNOWLEDGE_CONFIG["keyword_weight"]
-        vector_weight = PHASE3_KNOWLEDGE_CONFIG["vector_weight"]
-
-        # v10.13.3: キーワード抽出とクエリ拡張
-        keywords = extract_keywords(query)
-        expanded_query = expand_query(query, keywords) if keywords else query
-
-        # v10.14.2: keywordsが空の場合はベクトルスコアのみで評価（回帰防止）
-        if not keywords:
-            keyword_weight = 0.0
-            vector_weight = 1.0
-
-        print(f"📚 Phase 3 ハイブリッド検索開始: query='{query}', keywords={keywords}")
-
-        # 多めに取得してリランキング
-        fetch_top_k = max(top_k * 4, 20)
-
-        # 同期的にAPIを呼び出し
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(
-                api_url,
-                json={
-                    "query": expanded_query,  # 拡張クエリを使用
-                    "top_k": fetch_top_k,
-                    "include_content": True  # コンテンツ取得（キーワードスコア計算用）
-                },
-                headers={
-                    "Content-Type": "application/json",
-                    "x-user-id": user_id,
-                    "X-Tenant-ID": organization_id
-                }
-            )
-
-            # ステータスコードの確認
-            if response.status_code != 200:
-                print(f"❌ Phase 3 API エラー: status={response.status_code}")
-                return None
-
-            # レスポンスのパース
-            data = response.json()
-
-            # 回答拒否の場合
-            if data.get("answer_refused", False):
-                print(f"📚 Phase 3: 回答拒否 - {data.get('refused_reason')}")
-                return None
-
-            results = data.get("results", [])
-
-            if not results:
-                print(f"📚 Phase 3: 検索結果なし")
-                return None
-
-            # v10.13.3: ハイブリッドスコア計算
-            for result in results:
-                vector_score = result.get("score", 0)
-                content = result.get("content", "")
-
-                # キーワードスコアを計算
-                keyword_score = calculate_keyword_score(content, keywords) if keywords else 0
-
-                # ハイブリッドスコア = キーワード重み × キーワードスコア + ベクトル重み × ベクトルスコア
-                hybrid_score = (keyword_weight * keyword_score) + (vector_weight * vector_score)
-                result["hybrid_score"] = hybrid_score
-                result["keyword_score"] = keyword_score
-                result["vector_score"] = vector_score
-
-            # ハイブリッドスコアで並び替え
-            results.sort(key=lambda x: x.get("hybrid_score", 0), reverse=True)
-
-            # 上位結果を取得
-            top_results = results[:top_k]
-
-            # しきい値でフィルタ（ハイブリッドスコアで判定）
-            filtered_results = [
-                r for r in top_results
-                if r.get("hybrid_score", 0) >= threshold
-            ]
-
-            if not filtered_results:
-                print(f"📚 Phase 3: しきい値 {threshold} を超える結果なし")
-                return None
-
-            # 最高スコア
-            top_score = filtered_results[0].get("hybrid_score", 0) if filtered_results else 0
-
-            print(f"✅ Phase 3 ハイブリッド検索: {len(filtered_results)}件 (top_hybrid: {top_score:.3f})")
-
-            # デバッグ: 上位3件のスコア内訳
-            for i, r in enumerate(filtered_results[:3]):
-                doc_title = r.get("document", {}).get("title", "不明")[:20]
-                print(f"  [{i+1}] {doc_title}... hybrid={r.get('hybrid_score', 0):.3f} "
-                      f"(kw={r.get('keyword_score', 0):.2f}, vec={r.get('vector_score', 0):.3f})")
-
-            return {
-                "results": filtered_results,
-                "top_score": top_score,
-                "source": "phase3",
-                "search_log_id": data.get("search_log_id")
-            }
-
-    except httpx.TimeoutException:
-        print(f"⏱️ Phase 3 API タイムアウト ({PHASE3_KNOWLEDGE_CONFIG['timeout']}秒)")
-        return None
-
-    except httpx.RequestError as e:
-        print(f"❌ Phase 3 API リクエストエラー: {e}")
-        return None
-
-    except Exception as e:
-        print(f"❌ Phase 3 API 予期しないエラー: {e}")
-        traceback.print_exc()
-        return None
-
-
-def format_phase3_results(results: list) -> str:
-    """
-    Phase 3検索結果をLLMに渡す形式に整形
-
-    Args:
-        results: Phase 3検索結果のリスト
-
-    Returns:
-        整形されたテキスト
-    """
-    if not results:
-        return ""
-
-    formatted_parts = []
-
-    for i, result in enumerate(results, 1):
-        content = result.get("content", "")
-        score = result.get("score", 0)
-
-        # ドキュメント情報を取得
-        doc = result.get("document", {})
-        doc_title = doc.get("title", "不明な文書")
-        doc_file_name = doc.get("file_name", "")
-        page_number = result.get("page_number")
-
-        # 整形
-        part = f"【参考情報 {i}】（類似度: {score:.2f}）\n"
-        part += f"出典: {doc_title}"
-        if doc_file_name:
-            part += f" ({doc_file_name})"
-        if page_number:
-            part += f" - p.{page_number}"
-        part += f"\n---\n{content}\n---"
-
-        formatted_parts.append(part)
-
-    return "\n\n".join(formatted_parts)
-
-
-def integrated_knowledge_search(query: str, user_id: str = "user_default"):
-    """
-    統合ナレッジ検索（旧システム + Phase 3）
-
-    フォールバック戦略:
-    1. 旧システム（soulkun_knowledge）で検索
-    2. 高信頼度（80%以上）の結果があれば使用
-    3. なければPhase 3（Pinecone）で検索
-    4. 類似度70%以上の結果があれば使用
-    5. なければ旧システムの低信頼度結果を使用
-    6. それでもなければ「学習していない」と返答
-
-    Args:
-        query: 検索クエリ
-        user_id: ユーザーID
-
-    Returns:
-        {
-            "source": "legacy" | "phase3" | "none",
-            "formatted_context": "...",
-            "confidence": 0.0 - 1.0,
-            "results": [...]
-        }
-    """
-    print(f"🔍 統合ナレッジ検索開始: '{query}'")
-
-    # ステップ1: 旧システムで検索
-    legacy_result = search_legacy_knowledge(query)
-
-    if legacy_result and legacy_result["confidence"] >= 0.8:
-        print(f"📖 旧システム高信頼度結果を使用 (confidence: {legacy_result['confidence']:.2f})")
-        return legacy_result
-
-    # ステップ2: Phase 3で検索
-    phase3_result = search_phase3_knowledge(query, user_id, top_k=5)
-
-    if phase3_result and phase3_result["top_score"] >= PHASE3_KNOWLEDGE_CONFIG["similarity_threshold"]:
-        formatted = format_phase3_results(phase3_result["results"])
-        print(f"🚀 Phase 3結果を使用 (top_score: {phase3_result['top_score']:.3f})")
-        return {
-            "source": "phase3",
-            "formatted_context": formatted,
-            "confidence": phase3_result["top_score"],
-            "results": phase3_result["results"],
-            "search_log_id": phase3_result.get("search_log_id")
-        }
-
-    # ステップ3: 旧システムの低信頼度結果を使用
-    if legacy_result:
-        print(f"📖 旧システム低信頼度結果をフォールバック使用 (confidence: {legacy_result['confidence']:.2f})")
-        return legacy_result
-
-    # ステップ4: 結果なし
-    print("❌ 統合ナレッジ検索: 関連情報なし")
-    return {
-        "source": "none",
-        "formatted_context": "",
-        "confidence": 0.0,
-        "results": []
-    }
-
-
-def search_legacy_knowledge(query: str):
-    """
-    旧システム（soulkun_knowledge）でナレッジ検索
-
-    Args:
-        query: 検索クエリ
-
-    Returns:
-        {
-            "source": "legacy",
-            "formatted_context": "...",
-            "confidence": 0.0 - 1.0,
-            "results": [...]
-        }
-    """
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            # LIKE検索でキーまたは値にマッチするものを取得
-            sql = """
-                SELECT category, key, value
-                FROM soulkun_knowledge
-                WHERE key ILIKE :pattern OR value ILIKE :pattern
-                ORDER BY
-                    CASE
-                        WHEN key ILIKE :exact THEN 1
-                        WHEN key ILIKE :pattern THEN 2
-                        ELSE 3
-                    END
-                LIMIT 5
-            """
-
-            pattern = f"%{query}%"
-            exact = query
-
-            result = conn.execute(
-                sqlalchemy.text(sql),
-                {"pattern": pattern, "exact": exact}
-            )
-            rows = result.fetchall()
-
-            if not rows:
-                return None
-
-            # 信頼度の計算
-            first_row = rows[0]
-            key_lower = first_row[1].lower()
-            query_lower = query.lower()
-
-            if query_lower == key_lower:
-                confidence = 1.0  # 完全一致
-            elif query_lower in key_lower:
-                confidence = 0.9  # 部分一致（キーに含まれる）
-            elif key_lower in query_lower:
-                confidence = 0.8  # 部分一致（クエリに含まれる）
-            else:
-                confidence = 0.6  # それ以外
-
-            # 整形
-            formatted_parts = []
-            results = []
-
-            for i, row in enumerate(rows, 1):
-                category, key, value = row[0], row[1], row[2]
-                formatted_parts.append(
-                    f"【参考情報 {i}】\n"
-                    f"項目: {key}\n"
-                    f"内容: {value}\n"
-                )
-                results.append({
-                    "category": category,
-                    "key": key,
-                    "value": value
-                })
-
-            return {
-                "source": "legacy",
-                "formatted_context": "\n".join(formatted_parts),
-                "confidence": confidence,
-                "results": results
-            }
-
-    except Exception as e:
-        print(f"❌ 旧ナレッジ検索エラー: {e}")
-        traceback.print_exc()
-        return None
-
 
 def get_all_knowledge(limit: int = None):
     """全ての知識を取得"""
@@ -7268,11 +6820,12 @@ def get_knowledge_for_prompt():
 
 # =====================================================
 # ProposalHandler初期化（v10.24.2）
+# v10.33.0: フラグチェック削除（ハンドラー必須化）
 # =====================================================
 def _get_proposal_handler():
     """ProposalHandlerのシングルトンインスタンスを取得"""
     global _proposal_handler
-    if _proposal_handler is None and USE_NEW_PROPOSAL_HANDLER:
+    if _proposal_handler is None:
         _proposal_handler = _NewProposalHandler(
             get_pool=get_pool,
             get_secret=get_secret,

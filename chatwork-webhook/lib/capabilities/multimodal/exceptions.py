@@ -518,3 +518,150 @@ def wrap_sync_multimodal_error(func):
                 details={"original_error": str(e), "error_type": type(e).__name__},
             )
     return wrapper
+
+
+# =============================================================================
+# Phase M2: 音声処理エラー
+# =============================================================================
+
+
+class AudioProcessingError(MultimodalBaseException):
+    """音声処理エラーの基底クラス"""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "AUDIO_PROCESSING_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            input_type=InputType.AUDIO,
+            details=details,
+        )
+
+
+class AudioDecodeError(AudioProcessingError):
+    """音声デコードエラー"""
+
+    def __init__(self, message: str = "音声ファイルを読み込めなかったウル"):
+        super().__init__(
+            message=message,
+            error_code="AUDIO_DECODE_ERROR",
+        )
+
+
+class AudioTooLongError(AudioProcessingError):
+    """音声時間超過エラー"""
+
+    def __init__(
+        self,
+        actual_duration_seconds: float,
+        max_duration_seconds: int,
+    ):
+        actual_min = actual_duration_seconds / 60
+        max_min = max_duration_seconds // 60
+        message = f"音声が長すぎるウル（{actual_min:.1f}分 / 最大{max_min}分）"
+        super().__init__(
+            message=message,
+            error_code="AUDIO_TOO_LONG",
+            details={
+                "actual_duration_seconds": actual_duration_seconds,
+                "max_duration_seconds": max_duration_seconds,
+            },
+        )
+        self.actual_duration_seconds = actual_duration_seconds
+        self.max_duration_seconds = max_duration_seconds
+
+
+class AudioTranscriptionError(AudioProcessingError):
+    """文字起こしエラー"""
+
+    def __init__(
+        self,
+        message: Optional[str] = None,
+        reason: Optional[str] = None,
+    ):
+        if message is None:
+            if reason:
+                message = f"音声の文字起こしに失敗したウル（{reason}）"
+            else:
+                message = "音声の文字起こしに失敗したウル"
+        super().__init__(
+            message=message,
+            error_code="AUDIO_TRANSCRIPTION_ERROR",
+            details={"reason": reason} if reason else None,
+        )
+
+
+class NoSpeechDetectedError(AudioProcessingError):
+    """音声検出エラー"""
+
+    def __init__(self):
+        super().__init__(
+            message="音声が検出されなかったウル（無音または音声なし）",
+            error_code="NO_SPEECH_DETECTED",
+        )
+
+
+class SpeakerDetectionError(AudioProcessingError):
+    """話者検出エラー"""
+
+    def __init__(self, message: str = "話者の識別に失敗したウル"):
+        super().__init__(
+            message=message,
+            error_code="SPEAKER_DETECTION_ERROR",
+        )
+
+
+# =============================================================================
+# Phase M2: Whisper API エラー
+# =============================================================================
+
+
+class WhisperAPIError(MultimodalBaseException):
+    """Whisper APIエラー"""
+
+    def __init__(
+        self,
+        message: str,
+        model: Optional[str] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        details = {}
+        if model:
+            details["model"] = model
+        if original_error:
+            details["original_error"] = str(original_error)
+        super().__init__(
+            message=message,
+            error_code="WHISPER_API_ERROR",
+            input_type=InputType.AUDIO,
+            details=details,
+        )
+        self.model = model
+        self.original_error = original_error
+
+
+class WhisperAPITimeoutError(WhisperAPIError):
+    """Whisper APIタイムアウトエラー"""
+
+    def __init__(self, model: Optional[str] = None, timeout_seconds: int = 300):
+        super().__init__(
+            message=f"音声の文字起こしがタイムアウトしたウル（{timeout_seconds}秒）",
+            model=model,
+        )
+        self.details["timeout_seconds"] = timeout_seconds
+
+
+class WhisperAPIRateLimitError(WhisperAPIError):
+    """Whisper APIレート制限エラー"""
+
+    def __init__(self, model: Optional[str] = None, retry_after: Optional[int] = None):
+        message = "文字起こしAPIのレート制限に達したウル"
+        if retry_after:
+            message = f"{message}（{retry_after}秒後に再試行してほしいウル）"
+        super().__init__(message=message, model=model)
+        if retry_after:
+            self.details["retry_after"] = retry_after

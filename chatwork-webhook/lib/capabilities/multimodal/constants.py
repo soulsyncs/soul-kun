@@ -322,3 +322,185 @@ SAVE_PROCESSING_LOGS: bool = True
 
 # 処理ログの保持期間（日）
 PROCESSING_LOG_RETENTION_DAYS: int = 90
+
+
+# =============================================================================
+# Phase M2: 音声入力 - 列挙型
+# =============================================================================
+
+
+class AudioType(str, Enum):
+    """音声タイプ"""
+
+    MEETING = "meeting"           # 会議
+    INTERVIEW = "interview"       # インタビュー
+    LECTURE = "lecture"           # 講義・セミナー
+    PHONE_CALL = "phone_call"     # 電話
+    VOICE_MEMO = "voice_memo"     # ボイスメモ
+    PODCAST = "podcast"           # ポッドキャスト
+    DICTATION = "dictation"       # ディクテーション
+    UNKNOWN = "unknown"           # 不明
+
+
+class TranscriptionStatus(str, Enum):
+    """文字起こしステータス"""
+
+    PENDING = "pending"           # 待機中
+    TRANSCRIBING = "transcribing" # 文字起こし中
+    PROCESSING = "processing"     # 処理中
+    COMPLETED = "completed"       # 完了
+    FAILED = "failed"             # 失敗
+    PARTIAL = "partial"           # 部分完了
+
+
+class SpeakerLabel(str, Enum):
+    """話者ラベル"""
+
+    SPEAKER_1 = "speaker_1"
+    SPEAKER_2 = "speaker_2"
+    SPEAKER_3 = "speaker_3"
+    SPEAKER_4 = "speaker_4"
+    SPEAKER_5 = "speaker_5"
+    SPEAKER_6 = "speaker_6"
+    SPEAKER_7 = "speaker_7"
+    SPEAKER_8 = "speaker_8"
+    SPEAKER_9 = "speaker_9"
+    SPEAKER_10 = "speaker_10"
+    UNKNOWN = "unknown"
+
+    @classmethod
+    def from_index(cls, index: int) -> "SpeakerLabel":
+        """インデックスからラベルを取得"""
+        if 1 <= index <= 8:
+            return cls(f"speaker_{index}")
+        return cls.UNKNOWN
+
+
+# =============================================================================
+# Phase M2: 音声入力 - サポートフォーマット
+# =============================================================================
+
+
+# サポートする音声フォーマット
+SUPPORTED_AUDIO_FORMATS: FrozenSet[str] = frozenset([
+    "mp3",
+    "mp4",
+    "mpeg",
+    "mpga",
+    "m4a",
+    "wav",
+    "webm",
+    "ogg",
+    "flac",
+])
+
+# 音声MIMEタイプ
+AUDIO_MIME_TYPES: Dict[str, str] = {
+    "mp3": "audio/mpeg",
+    "mp4": "audio/mp4",
+    "mpeg": "audio/mpeg",
+    "mpga": "audio/mpeg",
+    "m4a": "audio/mp4",
+    "wav": "audio/wav",
+    "webm": "audio/webm",
+    "ogg": "audio/ogg",
+    "flac": "audio/flac",
+}
+
+
+# =============================================================================
+# Phase M2: 音声入力 - サイズ・時間制限
+# =============================================================================
+
+
+# 音声の最大ファイルサイズ（バイト）
+MAX_AUDIO_SIZE_BYTES: int = 25 * 1024 * 1024  # 25MB
+
+# 音声の最大長さ（秒）
+MAX_AUDIO_DURATION_SECONDS: int = 3600 * 2  # 2時間
+
+# 音声の最大長さ（分）
+MAX_AUDIO_DURATION_MINUTES: int = 120  # 2時間
+
+# 音声チャンクの長さ（秒）
+AUDIO_CHUNK_DURATION_SECONDS: int = 600  # 10分
+
+
+# =============================================================================
+# Phase M2: 音声入力 - タイムアウト
+# =============================================================================
+
+
+# Whisper API呼び出しのタイムアウト（秒）
+WHISPER_API_TIMEOUT_SECONDS: int = 300  # 5分
+
+# 音声処理全体のタイムアウト（秒）
+AUDIO_PROCESSING_TIMEOUT_SECONDS: int = 600  # 10分
+
+
+# =============================================================================
+# Phase M2: 音声入力 - Whisper API設定
+# =============================================================================
+
+
+# デフォルトのWhisperモデル
+DEFAULT_WHISPER_MODEL: str = "whisper-1"
+
+# デフォルトの言語（None = 自動検出）
+DEFAULT_WHISPER_LANGUAGE: str = "ja"
+
+# デフォルトのレスポンス形式
+DEFAULT_WHISPER_RESPONSE_FORMAT: str = "verbose_json"
+
+
+# =============================================================================
+# Phase M2: 音声入力 - 処理設定
+# =============================================================================
+
+
+# 最大話者数
+MAX_SPEAKERS: int = 10
+
+# 要約の最大文字数
+MAX_AUDIO_SUMMARY_LENGTH: int = 2000
+
+# 文字起こしの最大文字数
+MAX_TRANSCRIPT_LENGTH: int = 100000
+
+
+# =============================================================================
+# Phase M2: 音声入力 - 音声タイプ検出キーワード
+# =============================================================================
+
+
+AUDIO_TYPE_KEYWORDS: Dict[str, List[str]] = {
+    AudioType.MEETING.value: [
+        "会議", "ミーティング", "定例", "打ち合わせ", "mtg",
+    ],
+    AudioType.INTERVIEW.value: [
+        "インタビュー", "面接", "面談", "取材",
+    ],
+    AudioType.LECTURE.value: [
+        "講義", "セミナー", "研修", "勉強会", "講演",
+    ],
+    AudioType.PHONE_CALL.value: [
+        "電話", "通話", "コール",
+    ],
+    AudioType.VOICE_MEMO.value: [
+        "メモ", "ボイスメモ", "録音",
+    ],
+    AudioType.PODCAST.value: [
+        "ポッドキャスト", "podcast", "ラジオ",
+    ],
+    AudioType.DICTATION.value: [
+        "ディクテーション", "口述", "文字起こし",
+    ],
+}
+
+
+# =============================================================================
+# Phase M2: 音声入力 - Feature Flag
+# =============================================================================
+
+
+FEATURE_FLAG_AUDIO: str = "USE_MULTIMODAL_AUDIO"

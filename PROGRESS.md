@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 16:30 JST**
+**最終更新: 2026-01-27 15:45 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -177,6 +177,24 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **15:45 JST**: Phase 2D/2E 本番デプロイ + pg8000互換性修正 ✅ **PR #242 マージ完了**
+  - **実施者**: Claude Code
+  - **概要**: Phase 2D（CEO Learning）とPhase 2E（Learning Foundation）を本番デプロイ、pg8000 SQL構文互換性問題を修正
+  - **本番デプロイ**:
+    - chatwork-webhook revision **00214-dah**
+    - brain_conversation_states DBテーブル作成
+    - Phase 2D/2E機能が本番稼働開始
+  - **pg8000互換性修正**（6ファイル）:
+    | ファイル | 修正内容 |
+    |---------|---------|
+    | lib/memory/conversation_search.py | `:entities::jsonb` → `CAST(:entities AS jsonb)` |
+    | lib/memory/user_preference.py | `:pref_value::jsonb` → `CAST(:pref_value AS jsonb)` |
+    | lib/brain/memory_access.py | `:org_id::uuid` → `CAST(:org_id AS uuid)` (5箇所) |
+    | chatwork-webhook/lib/* | 上記ファイルの同期 |
+  - **DBマイグレーション**: brain_conversation_statesテーブル作成（13カラム、3インデックス、トリガー）
+  - **Quality Checks**: 4/4 パス
+  - **10の鉄則準拠**: SQL構文修正のみ、organization_idフィルタ維持
 
 - **16:30 JST**: Phase 2D + Phase 2E 完了確認 ✅ **脳みそ完全化計画 2/11 完了**
   - **概要**: Phase 2D（CEO Learning）とPhase 2E（Learning Foundation）の完了を確認

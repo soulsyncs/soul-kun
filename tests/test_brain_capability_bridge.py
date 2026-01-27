@@ -348,3 +348,178 @@ class TestDownloadHelper:
         result = await bridge._download_attachments(attachments, mock_download_error)
         # エラーでもクラッシュせず、空リストが返る
         assert result == []
+
+
+# ============================================================
+# v10.39.0: 新規追加機能のテスト（G3/G4）
+# ============================================================
+
+class TestDeepResearchCapability:
+    """ディープリサーチ機能のテスト"""
+
+    def test_deep_research_defined(self):
+        """ディープリサーチが定義されている"""
+        assert "deep_research" in GENERATION_CAPABILITIES
+        cap = GENERATION_CAPABILITIES["deep_research"]
+        assert cap["name"] == "deep_research"
+        assert "調査" in cap["keywords"]
+        assert "query" in cap["parameters"]
+        assert "depth" in cap["parameters"]
+
+    def test_deep_research_flag_exists(self):
+        """ディープリサーチフラグが存在する"""
+        assert "ENABLE_DEEP_RESEARCH" in DEFAULT_FEATURE_FLAGS
+        assert DEFAULT_FEATURE_FLAGS["ENABLE_DEEP_RESEARCH"] is True
+
+    @pytest.mark.asyncio
+    async def test_missing_query(self, mock_pool):
+        """クエリがない場合はエラー"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_DEEP_RESEARCH": True},
+        )
+        result = await bridge._handle_deep_research(
+            room_id="123",
+            account_id="456",
+            sender_name="テスト",
+            params={},
+        )
+        assert result.success is False
+        assert "教えてほしい" in result.message
+
+
+class TestGoogleSheetsCapability:
+    """Google Sheets機能のテスト"""
+
+    def test_read_spreadsheet_defined(self):
+        """スプレッドシート読み込みが定義されている"""
+        assert "read_spreadsheet" in GENERATION_CAPABILITIES
+        cap = GENERATION_CAPABILITIES["read_spreadsheet"]
+        assert "spreadsheet_id" in cap["parameters"]
+
+    def test_write_spreadsheet_defined(self):
+        """スプレッドシート書き込みが定義されている"""
+        assert "write_spreadsheet" in GENERATION_CAPABILITIES
+        cap = GENERATION_CAPABILITIES["write_spreadsheet"]
+        assert "data" in cap["parameters"]
+        assert cap["requires_confirmation"] is True
+
+    def test_create_spreadsheet_defined(self):
+        """スプレッドシート作成が定義されている"""
+        assert "create_spreadsheet" in GENERATION_CAPABILITIES
+
+    def test_google_sheets_flag_exists(self):
+        """Google Sheetsフラグが存在する"""
+        assert "ENABLE_GOOGLE_SHEETS" in DEFAULT_FEATURE_FLAGS
+        assert DEFAULT_FEATURE_FLAGS["ENABLE_GOOGLE_SHEETS"] is True
+
+    @pytest.mark.asyncio
+    async def test_missing_spreadsheet_id(self, mock_pool):
+        """スプレッドシートIDがない場合はエラー"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_GOOGLE_SHEETS": True},
+        )
+        result = await bridge._handle_read_spreadsheet(
+            room_id="123",
+            account_id="456",
+            sender_name="テスト",
+            params={},
+        )
+        assert result.success is False
+        assert "ID" in result.message
+
+
+class TestGoogleSlidesCapability:
+    """Google Slides機能のテスト"""
+
+    def test_read_presentation_defined(self):
+        """プレゼンテーション読み込みが定義されている"""
+        assert "read_presentation" in GENERATION_CAPABILITIES
+        cap = GENERATION_CAPABILITIES["read_presentation"]
+        assert "presentation_id" in cap["parameters"]
+
+    def test_create_presentation_defined(self):
+        """プレゼンテーション作成が定義されている"""
+        assert "create_presentation" in GENERATION_CAPABILITIES
+        cap = GENERATION_CAPABILITIES["create_presentation"]
+        assert "title" in cap["parameters"]
+
+    def test_google_slides_flag_exists(self):
+        """Google Slidesフラグが存在する"""
+        assert "ENABLE_GOOGLE_SLIDES" in DEFAULT_FEATURE_FLAGS
+        assert DEFAULT_FEATURE_FLAGS["ENABLE_GOOGLE_SLIDES"] is True
+
+    @pytest.mark.asyncio
+    async def test_missing_presentation_id(self, mock_pool):
+        """プレゼンテーションIDがない場合はエラー"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_GOOGLE_SLIDES": True},
+        )
+        result = await bridge._handle_read_presentation(
+            room_id="123",
+            account_id="456",
+            sender_name="テスト",
+            params={},
+        )
+        assert result.success is False
+        assert "ID" in result.message
+
+
+class TestNewHandlersRegistration:
+    """新ハンドラーの登録テスト"""
+
+    def test_research_handlers_registered(self, mock_pool):
+        """リサーチハンドラーが登録される"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_DEEP_RESEARCH": True},
+        )
+        handlers = bridge.get_capability_handlers()
+        assert "deep_research" in handlers
+        assert "research" in handlers
+        assert "investigate" in handlers
+
+    def test_sheets_handlers_registered(self, mock_pool):
+        """Sheetsハンドラーが登録される"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_GOOGLE_SHEETS": True},
+        )
+        handlers = bridge.get_capability_handlers()
+        assert "read_spreadsheet" in handlers
+        assert "write_spreadsheet" in handlers
+        assert "create_spreadsheet" in handlers
+
+    def test_slides_handlers_registered(self, mock_pool):
+        """Slidesハンドラーが登録される"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_GOOGLE_SLIDES": True},
+        )
+        handlers = bridge.get_capability_handlers()
+        assert "read_presentation" in handlers
+        assert "create_presentation" in handlers
+
+    def test_handlers_not_registered_when_disabled(self, mock_pool):
+        """無効化時はハンドラーが登録されない"""
+        bridge = create_capability_bridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={
+                "ENABLE_DEEP_RESEARCH": False,
+                "ENABLE_GOOGLE_SHEETS": False,
+                "ENABLE_GOOGLE_SLIDES": False,
+            },
+        )
+        handlers = bridge.get_capability_handlers()
+        assert "deep_research" not in handlers
+        assert "read_spreadsheet" not in handlers
+        assert "read_presentation" not in handlers

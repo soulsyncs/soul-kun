@@ -8,10 +8,10 @@
 設計書: docs/20_next_generation_capabilities.md
 
 能力一覧:
-- multimodal: 入力能力（Phase M）- 画像/PDF/URL読み込み
-- generation: 出力能力（Phase G）- 文書/画像/動画生成（予定）
+- multimodal: 入力能力（Phase M）- 画像/PDF/URL/音声読み込み ✅
+- generation: 出力能力（Phase G1）- 文書生成 ✅
+- feedback: 分析能力（Phase F）- ファクト分析・レポート ✅
 - autonomous: 行動能力（Phase AA）- 自律エージェント（予定）
-- feedback: 分析能力（Phase F）- ファクト分析・レポート（予定）
 
 Author: Claude Opus 4.5
 Created: 2026-01-27

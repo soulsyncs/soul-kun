@@ -63,31 +63,46 @@ from .constants import (
     URLType,
     ContentConfidenceLevel,
 
+    # Phase M2: 音声列挙型
+    AudioType,
+    TranscriptionStatus,
+    SpeakerLabel,
+
     # サポートフォーマット
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_PDF_FORMATS,
     SUPPORTED_URL_PROTOCOLS,
+    SUPPORTED_AUDIO_FORMATS,
+    AUDIO_MIME_TYPES,
 
     # サイズ制限
     MAX_IMAGE_SIZE_BYTES,
     MAX_PDF_SIZE_BYTES,
     MAX_PDF_PAGES,
     MAX_URL_CONTENT_SIZE_BYTES,
+    MAX_AUDIO_SIZE_BYTES,
+    MAX_AUDIO_DURATION_SECONDS,
 
     # タイムアウト
     VISION_API_TIMEOUT_SECONDS,
     PDF_PROCESSING_TIMEOUT_SECONDS,
     URL_FETCH_TIMEOUT_SECONDS,
+    WHISPER_API_TIMEOUT_SECONDS,
 
     # Vision APIモデル
     VISION_MODELS,
     DEFAULT_VISION_MODEL,
+
+    # Whisper API設定
+    DEFAULT_WHISPER_MODEL,
+    DEFAULT_WHISPER_LANGUAGE,
 
     # Feature Flag
     FEATURE_FLAG_NAME,
     FEATURE_FLAG_IMAGE,
     FEATURE_FLAG_PDF,
     FEATURE_FLAG_URL,
+    FEATURE_FLAG_AUDIO,
 )
 
 
@@ -133,6 +148,17 @@ from .exceptions import (
     ContentExtractionError,
     ProcessingTimeoutError,
 
+    # Phase M2: 音声エラー
+    AudioProcessingError,
+    AudioDecodeError,
+    AudioTooLongError,
+    AudioTranscriptionError,
+    NoSpeechDetectedError,
+    SpeakerDetectionError,
+    WhisperAPIError,
+    WhisperAPITimeoutError,
+    WhisperAPIRateLimitError,
+
     # デコレータ
     wrap_multimodal_error,
     wrap_sync_multimodal_error,
@@ -160,6 +186,12 @@ from .models import (
     # URLモデル
     URLMetadata,
     URLAnalysisResult,
+
+    # Phase M2: 音声モデル
+    Speaker,
+    TranscriptSegment,
+    AudioMetadata,
+    AudioAnalysisResult,
 
     # 統合モデル
     MultimodalInput,
@@ -198,6 +230,12 @@ from .coordinator import (
     AttachmentInfo,
     ProcessedAttachment,
     EnrichedMessage,
+)
+
+from .audio_processor import (
+    AudioProcessor,
+    WhisperAPIClient,
+    create_audio_processor,
 )
 
 from .brain_integration import (
@@ -252,6 +290,19 @@ __all__ = [
     "FEATURE_FLAG_IMAGE",
     "FEATURE_FLAG_PDF",
     "FEATURE_FLAG_URL",
+    "FEATURE_FLAG_AUDIO",
+
+    # 定数 - 音声
+    "AudioType",
+    "TranscriptionStatus",
+    "SpeakerLabel",
+    "SUPPORTED_AUDIO_FORMATS",
+    "AUDIO_MIME_TYPES",
+    "MAX_AUDIO_SIZE_BYTES",
+    "MAX_AUDIO_DURATION_SECONDS",
+    "WHISPER_API_TIMEOUT_SECONDS",
+    "DEFAULT_WHISPER_MODEL",
+    "DEFAULT_WHISPER_LANGUAGE",
 
     # 例外 - 基底
     "MultimodalBaseException",
@@ -290,6 +341,17 @@ __all__ = [
     "ContentExtractionError",
     "ProcessingTimeoutError",
 
+    # 例外 - 音声
+    "AudioProcessingError",
+    "AudioDecodeError",
+    "AudioTooLongError",
+    "AudioTranscriptionError",
+    "NoSpeechDetectedError",
+    "SpeakerDetectionError",
+    "WhisperAPIError",
+    "WhisperAPITimeoutError",
+    "WhisperAPIRateLimitError",
+
     # 例外 - デコレータ
     "wrap_multimodal_error",
     "wrap_sync_multimodal_error",
@@ -311,6 +373,12 @@ __all__ = [
     "URLMetadata",
     "URLAnalysisResult",
 
+    # モデル - 音声
+    "Speaker",
+    "TranscriptSegment",
+    "AudioMetadata",
+    "AudioAnalysisResult",
+
     # モデル - 統合
     "MultimodalInput",
     "MultimodalOutput",
@@ -330,6 +398,11 @@ __all__ = [
     # プロセッサー - URL
     "URLProcessor",
     "create_url_processor",
+
+    # プロセッサー - 音声
+    "AudioProcessor",
+    "WhisperAPIClient",
+    "create_audio_processor",
 
     # コーディネーター
     "MultimodalCoordinator",

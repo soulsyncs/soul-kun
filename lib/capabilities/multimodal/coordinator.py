@@ -61,9 +61,13 @@ from .constants import (
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_PDF_FORMATS,
     SUPPORTED_URL_PROTOCOLS,
+    SUPPORTED_AUDIO_FORMATS,
     MAX_IMAGE_SIZE_BYTES,
     MAX_PDF_SIZE_BYTES,
     MAX_URL_CONTENT_SIZE_BYTES,
+    MAX_AUDIO_SIZE_BYTES,
+    MAX_AUDIO_DURATION_SECONDS,
+    MAX_AUDIO_DURATION_MINUTES,
     FEATURE_FLAG_NAME,
     FEATURE_FLAG_IMAGE,
     FEATURE_FLAG_PDF,
@@ -928,6 +932,21 @@ class MultimodalCoordinator:
             "image": MAX_IMAGE_SIZE_BYTES,
             "pdf": MAX_PDF_SIZE_BYTES,
             "url": MAX_URL_CONTENT_SIZE_BYTES,
+            "audio": MAX_AUDIO_SIZE_BYTES,
+        }
+
+    def get_audio_limits(self) -> Dict[str, Any]:
+        """
+        音声制限情報を取得
+
+        Returns:
+            音声のサイズ・時間制限とサポートフォーマット
+        """
+        return {
+            "max_size_bytes": MAX_AUDIO_SIZE_BYTES,
+            "max_duration_minutes": MAX_AUDIO_DURATION_MINUTES,
+            "max_duration_seconds": MAX_AUDIO_DURATION_SECONDS,
+            "supported_formats": list(SUPPORTED_AUDIO_FORMATS),
         }
 
 

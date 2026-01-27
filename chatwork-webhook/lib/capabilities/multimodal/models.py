@@ -20,6 +20,9 @@ from .constants import (
     ImageType,
     PDFType,
     URLType,
+    AudioType,
+    TranscriptionStatus,
+    SpeakerLabel,
     ContentConfidenceLevel,
 )
 
@@ -464,6 +467,262 @@ class URLAnalysisResult:
 
 
 # =============================================================================
+# Phase M2: 音声処理モデル
+# =============================================================================
+
+
+@dataclass
+class Speaker:
+    """
+    話者情報
+
+    音声中で検出された話者。
+    """
+
+    speaker_id: str                         # 話者ID（例: "speaker_1"）
+    label: SpeakerLabel = SpeakerLabel.UNKNOWN  # 話者ラベル
+    name: Optional[str] = None              # 話者名（判明している場合）
+    speaking_time_seconds: float = 0.0      # 発話時間（秒）
+    segment_count: int = 0                  # 発話セグメント数
+    confidence: float = 0.0                 # 検出確信度
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式で返す"""
+        return {
+            "speaker_id": self.speaker_id,
+            "label": self.label.value,
+            "name": self.name,
+            "speaking_time_seconds": self.speaking_time_seconds,
+            "segment_count": self.segment_count,
+            "confidence": self.confidence,
+        }
+
+
+@dataclass
+class TranscriptSegment:
+    """
+    文字起こしセグメント
+
+    音声の一区間の文字起こし結果。
+    """
+
+    segment_id: int                         # セグメントID
+    text: str = ""                          # 文字起こしテキスト
+    start_time: float = 0.0                 # 開始時間（秒）
+    end_time: float = 0.0                   # 終了時間（秒）
+    speaker: Optional[Speaker] = None       # 話者
+    confidence: float = 0.0                 # 文字起こし確信度
+    language: Optional[str] = None          # 言語コード
+
+    @property
+    def duration(self) -> float:
+        """セグメントの長さ（秒）"""
+        return self.end_time - self.start_time
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式で返す"""
+        result = {
+            "segment_id": self.segment_id,
+            "text": self.text,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration": self.duration,
+            "confidence": self.confidence,
+            "language": self.language,
+        }
+        if self.speaker:
+            result["speaker"] = self.speaker.to_dict()
+        return result
+
+    def format_timestamp(self) -> str:
+        """タイムスタンプを [mm:ss - mm:ss] 形式で出力"""
+        return f"[{self._format_time(self.start_time)} - {self._format_time(self.end_time)}]"
+
+    def to_transcript_line(self) -> str:
+        """文字起こし行として出力"""
+        time_str = self.format_timestamp()
+        speaker_str = f"{self.speaker.name or self.speaker.label.value}: " if self.speaker else ""
+        return f"{time_str} {speaker_str}{self.text}"
+
+    @staticmethod
+    def _format_time(seconds: float) -> str:
+        """秒を mm:ss 形式に変換"""
+        mins = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{mins:02d}:{secs:02d}"
+
+
+@dataclass
+class AudioMetadata:
+    """
+    音声メタデータ
+
+    音声ファイルの基本情報。
+    """
+
+    duration_seconds: float = 0.0           # 音声の長さ（秒）
+    sample_rate: Optional[int] = None       # サンプルレート
+    channels: int = 1                       # チャンネル数
+    bitrate: Optional[int] = None           # ビットレート
+    format: str = ""                        # フォーマット（mp3, wav等）
+    file_size_bytes: int = 0                # ファイルサイズ
+
+    @property
+    def duration_minutes(self) -> float:
+        """音声の長さ（分）"""
+        return self.duration_seconds / 60
+
+    @property
+    def duration_formatted(self) -> str:
+        """音声の長さをフォーマット済み文字列で返す"""
+        total_seconds = int(self.duration_seconds)
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        seconds = total_seconds % 60
+
+        if hours > 0:
+            return f"{hours}時間{minutes}分{seconds}秒"
+        elif minutes > 0:
+            return f"{minutes}分{seconds}秒"
+        else:
+            return f"{seconds}秒"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式で返す"""
+        return {
+            "duration_seconds": self.duration_seconds,
+            "duration_minutes": self.duration_minutes,
+            "sample_rate": self.sample_rate,
+            "channels": self.channels,
+            "bitrate": self.bitrate,
+            "format": self.format,
+            "file_size_bytes": self.file_size_bytes,
+        }
+
+
+@dataclass
+class AudioAnalysisResult:
+    """
+    音声解析結果
+
+    音声の文字起こし・分析結果。
+    """
+
+    # 成功/失敗
+    success: bool = True
+
+    # 基本情報
+    audio_type: AudioType = AudioType.UNKNOWN
+    audio_metadata: AudioMetadata = field(default_factory=AudioMetadata)
+
+    # 文字起こし結果
+    full_transcript: str = ""               # 全体の文字起こしテキスト
+    segments: List[TranscriptSegment] = field(default_factory=list)
+    transcription_status: TranscriptionStatus = TranscriptionStatus.COMPLETED
+
+    # 話者情報
+    speakers: List[Speaker] = field(default_factory=list)
+    speaker_count: int = 0
+    speakers_detected: bool = False
+
+    # 言語情報
+    detected_language: Optional[str] = None
+    language_confidence: float = 0.0
+
+    # 要約・分析
+    summary: str = ""
+    key_points: List[str] = field(default_factory=list)
+    action_items: List[str] = field(default_factory=list)
+    topics: List[str] = field(default_factory=list)
+
+    # 抽出エンティティ
+    entities: List[ExtractedEntity] = field(default_factory=list)
+
+    # 確信度
+    overall_confidence: float = 0.0
+    confidence_level: ContentConfidenceLevel = ContentConfidenceLevel.MEDIUM
+
+    # 処理メタデータ
+    metadata: ProcessingMetadata = field(default_factory=ProcessingMetadata)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式で返す"""
+        return {
+            "success": self.success,
+            "audio_type": self.audio_type.value,
+            "duration_seconds": self.audio_metadata.duration_seconds,
+            "transcription_status": self.transcription_status.value,
+            "transcript_length": len(self.full_transcript),
+            "segment_count": len(self.segments),
+            "speaker_count": self.speaker_count,
+            "speakers_detected": self.speakers_detected,
+            "detected_language": self.detected_language,
+            "summary": self.summary,
+            "key_points": self.key_points,
+            "action_items": self.action_items,
+            "topics": self.topics,
+            "entities": [e.to_dict() for e in self.entities],
+            "overall_confidence": self.overall_confidence,
+            "confidence_level": self.confidence_level.value,
+            "metadata": self.metadata.to_dict(),
+        }
+
+    # 言語コードから表示名へのマッピング
+    LANGUAGE_NAMES = {
+        "ja": "日本語",
+        "en": "英語",
+        "zh": "中国語",
+        "ko": "韓国語",
+        "es": "スペイン語",
+        "fr": "フランス語",
+        "de": "ドイツ語",
+        "it": "イタリア語",
+        "pt": "ポルトガル語",
+        "ru": "ロシア語",
+    }
+
+    def to_brain_context(self) -> str:
+        """脳のコンテキスト用文字列を生成"""
+        duration_min = int(self.audio_metadata.duration_seconds // 60)
+        parts = [f"【音声解析結果】{duration_min}分"]
+
+        if self.detected_language:
+            lang_name = self.LANGUAGE_NAMES.get(self.detected_language, self.detected_language)
+            parts.append(f"言語: {lang_name}")
+
+        if self.speaker_count > 0:
+            parts.append(f"話者数: {self.speaker_count}名")
+
+        if self.summary:
+            parts.append(f"要約: {self.summary}")
+
+        if self.key_points:
+            parts.append("重要ポイント:")
+            for point in self.key_points[:5]:
+                parts.append(f"  - {point}")
+
+        if self.action_items:
+            parts.append("アクションアイテム:")
+            for item in self.action_items[:5]:
+                parts.append(f"  - {item}")
+
+        if self.topics:
+            parts.append(f"トピック: {', '.join(self.topics[:5])}")
+
+        return "\n".join(parts)
+
+    def get_transcript_with_speakers(self) -> str:
+        """話者付きの文字起こしテキストを取得"""
+        if not self.segments:
+            return self.full_transcript
+
+        lines = []
+        for segment in self.segments:
+            lines.append(segment.to_transcript_line())
+        return "\n".join(lines)
+
+
+# =============================================================================
 # 統合リクエスト/レスポンス
 # =============================================================================
 
@@ -488,12 +747,18 @@ class MultimodalInput:
     image_data: Optional[bytes] = None        # 画像のバイナリ
     pdf_data: Optional[bytes] = None          # PDFのバイナリ
     url: Optional[str] = None                 # URL文字列
+    audio_data: Optional[bytes] = None        # 音声のバイナリ（Phase M2）
     file_path: Optional[str] = None           # ファイルパス（ローカル）
 
     # 追加オプション
     instruction: Optional[str] = None         # 追加の指示
     save_to_knowledge: bool = False           # ナレッジDBに保存するか
     deep_analysis: bool = False               # 詳細分析を行うか
+
+    # Phase M2: 音声処理オプション
+    language: Optional[str] = None            # 言語コード（音声用）
+    detect_speakers: bool = True              # 話者検出を行うか
+    generate_summary: bool = True             # 要約を生成するか
 
     # コンテキスト
     brain_context: Optional[Any] = None       # BrainContext（型循環を避けるためAny）
@@ -509,6 +774,8 @@ class MultimodalInput:
             return self.pdf_data is not None or self.file_path is not None
         elif self.input_type == InputType.URL:
             return self.url is not None
+        elif self.input_type == InputType.AUDIO:
+            return self.audio_data is not None or self.file_path is not None
 
         return False
 
@@ -531,6 +798,7 @@ class MultimodalOutput:
     image_result: Optional[ImageAnalysisResult] = None
     pdf_result: Optional[PDFAnalysisResult] = None
     url_result: Optional[URLAnalysisResult] = None
+    audio_result: Optional[AudioAnalysisResult] = None  # Phase M2
 
     # 共通項目
     summary: str = ""
@@ -552,6 +820,8 @@ class MultimodalOutput:
             return self.pdf_result
         elif self.input_type == InputType.URL:
             return self.url_result
+        elif self.input_type == InputType.AUDIO:
+            return self.audio_result
         return None
 
     def to_brain_context(self) -> str:

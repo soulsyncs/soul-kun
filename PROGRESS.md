@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 11:30 JST**
+**最終更新: 2026-01-28 15:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -237,6 +237,31 @@
 >   6. 長期不在（14日以上）
 > - **本番デプロイ後のバグ修正（2026-01-27）**:
 >   - PR #264: DB接続修正（Cloud SQL Connector async対応）
+
+**完了したこと（Phase 2L 実行力強化）:** ✅ 2026-01-28 完了
+> ソウルくんに「実行力」を追加した。複雑なタスクを自動分解・計画・実行できるようになった。
+> - **5ファイル実装完了**（lib/brain/execution_excellence/）
+>   - models.py: データモデル（Enum、SubTask、ExecutionPlan、ProgressReport等）
+>   - decomposer.py: TaskDecomposer（タスク自動分解）
+>   - planner.py: ExecutionPlanner（実行計画立案、依存関係解析）
+>   - executor.py: WorkflowExecutor（ワークフロー実行、品質チェック、例外処理、エスカレーション）
+>   - __init__.py: ExecutionExcellence統合クラス
+> - **機能一覧**:
+>   1. タスク自動分解（複雑なリクエスト→サブタスクに分解）
+>   2. 実行計画立案（依存関係解析、トポロジカルソート）
+>   3. 進捗自動追跡（閾値ごとに通知）
+>   4. 品質チェック（完了率、エラー率、実行時間）
+>   5. 例外処理（リトライ、代替案、エスカレーション）
+>   6. エスカレーション（自動解決不可時の人間確認）
+> - **DBマイグレーション作成**:
+>   - execution_plans: 実行計画テーブル
+>   - execution_subtasks: サブタスクテーブル
+>   - execution_escalations: エスカレーションテーブル
+>   - execution_quality_reports: 品質レポートテーブル
+> - **Feature Flag追加**: ENABLE_EXECUTION_EXCELLENCE（デフォルト: false）
+> - **脳統合完了**: core.pyに統合、複合タスク判定で自動切り替え
+> - **テスト31件全パス**
+> - **chatwork-webhookに同期済み**
 >   - PR #265: スキーマ不一致修正（goal_text→title, assignee_account_id→assigned_to_account_id）
 >   - PR #266: タイムゾーン比較エラー修正（AT TIME ZONE 'Asia/Tokyo'追加）
 > - **動作確認済み**: 53ユーザーをチェック、エラーなく完了
@@ -286,10 +311,33 @@
 >   - 脳アーキテクチャ: enabled=True
 >   - エラー: なし
 
+**実装中（Phase 2L 実行力強化）:** 🔧 2026-01-28 基盤実装完了
+> ソウルくんに「完璧にやり遂げる」能力を追加中。複雑なリクエストを自動分解して実行できるようになる。
+> - **設計書完成**: docs/21_phase2l_execution_excellence.md（456行）
+> - **コード実装完了**: lib/brain/execution_excellence/（5ファイル）
+>   - models.py: データモデル（SubTask, ExecutionPlan, ProgressReport等、11種類）
+>   - decomposer.py: タスク分解器（ルールベース＋LLMベース）
+>   - planner.py: 実行計画立案（依存関係解析、トポロジカルソート、並列グループ特定）
+>   - executor.py: ワークフロー実行（進捗追跡、品質チェック、例外処理、エスカレーション）
+>   - __init__.py: 統合クラス（ExecutionExcellence）
+> - **テスト実装完了**: tests/test_execution_excellence.py（31件全パス）
+> - **主要機能**:
+>   - タスク自動分解（「〇〇して、△△して」→複数サブタスク）
+>   - 依存関係解析＆並列実行
+>   - 進捗追跡＆品質チェック
+>   - 例外処理＆エスカレーション
+> - **Feature Flag**: ENABLE_EXECUTION_EXCELLENCE
+> - **残り作業**:
+>   1. DBマイグレーション作成（execution_plans, execution_subtasks, execution_escalations）
+>   2. lib/brain/__init__.pyへのエクスポート追加
+>   3. lib/brain/core.pyへの統合
+>   4. chatwork-webhookへの同期
+>   5. 本番デプロイ
+
 **次にやること:**
-> 1. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
-> 2. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
-> 3. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
+> 1. **Phase 2L完了作業** - 「Phase 2Lの続きやって」で再開
+> 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 3. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
 
 ---
 

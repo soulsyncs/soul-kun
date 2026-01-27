@@ -162,6 +162,40 @@ from lib.brain.guardian import (
     SDT_CRITERIA,
 )
 
+# Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
+from lib.brain.chain_of_thought import (
+    ChainOfThought,
+    create_chain_of_thought,
+    # Enum
+    InputType,
+    StructureElement,
+    # データモデル
+    ThoughtStep,
+    PossibleIntent,
+    StructureAnalysis,
+    ThoughtChain,
+    # 定数
+    INPUT_TYPE_PATTERNS,
+    INTENT_KEYWORDS,
+)
+
+from lib.brain.self_critique import (
+    SelfCritique,
+    create_self_critique,
+    # Enum
+    QualityCriterion,
+    IssueType,
+    IssueSeverity,
+    # データモデル
+    QualityScore,
+    DetectedIssue,
+    CritiqueResult,
+    RefinedResponse,
+    # 定数
+    QUALITY_THRESHOLDS,
+    OVERALL_REFINEMENT_THRESHOLD,
+)
+
 # Phase 2E: Learning Foundation
 from lib.brain.learning_foundation import (
     # 統合クラス
@@ -345,6 +379,30 @@ __all__ = [
     "CONFIDENCE_THRESHOLD_AUTO_LEARN",
     "CONFIDENCE_THRESHOLD_CONFIRM",
     "CONFIDENCE_THRESHOLD_MIN",
+    # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
+    # 思考連鎖
+    "ChainOfThought",
+    "create_chain_of_thought",
+    "InputType",
+    "StructureElement",
+    "ThoughtStep",
+    "PossibleIntent",
+    "StructureAnalysis",
+    "ThoughtChain",
+    "INPUT_TYPE_PATTERNS",
+    "INTENT_KEYWORDS",
+    # 自己批判
+    "SelfCritique",
+    "create_self_critique",
+    "QualityCriterion",
+    "IssueType",
+    "IssueSeverity",
+    "QualityScore",
+    "DetectedIssue",
+    "CritiqueResult",
+    "RefinedResponse",
+    "QUALITY_THRESHOLDS",
+    "OVERALL_REFINEMENT_THRESHOLD",
 ]
 
-__version__ = "2.0.0"  # v10.33.0: Phase 2E - Learning Foundation
+__version__ = "2.1.0"  # v10.34.0: Ultimate Brain Phase 1 - Chain-of-Thought & Self-Critique

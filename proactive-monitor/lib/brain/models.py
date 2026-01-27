@@ -268,6 +268,14 @@ class BrainContext:
     # CEO教え関連（Phase 2D）
     ceo_teachings: Optional["CEOTeachingContext"] = None
 
+    # Phase M: マルチモーダルコンテキスト（画像・PDF・音声・URL処理結果）
+    # lib.capabilities.multimodal.brain_integration.MultimodalBrainContext
+    multimodal_context: Optional[Any] = None
+
+    # Phase G: 生成リクエスト（文書・画像・動画生成）
+    # lib.capabilities.generation.models.GenerationRequest
+    generation_request: Optional[Any] = None
+
     # メタデータ
     organization_id: str = ""
     room_id: str = ""
@@ -291,6 +299,41 @@ class BrainContext:
     def get_known_persons(self) -> List[str]:
         """記憶している人物名リストを取得"""
         return [p.name for p in self.person_info]
+
+    def has_multimodal_content(self) -> bool:
+        """
+        マルチモーダルコンテンツ（画像・PDF・音声等）があるか
+
+        Returns:
+            マルチモーダルコンテンツがあればTrue
+        """
+        if self.multimodal_context is None:
+            return False
+        # MultimodalBrainContextのhas_multimodal_contentプロパティを使用
+        return getattr(self.multimodal_context, 'has_multimodal_content', False)
+
+    def has_generation_request(self) -> bool:
+        """
+        生成リクエストがあるか
+
+        Returns:
+            生成リクエストがあればTrue
+        """
+        return self.generation_request is not None
+
+    def get_multimodal_summary(self) -> str:
+        """
+        マルチモーダルコンテンツの要約を取得
+
+        Returns:
+            要約文字列、なければ空文字
+        """
+        if not self.has_multimodal_content():
+            return ""
+        # MultimodalBrainContextのto_prompt_contextメソッドを使用
+        if hasattr(self.multimodal_context, 'to_prompt_context'):
+            return self.multimodal_context.to_prompt_context()
+        return ""
 
     def to_prompt_context(self) -> str:
         """
@@ -347,6 +390,11 @@ class BrainContext:
             ceo_context = self.ceo_teachings.to_prompt_context()
             if ceo_context:
                 parts.append(ceo_context)
+
+        # マルチモーダルコンテキスト（Phase M）
+        multimodal_summary = self.get_multimodal_summary()
+        if multimodal_summary:
+            parts.append(multimodal_summary)
 
         # 記憶している人物
         if self.person_info:

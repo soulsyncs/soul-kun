@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 01:00 JST**
+**最終更新: 2026-01-28 02:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -172,6 +172,27 @@
 > - テスト49件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase G4 Google Sheets/Slides）:** ✅ 2026-01-28 完了
+> ソウルくんがGoogle Sheets/Slidesを読み書きできるようになった。
+> - 2ファイル新規実装（google_sheets_client.py, google_slides_client.py）
+> - __init__.py更新（エクスポート追加）
+> - **Google Sheets機能**:
+>   - 読み込み（read_sheet, get_spreadsheet_info, read_all_sheets）
+>   - 作成（create_spreadsheet）
+>   - 書き込み（write_sheet, append_sheet, clear_sheet）
+>   - シート操作（add_sheet, delete_sheet）
+>   - 共有（share_spreadsheet）
+>   - Markdownテーブル変換
+> - **Google Slides機能**:
+>   - 読み込み（get_presentation_info, get_presentation_content）
+>   - 作成（create_presentation）
+>   - スライド追加（add_slide, add_title_slide, add_section_slide）
+>   - スライド操作（delete_slide, reorder_slides）
+>   - 共有（share_presentation）
+>   - Markdown変換
+> - テスト56件全パス
+> - chatwork-webhookに同期済み
+
 **完了したこと（Phase 2K 能動性）:** ✅ 2026-01-28 実装完了
 > ソウルくんが「自分から声をかける」能力を追加した。
 > - **コード実装完了**: lib/brain/proactive.py（922行、40テスト済み）
@@ -195,7 +216,7 @@
 > 3. USE_PROACTIVE_MONITOR=true で有効化（まずDRY_RUN=trueで様子見）
 > 4. 本番ログ監視継続 - 脳の判断ログを確認
 > 5. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
-> 6. **Phase G4以降**（スプレッドシート生成、動画生成）の実装
+> 6. **Phase G5以降**（動画生成）の実装
 
 ---
 

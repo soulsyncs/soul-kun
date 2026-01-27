@@ -451,7 +451,7 @@ class BrainMemoryAccess:
                         FROM conversation_summaries cs
                         JOIN users u ON cs.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND cs.organization_id = :org_id::uuid
+                          AND cs.organization_id = CAST(:org_id AS uuid)
                         ORDER BY cs.created_at DESC
                         LIMIT 1
                     """),
@@ -511,7 +511,7 @@ class BrainMemoryAccess:
                         FROM user_preferences up
                         JOIN users u ON up.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND up.organization_id = :org_id::uuid
+                          AND up.organization_id = CAST(:org_id AS uuid)
                         ORDER BY up.confidence DESC
                         LIMIT 20
                     """),
@@ -725,7 +725,7 @@ class BrainMemoryAccess:
                         FROM goals g
                         JOIN users u ON g.user_id = u.id
                         WHERE u.chatwork_account_id = :user_id
-                          AND g.organization_id = :org_id::uuid
+                          AND g.organization_id = CAST(:org_id AS uuid)
                           AND g.status = 'active'
                         ORDER BY g.created_at DESC
                         LIMIT 5
@@ -864,7 +864,7 @@ class BrainMemoryAccess:
                             status,
                             created_at
                         FROM soulkun_insights
-                        WHERE organization_id = :org_id::uuid
+                        WHERE organization_id = CAST(:org_id AS uuid)
                           AND status IN ('new', 'acknowledged')
                           {importance_clause}
                         ORDER BY
@@ -946,7 +946,7 @@ class BrainMemoryAccess:
                             ci.message_text,
                             ci.message_time
                         FROM conversation_index ci
-                        WHERE ci.organization_id = :org_id::uuid
+                        WHERE ci.organization_id = CAST(:org_id AS uuid)
                           AND ci.message_text ILIKE :query
                           {user_clause}
                         ORDER BY ci.message_time DESC

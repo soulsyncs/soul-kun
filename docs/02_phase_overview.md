@@ -34,6 +34,13 @@
 - **★ Phase 3.6: 組織図システム製品化 📋Q2〜Q3 【v10.0追加】**
 - **★ Phase C: 会議系（議事録自動化）📋Q3 Week 1-2, 5-6 【v10.1追加】**
 - **Phase C+: 会議前準備支援 📋Phase C完了後 【v10.22.0追加】**
+- **★ 次世代能力群 📋Q1〜Q3【v10.38.0追加】**
+  - **スマートモデル管理:** 最新AIモデルを最適コストで利用（3-4週間）
+  - **Phase M: Multimodal:** 画像/PDF/URL読み込み（4-5週間）
+  - **Phase G: Generation:** 資料/画像/動画生成、ディープリサーチ（5-6週間）
+  - **Phase F: Feedback:** CEOへの事実ベースフィードバック（4-5週間）
+  - **Phase AA: Autonomous Agent:** 自律エージェント、バックグラウンド実行（6-8週間）
+  - 詳細: docs/20_next_generation_capabilities.md
 - Phase B7: 採用・教育支援 📋Q3 Week 9-12
 - Phase B3-部分: シフト管理 📋Q4以降
 

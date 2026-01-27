@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 20:15 JST**
+**最終更新: 2026-01-27 21:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -85,18 +85,41 @@
 > - テスト41件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Model Orchestrator）:** ✅ 2026-01-27 完了
+> 全AI呼び出しを統括するModel Orchestratorを実装した。
+> - 8ファイル実装完了（lib/brain/model_orchestrator/）
+> - 3ティア制（Economy/Standard/Premium）
+> - タスク→ティア自動マッピング、キーワード調整
+> - 4段階コスト閾値（自動実行/報告/確認/代替案）
+> - フォールバックチェーン（障害時自動切替）
+> - テスト43件全パス
+> - chatwork-webhookに同期済み
+
 **完了したこと（Phase M1 Multimodal入力）:** ✅ 2026-01-27 完了
 > ソウルくんに「目」を追加した。画像・PDF・URLを理解できるようになった。
-> - 10ファイル実装完了（lib/capabilities/multimodal/）
+> - 12ファイル実装完了（lib/capabilities/multimodal/）
 > - 画像処理（Vision API連携、メタデータ抽出、エンティティ抽出）
 > - PDF処理（テキスト抽出、OCR対応、ページ分析）
 > - URL処理（Webスクレイピング、コンテンツ分析、セキュリティチェック）
-> - DBマイグレーション（2テーブル、処理ログ＆エンティティ）
-> - テスト55件全パス
+> - 脳統合（MultimodalBrainContext）
+> - DBマイグレーション（2テーブル）
+> - テスト80件全パス
+> - chatwork-webhookに同期済み
+
+**完了したこと（Phase F1 CEOフィードバック）:** ✅ 2026-01-27 完了
+> ソウルくんに「内省」能力を追加した。事実に基づいてCEOにフィードバックを提供できるようになった。
+> - 8ファイル実装完了（lib/capabilities/feedback/）
+> - FactCollector: タスク・目標・コミュニケーション・チームデータを収集
+> - Analyzer: 異常検知・トレンド分析・ポジティブ発見
+> - FeedbackGenerator: LLMを使ったフィードバック文章生成
+> - FeedbackDelivery: ChatWork配信（クールダウン・日次制限付き）
+> - CEOFeedbackEngine: 全コンポーネント統合、5種類のフィードバック対応
+> - DBマイグレーション（3テーブル、1ビュー）
+> - テスト57件全パス
 > - chatwork-webhookに同期済み
 
 **次にやること:**
-> 1. DBマイグレーション実行（Phase 2F, 2G, 2H, M1）
+> 1. DBマイグレーション実行（Phase 2F, 2G, 2H, M1, F1, Model Orchestrator）
 > 2. 本番ログ監視継続 - 脳の判断ログを確認
 > 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
 > 4. Phase 3以降（統合テスト、パフォーマンス最適化）の計画策定
@@ -115,7 +138,8 @@
 | ~~★★★~~ | ~~Phase 2E Learning Foundation~~ | ~~12ファイル・119テスト完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase 2F 結果からの学習~~ | ~~8ファイル・32テスト完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase 2G 記憶の強化~~ | ~~5ファイル・38テスト完了~~ | ✅ **完了** |
-| **★★★** | **Phase 2H 自己認識** | 能力の自己評価・限界の認識 | 📋 次の作業 |
+| ~~★★★~~ | ~~Phase 2H 自己認識~~ | ~~3ファイル・41テスト完了~~ | ✅ **完了** |
+| ~~★★★~~ | ~~Phase F1 CEOフィードバック~~ | ~~8ファイル・57テスト完了~~ | ✅ **完了** |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
 ---
@@ -144,7 +168,7 @@
 | 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |
 | 2F | 結果からの学習 | ✅ 完了 | 2026-01-27 | 8ファイル・32テスト完了 |
 | 2G | 記憶の強化 | ✅ 完了 | 2026-01-27 | 5ファイル・38テスト完了 |
-| 2H | 自己認識 | 📋 次の作業 | - | 能力の自己評価・限界の認識 |
+| 2H | 自己認識 | ✅ 完了 | 2026-01-27 | 3ファイル・41テスト完了 |
 | 2I | 理解力強化 | 📋 計画中 | - | 2026年5-6月予定 |
 | 2J | 判断力強化 | 📋 計画中 | - | 2026年6-7月予定 |
 | 2K | 能動性 | 📋 計画中 | - | 2026年7-8月予定 |
@@ -155,7 +179,7 @@
 | **SM** | **スマートモデル管理** | 📋 設計完了 | - | 最新AIモデル最適コスト利用（3-4週間） |
 | **M1** | **Multimodal入力** | ✅ 完了 | 2026-01-27 | 画像/PDF/URL読み込み（Phase M1完了） |
 | **G** | **Generation** | 📋 設計完了 | - | 資料/画像/動画生成（5-6週間） |
-| **F** | **Feedback** | 📋 設計完了 | - | CEOへの事実ベースフィードバック（4-5週間） |
+| **F1** | **CEO Feedback** | ✅ 完了 | 2026-01-27 | 8ファイル・57テスト完了（Phase F1完了） |
 | **AA** | **Autonomous Agent** | 📋 設計完了 | - | 自律エージェント（6-8週間） |
 | 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
@@ -218,6 +242,56 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **21:00 JST**: Phase F1 CEOフィードバックシステム 実装完了 ✅ **次世代能力 Phase F1 完全完了**
+  - **概要**: ソウルくんに「内省」能力を追加。事実に基づいてCEOにフィードバックを提供できるようになった
+  - **設計書**: `docs/20_next_generation_capabilities.md` セクション8
+  - **新規ファイル（8ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/capabilities/feedback/__init__.py` | パッケージエクスポート（60+エクスポート） |
+    | `lib/capabilities/feedback/constants.py` | Enum定義、テンプレート、Feature Flag |
+    | `lib/capabilities/feedback/models.py` | ファクト・分析・フィードバックモデル |
+    | `lib/capabilities/feedback/fact_collector.py` | FactCollector（データ収集） |
+    | `lib/capabilities/feedback/analyzer.py` | Analyzer（異常検知・トレンド分析） |
+    | `lib/capabilities/feedback/feedback_generator.py` | FeedbackGenerator（LLMフィードバック生成） |
+    | `lib/capabilities/feedback/delivery.py` | FeedbackDelivery（ChatWork配信） |
+    | `lib/capabilities/feedback/ceo_feedback_engine.py` | CEOFeedbackEngine（統合クラス） |
+  - **DBマイグレーション**: `migrations/phase_f1_ceo_feedback.sql`
+    - `feedback_deliveries`: 配信ログ（18カラム、6インデックス）
+    - `feedback_settings`: フィードバック設定（20カラム、3インデックス）
+    - `feedback_alert_cooldowns`: アラートクールダウン管理（9カラム、2インデックス）
+    - `feedback_delivery_stats`: 配信統計ビュー
+  - **主な機能**:
+    - デイリーダイジェスト（毎朝8:00）
+    - ウィークリーレビュー（毎週月曜9:00）
+    - マンスリーインサイト（毎月1日9:00）
+    - リアルタイムアラート（異常検知時）
+    - オンデマンド分析（「最近どう？」）
+  - **フィードバック原則（6つ）**:
+    1. 事実ファースト - 「〜と思います」ではなく「〜というデータがあります」
+    2. 数字で語る - 具体的な数値変化を提示
+    3. 比較を入れる - 先週比、先月比、過去パターンとの比較
+    4. 仮説は仮説と明示 - 「〜かもしれません」と断定しない
+    5. アクション提案 - 問題提起だけでなく「こうしては？」まで
+    6. ポジティブも伝える - 良いことも報告
+  - **テスト**: 57件全パス（`tests/test_feedback.py`）
+  - **同期**: chatwork-webhook/lib/capabilities/feedback/に同期済み
+
+- **18:00 JST**: Phase M1 脳との統合 実装完了 ✅ **次世代能力 Phase M1 完全完了**
+  - **概要**: Multimodal処理を脳（SoulkunBrain）と統合
+  - **新規ファイル（2ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/capabilities/multimodal/coordinator.py` | MultimodalCoordinator（処理統括） |
+    | `lib/capabilities/multimodal/brain_integration.py` | 脳統合関数・コンテキスト |
+  - **主な機能**:
+    - MultimodalCoordinator: ファイルタイプ判定、プロセッサー選択、並列処理
+    - EnrichedMessage: 元メッセージ+マルチモーダル結果の統合
+    - MultimodalBrainContext: 脳が参照するマルチモーダルコンテキスト
+    - handle_chatwork_message_with_attachments: ChatWork連携用統合関数
+  - **テスト**: 80件全パス（+25件追加）
+  - **同期**: chatwork-webhook/lib/capabilities/multimodal/に同期済み
 
 - **17:45 JST**: Phase M1 Multimodal入力能力 実装完了 ✅ **次世代能力 1/4 完了**
   - **概要**: ソウルくんに「目」を追加。画像・PDF・URLを理解できるようになった

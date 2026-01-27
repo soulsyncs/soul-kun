@@ -72,6 +72,8 @@ FLAG_DEFINITIONS: Dict[str, Tuple[str, FlagCategory, str]] = {
     "USE_BRAIN_ARCHITECTURE": ("false", FlagCategory.FEATURE, "脳アーキテクチャ"),
     "DISABLE_MVV_CONTEXT": ("false", FlagCategory.FEATURE, "MVV無効化フラグ"),
     "ENABLE_PHASE3_KNOWLEDGE": ("true", FlagCategory.FEATURE, "Phase 3 ナレッジ検索"),
+    "USE_MODEL_ORCHESTRATOR": ("false", FlagCategory.FEATURE, "Model Orchestrator（全AI呼び出し統括）"),
+    "ENABLE_EXECUTION_EXCELLENCE": ("false", FlagCategory.FEATURE, "Phase 2L: 実行力強化（複合タスク自動実行）"),
 
     # 検出系
     "USE_DYNAMIC_DEPARTMENT_MAPPING": ("true", FlagCategory.DETECTION, "動的部署マッピング"),
@@ -174,6 +176,8 @@ class FeatureFlags:
     use_brain_architecture: bool = field(default=False)
     brain_mode: str = field(default="false")  # false, true, shadow, gradual
     enable_phase3_knowledge: bool = field(default=True)
+    use_model_orchestrator: bool = field(default=False)  # Phase 0: Model Orchestrator
+    enable_execution_excellence: bool = field(default=False)  # Phase 2L: 実行力強化
 
     # =====================================================
     # 検出系
@@ -289,6 +293,16 @@ class FeatureFlags:
             "ENABLE_PHASE3_KNOWLEDGE", True
         )
 
+        # Model Orchestrator（Phase 0: 次世代能力）
+        self.use_model_orchestrator = self._get_env_bool(
+            "USE_MODEL_ORCHESTRATOR", False
+        )
+
+        # Phase 2L: 実行力強化（複合タスク自動実行）
+        self.enable_execution_excellence = self._get_env_bool(
+            "ENABLE_EXECUTION_EXCELLENCE", False
+        )
+
         # 検出系
         self.use_dynamic_department_mapping = self._get_env_bool(
             "USE_DYNAMIC_DEPARTMENT_MAPPING", True
@@ -377,6 +391,8 @@ class FeatureFlags:
             "use_brain_architecture": self.use_brain_architecture,
             "brain_mode": self.brain_mode,
             "enable_phase3_knowledge": self.enable_phase3_knowledge,
+            "use_model_orchestrator": self.use_model_orchestrator,
+            "enable_execution_excellence": self.enable_execution_excellence,
         }
 
     def get_detection_flags(self) -> Dict[str, bool]:
@@ -574,6 +590,28 @@ def is_dry_run() -> bool:
     return get_flags().dry_run
 
 
+def is_model_orchestrator_enabled() -> bool:
+    """
+    Model Orchestratorが有効かチェック
+
+    Returns:
+        bool: Model Orchestratorが有効か
+    """
+    return get_flags().use_model_orchestrator
+
+
+def is_execution_excellence_enabled() -> bool:
+    """
+    ExecutionExcellence（実行力強化）が有効かチェック
+
+    Phase 2L: 複合タスクの自動分解・実行
+
+    Returns:
+        bool: ExecutionExcellenceが有効か
+    """
+    return get_flags().enable_execution_excellence
+
+
 # =====================================================
 # エクスポート
 # =====================================================
@@ -599,4 +637,6 @@ __all__ = [
     "is_feature_enabled",
     "get_brain_mode",
     "is_dry_run",
+    "is_model_orchestrator_enabled",
+    "is_execution_excellence_enabled",
 ]

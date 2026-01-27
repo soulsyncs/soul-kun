@@ -93,6 +93,15 @@ from lib.brain.ceo_learning import (
 from lib.brain.guardian import GuardianService
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
+# Phase 2L: ExecutionExcellence（実行力強化）
+from lib.brain.execution_excellence import (
+    ExecutionExcellence,
+    create_execution_excellence,
+    is_execution_excellence_enabled,
+    FEATURE_FLAG_EXECUTION_EXCELLENCE,
+)
+from lib.feature_flags import is_execution_excellence_enabled as ff_execution_excellence_enabled
+
 logger = logging.getLogger(__name__)
 
 
@@ -211,12 +220,17 @@ class SoulkunBrain:
         self.use_chain_of_thought = True  # 思考連鎖を使用
         self.use_self_critique = True      # 自己批判を使用
 
+        # Phase 2L: ExecutionExcellence（実行力強化）
+        self.execution_excellence: Optional[ExecutionExcellence] = None
+        self._init_execution_excellence()
+
         # 内部状態
         self._initialized = False
 
         logger.info(f"SoulkunBrain initialized for org_id={org_id}, "
                    f"chain_of_thought={self.use_chain_of_thought}, "
-                   f"self_critique={self.use_self_critique}")
+                   f"self_critique={self.use_self_critique}, "
+                   f"execution_excellence={self.execution_excellence is not None}")
 
     # =========================================================================
     # メインエントリーポイント
@@ -968,6 +982,35 @@ class SoulkunBrain:
         return await self.decision.decide(understanding, context)
 
     # =========================================================================
+    # Phase 2L: ExecutionExcellence初期化
+    # =========================================================================
+
+    def _init_execution_excellence(self) -> None:
+        """
+        ExecutionExcellence（実行力強化）を初期化
+
+        Phase 2L: 複合タスクの自動分解・計画・実行
+
+        Feature Flag `ENABLE_EXECUTION_EXCELLENCE` が有効な場合のみ初期化。
+        """
+        if not ff_execution_excellence_enabled():
+            logger.info("ExecutionExcellence is disabled by feature flag")
+            return
+
+        try:
+            self.execution_excellence = create_execution_excellence(
+                handlers=self.handlers,
+                capabilities=self.capabilities,
+                pool=self.pool,
+                org_id=self.org_id,
+                llm_client=self.get_ai_response,
+            )
+            logger.info("ExecutionExcellence initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize ExecutionExcellence: {e}")
+            self.execution_excellence = None
+
+    # =========================================================================
     # 実行層
     # =========================================================================
 
@@ -982,13 +1025,51 @@ class SoulkunBrain:
         """
         BrainExecutionクラスに委譲。
         v10.28.6: 実行層に強化（Phase F完了）
+        v10.39.0: Phase 2L ExecutionExcellence統合
 
         判断層からの指令に基づいてハンドラーを呼び出し、結果を統合する。
         - 5ステップ実行フロー（取得→検証→実行→統合→提案）
         - リトライ付き実行（最大3回）
         - タイムアウト処理（30秒）
         - 先読み提案生成
+        - Phase 2L: 複合タスクはExecutionExcellenceで自動分解・実行
         """
+        # Phase 2L: 複合タスクの場合はExecutionExcellenceを使用
+        if self.execution_excellence:
+            # 元のメッセージを取得（最新の会話履歴から）
+            original_message = ""
+            if context.recent_conversation:
+                # 最新のユーザーメッセージを取得
+                for msg in reversed(context.recent_conversation):
+                    if msg.role == "user":
+                        original_message = msg.content
+                        break
+
+            # 複合タスク判定
+            if original_message and self.execution_excellence.should_use_workflow(original_message, context):
+                logger.info(f"🔄 Using ExecutionExcellence for complex request: {original_message[:50]}...")
+                try:
+                    ee_result = await self.execution_excellence.execute_request(
+                        request=original_message,
+                        context=context,
+                    )
+
+                    # 単一タスク判定（ExecutionExcellenceが分解不要と判断した場合）
+                    if ee_result.plan_id == "single_task":
+                        # 従来の実行フローにフォールバック
+                        logger.debug("ExecutionExcellence: Single task detected, falling back to normal execution")
+                    else:
+                        # ExecutionExcellenceの結果をHandlerResultに変換
+                        return HandlerResult(
+                            success=ee_result.success,
+                            message=ee_result.message,
+                            suggestions=ee_result.suggestions,
+                        )
+                except Exception as e:
+                    logger.warning(f"ExecutionExcellence failed, falling back to normal execution: {e}")
+                    # ExecutionExcellenceが失敗した場合は従来の実行フローにフォールバック
+
+        # 従来の実行フロー
         result = await self.execution.execute(
             decision=decision,
             context=context,

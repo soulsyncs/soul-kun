@@ -2830,6 +2830,10 @@ def _get_brain_integration():
             "proposal_decision": _brain_handle_proposal_decision,
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
+            # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
+            "continue_goal_setting": _brain_continue_goal_setting,
+            "continue_announcement": _brain_continue_announcement,
+            "continue_task_pending": _brain_continue_task_pending,
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加
@@ -2928,6 +2932,10 @@ def _get_brain():
             "proposal_decision": _brain_handle_proposal_decision,
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
+            # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
+            "continue_goal_setting": _brain_continue_goal_setting,
+            "continue_announcement": _brain_continue_announcement,
+            "continue_task_pending": _brain_continue_task_pending,
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加（フォールバック用）
@@ -3215,6 +3223,127 @@ async def _brain_handle_goal_setting_start(params, room_id, account_id, sender_n
         return HandlerResult(success=True, message="目標設定を始めるウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message="目標設定でエラーが発生したウル🐺")
+
+
+# =====================================================
+# v10.39.1: セッション継続ハンドラー
+# 脳のcore.pyの_continue_*メソッドから呼び出される
+# シグネチャ: (message, room_id, account_id, sender_name, state_data) -> dict or str or None
+# =====================================================
+
+def _brain_continue_goal_setting(message, room_id, account_id, sender_name, state_data):
+    """
+    目標設定セッションを継続
+
+    GoalSettingDialogueを使用してセッションを継続します。
+    """
+    try:
+        if USE_GOAL_SETTING_LIB:
+            pool = get_pool()
+            result = process_goal_setting_message(pool, room_id, account_id, message)
+            if result:
+                response_message = result.get("message", "")
+                session_completed = result.get("session_completed", False)
+                return {
+                    "message": response_message,
+                    "success": result.get("success", True),
+                    "session_completed": session_completed,
+                    "new_state": "normal" if session_completed else None,
+                    "state_changed": session_completed,
+                }
+        # フォールバック
+        return {
+            "message": "目標設定を続けるウル🐺 もう少し詳しく教えてほしいウル！",
+            "success": True,
+        }
+    except Exception as e:
+        print(f"❌ _brain_continue_goal_setting error: {e}")
+        return {
+            "message": "目標設定の処理中にエラーが発生したウル🐺",
+            "success": False,
+            "session_completed": True,
+            "new_state": "normal",
+        }
+
+
+def _brain_continue_announcement(message, room_id, account_id, sender_name, state_data):
+    """
+    アナウンス確認セッションを継続
+
+    AnnouncementHandlerを使用してセッションを継続します。
+    """
+    try:
+        handler = _get_announcement_handler()
+        if handler:
+            # state_dataからpending_announcement_idを取得
+            pending_id = state_data.get("pending_announcement_id") if state_data else None
+            context = {
+                "awaiting_announcement_response": True,
+                "pending_announcement_id": pending_id,
+            }
+            # パラメータを構築
+            params = {
+                "raw_message": message,
+            }
+            result = handler.handle_announcement_request(
+                params=params,
+                room_id=room_id,
+                account_id=account_id,
+                sender_name=sender_name,
+                context=context,
+            )
+            if result:
+                # 結果を解析して完了状態を判定
+                is_completed = any(kw in result for kw in ["送信完了", "キャンセル", "スケジュール完了"])
+                return {
+                    "message": result,
+                    "success": True,
+                    "session_completed": is_completed,
+                    "new_state": "normal" if is_completed else None,
+                }
+        return {
+            "message": "アナウンスの確認を続けるウル🐺",
+            "success": True,
+        }
+    except Exception as e:
+        print(f"❌ _brain_continue_announcement error: {e}")
+        return {
+            "message": "アナウンス処理中にエラーが発生したウル🐺",
+            "success": False,
+            "session_completed": True,
+            "new_state": "normal",
+        }
+
+
+def _brain_continue_task_pending(message, room_id, account_id, sender_name, state_data):
+    """
+    タスク作成待ち状態を継続
+
+    handle_pending_task_followupを使用して不足情報を補完します。
+    """
+    try:
+        # handle_pending_task_followupを呼び出し
+        result = handle_pending_task_followup(message, room_id, account_id, sender_name)
+
+        if result:
+            # タスク作成成功
+            return {
+                "message": result,
+                "success": True,
+                "task_created": True,
+                "new_state": "normal",
+            }
+        else:
+            # 補完できなかった場合
+            return None
+    except Exception as e:
+        print(f"❌ _brain_continue_task_pending error: {e}")
+        return {
+            "message": "タスク作成中にエラーが発生したウル🐺",
+            "success": False,
+            "task_created": False,
+            "new_state": "normal",
+        }
 
 
 async def _brain_handle_goal_progress_report(params, room_id, account_id, sender_name, context):

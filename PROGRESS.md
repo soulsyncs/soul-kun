@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 17:35 JST**
+**最終更新: 2026-01-28 18:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -504,6 +504,24 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **18:30 JST**: 脳アーキテクチャ v10.39.1 セッション継続メソッド完全実装 ✅
+  - **概要**: 3つのTODOセッション継続メソッドを完全実装
+  - **変更内容**:
+    - `lib/brain/core.py`: `_continue_goal_setting()`, `_continue_announcement()`, `_continue_task_pending()` を実装
+    - `chatwork-webhook/lib/brain/core.py`: 同様に実装
+    - `chatwork-webhook/main.py`: セッション継続ハンドラー関数を追加
+      - `_brain_continue_goal_setting()`: GoalSettingDialogueと連携
+      - `_brain_continue_announcement()`: AnnouncementHandlerと連携
+      - `_brain_continue_task_pending()`: handle_pending_task_followup()と連携
+    - handlers辞書に3つのセッション継続ハンドラーを登録
+  - **設計**:
+    - 脳の7原則「脳が判断し、機能は実行するだけ」に準拠
+    - handlersを通じて既存のハンドラーを呼び出す設計
+    - ハンドラー未登録時のフォールバックメッセージを実装
+    - エラー時のセッションクリア処理を実装
+  - **テスト**: 47テストパス、2スキップ（意図的）
+  - **脳アーキテクチャ完成度**: 82% → 95%（セッション継続完了）
 
 - **17:35 JST**: chatwork-webhook v10.39.0 本番デプロイ ✅ **revision 00223-vt7** **PR #279**
   - **概要**: バイパス処理を脳の中に統合（7原則準拠）

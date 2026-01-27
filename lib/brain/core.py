@@ -806,11 +806,77 @@ class SoulkunBrain:
         sender_name: str,
         start_time: float,
     ) -> BrainResponse:
-        """目標設定セッションを継続"""
-        # TODO: 既存のGoalSettingHandlerと連携
-        # 現在は仮実装
+        """
+        目標設定セッションを継続
+
+        handlers辞書から'continue_goal_setting'ハンドラーを取得し、
+        実際のGoalSettingDialogueと連携します。
+
+        ハンドラーが未登録の場合はフォールバックメッセージを返します。
+        """
+        handler = self.handlers.get("continue_goal_setting")
+
+        if handler:
+            try:
+                # ハンドラーを呼び出し
+                # ハンドラーのシグネチャ: (message, room_id, account_id, sender_name, state_data) -> dict or str
+                result = handler(
+                    message,
+                    room_id,
+                    account_id,
+                    sender_name,
+                    state.state_data if state else {},
+                )
+
+                # 非同期ハンドラーの場合はawait
+                if asyncio.iscoroutine(result):
+                    result = await result
+
+                # 結果の処理
+                if isinstance(result, dict):
+                    response_message = result.get("message", "")
+                    success = result.get("success", True)
+                    new_state = result.get("new_state")
+                    state_changed = result.get("state_changed", False)
+
+                    # 状態遷移が必要な場合
+                    if new_state == "normal" or result.get("session_completed"):
+                        await self._clear_state(room_id, account_id, "goal_setting_completed")
+                        state_changed = True
+
+                    return BrainResponse(
+                        message=response_message,
+                        action_taken="continue_goal_setting",
+                        success=success,
+                        state_changed=state_changed,
+                        new_state=new_state,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+                elif isinstance(result, str):
+                    return BrainResponse(
+                        message=result,
+                        action_taken="continue_goal_setting",
+                        success=True,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+
+            except Exception as e:
+                logger.warning(f"Goal setting handler error: {e}")
+                # エラー時はセッションをクリアして安全に終了
+                await self._clear_state(room_id, account_id, "goal_setting_error")
+                return BrainResponse(
+                    message="目標設定の処理中にエラーが発生したウル... もう一度最初からお願いするウル🐺",
+                    action_taken="continue_goal_setting",
+                    success=False,
+                    state_changed=True,
+                    new_state="normal",
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+        # ハンドラー未登録時のフォールバック
+        logger.warning("continue_goal_setting handler not registered, using fallback")
         return BrainResponse(
-            message="目標設定を続けるウル🐺",
+            message="目標設定を続けるウル🐺 今のステップは何だったかな...？",
             action_taken="continue_goal_setting",
             total_time_ms=self._elapsed_ms(start_time),
         )
@@ -825,11 +891,77 @@ class SoulkunBrain:
         sender_name: str,
         start_time: float,
     ) -> BrainResponse:
-        """アナウンス確認を継続"""
-        # TODO: 既存のAnnouncementHandlerと連携
-        # 現在は仮実装
+        """
+        アナウンス確認セッションを継続
+
+        handlers辞書から'continue_announcement'ハンドラーを取得し、
+        実際のAnnouncementHandlerと連携します。
+
+        ハンドラーが未登録の場合はフォールバックメッセージを返します。
+        """
+        handler = self.handlers.get("continue_announcement")
+
+        if handler:
+            try:
+                # ハンドラーを呼び出し
+                # ハンドラーのシグネチャ: (message, room_id, account_id, sender_name, state_data) -> dict or str
+                result = handler(
+                    message,
+                    room_id,
+                    account_id,
+                    sender_name,
+                    state.state_data if state else {},
+                )
+
+                # 非同期ハンドラーの場合はawait
+                if asyncio.iscoroutine(result):
+                    result = await result
+
+                # 結果の処理
+                if isinstance(result, dict):
+                    response_message = result.get("message", "")
+                    success = result.get("success", True)
+                    new_state = result.get("new_state")
+                    state_changed = result.get("state_changed", False)
+
+                    # 状態遷移が必要な場合
+                    if new_state == "normal" or result.get("session_completed"):
+                        await self._clear_state(room_id, account_id, "announcement_completed")
+                        state_changed = True
+
+                    return BrainResponse(
+                        message=response_message,
+                        action_taken="continue_announcement",
+                        success=success,
+                        state_changed=state_changed,
+                        new_state=new_state,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+                elif isinstance(result, str):
+                    return BrainResponse(
+                        message=result,
+                        action_taken="continue_announcement",
+                        success=True,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+
+            except Exception as e:
+                logger.warning(f"Announcement handler error: {e}")
+                # エラー時はセッションをクリアして安全に終了
+                await self._clear_state(room_id, account_id, "announcement_error")
+                return BrainResponse(
+                    message="アナウンス処理中にエラーが発生したウル... もう一度お願いするウル🐺",
+                    action_taken="continue_announcement",
+                    success=False,
+                    state_changed=True,
+                    new_state="normal",
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+        # ハンドラー未登録時のフォールバック
+        logger.warning("continue_announcement handler not registered, using fallback")
         return BrainResponse(
-            message="アナウンスの確認を続けるウル🐺",
+            message="アナウンスの確認を続けるウル🐺 送信してもいいかな...？",
             action_taken="continue_announcement",
             total_time_ms=self._elapsed_ms(start_time),
         )
@@ -914,10 +1046,113 @@ class SoulkunBrain:
         sender_name: str,
         start_time: float,
     ) -> BrainResponse:
-        """タスク作成待ち状態を継続"""
-        # TODO: 既存のhandle_pending_task_followup()と連携
+        """
+        タスク作成待ち状態を継続
+
+        handlers辞書から'continue_task_pending'ハンドラーを取得し、
+        handle_pending_task_followup()と連携します。
+
+        ハンドラーが未登録の場合はフォールバックメッセージを返します。
+        """
+        handler = self.handlers.get("continue_task_pending")
+
+        if handler:
+            try:
+                # ハンドラーを呼び出し
+                # ハンドラーのシグネチャ: (message, room_id, account_id, sender_name, state_data) -> dict or str or None
+                result = handler(
+                    message,
+                    room_id,
+                    account_id,
+                    sender_name,
+                    state.state_data if state else {},
+                )
+
+                # 非同期ハンドラーの場合はawait
+                if asyncio.iscoroutine(result):
+                    result = await result
+
+                # Noneの場合は何も補完できなかった
+                if result is None:
+                    # 再度質問
+                    missing_items = (state.state_data or {}).get("missing_items", [])
+                    if "limit_date" in missing_items:
+                        prompt = "タスクの期限を教えてほしいウル🐺（例: 明日、来週金曜、1/31）"
+                    elif "task_body" in missing_items:
+                        prompt = "タスクの内容を教えてほしいウル🐺"
+                    elif "assigned_to" in missing_items:
+                        prompt = "誰に担当してもらうか教えてほしいウル🐺"
+                    else:
+                        prompt = "タスクの詳細を教えてほしいウル🐺"
+
+                    return BrainResponse(
+                        message=prompt,
+                        action_taken="continue_task_pending",
+                        success=True,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+
+                # 結果の処理
+                if isinstance(result, dict):
+                    response_message = result.get("message", "")
+                    success = result.get("success", True)
+                    new_state = result.get("new_state")
+                    state_changed = result.get("state_changed", False)
+
+                    # タスク作成が完了した場合は状態をクリア
+                    if new_state == "normal" or result.get("task_created"):
+                        await self._clear_state(room_id, account_id, "task_pending_completed")
+                        state_changed = True
+
+                    return BrainResponse(
+                        message=response_message,
+                        action_taken="continue_task_pending",
+                        success=success,
+                        state_changed=state_changed,
+                        new_state=new_state,
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+                elif isinstance(result, str):
+                    # タスク作成成功時は状態をクリア
+                    await self._clear_state(room_id, account_id, "task_pending_completed")
+                    return BrainResponse(
+                        message=result,
+                        action_taken="continue_task_pending",
+                        success=True,
+                        state_changed=True,
+                        new_state="normal",
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+
+            except Exception as e:
+                logger.warning(f"Task pending handler error: {e}")
+                # エラー時はセッションをクリアして安全に終了
+                await self._clear_state(room_id, account_id, "task_pending_error")
+                return BrainResponse(
+                    message="タスク作成中にエラーが発生したウル... もう一度最初からお願いするウル🐺",
+                    action_taken="continue_task_pending",
+                    success=False,
+                    state_changed=True,
+                    new_state="normal",
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+        # ハンドラー未登録時のフォールバック
+        logger.warning("continue_task_pending handler not registered, using fallback")
+
+        # state_dataから不足項目を取得してプロンプトを生成
+        missing_items = (state.state_data or {}).get("missing_items", [])
+        if "limit_date" in missing_items:
+            prompt = "タスクの期限を教えてほしいウル🐺（例: 明日、来週金曜、1/31）"
+        elif "task_body" in missing_items:
+            prompt = "タスクの内容を教えてほしいウル🐺"
+        elif "assigned_to" in missing_items:
+            prompt = "誰に担当してもらうか教えてほしいウル🐺"
+        else:
+            prompt = "タスクの詳細を教えてほしいウル🐺"
+
         return BrainResponse(
-            message="タスクの詳細を教えてほしいウル🐺",
+            message=prompt,
             action_taken="continue_task_pending",
             total_time_ms=self._elapsed_ms(start_time),
         )

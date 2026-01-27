@@ -63,6 +63,14 @@ class ActionPriority(Enum):
 # 定数
 # ============================================================
 
+# 組織IDマッピング（UUID → chatwork_tasks用VARCHAR）
+# chatwork_tasksテーブルはVARCHAR型のorganization_idを使用
+# TODO: Phase 4A で organizations テーブルから動的に取得
+ORGANIZATION_UUID_TO_SLUG = {
+    "5f98365f-e7c5-4f48-9918-7fe9aabae5df": "org_soulsyncs",  # Soul Syncs
+}
+DEFAULT_CHATWORK_TASKS_ORG_ID = "org_soulsyncs"
+
 # トリガー閾値
 GOAL_ABANDONED_DAYS = 7          # 目標放置とみなす日数
 TASK_OVERLOAD_COUNT = 5          # タスク山積みとみなす件数
@@ -269,6 +277,68 @@ class ProactiveMonitor:
         }
 
     # --------------------------------------------------------
+    # ヘルパーメソッド（型変換）
+    # --------------------------------------------------------
+
+    def _get_chatwork_tasks_org_id(self, uuid_org_id: str) -> str:
+        """
+        chatwork_tasks テーブル用の organization_id を取得
+
+        chatwork_tasks.organization_id は VARCHAR型で 'org_soulsyncs' 等の文字列。
+        users.organization_id は UUID型。この変換を行う。
+
+        Args:
+            uuid_org_id: UUID形式のorganization_id
+
+        Returns:
+            str: chatwork_tasks用のorganization_id（'org_soulsyncs' 等）
+        """
+        return ORGANIZATION_UUID_TO_SLUG.get(uuid_org_id, DEFAULT_CHATWORK_TASKS_ORG_ID)
+
+    def _get_chatwork_account_id_int(self, str_account_id: Optional[str]) -> Optional[int]:
+        """
+        chatwork_tasks テーブル用の account_id を整数に変換
+
+        chatwork_tasks.assigned_to_account_id は BIGINT型。
+        users.chatwork_account_id は VARCHAR型。この変換を行う。
+
+        Args:
+            str_account_id: 文字列形式のaccount_id
+
+        Returns:
+            int: 整数形式のaccount_id、または変換失敗時はNone
+        """
+        if not str_account_id:
+            return None
+        try:
+            return int(str_account_id)
+        except (ValueError, TypeError):
+            logger.warning(f"[Proactive] Invalid chatwork_account_id: {str_account_id}")
+            return None
+
+    def _is_valid_uuid(self, value: str) -> bool:
+        """
+        文字列がUUID形式かどうかを判定
+
+        Args:
+            value: 検証する文字列
+
+        Returns:
+            bool: UUID形式ならTrue
+        """
+        if not value:
+            return False
+        # UUID形式: 8-4-4-4-12 (32文字 + 4ハイフン = 36文字)
+        if len(value) < 32 or len(value) > 36:
+            return False
+        try:
+            from uuid import UUID
+            UUID(value)
+            return True
+        except (ValueError, AttributeError):
+            return False
+
+    # --------------------------------------------------------
     # メイン処理
     # --------------------------------------------------------
 
@@ -386,14 +456,19 @@ class ProactiveMonitor:
         if not self._pool:
             return None
 
+        # goals.organization_idはUUID型。有効なUUIDかチェック
+        if not self._is_valid_uuid(user_ctx.organization_id):
+            logger.debug(f"[Proactive] Skipping goal abandoned check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            return None
+
         try:
             from sqlalchemy import text
 
             query = text("""
                 SELECT id, title, created_at, updated_at
                 FROM goals
-                WHERE organization_id = :org_id
-                  AND user_id = :user_id
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND user_id = CAST(:user_id AS uuid)
                   AND status = 'active'
                   AND updated_at < :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY updated_at ASC
@@ -434,8 +509,17 @@ class ProactiveMonitor:
         if not self._pool:
             return None
 
+        # chatwork_account_idをintに変換（chatwork_tasks.assigned_to_account_idはBIGINT）
+        account_id_int = self._get_chatwork_account_id_int(user_ctx.chatwork_account_id)
+        if account_id_int is None:
+            logger.debug(f"[Proactive] Skipping task overload check - no valid account_id for user {user_ctx.user_id}")
+            return None
+
         try:
             from sqlalchemy import text
+
+            # chatwork_tasks.organization_idはVARCHAR型（'org_soulsyncs'等）
+            chatwork_org_id = self._get_chatwork_tasks_org_id(user_ctx.organization_id)
 
             query = text("""
                 SELECT COUNT(*) as total_count,
@@ -448,8 +532,8 @@ class ProactiveMonitor:
 
             async with self._pool.connect() as conn:
                 result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "account_id": user_ctx.chatwork_account_id,
+                    "org_id": chatwork_org_id,
+                    "account_id": account_id_int,
                 })
                 row = result.fetchone()
 
@@ -475,6 +559,11 @@ class ProactiveMonitor:
         if not self._pool:
             return None
 
+        # emotion_scores.organization_idはUUID型。有効なUUIDかチェック
+        if not self._is_valid_uuid(user_ctx.organization_id):
+            logger.debug(f"[Proactive] Skipping emotion decline check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            return None
+
         try:
             from sqlalchemy import text
 
@@ -482,8 +571,8 @@ class ProactiveMonitor:
             query = text("""
                 SELECT sentiment_score, message_time
                 FROM emotion_scores
-                WHERE organization_id = :org_id
-                  AND user_id = :user_id
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND user_id = CAST(:user_id AS uuid)
                   AND message_time >= :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY message_time DESC
             """)
@@ -527,6 +616,11 @@ class ProactiveMonitor:
         if not self._pool:
             return None
 
+        # goals.organization_idはUUID型。有効なUUIDかチェック
+        if not self._is_valid_uuid(user_ctx.organization_id):
+            logger.debug(f"[Proactive] Skipping goal achieved check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            return None
+
         try:
             from sqlalchemy import text
 
@@ -534,8 +628,8 @@ class ProactiveMonitor:
             query = text("""
                 SELECT id, title, updated_at
                 FROM goals
-                WHERE organization_id = :org_id
-                  AND user_id = :user_id
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND user_id = CAST(:user_id AS uuid)
                   AND status = 'completed'
                   AND updated_at >= :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY updated_at DESC
@@ -574,8 +668,17 @@ class ProactiveMonitor:
         if not self._pool:
             return None
 
+        # chatwork_account_idをintに変換（chatwork_tasks.assigned_to_account_idはBIGINT）
+        account_id_int = self._get_chatwork_account_id_int(user_ctx.chatwork_account_id)
+        if account_id_int is None:
+            logger.debug(f"[Proactive] Skipping task completed streak check - no valid account_id for user {user_ctx.user_id}")
+            return None
+
         try:
             from sqlalchemy import text
+
+            # chatwork_tasks.organization_idはVARCHAR型（'org_soulsyncs'等）
+            chatwork_org_id = self._get_chatwork_tasks_org_id(user_ctx.organization_id)
 
             # 直近24時間以内に完了したタスク数
             query = text("""
@@ -591,8 +694,8 @@ class ProactiveMonitor:
 
             async with self._pool.connect() as conn:
                 result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "account_id": user_ctx.chatwork_account_id,
+                    "org_id": chatwork_org_id,
+                    "account_id": account_id_int,
                     "threshold": threshold,
                 })
                 row = result.fetchone()

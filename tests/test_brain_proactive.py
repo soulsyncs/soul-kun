@@ -482,3 +482,61 @@ class TestFactory:
         monitor = create_proactive_monitor(pool=None, dry_run=True)
         assert isinstance(monitor, ProactiveMonitor)
         assert monitor._dry_run is True
+
+
+# ============================================================
+# ヘルパーメソッドテスト
+# ============================================================
+
+class TestHelperMethods:
+    """ヘルパーメソッドのテスト"""
+
+    def test_get_chatwork_tasks_org_id_known_uuid(self, monitor):
+        """既知のUUIDからchatwork_tasks用のorg_idを取得できる"""
+        uuid_org_id = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
+        result = monitor._get_chatwork_tasks_org_id(uuid_org_id)
+        assert result == "org_soulsyncs"
+
+    def test_get_chatwork_tasks_org_id_unknown_uuid(self, monitor):
+        """未知のUUIDはデフォルト値を返す"""
+        uuid_org_id = "12345678-1234-1234-1234-123456789012"
+        result = monitor._get_chatwork_tasks_org_id(uuid_org_id)
+        assert result == "org_soulsyncs"
+
+    def test_get_chatwork_account_id_int_valid(self, monitor):
+        """有効なaccount_idを整数に変換できる"""
+        result = monitor._get_chatwork_account_id_int("7482281")
+        assert result == 7482281
+        assert isinstance(result, int)
+
+    def test_get_chatwork_account_id_int_none(self, monitor):
+        """NoneはNoneを返す"""
+        result = monitor._get_chatwork_account_id_int(None)
+        assert result is None
+
+    def test_get_chatwork_account_id_int_invalid(self, monitor):
+        """無効な値はNoneを返す"""
+        result = monitor._get_chatwork_account_id_int("invalid")
+        assert result is None
+
+    def test_get_chatwork_account_id_int_empty(self, monitor):
+        """空文字はNoneを返す"""
+        result = monitor._get_chatwork_account_id_int("")
+        assert result is None
+
+    def test_is_valid_uuid_valid(self, monitor):
+        """有効なUUIDを検証できる"""
+        assert monitor._is_valid_uuid("5f98365f-e7c5-4f48-9918-7fe9aabae5df") is True
+        assert monitor._is_valid_uuid("12345678-1234-1234-1234-123456789012") is True
+
+    def test_is_valid_uuid_invalid(self, monitor):
+        """無効なUUIDを検出できる"""
+        assert monitor._is_valid_uuid("org_soulsyncs") is False
+        assert monitor._is_valid_uuid("not-a-uuid") is False
+        assert monitor._is_valid_uuid("") is False
+        assert monitor._is_valid_uuid(None) is False
+
+    def test_is_valid_uuid_short_uuid(self, monitor):
+        """ハイフンなしUUIDも検証できる"""
+        # 32文字（ハイフンなし）
+        assert monitor._is_valid_uuid("5f98365fe7c54f4899187fe9aabae5df") is True

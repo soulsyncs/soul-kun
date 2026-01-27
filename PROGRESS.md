@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 11:00 JST**
+**最終更新: 2026-01-28 11:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -274,11 +274,21 @@
 > CapabilityBridgeをchatwork-webhookに統合した。
 > - **SYSTEM_CAPABILITIES拡張**: generate_document, generate_image, generate_video追加
 > - **ハンドラー統合**: _get_brain_integration()とCapabilityBridgeを接続
-> - **PR #272**: マージ完了、デプロイ待ち
+> - **PR #272**: マージ完了
+> - **本番デプロイ**: revision 00216-xac ✅
+
+**完了したこと（chatwork-webhook v10.38.0 デプロイ）:** ✅ 2026-01-28 06:08 UTC 完了
+> Brain-Capability統合を本番環境にデプロイした。
+> - **旧リビジョン**: chatwork-webhook-00215-lot
+> - **新リビジョン**: chatwork-webhook-00216-xac
+> - **検証結果**:
+>   - CapabilityBridge: 正常ロード
+>   - 脳アーキテクチャ: enabled=True
+>   - エラー: なし
 
 **次にやること:**
-> 1. **chatwork-webhookデプロイ** - Brain-Capability統合を本番反映（v10.38.0）
-> 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 1. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 2. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
 > 3. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
 
 ---
@@ -410,6 +420,19 @@
 
 ### 2026-01-28
 
+- **15:08 JST**: chatwork-webhook v10.38.0 本番デプロイ ✅ **revision 00216-xac**
+  - **概要**: Brain-Capability統合を本番環境にデプロイ
+  - **変更内容**:
+    - CapabilityBridgeインポート・初期化追加
+    - SYSTEM_CAPABILITIESに生成機能追加（generate_document, generate_image, generate_video）
+    - _get_brain_integration()にCapabilityBridgeハンドラー統合
+  - **検証結果**:
+    - CapabilityBridge: 正常ロード
+    - 脳アーキテクチャ: enabled=True
+    - エラー: なし
+  - **旧リビジョン**: chatwork-webhook-00215-lot
+  - **新リビジョン**: chatwork-webhook-00216-xac
+
 - **11:00 JST**: Brain-Capability main.py統合 ✅ **PR #272 マージ完了**
   - **概要**: CapabilityBridge を chatwork-webhook/main.py に統合
   - **SYSTEM_CAPABILITIES拡張**:
@@ -419,7 +442,6 @@
     - `create_document`: generate_documentのエイリアス
   - **脳統合**: `_get_brain_integration()` に CapabilityBridge ハンドラーを追加
   - **テスト**: 3327件パス
-  - **次のステップ**: chatwork-webhook 本番デプロイ
 
 - **10:30 JST**: Brain-Capability統合基盤 実装完了 ✅ **PR #271 マージ完了**
   - **概要**: 脳と機能モジュールが完全に分断されていた問題を発見し、橋渡し層を実装

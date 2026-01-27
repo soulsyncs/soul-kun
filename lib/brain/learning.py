@@ -22,17 +22,30 @@ from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from enum import Enum
 
-from lib.brain.models import (
+from .models import (
     BrainContext,
     UnderstandingResult,
     DecisionResult,
     HandlerResult,
     ConversationMessage,
 )
-from lib.brain.constants import (
+from .constants import (
     CONFIRMATION_THRESHOLD,
     SAVE_DECISION_LOGS,
 )
+
+# Phase 2E: 学習基盤統合
+try:
+    from .learning_foundation import (
+        BrainLearning as Phase2ELearning,
+        FeedbackDetectionResult,
+        ConversationContext as LearningConversationContext,
+        Learning,
+        CONFIDENCE_THRESHOLD_AUTO_LEARN,
+    )
+    PHASE_2E_AVAILABLE = True
+except ImportError:
+    PHASE_2E_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -152,6 +165,7 @@ class MemoryUpdate:
     conversation_saved: bool = False
     summary_generated: bool = False
     preference_updated: bool = False
+    learning_saved: bool = False  # Phase 2E: フィードバックから学習を保存したか
     errors: List[str] = field(default_factory=list)
 
 
@@ -207,11 +221,25 @@ class BrainLearning:
         self._preference_update_times: Dict[str, datetime] = {}
         self._decision_logs_buffer: List[DecisionLogEntry] = []
 
+        # Phase 2E: 学習基盤
+        self._phase2e_learning = None
+        if PHASE_2E_AVAILABLE and org_id:
+            try:
+                self._phase2e_learning = Phase2ELearning(
+                    organization_id=org_id,
+                    ceo_account_ids=["1728974"],  # カズさん
+                    manager_account_ids=[],
+                )
+                logger.info("Phase 2E Learning Foundation initialized")
+            except Exception as e:
+                logger.warning(f"Phase 2E initialization failed: {e}")
+
         logger.debug(
             f"BrainLearning initialized: "
             f"org_id={org_id}, "
             f"enable_logging={self.enable_logging}, "
-            f"enable_learning={enable_learning}"
+            f"enable_learning={enable_learning}, "
+            f"phase2e={'enabled' if self._phase2e_learning else 'disabled'}"
         )
 
     # =========================================================================
@@ -402,6 +430,17 @@ class BrainLearning:
                     update_result.preference_updated = True
                     self._preference_update_times[account_id] = datetime.now()
 
+            # 4. Phase 2E: フィードバックから学習
+            if self._phase2e_learning and self.enable_learning:
+                learning_saved = await self._process_feedback_learning(
+                    message=message,
+                    room_id=room_id,
+                    account_id=account_id,
+                    sender_name=sender_name,
+                )
+                if learning_saved:
+                    update_result.learning_saved = True
+
         except Exception as e:
             logger.warning(f"Error updating memory: {e}")
             update_result.errors.append(str(e))
@@ -527,6 +566,85 @@ class BrainLearning:
 
         elapsed = datetime.now() - last_update
         return elapsed.total_seconds() >= PREFERENCE_UPDATE_INTERVAL_MINUTES * 60
+
+    # =========================================================================
+    # Phase 2E: フィードバック学習
+    # =========================================================================
+
+    async def _process_feedback_learning(
+        self,
+        message: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+    ) -> bool:
+        """
+        Phase 2E: メッセージからフィードバックを検出し、学習を保存
+
+        Args:
+            message: ユーザーのメッセージ
+            room_id: ルームID
+            account_id: アカウントID
+            sender_name: 送信者名
+
+        Returns:
+            学習を保存したか
+        """
+        if not self._phase2e_learning:
+            return False
+
+        try:
+            # 1. フィードバックを検出
+            detection_result = self._phase2e_learning.detect(message)
+
+            if not detection_result:
+                return False
+
+            logger.info(
+                f"[Phase2E] Feedback detected: "
+                f"pattern={detection_result.pattern_name}, "
+                f"confidence={detection_result.confidence:.2f}, "
+                f"category={detection_result.category}"
+            )
+
+            # 2. 自動学習すべきか判定
+            if not self._phase2e_learning.should_auto_learn(detection_result):
+                logger.debug(
+                    f"[Phase2E] Confidence too low for auto-learn: "
+                    f"{detection_result.confidence:.2f}"
+                )
+                return False
+
+            # 3. 学習オブジェクトを抽出
+            learning = self._phase2e_learning.extract(
+                detection_result=detection_result,
+                message=message,
+                taught_by_account_id=account_id,
+                taught_by_name=sender_name,
+                room_id=room_id,
+            )
+
+            # 4. DBに保存
+            if not self.pool:
+                logger.warning("[Phase2E] No DB pool, cannot save learning")
+                return False
+
+            with self.pool.connect() as conn:
+                saved_learning = self._phase2e_learning.save(conn, learning)
+                conn.commit()
+
+            logger.info(
+                f"[Phase2E] Learning saved: "
+                f"id={saved_learning.id}, "
+                f"category={saved_learning.category}, "
+                f"trigger={saved_learning.trigger_value}"
+            )
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"[Phase2E] Error processing feedback: {e}")
+            return False
 
     # =========================================================================
     # パターン分析

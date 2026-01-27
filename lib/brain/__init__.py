@@ -7,6 +7,7 @@
 
 設計書: docs/13_brain_architecture.md
 設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
+設計書: docs/18_phase2e_learning_foundation.md（Phase 2E: 学習基盤）
 
 【7つの鉄則】
 1. 全ての入力は脳を通る（バイパスルート禁止）
@@ -16,6 +17,14 @@
 5. 確認は脳の責務
 6. 状態管理は脳が統一管理
 7. 速度より正確性を優先
+
+【v10.33.0 変更点】Phase 2E: 学習基盤
+- BrainLearning統合クラスを追加
+- フィードバック検出（18パターン対応）
+- 学習の保存・適用・管理機能
+- 矛盾検出と解決（CEO教え優先）
+- 権限レベル管理（ceo > manager > user > system）
+- 有効性追跡（Phase 2N準備）
 
 【v10.30.0 変更点】
 - CAPABILITY_KEYWORDSとINTENT_KEYWORDSを非推奨化
@@ -153,6 +162,55 @@ from lib.brain.guardian import (
     SDT_CRITERIA,
 )
 
+# Phase 2E: Learning Foundation
+from lib.brain.learning_foundation import (
+    # 統合クラス
+    BrainLearning,
+    create_brain_learning,
+    # Enum
+    LearningCategory,
+    LearningScope,
+    AuthorityLevel as LearningAuthorityLevel,
+    TriggerType,
+    RelationshipType,
+    DecisionImpact,
+    ConflictResolutionStrategy,
+    ConflictType as LearningConflictType,
+    # データモデル
+    Learning,
+    LearningLog,
+    FeedbackDetectionResult,
+    ConversationContext as LearningConversationContext,
+    ConflictInfo as LearningConflictInfo,
+    Resolution,
+    AppliedLearning,
+    EffectivenessResult,
+    ImprovementSuggestion,
+    # パターン
+    DetectionPattern,
+    ALL_PATTERNS,
+    PATTERNS_BY_NAME,
+    PATTERNS_BY_CATEGORY,
+    # クラス
+    FeedbackDetector,
+    LearningExtractor,
+    LearningRepository,
+    LearningApplier,
+    LearningApplierWithCeoCheck,
+    LearningManager,
+    ConflictDetector as LearningConflictDetector,
+    AuthorityResolver,
+    AuthorityResolverWithDb,
+    EffectivenessTracker,
+    EffectivenessMetrics,
+    LearningHealth,
+    # 定数
+    AUTHORITY_PRIORITY,
+    CONFIDENCE_THRESHOLD_AUTO_LEARN,
+    CONFIDENCE_THRESHOLD_CONFIRM,
+    CONFIDENCE_THRESHOLD_MIN,
+)
+
 __all__ = [
     # メインクラス
     "SoulkunBrain",
@@ -241,6 +299,52 @@ __all__ = [
     "MVV_VALIDATION_CRITERIA",
     "CHOICE_THEORY_CRITERIA",
     "SDT_CRITERIA",
+    # Phase 2E: Learning Foundation（v10.33.0）
+    # 統合クラス
+    "BrainLearning",
+    "create_brain_learning",
+    # Enum
+    "LearningCategory",
+    "LearningScope",
+    "LearningAuthorityLevel",
+    "TriggerType",
+    "RelationshipType",
+    "DecisionImpact",
+    "ConflictResolutionStrategy",
+    "LearningConflictType",
+    # データモデル
+    "Learning",
+    "LearningLog",
+    "FeedbackDetectionResult",
+    "LearningConversationContext",
+    "LearningConflictInfo",
+    "Resolution",
+    "AppliedLearning",
+    "EffectivenessResult",
+    "ImprovementSuggestion",
+    # パターン
+    "DetectionPattern",
+    "ALL_PATTERNS",
+    "PATTERNS_BY_NAME",
+    "PATTERNS_BY_CATEGORY",
+    # クラス
+    "FeedbackDetector",
+    "LearningExtractor",
+    "LearningRepository",
+    "LearningApplier",
+    "LearningApplierWithCeoCheck",
+    "LearningManager",
+    "LearningConflictDetector",
+    "AuthorityResolver",
+    "AuthorityResolverWithDb",
+    "EffectivenessTracker",
+    "EffectivenessMetrics",
+    "LearningHealth",
+    # 定数
+    "AUTHORITY_PRIORITY",
+    "CONFIDENCE_THRESHOLD_AUTO_LEARN",
+    "CONFIDENCE_THRESHOLD_CONFIRM",
+    "CONFIDENCE_THRESHOLD_MIN",
 ]
 
-__version__ = "1.3.0"  # v10.32.0: Phase 2D - CEO Learning & Guardian
+__version__ = "2.0.0"  # v10.33.0: Phase 2E - Learning Foundation

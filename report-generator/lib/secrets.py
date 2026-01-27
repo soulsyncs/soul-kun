@@ -29,7 +29,8 @@ from functools import lru_cache
 from typing import Optional
 import threading
 
-from lib.config import get_settings
+# v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+from .config import get_settings
 
 # スレッドセーフなシークレットマネージャークライアント
 _client = None

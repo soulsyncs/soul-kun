@@ -23,6 +23,15 @@ from .constants import (
     ConfirmationLevel,
     QualityLevel,
     ToneStyle,
+    # G2: 画像生成
+    ImageProvider,
+    ImageSize,
+    ImageQuality,
+    ImageStyle,
+    DEFAULT_IMAGE_PROVIDER,
+    DEFAULT_IMAGE_SIZE,
+    DEFAULT_IMAGE_QUALITY,
+    DEFAULT_IMAGE_STYLE,
 )
 
 
@@ -459,6 +468,9 @@ class GenerationInput:
     # 文書生成用
     document_request: Optional[DocumentRequest] = None
 
+    # 画像生成用（G2）
+    image_request: Optional["ImageRequest"] = None
+
     # 共通設定
     user_id: Optional[UUID] = None
     instruction: str = ""
@@ -468,6 +480,8 @@ class GenerationInput:
         """適切なリクエストオブジェクトを取得"""
         if self.generation_type == GenerationType.DOCUMENT:
             return self.document_request
+        if self.generation_type == GenerationType.IMAGE:
+            return self.image_request
         return None
 
 
@@ -485,6 +499,9 @@ class GenerationOutput:
     # 文書生成結果
     document_result: Optional[DocumentResult] = None
 
+    # 画像生成結果（G2）
+    image_result: Optional["ImageResult"] = None
+
     # 共通メタデータ
     metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
 
@@ -496,6 +513,8 @@ class GenerationOutput:
         """適切な結果オブジェクトを取得"""
         if self.generation_type == GenerationType.DOCUMENT:
             return self.document_result
+        if self.generation_type == GenerationType.IMAGE:
+            return self.image_result
         return None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -510,12 +529,16 @@ class GenerationOutput:
         }
         if self.document_result:
             result["document_result"] = self.document_result.to_dict()
+        if self.image_result:
+            result["image_result"] = self.image_result.to_dict()
         return result
 
     def to_user_message(self) -> str:
         """ユーザー向けメッセージを生成"""
         if self.document_result:
             return self.document_result.to_user_message()
+        if self.image_result:
+            return self.image_result.to_user_message()
         if self.error_message:
             return f"生成に失敗しました: {self.error_message}"
         return "生成処理中..."
@@ -524,4 +547,200 @@ class GenerationOutput:
         """脳のコンテキスト用文字列を生成"""
         if self.document_result:
             return self.document_result.to_brain_context()
+        if self.image_result:
+            return self.image_result.to_brain_context()
         return f"【生成出力】タイプ: {self.generation_type.value}, ステータス: {self.status.value}"
+
+
+# =============================================================================
+# Phase G2: 画像生成モデル
+# =============================================================================
+
+
+@dataclass
+class ImageRequest:
+    """
+    画像生成リクエスト
+
+    DALL-E等の画像生成AIへのリクエストを表現。
+    """
+    organization_id: UUID
+    prompt: str                                         # 生成したい画像の説明
+
+    # オプション設定
+    provider: ImageProvider = DEFAULT_IMAGE_PROVIDER
+    size: ImageSize = DEFAULT_IMAGE_SIZE
+    quality: ImageQuality = DEFAULT_IMAGE_QUALITY
+    style: ImageStyle = DEFAULT_IMAGE_STYLE
+    user_id: Optional[UUID] = None
+
+    # 追加オプション
+    instruction: str = ""                               # 追加の指示
+    reference_image_url: Optional[str] = None           # 参考画像URL（将来用）
+    negative_prompt: str = ""                           # 除外したい要素
+    seed: Optional[int] = None                          # 再現性用シード（対応プロバイダのみ）
+
+    # 出力先
+    save_to_drive: bool = False                         # Google Driveに保存
+    drive_folder_id: Optional[str] = None               # 保存先フォルダID
+    send_to_chatwork: bool = False                      # ChatWorkに送信
+    chatwork_room_id: Optional[str] = None              # 送信先ルームID
+
+    # 確認
+    require_confirmation: bool = False                  # 生成前に確認を求める
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "organization_id": str(self.organization_id),
+            "prompt": self.prompt,
+            "provider": self.provider.value,
+            "size": self.size.value,
+            "quality": self.quality.value,
+            "style": self.style.value,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "instruction": self.instruction,
+            "negative_prompt": self.negative_prompt,
+            "save_to_drive": self.save_to_drive,
+            "send_to_chatwork": self.send_to_chatwork,
+        }
+
+
+@dataclass
+class OptimizedPrompt:
+    """
+    最適化されたプロンプト
+
+    LLMによって最適化されたDALL-E用プロンプト。
+    """
+    original_prompt: str                                # 元のプロンプト
+    optimized_prompt: str                               # 最適化後のプロンプト（英語）
+    japanese_summary: str = ""                          # 日本語での説明
+    warnings: List[str] = field(default_factory=list)   # 注意点
+    tokens_used: int = 0                                # 使用トークン数
+
+
+@dataclass
+class ImageResult:
+    """
+    画像生成結果
+
+    生成された画像の情報と配信状況を保持。
+    """
+    # ステータス
+    status: GenerationStatus = GenerationStatus.PENDING
+    success: bool = False
+
+    # 生成された画像
+    image_url: Optional[str] = None                     # 画像URL（OpenAI一時URL）
+    image_data: Optional[bytes] = None                  # 画像データ（バイナリ）
+    image_format: str = "png"                           # 画像フォーマット
+
+    # 保存先
+    drive_url: Optional[str] = None                     # Google Drive URL
+    drive_file_id: Optional[str] = None                 # Google Drive ファイルID
+
+    # 生成情報
+    prompt_used: Optional[str] = None                   # 実際に使用したプロンプト
+    optimized_prompt: Optional[OptimizedPrompt] = None  # 最適化情報
+    provider: ImageProvider = DEFAULT_IMAGE_PROVIDER
+    size: ImageSize = DEFAULT_IMAGE_SIZE
+    quality: ImageQuality = DEFAULT_IMAGE_QUALITY
+    style: ImageStyle = DEFAULT_IMAGE_STYLE
+    revised_prompt: Optional[str] = None                # DALL-E 3が返す修正済みプロンプト
+
+    # コスト
+    estimated_cost_jpy: float = 0.0
+
+    # メタデータ
+    metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+
+    # ChatWork送信結果
+    chatwork_sent: bool = False
+    chatwork_message_id: Optional[str] = None
+
+    def complete(
+        self,
+        success: bool = True,
+        error_message: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> "ImageResult":
+        """処理完了時に結果を更新"""
+        self.success = success
+        self.status = GenerationStatus.COMPLETED if success else GenerationStatus.FAILED
+        if not success:
+            self.error_message = error_message
+            self.error_code = error_code
+        self.metadata.complete(success, error_message, error_code)
+        return self
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "status": self.status.value,
+            "success": self.success,
+            "image_url": self.image_url,
+            "drive_url": self.drive_url,
+            "prompt_used": self.prompt_used,
+            "revised_prompt": self.revised_prompt,
+            "provider": self.provider.value,
+            "size": self.size.value,
+            "quality": self.quality.value,
+            "style": self.style.value,
+            "estimated_cost_jpy": self.estimated_cost_jpy,
+            "metadata": self.metadata.to_dict(),
+            "error_message": self.error_message,
+            "error_code": self.error_code,
+            "chatwork_sent": self.chatwork_sent,
+        }
+
+    def to_user_message(self) -> str:
+        """ユーザー向けメッセージを生成"""
+        if self.status == GenerationStatus.GENERATING:
+            return "画像を生成中ウル... 🎨"
+
+        if self.status == GenerationStatus.COMPLETED:
+            lines = [
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                "✅ 完成したウル！",
+                "",
+            ]
+            if self.image_url:
+                lines.append(f"🖼 画像URL: {self.image_url}")
+            if self.drive_url:
+                lines.append(f"📁 Google Drive: {self.drive_url}")
+            lines.extend([
+                "",
+                f"📐 サイズ: {self.size.value}",
+                f"💰 コスト: ¥{self.estimated_cost_jpy:.0f}",
+                "",
+                "気に入らなかったら、修正指示を教えてほしいウル！",
+                "・もっと明るく",
+                "・色を変えて",
+                "・構図を変えて",
+                "など",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+            ])
+            return "\n".join(lines)
+
+        if self.status == GenerationStatus.FAILED:
+            return f"画像の生成に失敗したウル... 😢\n{self.error_message or '原因不明'}"
+
+        return f"画像を準備中ウル...（{self.status.value}）"
+
+    def to_brain_context(self) -> str:
+        """脳のコンテキスト用文字列を生成"""
+        lines = ["【画像生成結果】"]
+        lines.append(f"ステータス: {self.status.value}")
+
+        if self.status == GenerationStatus.COMPLETED:
+            if self.drive_url:
+                lines.append(f"Google Drive: {self.drive_url}")
+            lines.append(f"サイズ: {self.size.value}")
+            lines.append(f"品質: {self.quality.value}")
+            if self.prompt_used:
+                lines.append(f"プロンプト: {self.prompt_used[:100]}...")
+
+        return "\n".join(lines)

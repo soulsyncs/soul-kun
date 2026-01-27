@@ -441,3 +441,202 @@ COST_PER_1K_TOKENS: Dict[str, float] = {
 
 # 出力は入力の5倍
 OUTPUT_COST_MULTIPLIER: float = 5.0
+
+
+# =============================================================================
+# Phase G2: 画像生成定数
+# =============================================================================
+
+
+class ImageProvider(str, Enum):
+    """画像生成プロバイダー"""
+    DALLE3 = "dalle3"               # OpenAI DALL-E 3
+    DALLE2 = "dalle2"               # OpenAI DALL-E 2
+    STABILITY = "stability"         # Stability AI
+    MIDJOURNEY = "midjourney"       # Midjourney（将来対応）
+
+
+class ImageSize(str, Enum):
+    """画像サイズ"""
+    # DALL-E 3対応サイズ
+    SQUARE_1024 = "1024x1024"       # 正方形（標準）
+    LANDSCAPE_1792 = "1792x1024"    # 横長
+    PORTRAIT_1024 = "1024x1792"     # 縦長
+
+    # DALL-E 2対応サイズ
+    SQUARE_256 = "256x256"          # 小
+    SQUARE_512 = "512x512"          # 中
+    SQUARE_1024_V2 = "1024x1024"    # 大（DALL-E 2）
+
+
+class ImageQuality(str, Enum):
+    """画像品質"""
+    STANDARD = "standard"           # 標準品質
+    HD = "hd"                       # 高品質（DALL-E 3のみ）
+
+
+class ImageStyle(str, Enum):
+    """画像スタイル"""
+    VIVID = "vivid"                 # 鮮やか・ドラマチック
+    NATURAL = "natural"             # 自然・リアル
+    # カスタムスタイル（プロンプトで調整）
+    ANIME = "anime"                 # アニメ風
+    PHOTOREALISTIC = "photorealistic"  # 写実的
+    ILLUSTRATION = "illustration"   # イラスト風
+    MINIMALIST = "minimalist"       # ミニマリスト
+    CORPORATE = "corporate"         # ビジネス・企業向け
+
+
+# -----------------------------------------------------------------------------
+# DALL-E API設定
+# -----------------------------------------------------------------------------
+
+DALLE_API_URL: str = "https://api.openai.com/v1/images/generations"
+DALLE_API_TIMEOUT_SECONDS: int = 120
+DALLE_MAX_RETRIES: int = 3
+DALLE_RETRY_DELAY_SECONDS: float = 2.0
+
+# デフォルト設定
+DEFAULT_IMAGE_PROVIDER: ImageProvider = ImageProvider.DALLE3
+DEFAULT_IMAGE_SIZE: ImageSize = ImageSize.SQUARE_1024
+DEFAULT_IMAGE_QUALITY: ImageQuality = ImageQuality.STANDARD
+DEFAULT_IMAGE_STYLE: ImageStyle = ImageStyle.VIVID
+DEFAULT_IMAGE_MODEL: str = "dall-e-3"
+
+# DALL-E 2のモデル名
+DALLE2_MODEL: str = "dall-e-2"
+
+# プロバイダー別サポートサイズ
+SUPPORTED_SIZES_BY_PROVIDER: Dict[str, FrozenSet[str]] = {
+    ImageProvider.DALLE3.value: frozenset([
+        ImageSize.SQUARE_1024.value,
+        ImageSize.LANDSCAPE_1792.value,
+        ImageSize.PORTRAIT_1024.value,
+    ]),
+    ImageProvider.DALLE2.value: frozenset([
+        ImageSize.SQUARE_256.value,
+        ImageSize.SQUARE_512.value,
+        ImageSize.SQUARE_1024.value,
+    ]),
+}
+
+# プロバイダー別サポート品質
+SUPPORTED_QUALITY_BY_PROVIDER: Dict[str, FrozenSet[str]] = {
+    ImageProvider.DALLE3.value: frozenset([
+        ImageQuality.STANDARD.value,
+        ImageQuality.HD.value,
+    ]),
+    ImageProvider.DALLE2.value: frozenset([
+        ImageQuality.STANDARD.value,
+    ]),
+}
+
+
+# -----------------------------------------------------------------------------
+# 画像生成制限
+# -----------------------------------------------------------------------------
+
+MAX_PROMPT_LENGTH: int = 4000           # プロンプト最大文字数
+MAX_IMAGES_PER_REQUEST: int = 1         # 1リクエストあたりの最大生成数（DALL-E 3は1固定）
+MAX_IMAGES_PER_DAY_PER_USER: int = 50   # ユーザーあたり日次上限
+MAX_IMAGE_FILE_SIZE_BYTES: int = 20 * 1024 * 1024  # 20MB（編集用アップロード時）
+
+
+# -----------------------------------------------------------------------------
+# 画像生成コスト（円、参考値）
+# -----------------------------------------------------------------------------
+
+IMAGE_COST_JPY: Dict[str, Dict[str, float]] = {
+    # DALL-E 3
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_1024.value}": 6.0,
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.LANDSCAPE_1792.value}": 12.0,
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.PORTRAIT_1024.value}": 12.0,
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.HD.value}_{ImageSize.SQUARE_1024.value}": 12.0,
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.HD.value}_{ImageSize.LANDSCAPE_1792.value}": 18.0,
+    f"{ImageProvider.DALLE3.value}_{ImageQuality.HD.value}_{ImageSize.PORTRAIT_1024.value}": 18.0,
+
+    # DALL-E 2
+    f"{ImageProvider.DALLE2.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_256.value}": 2.4,
+    f"{ImageProvider.DALLE2.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_512.value}": 2.7,
+    f"{ImageProvider.DALLE2.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_1024.value}": 3.0,
+}
+
+
+# -----------------------------------------------------------------------------
+# スタイル別プロンプト修飾子
+# -----------------------------------------------------------------------------
+
+STYLE_PROMPT_MODIFIERS: Dict[str, str] = {
+    ImageStyle.ANIME.value: "anime style, Japanese animation aesthetic, vibrant colors",
+    ImageStyle.PHOTOREALISTIC.value: "photorealistic, ultra-detailed, 8k resolution, professional photography",
+    ImageStyle.ILLUSTRATION.value: "digital illustration, clean lines, artistic style",
+    ImageStyle.MINIMALIST.value: "minimalist design, simple, clean, white space, modern",
+    ImageStyle.CORPORATE.value: "professional corporate style, business appropriate, clean and modern",
+}
+
+
+# -----------------------------------------------------------------------------
+# 画像生成エラーメッセージ
+# -----------------------------------------------------------------------------
+
+IMAGE_ERROR_MESSAGES: Dict[str, str] = {
+    # 検証エラー
+    "EMPTY_PROMPT": "画像の説明（プロンプト）が指定されていません。",
+    "PROMPT_TOO_LONG": "プロンプトが長すぎます（最大{max}文字）。",
+    "INVALID_SIZE": "サポートされていない画像サイズです: {size}",
+    "INVALID_QUALITY": "サポートされていない画像品質です: {quality}",
+    "INVALID_PROVIDER": "サポートされていないプロバイダーです: {provider}",
+    "SIZE_NOT_SUPPORTED_BY_PROVIDER": "{provider}は{size}サイズをサポートしていません。",
+
+    # 生成エラー
+    "GENERATION_FAILED": "画像の生成に失敗しました。",
+    "CONTENT_POLICY_VIOLATION": "コンテンツポリシーに違反するプロンプトです。内容を修正してください。",
+    "SAFETY_FILTER_TRIGGERED": "安全フィルターが作動しました。プロンプトを修正してください。",
+
+    # API エラー
+    "DALLE_API_ERROR": "DALL-E APIエラー: {error}",
+    "DALLE_RATE_LIMIT": "DALL-E APIのレート制限に達しました。しばらく待ってから再試行してください。",
+    "DALLE_TIMEOUT": "画像生成がタイムアウトしました。",
+    "DALLE_QUOTA_EXCEEDED": "APIクォータを超過しました。",
+
+    # 保存エラー
+    "SAVE_FAILED": "画像の保存に失敗しました。",
+    "UPLOAD_FAILED": "画像のアップロードに失敗しました。",
+
+    # その他
+    "FEATURE_DISABLED": "画像生成機能は現在無効です。",
+    "DAILY_LIMIT_EXCEEDED": "本日の画像生成上限（{limit}枚）に達しました。",
+}
+
+
+# -----------------------------------------------------------------------------
+# プロンプト最適化用テンプレート
+# -----------------------------------------------------------------------------
+
+IMAGE_PROMPT_OPTIMIZATION_TEMPLATE: str = """
+あなたは画像生成AIのプロンプトエンジニアです。
+ユーザーの要望を、DALL-E 3で最適な結果が得られるプロンプトに変換してください。
+
+【ユーザーの要望】
+{user_prompt}
+
+【スタイル指定】
+{style}
+
+【追加の指示】
+{instruction}
+
+【出力形式】
+以下のJSON形式で出力してください：
+{{
+    "optimized_prompt": "最適化されたプロンプト（英語）",
+    "japanese_summary": "生成される画像の日本語説明",
+    "warnings": ["注意点があれば"]
+}}
+
+【ルール】
+- プロンプトは英語で作成（DALL-E 3は英語の方が精度が高い）
+- 具体的な描写を含める（構図、色、光、雰囲気）
+- 著作権や商標を侵害する表現は避ける
+- 人物の顔を特定できる表現は避ける
+"""

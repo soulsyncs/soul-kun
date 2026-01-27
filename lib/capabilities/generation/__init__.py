@@ -121,6 +121,20 @@ from .constants import (
     # コスト設定
     COST_PER_1K_TOKENS,
     OUTPUT_COST_MULTIPLIER,
+
+    # G2: 画像生成定数
+    ImageProvider,
+    ImageSize,
+    ImageQuality,
+    ImageStyle,
+    DEFAULT_IMAGE_PROVIDER,
+    DEFAULT_IMAGE_SIZE,
+    DEFAULT_IMAGE_QUALITY,
+    DEFAULT_IMAGE_STYLE,
+    DEFAULT_IMAGE_MODEL,
+    MAX_PROMPT_LENGTH,
+    IMAGE_COST_JPY,
+    IMAGE_ERROR_MESSAGES,
 )
 
 
@@ -169,6 +183,24 @@ from .exceptions import (
     # デコレータ
     wrap_generation_error,
     wrap_sync_generation_error,
+
+    # G2: 画像生成例外
+    ImageGenerationError,
+    ImagePromptEmptyError,
+    ImagePromptTooLongError,
+    ImageInvalidSizeError,
+    ImageInvalidQualityError,
+    ContentPolicyViolationError,
+    SafetyFilterTriggeredError,
+    DALLEAPIError,
+    DALLERateLimitError,
+    DALLETimeoutError,
+    DALLEQuotaExceededError,
+    ImageSaveError,
+    ImageUploadError,
+    ImageDailyLimitExceededError,
+    ImageFeatureDisabledError,
+    wrap_image_generation_error,
 )
 
 
@@ -191,6 +223,11 @@ from .models import (
     # リクエスト/結果モデル
     DocumentRequest,
     DocumentResult,
+
+    # G2: 画像生成モデル
+    ImageRequest,
+    ImageResult,
+    OptimizedPrompt,
 
     # 統合モデル
     GenerationInput,
@@ -225,6 +262,26 @@ from .document_generator import (
 from .google_docs_client import (
     GoogleDocsClient,
     create_google_docs_client,
+)
+
+
+# =============================================================================
+# G2: 画像ジェネレーター
+# =============================================================================
+
+from .image_generator import (
+    ImageGenerator,
+    create_image_generator,
+)
+
+
+# =============================================================================
+# G2: DALL-E クライアント
+# =============================================================================
+
+from .dalle_client import (
+    DALLEClient,
+    create_dalle_client,
 )
 
 
@@ -344,6 +401,24 @@ __all__ = [
     "wrap_generation_error",
     "wrap_sync_generation_error",
 
+    # G2: 画像生成例外
+    "ImageGenerationError",
+    "ImagePromptEmptyError",
+    "ImagePromptTooLongError",
+    "ImageInvalidSizeError",
+    "ImageInvalidQualityError",
+    "ContentPolicyViolationError",
+    "SafetyFilterTriggeredError",
+    "DALLEAPIError",
+    "DALLERateLimitError",
+    "DALLETimeoutError",
+    "DALLEQuotaExceededError",
+    "ImageSaveError",
+    "ImageUploadError",
+    "ImageDailyLimitExceededError",
+    "ImageFeatureDisabledError",
+    "wrap_image_generation_error",
+
     # モデル - 共通
     "GenerationMetadata",
     "ReferenceDocument",
@@ -359,6 +434,11 @@ __all__ = [
     "DocumentRequest",
     "DocumentResult",
 
+    # G2: 画像生成モデル
+    "ImageRequest",
+    "ImageResult",
+    "OptimizedPrompt",
+
     # モデル - 統合
     "GenerationInput",
     "GenerationOutput",
@@ -371,7 +451,15 @@ __all__ = [
     "DocumentGenerator",
     "create_document_generator",
 
+    # G2: 画像ジェネレーター
+    "ImageGenerator",
+    "create_image_generator",
+
     # Google APIクライアント
     "GoogleDocsClient",
     "create_google_docs_client",
+
+    # G2: DALL-E クライアント
+    "DALLEClient",
+    "create_dalle_client",
 ]

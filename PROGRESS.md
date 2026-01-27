@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 17:00 JST**
+**最終更新: 2026-01-27 18:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -59,11 +59,16 @@
 > - テスト119件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase 2F Outcome Learning）:** ✅ 2026-01-27 完了
+> 暗黙のフィードバックから学ぶ仕組みを構築した。
+> - 8ファイル実装完了（lib/brain/outcome_learning/）
+> - 結果追跡、暗黙FB検出、パターン抽出、分析機能
+> - テスト32件全パス
+> - chatwork-webhookに同期済み
+
 **次にやること:**
-> 1. Phase 2Fの実装開始（結果からの学習）
+> 1. Phase 2Gの実装開始（記憶の強化）
 >    - docs/17_brain_completion_roadmap.md参照
->    - 暗黙フィードバックの解釈
->    - 成功パターンの自動抽出
 > 2. 本番ログ監視継続 - 脳の判断ログを確認
 > 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
 
@@ -79,7 +84,8 @@
 | ~~★★☆~~ | ~~脳アーキテクチャ本番有効化~~ | ~~シャドウモード稼働中 → 段階的ロールアウト~~ | ✅ **完了 (v10.31.3)** |
 | ~~★★★~~ | ~~Phase 2D CEO Learning~~ | ~~DB・コード・統合完了~~ | ✅ **完了 (v10.32.1)** |
 | ~~★★★~~ | ~~Phase 2E Learning Foundation~~ | ~~12ファイル・119テスト完了~~ | ✅ **完了** |
-| **★★★** | **Phase 2F 結果からの学習** | 暗黙フィードバック解釈・成功パターン抽出 | 📋 次の作業 |
+| ~~★★★~~ | ~~Phase 2F 結果からの学習~~ | ~~8ファイル・32テスト完了~~ | ✅ **完了** |
+| **★★★** | **Phase 2G 記憶の強化** | 長期記憶管理・エピソード記憶強化 | 📋 次の作業 |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
 ---
@@ -106,8 +112,8 @@
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後 |
 | 2D | CEO教え＆守護者層 | ✅ 完了 | 2026-01-27 | v10.32.1、DB+コード+統合+56テスト完了 |
 | 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |
-| 2F | 結果からの学習 | 📋 次の作業 | - | 暗黙フィードバック・成功パターン抽出 |
-| 2G | 記憶の強化 | 📋 計画中 | - | 2026年3-4月予定 |
+| 2F | 結果からの学習 | ✅ 完了 | 2026-01-27 | 8ファイル・32テスト完了 |
+| 2G | 記憶の強化 | 📋 次の作業 | - | 長期記憶管理・エピソード記憶強化 |
 | 2H | 自己認識 | 📋 計画中 | - | 2026年4-5月予定 |
 | 2I | 理解力強化 | 📋 計画中 | - | 2026年5-6月予定 |
 | 2J | 判断力強化 | 📋 計画中 | - | 2026年6-7月予定 |
@@ -182,6 +188,33 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **18:00 JST**: Phase 2F Outcome Learning 実装完了 ✅ **脳みそ完全化計画 3/11 完了**
+  - **概要**: 暗黙のフィードバックから学ぶ仕組みを構築
+  - **設計書**: `docs/17_brain_completion_roadmap.md` セクション Phase 2F
+  - **新規ファイル（8ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/brain/outcome_learning/__init__.py` | BrainOutcomeLearning統合クラス |
+    | `lib/brain/outcome_learning/constants.py` | Enum定義、閾値定数 |
+    | `lib/brain/outcome_learning/models.py` | OutcomeEvent, OutcomePattern等 |
+    | `lib/brain/outcome_learning/repository.py` | OutcomeRepository（DB永続化） |
+    | `lib/brain/outcome_learning/tracker.py` | OutcomeTracker（行動結果追跡） |
+    | `lib/brain/outcome_learning/implicit_detector.py` | ImplicitFeedbackDetector（暗黙FB検出） |
+    | `lib/brain/outcome_learning/pattern_extractor.py` | PatternExtractor（成功パターン抽出） |
+    | `lib/brain/outcome_learning/analyzer.py` | OutcomeAnalyzer（結果分析） |
+  - **DBマイグレーション**: `migrations/phase2f_outcome_learning.sql`
+    - `brain_outcome_events`: 行動結果イベント記録（15カラム、4インデックス）
+    - `brain_outcome_patterns`: 成功/失敗パターン保存（16カラム、5インデックス）
+  - **主な機能**:
+    - 通知・提案のイベント記録と結果追跡
+    - 暗黙フィードバック検出（採用/無視/遅延/拒否）
+    - 時間帯・曜日パターンの自動抽出
+    - 確信度計算（Wilson score interval簡易版）
+    - パターンの学習への昇格（brain_learningsと連携）
+  - **テスト**: 32件全パス
+  - **同期**: chatwork-webhook/lib/brain/outcome_learning/に同期済み
+  - **脳みそ完全化計画 進捗**: 3/11 Phase完了（2D, 2E, 2F）
 
 - **17:00 JST**: 次世代能力設計書 作成完了 ✅ **docs/20_next_generation_capabilities.md**
   - **概要**: ソウルくんを「会社を一番理解し、デジタル上で何でもできるAI」に進化させるための設計書

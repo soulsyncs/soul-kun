@@ -813,10 +813,10 @@ class ProactiveMonitor:
             if organization_id:
                 query = text("""
                     SELECT u.id, u.organization_id, u.chatwork_account_id,
-                           cu.dm_room_id, u.last_active_at
+                           cu.room_id AS dm_room_id, NULL AS last_active_at
                     FROM users u
-                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                        AND u.organization_id = cu.organization_id
+                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                        AND u.organization_id = cu.organization_id::varchar
                     WHERE u.organization_id = :org_id
                       AND u.is_active = true
                 """)
@@ -824,10 +824,10 @@ class ProactiveMonitor:
             else:
                 query = text("""
                     SELECT u.id, u.organization_id, u.chatwork_account_id,
-                           cu.dm_room_id, u.last_active_at
+                           cu.room_id AS dm_room_id, NULL AS last_active_at
                     FROM users u
-                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                        AND u.organization_id = cu.organization_id
+                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                        AND u.organization_id = cu.organization_id::varchar
                     WHERE u.is_active = true
                 """)
                 params = {}
@@ -865,10 +865,10 @@ class ProactiveMonitor:
 
             query = text("""
                 SELECT u.id, u.organization_id, u.chatwork_account_id,
-                       cu.dm_room_id, u.last_active_at
+                       cu.room_id AS dm_room_id, NULL AS last_active_at
                 FROM users u
-                LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                    AND u.organization_id = cu.organization_id
+                LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                    AND u.organization_id = cu.organization_id::varchar
                 WHERE u.id = :user_id
                   AND u.organization_id = :org_id
             """)

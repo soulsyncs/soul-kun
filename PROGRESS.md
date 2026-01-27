@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 21:50 JST**
+**最終更新: 2026-01-28 10:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -241,11 +241,39 @@
 >   - PR #266: タイムゾーン比較エラー修正（AT TIME ZONE 'Asia/Tokyo'追加）
 > - **動作確認済み**: 53ユーザーをチェック、エラーなく完了
 
+**完了したこと（Phase 2K バグ修正）:** ✅ 2026-01-28 完了
+> proactive-monitorのドライランログを確認し、型不一致バグを発見・修正した。
+> - **問題**: `chatwork_tasks.organization_id`（VARCHAR）にUUIDを渡していた
+> - **問題**: `chatwork_tasks.assigned_to_account_id`（BIGINT）に文字列を渡していた
+> - **問題**: `goals.organization_id`（UUID）に`'org_soulsyncs'`文字列を渡していた
+> - **修正内容**:
+>   - `_get_chatwork_tasks_org_id()`: UUID → VARCHAR変換
+>   - `_get_chatwork_account_id_int()`: 文字列 → BIGINT変換
+>   - `_is_valid_uuid()`: UUID検証（CAST前にチェック）
+> - **PR #270**: マージ済み、デプロイ完了
+> - **動作確認**: 53ユーザーチェック、エラーなし
+
+**完了したこと（Brain-Capability統合基盤）:** ✅ 2026-01-28 実装完了
+> 脳と機能モジュール（capabilities）が完全に分断されていた問題を発見し、統合基盤を実装した。
+> - **問題**: 脳（lib/brain/）と機能（lib/capabilities/）が一切連携していなかった
+> - **解決策**: CapabilityBridgeパターンで橋渡し層を実装
+> - **新規ファイル（2ファイル）**:
+>   | ファイル | 説明 |
+>   |---------|------|
+>   | `lib/brain/capability_bridge.py` | 脳と機能の橋渡し層 |
+>   | `docs/brain_capability_integration_design.md` | 統合設計書 |
+> - **lib/brain/models.py拡張**:
+>   - `multimodal_context`: マルチモーダルコンテキスト
+>   - `generation_request`: 生成リクエスト
+>   - `has_multimodal_content()`, `has_generation_request()`, `get_multimodal_summary()`
+> - **テスト**: 28件追加（tests/test_brain_capability_bridge.py）
+> - **PR #271**: CIチェック全パス、マージ待ち
+
 **次にやること:**
-> 1. **Phase 2Kドライラン監視** - ログを確認し、問題なければ`PROACTIVE_DRY_RUN=false`に変更
-> 2. 本番ログ監視継続 - 脳の判断ログを確認
-> 3. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
-> 4. **Phase G5以降**（動画生成）の実装
+> 1. **PR #271マージ** - Brain-Capability統合基盤を本番反映
+> 2. **CapabilityBridge実運用統合** - chatwork-webhook/main.pyへの組み込み
+> 3. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 4. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
 
 ---
 
@@ -373,6 +401,45 @@
 ---
 
 ## 直近の主な成果
+
+### 2026-01-28
+
+- **10:30 JST**: Brain-Capability統合基盤 実装完了 ✅ **PR #271 マージ完了**
+  - **概要**: 脳と機能モジュールが完全に分断されていた問題を発見し、橋渡し層を実装
+  - **問題**: `lib/brain/`と`lib/capabilities/`の間にゼロインポート・ゼロ連携だった
+  - **解決策**: CapabilityBridgeパターンで統合
+  - **新規ファイル**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/brain/capability_bridge.py` | CapabilityBridge（マルチモーダル前処理、生成ハンドラー） |
+    | `docs/brain_capability_integration_design.md` | 統合設計書（226行） |
+  - **lib/brain/models.py拡張**:
+    - `multimodal_context`, `generation_request` フィールド追加
+    - `has_multimodal_content()`, `has_generation_request()`, `get_multimodal_summary()` メソッド追加
+  - **主な機能**:
+    - `preprocess_message()`: 添付ファイルのマルチモーダル前処理
+    - `get_capability_handlers()`: 生成機能ハンドラー取得（document, image, video, feedback）
+    - `GENERATION_CAPABILITIES`: 生成機能の定義（キーワード、パラメータ、確認フロー）
+    - `DEFAULT_FEATURE_FLAGS`: 機能フラグ管理
+  - **テスト**: 28件追加（`tests/test_brain_capability_bridge.py`）
+  - **同期**: chatwork-webhook/lib/brain/に同期済み
+  - **次のステップ**: PR #271マージ後、chatwork-webhook/main.pyへの統合
+
+- **09:30 JST**: Phase 2K proactive-monitor バグ修正 ✅ **PR #270 マージ・デプロイ完了**
+  - **概要**: ドライランログで発見した型不一致バグを修正し、本番デプロイ完了
+  - **発見したバグ**:
+    - `chatwork_tasks.organization_id` (VARCHAR) にUUID文字列を渡していた
+    - `chatwork_tasks.assigned_to_account_id` (BIGINT) に文字列を渡していた
+    - `goals.organization_id` (UUID) に`'org_soulsyncs'`文字列を渡していた
+  - **修正内容** (`lib/brain/proactive.py`):
+    - `ORGANIZATION_UUID_TO_SLUG` 定数追加（UUID→slugマッピング）
+    - `_get_chatwork_tasks_org_id()` メソッド追加（UUID→VARCHAR変換）
+    - `_get_chatwork_account_id_int()` メソッド追加（str→BIGINT変換）
+    - `_is_valid_uuid()` メソッド追加（CAST前のUUID検証）
+    - 5つのチェックメソッドのクエリを修正
+  - **テスト**: 9件追加、49件全パス
+  - **デプロイ**: proactive-monitor Cloud Function更新完了
+  - **動作確認**: 53ユーザーチェック、エラーなし
 
 ### 2026-01-27
 

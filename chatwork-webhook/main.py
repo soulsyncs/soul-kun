@@ -304,6 +304,29 @@ except ImportError as e:
 _brain_instance = None
 # BrainIntegrationインスタンス（v10.29.0: Phase H統合層）
 _brain_integration = None
+# CapabilityBridgeインスタンス（v10.38.0: Brain-Capability統合）
+_capability_bridge = None
+
+# =====================================================
+# v10.38.0: Capability Bridge（脳-機能統合層）
+# 設計書: docs/brain_capability_integration_design.md
+# =====================================================
+try:
+    from lib.brain.capability_bridge import (
+        CapabilityBridge,
+        create_capability_bridge,
+        GENERATION_CAPABILITIES,
+        DEFAULT_FEATURE_FLAGS as CAPABILITY_FEATURE_FLAGS,
+    )
+    USE_CAPABILITY_BRIDGE = True
+    print("✅ lib/brain/capability_bridge.py loaded for brain-capability integration")
+except ImportError as e:
+    print(f"⚠️ lib/brain/capability_bridge.py not available: {e}")
+    USE_CAPABILITY_BRIDGE = False
+    CapabilityBridge = None
+    create_capability_bridge = None
+    GENERATION_CAPABILITIES = {}
+    CAPABILITY_FEATURE_FLAGS = {}
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -1089,26 +1112,92 @@ SYSTEM_CAPABILITIES = {
         },
     },
     
-    # ===== 将来の機能（enabled=False） =====
-    
-    "create_document": {
-        "name": "資料作成",
-        "description": "Google Docsで資料を作成する（議事録、報告書、企画書など）",
-        "category": "document",
-        "enabled": False,  # 将来実装
+    # ===== v10.38.0: 生成機能（Brain-Capability統合） =====
+    # 設計書: docs/brain_capability_integration_design.md
+
+    "generate_document": {
+        "name": "文書生成",
+        "description": "Google Docsで文書（レポート、議事録、提案書、マニュアル等）を生成する。資料作成、ドキュメント作成、レポート作成などの要望に対応。",
+        "category": "generation",
+        "enabled": True,  # v10.38.0: Brain-Capability統合で有効化
         "trigger_examples": [
             "〇〇の資料を作成して",
             "議事録を作って",
             "報告書を書いて",
+            "〇〇についてのレポートを作成して",
+            "提案書を作って",
+            "マニュアルを作成して",
         ],
         "params_schema": {
-            "document_type": {"type": "string", "description": "資料の種類"},
-            "title": {"type": "string", "description": "タイトル"},
-            "content_outline": {"type": "string", "description": "内容の概要"},
+            "topic": {
+                "type": "string",
+                "description": "文書のトピック・内容",
+                "required": True,
+                "note": "【必須】何についての文書か"
+            },
+            "document_type": {
+                "type": "string",
+                "description": "文書タイプ: report（報告書）, summary（要約）, proposal（提案書）, minutes（議事録）, manual（マニュアル）",
+                "required": False,
+                "default": "report",
+                "note": "省略時はreport"
+            },
+            "outline": {
+                "type": "string",
+                "description": "アウトライン（章立て）",
+                "required": False,
+                "note": "ユーザーが指定した場合のみ"
+            },
         },
-        "handler": "handle_create_document",
+        "handler": "generate_document",  # CapabilityBridgeのハンドラー名
         "requires_confirmation": True,
-        "required_data": ["google_docs_api"]
+        "required_data": [],
+        # v10.38.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["資料作成", "ドキュメント作成", "レポート作成", "議事録作成", "提案書作成"],
+                "secondary": ["資料", "ドキュメント", "レポート", "議事録", "書いて"],
+                "negative": ["画像", "動画", "検索", "教えて"],
+            },
+            "intent_keywords": {
+                "primary": ["資料作成", "文書生成", "ドキュメント作成"],
+                "secondary": ["レポート", "議事録", "提案書", "マニュアル"],
+                "modifiers": ["作って", "作成", "書いて", "生成"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "medium",  # コストがかかるため
+            "priority": 4,
+        },
+    },
+
+    # v10.38.0: 旧create_documentはgenerate_documentのエイリアス
+    "create_document": {
+        "name": "資料作成（エイリアス）",
+        "description": "generate_documentのエイリアス。「資料を作成して」等の要望に対応。",
+        "category": "generation",
+        "enabled": True,
+        "trigger_examples": ["〇〇の資料を作成して"],
+        "params_schema": {},
+        "handler": "generate_document",  # generate_documentと同じハンドラー
+        "requires_confirmation": True,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["資料作成"],
+                "secondary": [],
+                "negative": [],
+            },
+            "intent_keywords": {
+                "primary": ["資料作成"],
+                "secondary": [],
+                "modifiers": [],
+                "negative": [],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "medium",
+            "priority": 5,  # generate_documentより低い
+        },
     },
     
     # v10.29.9: query_company_knowledge → query_knowledge（handlers/brain層と統一）
@@ -1156,20 +1245,100 @@ SYSTEM_CAPABILITIES = {
     
     "generate_image": {
         "name": "画像生成",
-        "description": "AIで画像を生成する",
-        "category": "creative",
-        "enabled": False,  # 将来実装
+        "description": "DALL-Eで画像を生成する。イラスト作成、図の作成、画像作成などの要望に対応。",
+        "category": "generation",
+        "enabled": True,  # v10.38.0: Brain-Capability統合で有効化
         "trigger_examples": [
             "〇〇の画像を作って",
             "こんなイメージの絵を描いて",
+            "〇〇のイラストを作成して",
+            "図を描いて",
         ],
         "params_schema": {
-            "prompt": {"type": "string", "description": "画像の説明"},
-            "style": {"type": "string", "description": "スタイル"},
+            "prompt": {
+                "type": "string",
+                "description": "画像の説明",
+                "required": True,
+                "note": "【必須】どんな画像を生成するか"
+            },
+            "style": {
+                "type": "string",
+                "description": "スタイル: realistic（写実的）, anime（アニメ風）, watercolor（水彩画風）等",
+                "required": False,
+                "note": "省略時は自動判定"
+            },
+            "size": {
+                "type": "string",
+                "description": "サイズ: 1024x1024（正方形）, 1792x1024（横長）, 1024x1792（縦長）",
+                "required": False,
+                "default": "1024x1024",
+            },
         },
-        "handler": "handle_generate_image",
-        "requires_confirmation": False,
-        "required_data": ["image_generation_api"]
+        "handler": "generate_image",  # CapabilityBridgeのハンドラー名
+        "requires_confirmation": True,  # v10.38.0: コストがかかるため確認必須
+        "required_data": [],
+        # v10.38.0: 脳アーキテクチャ用メタデータ
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["画像作成", "イラスト作成", "画像を作って", "絵を描いて"],
+                "secondary": ["画像", "イラスト", "図", "絵"],
+                "negative": ["資料", "文書", "動画", "検索"],
+            },
+            "intent_keywords": {
+                "primary": ["画像作成", "画像生成", "イラスト作成"],
+                "secondary": ["画像", "イラスト", "絵", "図"],
+                "modifiers": ["作って", "作成", "描いて", "生成"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "medium",  # コストがかかるため
+            "priority": 4,
+        },
+    },
+
+    "generate_video": {
+        "name": "動画生成",
+        "description": "Runway Gen-3で動画を生成する。動画作成、ムービー作成などの要望に対応。コストが高いため慎重に使用。",
+        "category": "generation",
+        "enabled": False,  # v10.38.0: コストが高いためデフォルト無効（環境変数で有効化可能）
+        "trigger_examples": [
+            "〇〇の動画を作って",
+            "ムービーを作成して",
+            "〇〇のPRビデオを作って",
+        ],
+        "params_schema": {
+            "prompt": {
+                "type": "string",
+                "description": "動画の説明",
+                "required": True,
+                "note": "【必須】どんな動画を生成するか"
+            },
+            "duration": {
+                "type": "number",
+                "description": "長さ（秒）: 5または10",
+                "required": False,
+                "default": 5,
+            },
+        },
+        "handler": "generate_video",  # CapabilityBridgeのハンドラー名
+        "requires_confirmation": True,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["動画作成", "ムービー作成", "動画を作って"],
+                "secondary": ["動画", "ムービー", "ビデオ"],
+                "negative": ["画像", "資料", "文書"],
+            },
+            "intent_keywords": {
+                "primary": ["動画作成", "動画生成"],
+                "secondary": ["動画", "ムービー", "ビデオ"],
+                "modifiers": ["作って", "作成", "生成"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "high",  # コストが非常に高い
+            "priority": 3,
+        },
     },
     
     "schedule_management": {
@@ -2594,7 +2763,38 @@ def _get_announcement_handler():
 
 
 # =====================================================
+# v10.38.0: Capability Bridge インスタンス取得
+# =====================================================
+def _get_capability_bridge():
+    """
+    CapabilityBridgeのシングルトンインスタンスを取得
+
+    v10.38.0: 脳と機能モジュールの橋渡し層
+    - マルチモーダル前処理
+    - 生成ハンドラー（document, image, video）
+    """
+    global _capability_bridge
+    if _capability_bridge is None and USE_CAPABILITY_BRIDGE and create_capability_bridge:
+        try:
+            _capability_bridge = create_capability_bridge(
+                pool=get_pool(),
+                org_id="org_soulsyncs",
+                feature_flags={
+                    "ENABLE_DOCUMENT_GENERATION": True,
+                    "ENABLE_IMAGE_GENERATION": True,
+                    "ENABLE_VIDEO_GENERATION": os.environ.get("ENABLE_VIDEO_GENERATION", "false").lower() == "true",
+                },
+            )
+            print("✅ CapabilityBridge initialized")
+        except Exception as e:
+            print(f"⚠️ CapabilityBridge initialization failed: {e}")
+            _capability_bridge = None
+    return _capability_bridge
+
+
+# =====================================================
 # v10.29.0: 脳アーキテクチャ - BrainIntegration初期化
+# v10.38.0: CapabilityBridgeハンドラー統合
 # =====================================================
 def _get_brain_integration():
     """
@@ -2603,9 +2803,13 @@ def _get_brain_integration():
     v10.29.0: SoulkunBrain直接使用からBrainIntegrationへ移行
     - シャドウモード、段階的ロールアウト、フォールバックをサポート
     - 環境変数 USE_BRAIN_ARCHITECTURE で制御
+
+    v10.38.0: CapabilityBridgeのハンドラーを統合
+    - 生成ハンドラー（generate_document, generate_image, generate_video）
     """
     global _brain_integration
     if _brain_integration is None and USE_BRAIN_ARCHITECTURE and create_integration:
+        # 基本ハンドラー
         handlers = {
             "chatwork_task_search": _brain_handle_task_search,
             "chatwork_task_create": _brain_handle_task_create,
@@ -2627,6 +2831,16 @@ def _get_brain_integration():
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
         }
+
+        # v10.38.0: CapabilityBridgeのハンドラーを追加
+        bridge = _get_capability_bridge()
+        if bridge:
+            try:
+                capability_handlers = bridge.get_capability_handlers()
+                handlers.update(capability_handlers)
+                print(f"✅ CapabilityBridge handlers added: {list(capability_handlers.keys())}")
+            except Exception as e:
+                print(f"⚠️ CapabilityBridge handlers failed: {e}")
         # BUG-018修正: execution.pyのインターフェースに合わせたラッパー関数
         # execution.pyは (recent_conv, context_dict) で呼ぶが、
         # get_ai_responseは (message, history, sender_name, context) を期待
@@ -2715,6 +2929,16 @@ def _get_brain():
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
         }
+
+        # v10.38.0: CapabilityBridgeのハンドラーを追加（フォールバック用）
+        bridge = _get_capability_bridge()
+        if bridge:
+            try:
+                capability_handlers = bridge.get_capability_handlers()
+                handlers.update(capability_handlers)
+            except Exception as e:
+                print(f"⚠️ CapabilityBridge handlers failed (fallback): {e}")
+
         _brain_instance = SoulkunBrain(
             pool=get_pool(),
             org_id="org_soulsyncs",

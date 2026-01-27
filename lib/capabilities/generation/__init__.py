@@ -149,6 +149,28 @@ from .constants import (
     RESEARCH_COST_PER_QUERY,
     MAX_RESEARCH_QUERY_LENGTH,
     RESEARCH_ERROR_MESSAGES,
+
+    # G5: 動画生成定数
+    VideoProvider,
+    VideoResolution,
+    VideoDuration,
+    VideoAspectRatio,
+    VideoStyle,
+    RUNWAY_API_URL,
+    RUNWAY_GEN3_MODEL,
+    RUNWAY_GEN3_TURBO_MODEL,
+    DEFAULT_VIDEO_PROVIDER,
+    DEFAULT_VIDEO_RESOLUTION,
+    DEFAULT_VIDEO_DURATION,
+    DEFAULT_VIDEO_ASPECT_RATIO,
+    DEFAULT_VIDEO_STYLE,
+    MAX_VIDEO_PROMPT_LENGTH,
+    VIDEO_COST_JPY,
+    VIDEO_ERROR_MESSAGES,
+    VIDEO_STYLE_PROMPT_MODIFIERS,
+    SUPPORTED_RESOLUTIONS_BY_PROVIDER,
+    SUPPORTED_DURATIONS_BY_PROVIDER,
+    FEATURE_FLAG_VIDEO,
 )
 
 
@@ -234,6 +256,28 @@ from .exceptions import (
     ResearchConcurrentLimitExceededError,
     ResearchFeatureDisabledError,
     wrap_research_error,
+
+    # G5: 動画生成例外
+    VideoGenerationError,
+    VideoPromptEmptyError,
+    VideoPromptTooLongError,
+    VideoInvalidResolutionError,
+    VideoInvalidDurationError,
+    VideoInvalidImageError,
+    VideoContentPolicyViolationError,
+    VideoSafetyFilterTriggeredError,
+    RunwayAPIError,
+    RunwayRateLimitError,
+    RunwayTimeoutError,
+    RunwayQuotaExceededError,
+    RunwayServerError,
+    VideoSaveError,
+    VideoUploadError,
+    VideoDailyLimitExceededError,
+    VideoConcurrentLimitExceededError,
+    VideoFeatureDisabledError,
+    VideoGenerationCancelledError,
+    wrap_video_generation_error,
 )
 
 
@@ -267,6 +311,11 @@ from .models import (
     ResearchResult,
     ResearchPlan,
     ResearchSource,
+
+    # G5: 動画生成モデル
+    VideoRequest,
+    VideoResult,
+    VideoOptimizedPrompt,
 
     # 統合モデル
     GenerationInput,
@@ -364,6 +413,26 @@ from .research_engine import (
 
 
 # =============================================================================
+# G5: 動画ジェネレーター
+# =============================================================================
+
+from .video_generator import (
+    VideoGenerator,
+    create_video_generator,
+)
+
+
+# =============================================================================
+# G5: Runway クライアント
+# =============================================================================
+
+from .runway_client import (
+    RunwayClient,
+    create_runway_client,
+)
+
+
+# =============================================================================
 # 公開API
 # =============================================================================
 
@@ -452,6 +521,28 @@ __all__ = [
     "MAX_RESEARCH_QUERY_LENGTH",
     "RESEARCH_ERROR_MESSAGES",
 
+    # G5: 動画生成定数
+    "VideoProvider",
+    "VideoResolution",
+    "VideoDuration",
+    "VideoAspectRatio",
+    "VideoStyle",
+    "RUNWAY_API_URL",
+    "RUNWAY_GEN3_MODEL",
+    "RUNWAY_GEN3_TURBO_MODEL",
+    "DEFAULT_VIDEO_PROVIDER",
+    "DEFAULT_VIDEO_RESOLUTION",
+    "DEFAULT_VIDEO_DURATION",
+    "DEFAULT_VIDEO_ASPECT_RATIO",
+    "DEFAULT_VIDEO_STYLE",
+    "MAX_VIDEO_PROMPT_LENGTH",
+    "VIDEO_COST_JPY",
+    "VIDEO_ERROR_MESSAGES",
+    "VIDEO_STYLE_PROMPT_MODIFIERS",
+    "SUPPORTED_RESOLUTIONS_BY_PROVIDER",
+    "SUPPORTED_DURATIONS_BY_PROVIDER",
+    "FEATURE_FLAG_VIDEO",
+
     # 例外 - 基底
     "GenerationBaseException",
 
@@ -530,6 +621,28 @@ __all__ = [
     "ResearchFeatureDisabledError",
     "wrap_research_error",
 
+    # G5: 動画生成例外
+    "VideoGenerationError",
+    "VideoPromptEmptyError",
+    "VideoPromptTooLongError",
+    "VideoInvalidResolutionError",
+    "VideoInvalidDurationError",
+    "VideoInvalidImageError",
+    "VideoContentPolicyViolationError",
+    "VideoSafetyFilterTriggeredError",
+    "RunwayAPIError",
+    "RunwayRateLimitError",
+    "RunwayTimeoutError",
+    "RunwayQuotaExceededError",
+    "RunwayServerError",
+    "VideoSaveError",
+    "VideoUploadError",
+    "VideoDailyLimitExceededError",
+    "VideoConcurrentLimitExceededError",
+    "VideoFeatureDisabledError",
+    "VideoGenerationCancelledError",
+    "wrap_video_generation_error",
+
     # モデル - 共通
     "GenerationMetadata",
     "ReferenceDocument",
@@ -555,6 +668,11 @@ __all__ = [
     "ResearchResult",
     "ResearchPlan",
     "ResearchSource",
+
+    # G5: 動画生成モデル
+    "VideoRequest",
+    "VideoResult",
+    "VideoOptimizedPrompt",
 
     # モデル - 統合
     "GenerationInput",
@@ -606,4 +724,12 @@ __all__ = [
     "PerplexityClient",
     "create_research_engine",
     "create_perplexity_client",
+
+    # G5: 動画ジェネレーター
+    "VideoGenerator",
+    "create_video_generator",
+
+    # G5: Runway クライアント
+    "RunwayClient",
+    "create_runway_client",
 ]

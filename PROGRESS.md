@@ -193,6 +193,23 @@
 > - テスト56件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase G5 動画生成）:** ✅ 2026-01-28 完了
+> ソウルくんに「動画クリエイター」能力を追加した。Runway Gen-3 Alphaを使って動画を生成できるようになった。
+> - 2ファイル新規実装（video_generator.py, runway_client.py）
+> - 既存ファイル更新（constants.py, models.py, exceptions.py, __init__.py）
+> - **Runway Gen-3 Alpha対応**:
+>   - Text-to-Video生成
+>   - Image-to-Video生成（参照画像から動画）
+>   - 解像度選択（720p, 1080p）
+>   - 動画長選択（5秒, 10秒）
+>   - アスペクト比選択（16:9, 9:16, 1:1）
+>   - スタイル選択（realistic, cinematic, anime, creative）
+> - **プロンプト最適化**: 日本語→英語変換、動画向け最適化
+> - **コスト計算**: ¥25〜¥75/本（秒数・モデルにより変動）
+> - **非同期生成**: タスクID発行→ポーリング→完了通知
+> - テスト60件全パス
+> - chatwork-webhookに同期済み
+
 **完了したこと（Phase 2K 能動性）:** ✅ 2026-01-28 デプロイ完了
 > ソウルくんが「自分から声をかける」能力を追加し、**本番デプロイ完了**した。
 > - **コード実装完了**: lib/brain/proactive.py（922行、40テスト済み）

@@ -479,6 +479,9 @@ class GenerationInput:
     # リサーチ用（G3）
     research_request: Optional["ResearchRequest"] = None
 
+    # 動画生成用（G5）
+    video_request: Optional["VideoRequest"] = None
+
     # 共通設定
     user_id: Optional[UUID] = None
     instruction: str = ""
@@ -492,6 +495,8 @@ class GenerationInput:
             return self.image_request
         if self.generation_type == GenerationType.RESEARCH:
             return self.research_request
+        if self.generation_type == GenerationType.VIDEO:
+            return self.video_request
         return None
 
 
@@ -515,6 +520,9 @@ class GenerationOutput:
     # リサーチ結果（G3）
     research_result: Optional["ResearchResult"] = None
 
+    # 動画生成結果（G5）
+    video_result: Optional["VideoResult"] = None
+
     # 共通メタデータ
     metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
 
@@ -530,6 +538,8 @@ class GenerationOutput:
             return self.image_result
         if self.generation_type == GenerationType.RESEARCH:
             return self.research_result
+        if self.generation_type == GenerationType.VIDEO:
+            return self.video_result
         return None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -548,6 +558,8 @@ class GenerationOutput:
             result["image_result"] = self.image_result.to_dict()
         if self.research_result:
             result["research_result"] = self.research_result.to_dict()
+        if self.video_result:
+            result["video_result"] = self.video_result.to_dict()
         return result
 
     def to_user_message(self) -> str:
@@ -558,6 +570,8 @@ class GenerationOutput:
             return self.image_result.to_user_message()
         if self.research_result:
             return self.research_result.to_user_message()
+        if self.video_result:
+            return self.video_result.to_user_message()
         if self.error_message:
             return f"生成に失敗しました: {self.error_message}"
         return "生成処理中..."
@@ -570,6 +584,8 @@ class GenerationOutput:
             return self.image_result.to_brain_context()
         if self.research_result:
             return self.research_result.to_brain_context()
+        if self.video_result:
+            return self.video_result.to_brain_context()
         return f"【生成出力】タイプ: {self.generation_type.value}, ステータス: {self.status.value}"
 
 
@@ -761,6 +777,260 @@ class ImageResult:
                 lines.append(f"Google Drive: {self.drive_url}")
             lines.append(f"サイズ: {self.size.value}")
             lines.append(f"品質: {self.quality.value}")
+            if self.prompt_used:
+                lines.append(f"プロンプト: {self.prompt_used[:100]}...")
+
+        return "\n".join(lines)
+
+
+# =============================================================================
+# Phase G5: 動画生成モデル
+# =============================================================================
+
+
+@dataclass
+class VideoRequest:
+    """
+    動画生成リクエスト
+
+    動画生成に必要な情報をすべて含む。
+    """
+    # 必須項目
+    organization_id: UUID
+    prompt: str                                     # 動画の説明
+
+    # 動画設定
+    provider: "VideoProvider" = None               # 動画生成プロバイダー
+    resolution: "VideoResolution" = None           # 解像度
+    duration: "VideoDuration" = None               # 動画長さ
+    aspect_ratio: "VideoAspectRatio" = None        # アスペクト比
+    style: "VideoStyle" = None                     # スタイル
+
+    # 入力画像（画像→動画生成時）
+    source_image_url: Optional[str] = None         # 入力画像URL
+    source_image_data: Optional[bytes] = None      # 入力画像データ
+
+    # カメラ設定
+    camera_motion: Optional[str] = None            # カメラモーション（pan, zoom, etc.）
+
+    # 出力設定
+    target_folder_id: Optional[str] = None         # Google Drive フォルダID
+    share_with: List[str] = field(default_factory=list)
+
+    # メタデータ
+    user_id: Optional[UUID] = None
+    request_id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+    def __post_init__(self):
+        """デフォルト値を遅延設定"""
+        from .constants import (
+            DEFAULT_VIDEO_PROVIDER,
+            DEFAULT_VIDEO_RESOLUTION,
+            DEFAULT_VIDEO_DURATION,
+            DEFAULT_VIDEO_ASPECT_RATIO,
+            DEFAULT_VIDEO_STYLE,
+        )
+        if self.provider is None:
+            self.provider = DEFAULT_VIDEO_PROVIDER
+        if self.resolution is None:
+            self.resolution = DEFAULT_VIDEO_RESOLUTION
+        if self.duration is None:
+            self.duration = DEFAULT_VIDEO_DURATION
+        if self.aspect_ratio is None:
+            self.aspect_ratio = DEFAULT_VIDEO_ASPECT_RATIO
+        if self.style is None:
+            self.style = DEFAULT_VIDEO_STYLE
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "request_id": self.request_id,
+            "organization_id": str(self.organization_id),
+            "prompt": self.prompt[:200] if self.prompt else "",
+            "provider": self.provider.value if self.provider else None,
+            "resolution": self.resolution.value if self.resolution else None,
+            "duration": self.duration.value if self.duration else None,
+            "aspect_ratio": self.aspect_ratio.value if self.aspect_ratio else None,
+            "style": self.style.value if self.style else None,
+            "has_source_image": bool(self.source_image_url or self.source_image_data),
+            "camera_motion": self.camera_motion,
+            "target_folder_id": self.target_folder_id,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+@dataclass
+class VideoOptimizedPrompt:
+    """
+    最適化された動画プロンプト
+
+    LLMによって最適化されたRunway用プロンプト。
+    """
+    original_prompt: str                                # 元のプロンプト
+    optimized_prompt: str                               # 最適化後のプロンプト（英語）
+    japanese_summary: str = ""                          # 日本語での説明
+    warnings: List[str] = field(default_factory=list)   # 注意点
+    tokens_used: int = 0                                # 使用トークン数
+
+
+@dataclass
+class VideoResult:
+    """
+    動画生成結果
+
+    生成された動画の情報と配信状況を保持。
+    """
+    # ステータス
+    status: GenerationStatus = GenerationStatus.PENDING
+    success: bool = False
+
+    # 生成された動画
+    video_url: Optional[str] = None                     # 動画URL（一時URL）
+    video_data: Optional[bytes] = None                  # 動画データ（バイナリ）
+    video_format: str = "mp4"                           # 動画フォーマット
+    thumbnail_url: Optional[str] = None                 # サムネイルURL
+
+    # 保存先
+    drive_url: Optional[str] = None                     # Google Drive URL
+    drive_file_id: Optional[str] = None                 # Google Drive ファイルID
+
+    # 生成情報
+    prompt_used: Optional[str] = None                   # 実際に使用したプロンプト
+    optimized_prompt: Optional[VideoOptimizedPrompt] = None
+    provider: "VideoProvider" = None
+    resolution: "VideoResolution" = None
+    duration: "VideoDuration" = None
+    aspect_ratio: "VideoAspectRatio" = None
+    style: "VideoStyle" = None
+    actual_duration_seconds: Optional[float] = None     # 実際の動画長（秒）
+
+    # Runway固有情報
+    runway_task_id: Optional[str] = None               # RunwayタスクID
+    runway_generation_id: Optional[str] = None         # 生成ID
+
+    # コスト
+    estimated_cost_jpy: float = 0.0
+    actual_cost_jpy: float = 0.0
+
+    # メタデータ
+    metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+
+    # ChatWork送信結果
+    chatwork_sent: bool = False
+    chatwork_message_id: Optional[str] = None
+
+    def __post_init__(self):
+        """デフォルト値を遅延設定"""
+        from .constants import (
+            DEFAULT_VIDEO_PROVIDER,
+            DEFAULT_VIDEO_RESOLUTION,
+            DEFAULT_VIDEO_DURATION,
+            DEFAULT_VIDEO_ASPECT_RATIO,
+            DEFAULT_VIDEO_STYLE,
+        )
+        if self.provider is None:
+            self.provider = DEFAULT_VIDEO_PROVIDER
+        if self.resolution is None:
+            self.resolution = DEFAULT_VIDEO_RESOLUTION
+        if self.duration is None:
+            self.duration = DEFAULT_VIDEO_DURATION
+        if self.aspect_ratio is None:
+            self.aspect_ratio = DEFAULT_VIDEO_ASPECT_RATIO
+        if self.style is None:
+            self.style = DEFAULT_VIDEO_STYLE
+
+    def complete(
+        self,
+        success: bool = True,
+        error_message: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> "VideoResult":
+        """処理完了時に結果を更新"""
+        self.success = success
+        self.status = GenerationStatus.COMPLETED if success else GenerationStatus.FAILED
+        if not success:
+            self.error_message = error_message
+            self.error_code = error_code
+        self.metadata.complete(success, error_message, error_code)
+        return self
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "status": self.status.value,
+            "success": self.success,
+            "video_url": self.video_url,
+            "thumbnail_url": self.thumbnail_url,
+            "drive_url": self.drive_url,
+            "prompt_used": self.prompt_used,
+            "provider": self.provider.value if self.provider else None,
+            "resolution": self.resolution.value if self.resolution else None,
+            "duration": self.duration.value if self.duration else None,
+            "aspect_ratio": self.aspect_ratio.value if self.aspect_ratio else None,
+            "style": self.style.value if self.style else None,
+            "actual_duration_seconds": self.actual_duration_seconds,
+            "estimated_cost_jpy": self.estimated_cost_jpy,
+            "actual_cost_jpy": self.actual_cost_jpy,
+            "metadata": self.metadata.to_dict(),
+            "error_message": self.error_message,
+            "error_code": self.error_code,
+            "chatwork_sent": self.chatwork_sent,
+        }
+
+    def to_user_message(self) -> str:
+        """ユーザー向けメッセージを生成"""
+        if self.status == GenerationStatus.GENERATING:
+            return "動画を生成中ウル... 🎬\n（数分かかることがあるウル）"
+
+        if self.status == GenerationStatus.COMPLETED:
+            lines = [
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                "✅ 動画が完成したウル！",
+                "",
+            ]
+            if self.video_url:
+                lines.append(f"🎬 動画URL: {self.video_url}")
+            if self.drive_url:
+                lines.append(f"📁 Google Drive: {self.drive_url}")
+            if self.thumbnail_url:
+                lines.append(f"🖼 サムネイル: {self.thumbnail_url}")
+            cost_display = self.actual_cost_jpy if self.actual_cost_jpy > 0 else self.estimated_cost_jpy
+            lines.extend([
+                "",
+                f"📐 解像度: {self.resolution.value if self.resolution else 'N/A'}",
+                f"⏱ 長さ: {self.duration.value if self.duration else 'N/A'}秒",
+                f"💰 コスト: ¥{cost_display:.0f}",
+                "",
+                "気に入らなかったら、修正指示を教えてほしいウル！",
+                "・もっと動きを大きく",
+                "・カメラをズームイン",
+                "・雰囲気を変えて",
+                "など",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+            ])
+            return "\n".join(lines)
+
+        if self.status == GenerationStatus.FAILED:
+            return f"動画の生成に失敗したウル... 😢\n{self.error_message or '原因不明'}"
+
+        return f"動画を準備中ウル...（{self.status.value}）"
+
+    def to_brain_context(self) -> str:
+        """脳のコンテキスト用文字列を生成"""
+        lines = ["【動画生成結果】"]
+        lines.append(f"ステータス: {self.status.value}")
+
+        if self.status == GenerationStatus.COMPLETED:
+            if self.drive_url:
+                lines.append(f"Google Drive: {self.drive_url}")
+            if self.resolution:
+                lines.append(f"解像度: {self.resolution.value}")
+            if self.duration:
+                lines.append(f"長さ: {self.duration.value}秒")
             if self.prompt_used:
                 lines.append(f"プロンプト: {self.prompt_used[:100]}...")
 

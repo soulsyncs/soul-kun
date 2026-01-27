@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 21:10 JST**
+**最終更新: 2026-01-27 21:40 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -210,7 +210,7 @@
 > - テスト60件全パス
 > - chatwork-webhookに同期済み
 
-**完了したこと（Phase 2K 能動性）:** ✅ 2026-01-28 デプロイ完了
+**完了したこと（Phase 2K 能動性）:** ✅ 2026-01-27 デプロイ完了
 > ソウルくんが「自分から声をかける」能力を追加し、**本番デプロイ完了**した。
 > - **コード実装完了**: lib/brain/proactive.py（922行、40テスト済み）
 > - **DBマイグレーション完了**: 3テーブル + 1ビュー
@@ -218,9 +218,9 @@
 >   - proactive_cooldowns: クールダウン管理
 >   - proactive_settings: 設定
 >   - v_proactive_stats: 統計ビュー
-> - **Cloud Functionデプロイ完了**: proactive-monitor
+> - **Cloud Functionデプロイ完了**: proactive-monitor (revision 00016-kot)
 >   - URL: https://asia-northeast1-soulkun-production.cloudfunctions.net/proactive-monitor
->   - メモリ: 512MB, タイムアウト: 300秒
+>   - メモリ: 512MB, タイムアウト: 540秒
 >   - シークレット: DB_PASSWORD, CHATWORK_API_TOKEN, SOULKUN_CHATWORK_TOKEN, OPENAI_API_KEY, OPENROUTER_API_KEY, PINECONE_API_KEY
 > - **Cloud Scheduler設定完了**: proactive-monitor-hourly
 >   - スケジュール: 毎時30分（Asia/Tokyo）
@@ -235,6 +235,11 @@
 >   4. 質問放置（24時間未回答）
 >   5. 目標達成（お祝い）
 >   6. 長期不在（14日以上）
+> - **本番デプロイ後のバグ修正（2026-01-27）**:
+>   - PR #264: DB接続修正（Cloud SQL Connector async対応）
+>   - PR #265: スキーマ不一致修正（goal_text→title, assignee_account_id→assigned_to_account_id）
+>   - PR #266: タイムゾーン比較エラー修正（AT TIME ZONE 'Asia/Tokyo'追加）
+> - **動作確認済み**: 53ユーザーをチェック、エラーなく完了
 
 **次にやること:**
 > 1. **Phase 2Kドライラン監視** - ログを確認し、問題なければ`PROACTIVE_DRY_RUN=false`に変更

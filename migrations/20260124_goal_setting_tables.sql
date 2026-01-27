@@ -125,7 +125,7 @@ COMMENT ON COLUMN goal_setting_patterns.response_strategy IS '対応戦略コー
 INSERT INTO goal_setting_patterns (pattern_code, pattern_name, pattern_category, applicable_steps, detection_keywords, detection_description, response_strategy)
 VALUES
     ('ok', 'OK（適切）', 'ok', ARRAY['why', 'what', 'how'], NULL, '適切な回答', 'proceed'),
-    ('exit', '終了・キャンセル', 'ok', ARRAY['why', 'what', 'how'], ARRAY['やめる', 'やめたい', 'キャンセル', '終了', '中止', 'やめて', 'やめます', 'やっぱりいいや'], 'ユーザーが目標設定セッションの終了を希望', 'accept'),
+    ('exit', '終了・キャンセル', 'ok', ARRAY['why', 'what', 'how'], ARRAY['やめる', 'やめたい', 'キャンセル', '終了', '終わり', '中止', 'やめて', 'やめます', 'やっぱりいいや', 'もういい', 'いいや'], 'ユーザーが目標設定セッションの終了を希望', 'accept'),
     ('ng_abstract', '抽象的すぎる', 'ng', ARRAY['why', 'what', 'how'], ARRAY['成長', '頑張る', '良くなりたい', '向上', 'スキルアップ'], '具体性に欠ける発言', 'ask_for_specificity'),
     ('ng_career', '転職・副業志向', 'ng', ARRAY['why'], ARRAY['転職', '副業', '市場価値', 'どこでも通用', '独立', 'フリーランス', '起業'], '会社外でのキャリアを示唆', 'redirect_to_company'),
     ('ng_other_blame', '他責思考', 'ng', ARRAY['why', 'what'], ARRAY['上司が', '会社が', '環境が', 'せいで', 'のせい', '評価してくれない', 'わかってくれない'], '他者や環境のせいにする発言', 'empathize_then_self_focus'),

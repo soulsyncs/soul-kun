@@ -38,8 +38,9 @@ import sqlalchemy
 from sqlalchemy import text
 from sqlalchemy.pool import QueuePool
 
-from lib.config import get_settings
-from lib.secrets import get_secret_cached
+# v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+from .config import get_settings
+from .secrets import get_secret_cached
 
 if TYPE_CHECKING:
     from google.cloud.sql.connector import Connector

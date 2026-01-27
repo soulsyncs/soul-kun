@@ -266,8 +266,8 @@ def _fetch_from_db(org_id: str) -> Optional[AdminConfig]:
         AdminConfig: 取得成功時
         None: 該当データなし
     """
-    # 遅延インポート（循環参照回避）
-    from lib.db import get_db_pool
+    # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+    from .db import get_db_pool
 
     pool = get_db_pool()
     with pool.connect() as conn:
@@ -375,8 +375,8 @@ def get_admin_config_by_room(room_id: str) -> Optional[AdminConfig]:
         この関数は現在、全組織をスキャンするため、
         組織数が多くなった場合はパフォーマンス最適化が必要。
     """
-    # 遅延インポート（循環参照回避）
-    from lib.db import get_db_pool
+    # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
+    from .db import get_db_pool
 
     room_id_str = str(room_id)
     room_id_int = int(room_id) if room_id_str.isdigit() else None

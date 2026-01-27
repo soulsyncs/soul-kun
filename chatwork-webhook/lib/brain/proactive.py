@@ -395,7 +395,7 @@ class ProactiveMonitor:
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
                   AND status = 'active'
-                  AND updated_at < :threshold
+                  AND updated_at < :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY updated_at ASC
                 LIMIT 1
             """)
@@ -484,7 +484,7 @@ class ProactiveMonitor:
                 FROM emotion_scores
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
-                  AND message_time >= :threshold
+                  AND message_time >= :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY message_time DESC
             """)
 
@@ -537,7 +537,7 @@ class ProactiveMonitor:
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
                   AND status = 'completed'
-                  AND updated_at >= :threshold
+                  AND updated_at >= :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY updated_at DESC
                 LIMIT 1
             """)
@@ -584,7 +584,7 @@ class ProactiveMonitor:
                 WHERE organization_id = :org_id
                   AND assigned_to_account_id = :account_id
                   AND status = 'done'
-                  AND updated_at >= :threshold
+                  AND updated_at >= :threshold AT TIME ZONE 'Asia/Tokyo'
             """)
 
             threshold = datetime.now(JST) - timedelta(hours=24)
@@ -671,7 +671,7 @@ class ProactiveMonitor:
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
                   AND trigger_type = :trigger_type
-                  AND sent_at >= :threshold
+                  AND sent_at >= :threshold AT TIME ZONE 'Asia/Tokyo'
                 LIMIT 1
             """)
 

@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 21:40 JST**
+**最終更新: 2026-01-27 21:50 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -375,6 +375,20 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **21:50 JST**: CEO Learning バグ修正 ✅ **CEO教えが保存されるようになった**
+  - **問題**: `ceo_teachings` テーブルの `ceo_user_id` (UUID型) に ChatWork `account_id` (文字列) を渡していたためDB保存が失敗していた
+  - **原因調査**:
+    - Memory Framework と Brain の違いを調査
+    - CEO Learning 機能は実装済みだが、型不一致で保存されていないことを発見
+    - `ceo_teachings` テーブル存在確認済み、データ0件
+    - 菊地さんのユーザーレコード存在確認済み (UUID: adceb2f4-69d4-40b1-baa2-fe47375525e6)
+  - **修正内容**:
+    - `_get_user_id_from_account_id` メソッド追加（ChatWork ID → UUID 変換）
+    - `process_ceo_message` で保存前に user_id を取得
+    - `_create_teaching_from_extracted` の引数を user_id に変更
+  - **PR**: #268 マージ済み
+  - **デプロイ**: chatwork-webhook revision 00215-lot
 
 - **23:30 JST**: App1 議事録自動生成アプリ 実装完了 ✅ **次世代能力 App1 完全完了**
   - **概要**: Phase M2（音声入力）とPhase G1（文書生成）を統合し、音声ファイルから議事録を自動生成するアプリを実装

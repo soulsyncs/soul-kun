@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 13:40 JST**
+**最終更新: 2026-01-27 14:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -166,6 +166,27 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **14:00 JST**: Ultimate Brain Phase 2 - Confidence, Episodic Memory, Proactive (v10.35.0) ✅ **PR #237 マージ完了**
+  - **概要**: 脳アーキテクチャの「究極の脳」Phase 2実装 - 確信度・記憶・能動性
+  - **確信度キャリブレーション** (`lib/brain/confidence.py` - 532行):
+    - RiskLevel: HIGH=0.85, NORMAL=0.70, LOW=0.50の3段階閾値
+    - ConfidenceAction: EXECUTE/CONFIRM/CLARIFY/DECLINEの4段階判断
+    - 曖昧表現検出（AMBIGUOUS_PATTERNS）
+    - 確認メッセージテンプレート（CONFIRMATION_TEMPLATES）
+  - **エピソード記憶** (`lib/brain/episodic_memory.py` - 679行):
+    - EpisodeType: 達成/失敗/決定/対話/学習/感情の6種類
+    - 忘却係数（DECAY_RATE_PER_DAY=0.02）で時間経過で記憶が薄れる
+    - キーワード・エンティティ・時間によるマルチモーダル想起
+    - 重要度スコア計算（基本値+キーワード+感情ボーナス）
+    - 便利メソッド: record_achievement(), record_failure(), record_learning()
+  - **能動的モニタリング** (`lib/brain/proactive.py` - 950行):
+    - TriggerType: 目標放置(7日)/タスク山積み(5件)/感情変化(3日)/目標達成/質問未回答/長期不在/習慣途絶
+    - メッセージクールダウン（GOAL_ABANDONED: 72h, TASK_OVERLOAD: 48h, EMOTION: 24h）
+    - DMルームへの自動メッセージ送信（dry_runモードあり）
+    - ProactiveMessageType: follow_up, encouragement, reminder, celebration, check_in
+  - **効果**: ソウルくんが「判断に自信がない時は確認」「重要な出来事を記憶」「自らユーザーに声をかける」能力を獲得
+  - **テスト**: 93件（confidence: 18件, episodic_memory: 35件, proactive: 40件）、全体693件パス
 
 - **13:40 JST**: Ultimate Brain Phase 1 - Chain-of-Thought & Self-Critique (v10.34.0) ✅ **PR #235 マージ完了**
   - **概要**: 脳アーキテクチャの「究極の脳」Phase 1実装 - 思考連鎖と自己批判

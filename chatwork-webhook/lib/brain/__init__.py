@@ -49,7 +49,7 @@
     print(f"brain_metadata coverage: {coverage['percentage']:.1f}%")
 """
 
-from .models import (
+from lib.brain.models import (
     BrainContext,
     BrainResponse,
     UnderstandingResult,
@@ -60,13 +60,25 @@ from .models import (
     ActionCandidate,
     MemoryType,
     StateType,
+    # Phase 2D: CEO Learning & Guardian
+    TeachingCategory,
+    ValidationStatus,
+    ConflictType,
+    AlertStatus,
+    Severity,
+    CEOTeaching,
+    ConflictInfo,
+    GuardianAlert,
+    TeachingValidationResult,
+    TeachingUsageContext,
+    CEOTeachingContext,
 )
 
-from .core import SoulkunBrain
+from lib.brain.core import SoulkunBrain
 
-from .state_manager import BrainStateManager
+from lib.brain.state_manager import BrainStateManager
 
-from .memory_access import (
+from lib.brain.memory_access import (
     BrainMemoryAccess,
     ConversationMessage,
     ConversationSummaryData,
@@ -78,7 +90,7 @@ from .memory_access import (
     InsightInfo,
 )
 
-from .exceptions import (
+from lib.brain.exceptions import (
     BrainError,
     UnderstandingError,
     DecisionError,
@@ -88,14 +100,14 @@ from .exceptions import (
     ConfirmationTimeoutError,
 )
 
-from .constants import (
+from lib.brain.constants import (
     CANCEL_KEYWORDS,
     CONFIRMATION_THRESHOLD,
     SESSION_TIMEOUT_MINUTES,
     MAX_RETRY_COUNT,
 )
 
-from .integration import (
+from lib.brain.integration import (
     BrainIntegration,
     IntegrationResult,
     IntegrationConfig,
@@ -107,12 +119,38 @@ from .integration import (
     FEATURE_FLAG_NAME,
 )
 
-from .validation import (
+from lib.brain.validation import (
     ValidationResult,
     ValidationError,
     validate_capabilities_handlers,
     validate_brain_metadata,
     check_capabilities_coverage,
+)
+
+# Phase 2D: CEO Learning & Guardian
+from lib.brain.ceo_teaching_repository import (
+    CEOTeachingRepository,
+    ConflictRepository,
+    GuardianAlertRepository,
+    TeachingUsageRepository,
+)
+
+from lib.brain.ceo_learning import (
+    CEOLearningService,
+    ExtractedTeaching,
+    ProcessingResult,
+    format_teachings_for_prompt,
+    should_include_teachings,
+    CEO_ACCOUNT_IDS,
+    TEACHING_CONFIDENCE_THRESHOLD,
+    CATEGORY_KEYWORDS,
+)
+
+from lib.brain.guardian import (
+    GuardianService,
+    MVV_VALIDATION_CRITERIA,
+    CHOICE_THEORY_CRITERIA,
+    SDT_CRITERIA,
 )
 
 __all__ = [
@@ -171,6 +209,38 @@ __all__ = [
     "validate_capabilities_handlers",
     "validate_brain_metadata",
     "check_capabilities_coverage",
+    # Phase 2D: CEO Learning & Guardian（v10.32.0）
+    # データモデル
+    "TeachingCategory",
+    "ValidationStatus",
+    "ConflictType",
+    "AlertStatus",
+    "Severity",
+    "CEOTeaching",
+    "ConflictInfo",
+    "GuardianAlert",
+    "TeachingValidationResult",
+    "TeachingUsageContext",
+    "CEOTeachingContext",
+    # リポジトリ
+    "CEOTeachingRepository",
+    "ConflictRepository",
+    "GuardianAlertRepository",
+    "TeachingUsageRepository",
+    # CEO学習層
+    "CEOLearningService",
+    "ExtractedTeaching",
+    "ProcessingResult",
+    "format_teachings_for_prompt",
+    "should_include_teachings",
+    "CEO_ACCOUNT_IDS",
+    "TEACHING_CONFIDENCE_THRESHOLD",
+    "CATEGORY_KEYWORDS",
+    # ガーディアン層
+    "GuardianService",
+    "MVV_VALIDATION_CRITERIA",
+    "CHOICE_THEORY_CRITERIA",
+    "SDT_CRITERIA",
 ]
 
-__version__ = "1.2.0"  # v10.30.0: Phase B - brain_metadata integration
+__version__ = "1.3.0"  # v10.32.0: Phase 2D - CEO Learning & Guardian

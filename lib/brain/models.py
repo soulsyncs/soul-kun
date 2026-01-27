@@ -555,3 +555,444 @@ class BrainResponse:
 
     # 処理時間
     total_time_ms: int = 0
+
+
+# =============================================================================
+# Phase 2D: CEO Learning & Guardian Layer Models
+# 設計書: docs/15_phase2d_ceo_learning.md
+# =============================================================================
+
+
+class TeachingCategory(str, Enum):
+    """
+    CEO教えのカテゴリ
+
+    CEOからの「教え」を分類するための15カテゴリ。
+    """
+
+    # MVV関連（ミッション・ビジョン・バリュー）
+    MVV_MISSION = "mvv_mission"      # ミッションに関する教え
+    MVV_VISION = "mvv_vision"        # ビジョンに関する教え
+    MVV_VALUES = "mvv_values"        # バリューに関する教え
+
+    # 組織論関連
+    CHOICE_THEORY = "choice_theory"  # 選択理論に関する教え
+    SDT = "sdt"                      # 自己決定理論に関する教え
+    SERVANT = "servant"              # サーバントリーダーシップに関する教え
+    PSYCH_SAFETY = "psych_safety"    # 心理的安全性に関する教え
+
+    # 業務関連
+    BIZ_SALES = "biz_sales"          # 営業・販売に関する教え
+    BIZ_HR = "biz_hr"                # 人事・採用に関する教え
+    BIZ_ACCOUNTING = "biz_accounting"  # 経理・財務に関する教え
+    BIZ_GENERAL = "biz_general"      # その他業務全般
+
+    # 人・文化関連
+    CULTURE = "culture"              # 組織文化に関する教え
+    COMMUNICATION = "communication"  # コミュニケーションに関する教え
+    STAFF_GUIDANCE = "staff_guidance"  # スタッフへの指導に関する教え
+
+    # その他
+    OTHER = "other"                  # 分類できないもの
+
+
+class ValidationStatus(str, Enum):
+    """
+    教えの検証ステータス
+
+    Guardian層による検証の結果を表す。
+    """
+
+    PENDING = "pending"              # 検証中
+    VERIFIED = "verified"            # 検証済み（矛盾なし）
+    ALERT_PENDING = "alert_pending"  # アラート待ち（CEOの確認待ち）
+    OVERRIDDEN = "overridden"        # CEOが上書き許可（矛盾あるが保存）
+
+
+class ConflictType(str, Enum):
+    """
+    矛盾の種類
+
+    教えがどのような基準と矛盾しているかを表す。
+    """
+
+    MVV = "mvv"                      # MVV（ミッション・ビジョン・バリュー）との矛盾
+    CHOICE_THEORY = "choice_theory"  # 選択理論との矛盾
+    SDT = "sdt"                      # 自己決定理論との矛盾
+    GUIDELINES = "guidelines"        # 行動指針との矛盾
+    EXISTING = "existing"            # 既存の教えとの矛盾
+
+
+class AlertStatus(str, Enum):
+    """
+    アラートのステータス
+
+    ガーディアンアラートの処理状態を表す。
+    """
+
+    PENDING = "pending"              # CEOの回答待ち
+    ACKNOWLEDGED = "acknowledged"    # CEOが確認済み（教えを取り消し）
+    OVERRIDDEN = "overridden"        # CEOが上書き許可（矛盾あるが保存）
+    RETRACTED = "retracted"          # CEOが撤回（教えを修正する）
+
+
+class Severity(str, Enum):
+    """
+    矛盾の深刻度
+
+    検出された矛盾がどれほど深刻かを表す。
+    """
+
+    HIGH = "high"                    # 高深刻度（MVV・組織論の根幹に関わる）
+    MEDIUM = "medium"                # 中深刻度（解釈の余地あり）
+    LOW = "low"                      # 低深刻度（軽微な不整合）
+
+
+# -----------------------------------------------------------------------------
+# CEO教え関連のデータクラス
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class CEOTeaching:
+    """
+    CEOからの教え
+
+    CEOとの対話から抽出された「教え」を表す。
+    スタッフへの応答時に参照される。
+    """
+
+    # 識別情報
+    id: Optional[str] = None
+    organization_id: str = ""
+    ceo_user_id: Optional[str] = None  # Phase 4A: BPaaS展開時のCEOユーザーID
+
+    # 教えの内容
+    statement: str = ""              # 主張（何を言っているか）
+    reasoning: Optional[str] = None  # 理由（なぜそう言っているか）
+    context: Optional[str] = None    # 文脈（どんな状況で）
+    target: Optional[str] = None     # 対象（全員/マネージャー/特定部署等）
+
+    # 分類
+    category: TeachingCategory = TeachingCategory.OTHER
+    subcategory: Optional[str] = None
+    keywords: List[str] = field(default_factory=list)
+
+    # 検証結果
+    validation_status: ValidationStatus = ValidationStatus.PENDING
+    mvv_alignment_score: Optional[float] = None   # 0.0-1.0
+    theory_alignment_score: Optional[float] = None  # 0.0-1.0
+
+    # 優先度・活性化
+    priority: int = 5                # 1-10（高いほど優先）
+    is_active: bool = True
+    supersedes: Optional[str] = None  # 上書きする過去の教えID
+
+    # 利用統計
+    usage_count: int = 0
+    last_used_at: Optional[datetime] = None
+    helpful_count: int = 0
+
+    # ソース情報
+    source_room_id: Optional[str] = None
+    source_message_id: Optional[str] = None
+    extracted_at: datetime = field(default_factory=datetime.now)
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    def is_relevant_to(self, topic: str) -> bool:
+        """
+        指定されたトピックに関連があるかを判定
+
+        Args:
+            topic: 判定対象のトピック
+
+        Returns:
+            関連があればTrue
+        """
+        topic_lower = topic.lower()
+        # キーワードマッチ
+        for keyword in self.keywords:
+            if keyword.lower() in topic_lower or topic_lower in keyword.lower():
+                return True
+        # 主張内容マッチ
+        if topic_lower in self.statement.lower():
+            return True
+        return False
+
+    def to_prompt_context(self) -> str:
+        """
+        LLMプロンプト用のコンテキスト文字列を生成
+
+        Returns:
+            プロンプトに含める教えの要約
+        """
+        parts = [f"【{self.category.value}】{self.statement}"]
+        if self.reasoning:
+            parts.append(f"  理由: {self.reasoning}")
+        if self.target:
+            parts.append(f"  対象: {self.target}")
+        return "\n".join(parts)
+
+
+@dataclass
+class ConflictInfo:
+    """
+    教えの矛盾情報
+
+    Guardian層が検出した矛盾の詳細を表す。
+    """
+
+    id: Optional[str] = None
+    organization_id: str = ""
+    teaching_id: str = ""
+
+    # 矛盾情報
+    conflict_type: ConflictType = ConflictType.MVV
+    conflict_subtype: Optional[str] = None  # 例: 'mission', 'vision', 'autonomy'
+    description: str = ""            # 矛盾の説明
+    reference: str = ""              # 参照した基準（原文引用）
+    severity: Severity = Severity.MEDIUM
+
+    # 関連教え（既存教えとの矛盾の場合）
+    conflicting_teaching_id: Optional[str] = None
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+
+    def to_alert_summary(self) -> str:
+        """
+        アラート用の要約を生成
+
+        Returns:
+            人間が読みやすい矛盾の説明
+        """
+        severity_emoji = {
+            Severity.HIGH: "🔴",
+            Severity.MEDIUM: "🟡",
+            Severity.LOW: "🟢"
+        }
+        return f"{severity_emoji.get(self.severity, '⚪')} [{self.conflict_type.value}] {self.description}"
+
+
+@dataclass
+class GuardianAlert:
+    """
+    ガーディアンアラート
+
+    CEOに確認を求めるアラートを表す。
+    """
+
+    id: Optional[str] = None
+    organization_id: str = ""
+    teaching_id: str = ""
+
+    # アラート内容
+    conflict_summary: str = ""       # 矛盾の要約
+    alert_message: str = ""          # CEOへのメッセージ（ソウルくん口調）
+    alternative_suggestion: Optional[str] = None  # 代替案
+
+    # 矛盾情報リスト
+    conflicts: List[ConflictInfo] = field(default_factory=list)
+
+    # ステータス
+    status: AlertStatus = AlertStatus.PENDING
+    ceo_response: Optional[str] = None        # CEOの回答
+    ceo_reasoning: Optional[str] = None       # CEOの判断理由
+    resolved_at: Optional[datetime] = None
+
+    # 通知情報
+    notified_at: Optional[datetime] = None
+    notification_room_id: Optional[str] = None
+    notification_message_id: Optional[str] = None
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def is_resolved(self) -> bool:
+        """解決済みかどうか"""
+        return self.status != AlertStatus.PENDING
+
+    @property
+    def max_severity(self) -> Severity:
+        """矛盾の最大深刻度"""
+        if not self.conflicts:
+            return Severity.LOW
+        severities = [c.severity for c in self.conflicts]
+        if Severity.HIGH in severities:
+            return Severity.HIGH
+        if Severity.MEDIUM in severities:
+            return Severity.MEDIUM
+        return Severity.LOW
+
+    def generate_alert_message(self, teaching: CEOTeaching) -> str:
+        """
+        ソウルくん口調のアラートメッセージを生成
+
+        Args:
+            teaching: 検証対象の教え
+
+        Returns:
+            CEOに送信するメッセージ
+        """
+        severity_text = {
+            Severity.HIGH: "ちょっと気になることがあるウル...",
+            Severity.MEDIUM: "確認させてほしいウル",
+            Severity.LOW: "念のため確認ウル"
+        }
+
+        parts = [
+            f"🐺 {severity_text.get(self.max_severity, '確認ウル')}",
+            "",
+            f"さっきの「{teaching.statement[:50]}...」について、",
+            self.conflict_summary,
+            ""
+        ]
+
+        if self.alternative_suggestion:
+            parts.extend([
+                "こんな言い方はどうウル？",
+                f"→ {self.alternative_suggestion}",
+                ""
+            ])
+
+        parts.extend([
+            "どうするか教えてほしいウル：",
+            "1️⃣ そのまま保存（ソウルくんの考えを上書き）",
+            "2️⃣ 取り消し（今回は保存しない）",
+            "3️⃣ 言い直す（別の表現に変える）"
+        ])
+
+        return "\n".join(parts)
+
+
+@dataclass
+class TeachingValidationResult:
+    """
+    教えの検証結果
+
+    Guardian層による検証の完全な結果を表す。
+    """
+
+    # 検証対象
+    teaching: CEOTeaching
+
+    # 結果
+    is_valid: bool = True            # 矛盾がなければTrue
+    validation_status: ValidationStatus = ValidationStatus.VERIFIED
+
+    # 発見された矛盾
+    conflicts: List[ConflictInfo] = field(default_factory=list)
+
+    # スコア
+    mvv_alignment_score: float = 1.0      # MVVとの整合性（0.0-1.0）
+    theory_alignment_score: float = 1.0   # 組織論との整合性（0.0-1.0）
+    overall_score: float = 1.0            # 総合スコア
+
+    # 推奨アクション
+    recommended_action: str = "save"      # save, alert, reject
+    alternative_suggestion: Optional[str] = None
+
+    # 処理情報
+    validation_time_ms: int = 0
+    validated_at: datetime = field(default_factory=datetime.now)
+
+    def should_alert(self) -> bool:
+        """アラートを発生させるべきか"""
+        if not self.is_valid:
+            return True
+        # 高深刻度の矛盾がある場合
+        for conflict in self.conflicts:
+            if conflict.severity == Severity.HIGH:
+                return True
+        # スコアが低い場合
+        if self.overall_score < 0.5:
+            return True
+        return False
+
+    def get_alert_reason(self) -> str:
+        """アラートの理由を取得"""
+        if not self.conflicts:
+            return "検証結果に問題がありました"
+        # 最も深刻な矛盾を選択
+        high_conflicts = [c for c in self.conflicts if c.severity == Severity.HIGH]
+        if high_conflicts:
+            return high_conflicts[0].description
+        return self.conflicts[0].description
+
+
+@dataclass
+class TeachingUsageContext:
+    """
+    教え使用コンテキスト
+
+    教えを応答に使用する際の詳細情報を表す。
+    """
+
+    teaching_id: str
+    organization_id: str = ""
+
+    # 使用コンテキスト
+    room_id: str = ""
+    account_id: str = ""
+    user_message: str = ""
+    response_excerpt: Optional[str] = None
+
+    # 選択理由
+    relevance_score: float = 0.0     # 関連度（0.0-1.0）
+    selection_reasoning: Optional[str] = None
+
+    # フィードバック（後から更新）
+    was_helpful: Optional[bool] = None
+    feedback: Optional[str] = None
+
+    # メタデータ
+    used_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class CEOTeachingContext:
+    """
+    CEO教えの統合コンテキスト
+
+    BrainContextに追加するCEO教え関連の情報をまとめたもの。
+    """
+
+    # アクティブな教え（関連度順）
+    relevant_teachings: List[CEOTeaching] = field(default_factory=list)
+
+    # 未解決のアラート
+    pending_alerts: List[GuardianAlert] = field(default_factory=list)
+
+    # 現在のCEO判定
+    is_ceo_user: bool = False
+    ceo_user_id: Optional[str] = None
+
+    # 統計情報
+    total_teachings_count: int = 0
+    active_teachings_count: int = 0
+
+    def get_top_teachings(self, count: int = 3) -> List[CEOTeaching]:
+        """上位N件の関連教えを取得"""
+        return self.relevant_teachings[:count]
+
+    def has_pending_alerts(self) -> bool:
+        """未解決アラートがあるか"""
+        return len(self.pending_alerts) > 0
+
+    def to_prompt_context(self) -> str:
+        """LLMプロンプト用のコンテキストを生成"""
+        if not self.relevant_teachings:
+            return ""
+
+        parts = ["【会社の教え】"]
+        for teaching in self.relevant_teachings[:3]:
+            parts.append(f"・{teaching.statement}")
+            if teaching.reasoning:
+                parts.append(f"  （{teaching.reasoning}）")
+
+        return "\n".join(parts)

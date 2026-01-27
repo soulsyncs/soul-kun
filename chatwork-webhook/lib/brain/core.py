@@ -23,7 +23,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Callable, Tuple
 
-from .models import (
+from lib.brain.models import (
     BrainContext,
     BrainResponse,
     UnderstandingResult,
@@ -37,7 +37,7 @@ from .models import (
     ConversationMessage,
 )
 
-from .constants import (
+from lib.brain.constants import (
     CANCEL_KEYWORDS,
     CONFIRMATION_THRESHOLD,
     AUTO_EXECUTE_THRESHOLD,
@@ -51,7 +51,7 @@ from .constants import (
     SAVE_DECISION_LOGS,
 )
 
-from .exceptions import (
+from lib.brain.exceptions import (
     BrainError,
     UnderstandingError,
     DecisionError,
@@ -61,8 +61,8 @@ from .exceptions import (
     HandlerNotFoundError,
     HandlerTimeoutError,
 )
-from .state_manager import BrainStateManager
-from .memory_access import (
+from lib.brain.state_manager import BrainStateManager
+from lib.brain.memory_access import (
     BrainMemoryAccess,
     ConversationMessage as MemoryConversationMessage,
     ConversationSummaryData,
@@ -73,10 +73,10 @@ from .memory_access import (
     KnowledgeInfo,
     InsightInfo,
 )
-from .understanding import BrainUnderstanding
-from .decision import BrainDecision
-from .execution import BrainExecution
-from .learning import BrainLearning
+from lib.brain.understanding import BrainUnderstanding
+from lib.brain.decision import BrainDecision
+from lib.brain.execution import BrainExecution
+from lib.brain.learning import BrainLearning
 
 logger = logging.getLogger(__name__)
 

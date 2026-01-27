@@ -164,7 +164,7 @@ class ConversationSearch(BaseMemory):
                     embedding_id, message_time, classification
                 ) VALUES (
                     :org_id, :user_id, :message_id, :room_id,
-                    :message_text, :message_type, :keywords, :entities::jsonb,
+                    :message_text, :message_type, :keywords, CAST(:entities AS jsonb),
                     :embedding_id, :message_time, :classification
                 )
                 RETURNING id

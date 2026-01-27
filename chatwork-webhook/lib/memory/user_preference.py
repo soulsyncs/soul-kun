@@ -168,12 +168,12 @@ class UserPreference(BaseMemory):
                     classification
                 ) VALUES (
                     :org_id, :user_id, :pref_type, :pref_key,
-                    :pref_value::jsonb, :learned_from, :confidence, 1,
+                    CAST(:pref_value AS jsonb), :learned_from, :confidence, 1,
                     :classification
                 )
                 ON CONFLICT (organization_id, user_id, preference_type, preference_key)
                 DO UPDATE SET
-                    preference_value = :pref_value::jsonb,
+                    preference_value = CAST(:pref_value AS jsonb),
                     learned_from = :learned_from,
                     confidence = LEAST(
                         user_preferences.confidence + :confidence_increment,

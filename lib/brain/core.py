@@ -81,6 +81,10 @@ from lib.brain.decision import BrainDecision
 from lib.brain.execution import BrainExecution
 from lib.brain.learning import BrainLearning
 
+# Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
+from lib.brain.chain_of_thought import ChainOfThought, create_chain_of_thought
+from lib.brain.self_critique import SelfCritique, create_self_critique
+
 # Phase 2D: CEO Learning & Guardian
 from lib.brain.ceo_learning import (
     CEOLearningService,
@@ -196,10 +200,23 @@ class SoulkunBrain:
             llm_caller=get_ai_response_func,
         )
 
+        # Ultimate Brain - Phase 1
+        # 思考連鎖エンジン
+        self.chain_of_thought = ChainOfThought(llm_client=None)
+
+        # 自己批判エンジン
+        self.self_critique = SelfCritique(llm_client=None)
+
+        # Ultimate Brain設定
+        self.use_chain_of_thought = True  # 思考連鎖を使用
+        self.use_self_critique = True      # 自己批判を使用
+
         # 内部状態
         self._initialized = False
 
-        logger.info(f"SoulkunBrain initialized for org_id={org_id}")
+        logger.info(f"SoulkunBrain initialized for org_id={org_id}, "
+                   f"chain_of_thought={self.use_chain_of_thought}, "
+                   f"self_critique={self.use_self_critique}")
 
     # =========================================================================
     # メインエントリーポイント
@@ -282,8 +299,26 @@ class SoulkunBrain:
                     start_time=start_time,
                 )
 
-            # 3. 理解層: 意図を推論
-            understanding = await self._understand(message, context)
+            # 2.5 Ultimate Brain: 思考連鎖で事前分析
+            thought_chain = None
+            if self.use_chain_of_thought:
+                thought_chain = self._analyze_with_thought_chain(
+                    message=message,
+                    context={
+                        "state": current_state.state_type.value if current_state else "normal",
+                        "topic": getattr(context, "topic", None),
+                    }
+                )
+                logger.info(
+                    f"🔗 Chain-of-Thought: input_type={thought_chain.input_type.value}, "
+                    f"intent={thought_chain.final_intent}, "
+                    f"confidence={thought_chain.confidence:.2f}"
+                )
+
+            # 3. 理解層: 意図を推論（思考連鎖の結果を考慮）
+            understanding = await self._understand(
+                message, context, thought_chain=thought_chain
+            )
 
             # 4. 判断層: アクションを決定
             decision = await self._decide(understanding, context)
@@ -326,6 +361,36 @@ class SoulkunBrain:
                 sender_name=sender_name,
             )
 
+            # 5.5 Ultimate Brain: 自己批判で回答品質をチェック
+            final_message = result.message
+            critique_applied = False
+            if self.use_self_critique and result.message:
+                refined = self._critique_and_refine_response(
+                    response=result.message,
+                    original_message=message,
+                    context={
+                        "expected_topic": getattr(context, "topic", None),
+                        "previous_response": getattr(context, "last_ai_response", None),
+                    }
+                )
+                if refined.refinement_applied:
+                    final_message = refined.refined
+                    critique_applied = True
+                    logger.info(
+                        f"✨ Self-Critique: {len(refined.improvements)} improvements applied, "
+                        f"time={refined.refinement_time_ms:.1f}ms"
+                    )
+
+            # resultのメッセージを更新
+            if critique_applied:
+                result = HandlerResult(
+                    success=result.success,
+                    message=final_message,
+                    data=result.data,
+                    suggestions=result.suggestions,
+                    update_state=result.update_state,
+                )
+
             # 6. 記憶更新（非同期で実行、エラーは無視）
             asyncio.create_task(
                 self._update_memory_safely(
@@ -341,6 +406,34 @@ class SoulkunBrain:
                     )
                 )
 
+            # デバッグ情報を構築
+            debug_info = {
+                "understanding": {
+                    "intent": understanding.intent,
+                    "confidence": understanding.intent_confidence,
+                },
+                "decision": {
+                    "action": decision.action,
+                    "confidence": decision.confidence,
+                },
+            }
+
+            # 思考連鎖の情報を追加
+            if thought_chain:
+                debug_info["thought_chain"] = {
+                    "input_type": thought_chain.input_type.value,
+                    "final_intent": thought_chain.final_intent,
+                    "confidence": thought_chain.confidence,
+                    "analysis_time_ms": thought_chain.analysis_time_ms,
+                }
+
+            # 自己批判の情報を追加
+            if critique_applied:
+                debug_info["self_critique"] = {
+                    "applied": True,
+                    "improvements_count": len(refined.improvements) if refined else 0,
+                }
+
             return BrainResponse(
                 message=result.message,
                 action_taken=decision.action,
@@ -348,16 +441,7 @@ class SoulkunBrain:
                 success=result.success,
                 suggestions=result.suggestions,
                 state_changed=result.update_state is not None,
-                debug_info={
-                    "understanding": {
-                        "intent": understanding.intent,
-                        "confidence": understanding.intent_confidence,
-                    },
-                    "decision": {
-                        "action": decision.action,
-                        "confidence": decision.confidence,
-                    },
-                },
+                debug_info=debug_info,
                 total_time_ms=self._elapsed_ms(start_time),
             )
 
@@ -832,6 +916,7 @@ class SoulkunBrain:
         self,
         message: str,
         context: BrainContext,
+        thought_chain=None,
     ) -> UnderstandingResult:
         """
         ユーザーの入力から意図を推論
@@ -846,7 +931,19 @@ class SoulkunBrain:
         - 感情検出: ポジティブ/ネガティブ/ニュートラル
         - 緊急度検出: 「至急」「急いで」等
         - 確認モード: 確信度0.7未満で発動
+
+        v10.34.0: Ultimate Brain Phase 1
+        - thought_chain: 思考連鎖の結果（あれば活用）
         """
+        # 思考連鎖の結果がある場合、コンテキストに追加
+        if thought_chain:
+            # 思考連鎖で低確信度（<0.7）なら確認モードを促す
+            if thought_chain.confidence < 0.7:
+                logger.debug(
+                    f"Thought chain suggests confirmation: "
+                    f"confidence={thought_chain.confidence:.2f}"
+                )
+
         return await self.understanding.understand(message, context)
 
     # =========================================================================
@@ -909,6 +1006,65 @@ class SoulkunBrain:
         """キャンセルリクエストかどうかを判定"""
         normalized = message.strip().lower()
         return any(kw in normalized for kw in CANCEL_KEYWORDS)
+
+    # =========================================================================
+    # Ultimate Brain - Phase 1: 思考連鎖 & 自己批判
+    # =========================================================================
+
+    def _analyze_with_thought_chain(
+        self,
+        message: str,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        思考連鎖で入力を事前分析
+
+        Args:
+            message: ユーザーメッセージ
+            context: コンテキスト情報
+
+        Returns:
+            ThoughtChain: 思考連鎖の結果
+        """
+        try:
+            return self.chain_of_thought.analyze(message, context)
+        except Exception as e:
+            logger.warning(f"Chain-of-thought analysis failed: {e}")
+            # 失敗してもNoneを返すだけで処理は続行
+            return None
+
+    def _critique_and_refine_response(
+        self,
+        response: str,
+        original_message: str,
+        context: Optional[Dict[str, Any]] = None,
+    ):
+        """
+        自己批判で回答を評価・改善
+
+        Args:
+            response: 生成された回答
+            original_message: 元のユーザーメッセージ
+            context: コンテキスト情報
+
+        Returns:
+            RefinedResponse: 改善された回答
+        """
+        try:
+            return self.self_critique.evaluate_and_refine(
+                response, original_message, context
+            )
+        except Exception as e:
+            logger.warning(f"Self-critique failed: {e}")
+            # 失敗した場合は元の回答をそのまま返す
+            from lib.brain.self_critique import RefinedResponse
+            return RefinedResponse(
+                original=response,
+                refined=response,
+                improvements=[],
+                refinement_applied=False,
+                refinement_time_ms=0,
+            )
 
     def _parse_confirmation_response(
         self,

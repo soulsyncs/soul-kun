@@ -156,6 +156,12 @@ await log_audit(
 )
 ```
 
+**冪等性（Outboxパターン）**
+```python
+# 外部通知はすぐ送らず、outbox_messagesテーブルに保存
+idempotency_key = f"{message_type}:{resource_id}:{organization_id}"
+```
+
 ---
 
 ## ディレクトリ構造
@@ -220,6 +226,7 @@ soul-kun/
 **監査・ログ系**
 - `audit_logs` - 監査ログ
 - `notification_logs` - 通知ログ
+- `outbox_messages` - 外部通知キュー（冪等性用）
 
 詳細は `docs/03_database_design.md` を参照。
 

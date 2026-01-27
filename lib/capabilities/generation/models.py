@@ -32,6 +32,11 @@ from .constants import (
     DEFAULT_IMAGE_SIZE,
     DEFAULT_IMAGE_QUALITY,
     DEFAULT_IMAGE_STYLE,
+    # G3: ディープリサーチ
+    ResearchDepth,
+    ResearchType,
+    SourceType,
+    ReportFormat,
 )
 
 
@@ -471,6 +476,9 @@ class GenerationInput:
     # 画像生成用（G2）
     image_request: Optional["ImageRequest"] = None
 
+    # リサーチ用（G3）
+    research_request: Optional["ResearchRequest"] = None
+
     # 共通設定
     user_id: Optional[UUID] = None
     instruction: str = ""
@@ -482,6 +490,8 @@ class GenerationInput:
             return self.document_request
         if self.generation_type == GenerationType.IMAGE:
             return self.image_request
+        if self.generation_type == GenerationType.RESEARCH:
+            return self.research_request
         return None
 
 
@@ -502,6 +512,9 @@ class GenerationOutput:
     # 画像生成結果（G2）
     image_result: Optional["ImageResult"] = None
 
+    # リサーチ結果（G3）
+    research_result: Optional["ResearchResult"] = None
+
     # 共通メタデータ
     metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
 
@@ -515,6 +528,8 @@ class GenerationOutput:
             return self.document_result
         if self.generation_type == GenerationType.IMAGE:
             return self.image_result
+        if self.generation_type == GenerationType.RESEARCH:
+            return self.research_result
         return None
 
     def to_dict(self) -> Dict[str, Any]:
@@ -531,6 +546,8 @@ class GenerationOutput:
             result["document_result"] = self.document_result.to_dict()
         if self.image_result:
             result["image_result"] = self.image_result.to_dict()
+        if self.research_result:
+            result["research_result"] = self.research_result.to_dict()
         return result
 
     def to_user_message(self) -> str:
@@ -539,6 +556,8 @@ class GenerationOutput:
             return self.document_result.to_user_message()
         if self.image_result:
             return self.image_result.to_user_message()
+        if self.research_result:
+            return self.research_result.to_user_message()
         if self.error_message:
             return f"生成に失敗しました: {self.error_message}"
         return "生成処理中..."
@@ -549,6 +568,8 @@ class GenerationOutput:
             return self.document_result.to_brain_context()
         if self.image_result:
             return self.image_result.to_brain_context()
+        if self.research_result:
+            return self.research_result.to_brain_context()
         return f"【生成出力】タイプ: {self.generation_type.value}, ステータス: {self.status.value}"
 
 
@@ -743,4 +764,357 @@ class ImageResult:
             if self.prompt_used:
                 lines.append(f"プロンプト: {self.prompt_used[:100]}...")
 
+        return "\n".join(lines)
+
+
+# =============================================================================
+# Phase G3: ディープリサーチモデル
+# =============================================================================
+
+
+@dataclass
+class ResearchSource:
+    """
+    リサーチソース
+
+    収集した情報ソースの情報を保持。
+    """
+    source_id: str = field(default_factory=lambda: str(uuid4()))
+    source_type: SourceType = SourceType.WEB
+    title: str = ""
+    url: Optional[str] = None
+    content: str = ""                           # 抽出されたコンテンツ
+    snippet: str = ""                           # 検索結果のスニペット
+    published_date: Optional[datetime] = None
+    author: Optional[str] = None
+    credibility_score: float = 0.5              # 信頼性スコア（0-1）
+    relevance_score: float = 0.5                # 関連性スコア（0-1）
+    retrieved_at: datetime = field(default_factory=datetime.utcnow)
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "source_id": self.source_id,
+            "source_type": self.source_type.value,
+            "title": self.title,
+            "url": self.url,
+            "snippet": self.snippet[:200] if self.snippet else "",
+            "published_date": self.published_date.isoformat() if self.published_date else None,
+            "author": self.author,
+            "credibility_score": self.credibility_score,
+            "relevance_score": self.relevance_score,
+        }
+
+    def to_citation(self, index: int) -> str:
+        """引用形式で出力"""
+        parts = [f"[{index}]"]
+        if self.title:
+            parts.append(self.title)
+        if self.author:
+            parts.append(f"({self.author})")
+        if self.url:
+            parts.append(self.url)
+        return " ".join(parts)
+
+
+@dataclass
+class ResearchPlan:
+    """
+    リサーチ計画
+
+    調査の計画・戦略を保持。
+    """
+    plan_id: str = field(default_factory=lambda: str(uuid4()))
+    query: str = ""
+    research_type: ResearchType = ResearchType.TOPIC
+    depth: ResearchDepth = ResearchDepth.STANDARD
+
+    # 検索計画
+    search_queries: List[str] = field(default_factory=list)
+    key_questions: List[str] = field(default_factory=list)
+    search_focus: List[str] = field(default_factory=list)
+
+    # 出力計画
+    expected_sections: List[str] = field(default_factory=list)
+    report_format: ReportFormat = ReportFormat.FULL_REPORT
+
+    # 見積もり
+    estimated_time_minutes: int = 10
+    estimated_cost_jpy: float = 0.0
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    tokens_used: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "plan_id": self.plan_id,
+            "query": self.query,
+            "research_type": self.research_type.value,
+            "depth": self.depth.value,
+            "search_queries": self.search_queries,
+            "key_questions": self.key_questions,
+            "expected_sections": self.expected_sections,
+            "report_format": self.report_format.value,
+            "estimated_time_minutes": self.estimated_time_minutes,
+            "estimated_cost_jpy": self.estimated_cost_jpy,
+        }
+
+    def to_user_display(self) -> str:
+        """ユーザー表示用のフォーマット"""
+        lines = [
+            f"🔍 「{self.query}」の調査計画",
+            "",
+            f"📊 調査タイプ: {self.research_type.value}",
+            f"📈 深度: {self.depth.value}",
+            "",
+            "🔎 検索クエリ:",
+        ]
+        for i, q in enumerate(self.search_queries[:5], 1):
+            lines.append(f"  {i}. {q}")
+        if len(self.search_queries) > 5:
+            lines.append(f"  ... 他{len(self.search_queries) - 5}件")
+
+        lines.extend([
+            "",
+            "📝 出力セクション:",
+        ])
+        for section in self.expected_sections:
+            lines.append(f"  • {section}")
+
+        lines.extend([
+            "",
+            f"⏱ 推定時間: {self.estimated_time_minutes}分",
+            f"💰 推定コスト: ¥{self.estimated_cost_jpy:.0f}",
+        ])
+        return "\n".join(lines)
+
+
+@dataclass
+class ResearchRequest:
+    """
+    リサーチリクエスト
+
+    ディープリサーチの実行に必要な情報。
+    """
+    organization_id: UUID
+    query: str                                      # 調査対象・質問
+
+    # リサーチ設定
+    research_type: ResearchType = ResearchType.TOPIC
+    depth: ResearchDepth = ResearchDepth.STANDARD
+    report_format: ReportFormat = ReportFormat.FULL_REPORT
+    quality_level: QualityLevel = QualityLevel.STANDARD
+
+    # 追加設定
+    instruction: str = ""                           # 追加の指示
+    focus_areas: List[str] = field(default_factory=list)  # 重点調査領域
+    exclude_sources: List[str] = field(default_factory=list)  # 除外ソース
+    include_internal: bool = True                   # 社内ナレッジを含める
+    language: str = "ja"                            # 出力言語
+
+    # 出力先
+    save_to_drive: bool = True                      # Google Docsに保存
+    drive_folder_id: Optional[str] = None
+    send_to_chatwork: bool = False
+    chatwork_room_id: Optional[str] = None
+
+    # 確認設定
+    require_plan_confirmation: bool = False         # 計画の確認を求める
+
+    # メタデータ
+    user_id: Optional[UUID] = None
+    request_id: str = field(default_factory=lambda: str(uuid4()))
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "request_id": self.request_id,
+            "organization_id": str(self.organization_id),
+            "query": self.query,
+            "research_type": self.research_type.value,
+            "depth": self.depth.value,
+            "report_format": self.report_format.value,
+            "quality_level": self.quality_level.value,
+            "instruction": self.instruction,
+            "focus_areas": self.focus_areas,
+            "include_internal": self.include_internal,
+            "language": self.language,
+            "save_to_drive": self.save_to_drive,
+            "require_plan_confirmation": self.require_plan_confirmation,
+            "user_id": str(self.user_id) if self.user_id else None,
+            "created_at": self.created_at.isoformat(),
+        }
+
+
+@dataclass
+class ResearchResult:
+    """
+    リサーチ結果
+
+    ディープリサーチの実行結果。
+    """
+    # ステータス
+    status: GenerationStatus = GenerationStatus.PENDING
+    success: bool = False
+
+    # 計画
+    plan: Optional[ResearchPlan] = None
+
+    # 収集した情報
+    sources: List[ResearchSource] = field(default_factory=list)
+    sources_count: int = 0
+
+    # 生成されたレポート
+    executive_summary: str = ""                     # エグゼクティブサマリー
+    full_report: str = ""                           # 詳細レポート（Markdown）
+    key_findings: List[str] = field(default_factory=list)  # 主要な発見
+    recommendations: List[str] = field(default_factory=list)  # 推奨アクション
+
+    # 出力先
+    document_url: Optional[str] = None              # Google Docs URL
+    document_id: Optional[str] = None               # Google Docs ID
+
+    # 品質指標
+    confidence_score: float = 0.0                   # 信頼度（0-1）
+    coverage_score: float = 0.0                     # 網羅性（0-1）
+
+    # コスト
+    estimated_cost_jpy: float = 0.0
+    actual_cost_jpy: float = 0.0
+
+    # メタデータ
+    metadata: GenerationMetadata = field(default_factory=GenerationMetadata)
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+
+    # ChatWork送信結果
+    chatwork_sent: bool = False
+    chatwork_message_id: Optional[str] = None
+
+    def __post_init__(self):
+        """初期化後処理"""
+        if not self.sources_count:
+            self.sources_count = len(self.sources)
+
+    def complete(
+        self,
+        success: bool = True,
+        error_message: Optional[str] = None,
+        error_code: Optional[str] = None,
+    ) -> "ResearchResult":
+        """処理完了時に結果を更新"""
+        self.success = success
+        self.status = GenerationStatus.COMPLETED if success else GenerationStatus.FAILED
+        if not success:
+            self.error_message = error_message
+            self.error_code = error_code
+        self.metadata.complete(success, error_message, error_code)
+        return self
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "status": self.status.value,
+            "success": self.success,
+            "sources_count": self.sources_count,
+            "executive_summary": self.executive_summary[:500] if self.executive_summary else "",
+            "key_findings": self.key_findings[:5],
+            "recommendations": self.recommendations[:3],
+            "document_url": self.document_url,
+            "confidence_score": self.confidence_score,
+            "coverage_score": self.coverage_score,
+            "estimated_cost_jpy": self.estimated_cost_jpy,
+            "actual_cost_jpy": self.actual_cost_jpy,
+            "metadata": self.metadata.to_dict(),
+            "error_message": self.error_message,
+            "error_code": self.error_code,
+        }
+
+    def to_user_message(self) -> str:
+        """ユーザー向けメッセージを生成"""
+        if self.status == GenerationStatus.GATHERING_INFO:
+            return "情報を収集中ウル... 🔍"
+
+        if self.status == GenerationStatus.GENERATING:
+            return "レポートを作成中ウル... 📝"
+
+        if self.status == GenerationStatus.PENDING and self.plan:
+            return self.plan.to_user_display() + "\n\nこの計画で調査を開始していいウル？"
+
+        if self.status == GenerationStatus.COMPLETED:
+            lines = [
+                "━━━━━━━━━━━━━━━━━━━━━━",
+                "🔍 ディープリサーチ完了",
+                "",
+            ]
+
+            if self.executive_summary:
+                lines.extend([
+                    "📋 サマリー:",
+                    self.executive_summary[:300] + "..." if len(self.executive_summary) > 300 else self.executive_summary,
+                    "",
+                ])
+
+            if self.key_findings:
+                lines.append("📊 主要な発見:")
+                for finding in self.key_findings[:5]:
+                    lines.append(f"  • {finding}")
+                lines.append("")
+
+            if self.document_url:
+                lines.extend([
+                    "📄 詳細レポート:",
+                    self.document_url,
+                    "",
+                ])
+
+            lines.extend([
+                f"📈 情報源: {self.sources_count}件",
+                f"🎯 信頼度: {self.confidence_score * 100:.0f}%",
+                f"💰 コスト: ¥{self.actual_cost_jpy:.0f}",
+                "",
+                "詳細が知りたい部分があれば教えてほしいウル！",
+                "━━━━━━━━━━━━━━━━━━━━━━",
+            ])
+            return "\n".join(lines)
+
+        if self.status == GenerationStatus.FAILED:
+            return f"リサーチに失敗したウル... 😢\n{self.error_message or '原因不明'}"
+
+        return f"リサーチ準備中ウル...（{self.status.value}）"
+
+    def to_brain_context(self) -> str:
+        """脳のコンテキスト用文字列を生成"""
+        lines = ["【ディープリサーチ結果】"]
+        lines.append(f"ステータス: {self.status.value}")
+
+        if self.status == GenerationStatus.COMPLETED:
+            if self.plan:
+                lines.append(f"クエリ: {self.plan.query}")
+            if self.document_url:
+                lines.append(f"レポートURL: {self.document_url}")
+            lines.append(f"情報源数: {self.sources_count}件")
+
+            if self.key_findings:
+                lines.append("主要な発見:")
+                for finding in self.key_findings[:3]:
+                    lines.append(f"  - {finding}")
+
+        elif self.status == GenerationStatus.PENDING and self.plan:
+            lines.append(f"計画: {self.plan.query}")
+            lines.append(f"検索クエリ数: {len(self.plan.search_queries)}")
+
+        return "\n".join(lines)
+
+    def get_citations(self) -> str:
+        """引用一覧を生成"""
+        if not self.sources:
+            return ""
+        lines = ["", "## 参考文献", ""]
+        for i, source in enumerate(self.sources, 1):
+            lines.append(source.to_citation(i))
         return "\n".join(lines)

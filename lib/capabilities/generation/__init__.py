@@ -135,6 +135,20 @@ from .constants import (
     MAX_PROMPT_LENGTH,
     IMAGE_COST_JPY,
     IMAGE_ERROR_MESSAGES,
+
+    # G3: ディープリサーチ定数
+    ResearchDepth,
+    ResearchType,
+    SourceType,
+    ReportFormat,
+    PERPLEXITY_API_URL,
+    PERPLEXITY_DEFAULT_MODEL,
+    PERPLEXITY_PRO_MODEL,
+    RESEARCH_DEPTH_CONFIG,
+    RESEARCH_TYPE_DEFAULT_SECTIONS,
+    RESEARCH_COST_PER_QUERY,
+    MAX_RESEARCH_QUERY_LENGTH,
+    RESEARCH_ERROR_MESSAGES,
 )
 
 
@@ -201,6 +215,25 @@ from .exceptions import (
     ImageDailyLimitExceededError,
     ImageFeatureDisabledError,
     wrap_image_generation_error,
+
+    # G3: ディープリサーチ例外
+    ResearchError,
+    ResearchQueryEmptyError,
+    ResearchQueryTooLongError,
+    ResearchInvalidDepthError,
+    ResearchInvalidTypeError,
+    ResearchNoResultsError,
+    ResearchInsufficientSourcesError,
+    ResearchAnalysisError,
+    ResearchReportGenerationError,
+    PerplexityAPIError,
+    PerplexityRateLimitError,
+    PerplexityTimeoutError,
+    SearchAPIError,
+    ResearchDailyLimitExceededError,
+    ResearchConcurrentLimitExceededError,
+    ResearchFeatureDisabledError,
+    wrap_research_error,
 )
 
 
@@ -228,6 +261,12 @@ from .models import (
     ImageRequest,
     ImageResult,
     OptimizedPrompt,
+
+    # G3: ディープリサーチモデル
+    ResearchRequest,
+    ResearchResult,
+    ResearchPlan,
+    ResearchSource,
 
     # 統合モデル
     GenerationInput,
@@ -282,6 +321,18 @@ from .image_generator import (
 from .dalle_client import (
     DALLEClient,
     create_dalle_client,
+)
+
+
+# =============================================================================
+# G3: リサーチエンジン
+# =============================================================================
+
+from .research_engine import (
+    ResearchEngine,
+    PerplexityClient,
+    create_research_engine,
+    create_perplexity_client,
 )
 
 
@@ -360,6 +411,20 @@ __all__ = [
     "COST_PER_1K_TOKENS",
     "OUTPUT_COST_MULTIPLIER",
 
+    # G3: ディープリサーチ定数
+    "ResearchDepth",
+    "ResearchType",
+    "SourceType",
+    "ReportFormat",
+    "PERPLEXITY_API_URL",
+    "PERPLEXITY_DEFAULT_MODEL",
+    "PERPLEXITY_PRO_MODEL",
+    "RESEARCH_DEPTH_CONFIG",
+    "RESEARCH_TYPE_DEFAULT_SECTIONS",
+    "RESEARCH_COST_PER_QUERY",
+    "MAX_RESEARCH_QUERY_LENGTH",
+    "RESEARCH_ERROR_MESSAGES",
+
     # 例外 - 基底
     "GenerationBaseException",
 
@@ -419,6 +484,25 @@ __all__ = [
     "ImageFeatureDisabledError",
     "wrap_image_generation_error",
 
+    # G3: ディープリサーチ例外
+    "ResearchError",
+    "ResearchQueryEmptyError",
+    "ResearchQueryTooLongError",
+    "ResearchInvalidDepthError",
+    "ResearchInvalidTypeError",
+    "ResearchNoResultsError",
+    "ResearchInsufficientSourcesError",
+    "ResearchAnalysisError",
+    "ResearchReportGenerationError",
+    "PerplexityAPIError",
+    "PerplexityRateLimitError",
+    "PerplexityTimeoutError",
+    "SearchAPIError",
+    "ResearchDailyLimitExceededError",
+    "ResearchConcurrentLimitExceededError",
+    "ResearchFeatureDisabledError",
+    "wrap_research_error",
+
     # モデル - 共通
     "GenerationMetadata",
     "ReferenceDocument",
@@ -438,6 +522,12 @@ __all__ = [
     "ImageRequest",
     "ImageResult",
     "OptimizedPrompt",
+
+    # G3: ディープリサーチモデル
+    "ResearchRequest",
+    "ResearchResult",
+    "ResearchPlan",
+    "ResearchSource",
 
     # モデル - 統合
     "GenerationInput",
@@ -462,4 +552,10 @@ __all__ = [
     # G2: DALL-E クライアント
     "DALLEClient",
     "create_dalle_client",
+
+    # G3: リサーチエンジン
+    "ResearchEngine",
+    "PerplexityClient",
+    "create_research_engine",
+    "create_perplexity_client",
 ]

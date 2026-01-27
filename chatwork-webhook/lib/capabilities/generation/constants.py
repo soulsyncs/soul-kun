@@ -10,7 +10,7 @@ Created: 2026-01-27
 """
 
 from enum import Enum
-from typing import FrozenSet, Dict, Optional
+from typing import FrozenSet, Dict, Optional, Any, List
 
 
 # =============================================================================
@@ -639,4 +639,292 @@ IMAGE_PROMPT_OPTIMIZATION_TEMPLATE: str = """
 - 具体的な描写を含める（構図、色、光、雰囲気）
 - 著作権や商標を侵害する表現は避ける
 - 人物の顔を特定できる表現は避ける
+"""
+
+
+# =============================================================================
+# Phase G3: ディープリサーチ定数
+# =============================================================================
+
+
+class ResearchDepth(str, Enum):
+    """リサーチ深度"""
+    QUICK = "quick"             # クイック（1-2分、基本情報のみ）
+    STANDARD = "standard"       # 標準（5-10分）
+    DEEP = "deep"               # ディープ（15-30分、詳細分析）
+    COMPREHENSIVE = "comprehensive"  # 包括的（30分以上、全方位調査）
+
+
+class ResearchType(str, Enum):
+    """リサーチタイプ"""
+    COMPANY = "company"         # 企業調査
+    COMPETITOR = "competitor"   # 競合調査
+    MARKET = "market"           # 市場調査
+    TECHNOLOGY = "technology"   # 技術調査
+    PERSON = "person"           # 人物調査（公開情報のみ）
+    TOPIC = "topic"             # トピック調査
+    NEWS = "news"               # ニュース調査
+    CUSTOM = "custom"           # カスタム
+
+
+class SourceType(str, Enum):
+    """情報ソースタイプ"""
+    WEB = "web"                 # Web検索
+    NEWS = "news"               # ニュース記事
+    ACADEMIC = "academic"       # 学術論文
+    OFFICIAL = "official"       # 公式サイト
+    SNS = "sns"                 # SNS
+    INTERNAL = "internal"       # 社内ナレッジ
+    GOVERNMENT = "government"   # 政府・公的機関
+
+
+class ReportFormat(str, Enum):
+    """レポートフォーマット"""
+    EXECUTIVE_SUMMARY = "executive_summary"  # エグゼクティブサマリー
+    FULL_REPORT = "full_report"              # 詳細レポート
+    COMPARISON = "comparison"                # 比較表
+    BULLET_POINTS = "bullet_points"          # 箇条書き
+    PRESENTATION = "presentation"            # プレゼン用
+
+
+# -----------------------------------------------------------------------------
+# リサーチAPI設定
+# -----------------------------------------------------------------------------
+
+# Perplexity API（メイン）
+PERPLEXITY_API_URL: str = "https://api.perplexity.ai/chat/completions"
+PERPLEXITY_API_TIMEOUT_SECONDS: int = 120
+PERPLEXITY_MAX_RETRIES: int = 3
+PERPLEXITY_RETRY_DELAY_SECONDS: float = 2.0
+
+# Web検索用モデル
+PERPLEXITY_DEFAULT_MODEL: str = "llama-3.1-sonar-small-128k-online"
+PERPLEXITY_PRO_MODEL: str = "llama-3.1-sonar-large-128k-online"
+
+# SerpAPI（バックアップ/追加検索）
+SERPAPI_TIMEOUT_SECONDS: int = 30
+
+# 同時検索数
+MAX_CONCURRENT_SEARCHES: int = 5
+
+
+# -----------------------------------------------------------------------------
+# リサーチ深度別設定
+# -----------------------------------------------------------------------------
+
+RESEARCH_DEPTH_CONFIG: Dict[str, Dict[str, Any]] = {
+    ResearchDepth.QUICK.value: {
+        "max_sources": 5,
+        "max_queries": 2,
+        "timeout_minutes": 2,
+        "search_types": [SourceType.WEB.value],
+        "estimated_cost_min": 50,
+        "estimated_cost_max": 100,
+    },
+    ResearchDepth.STANDARD.value: {
+        "max_sources": 15,
+        "max_queries": 5,
+        "timeout_minutes": 10,
+        "search_types": [SourceType.WEB.value, SourceType.NEWS.value],
+        "estimated_cost_min": 100,
+        "estimated_cost_max": 300,
+    },
+    ResearchDepth.DEEP.value: {
+        "max_sources": 30,
+        "max_queries": 10,
+        "timeout_minutes": 30,
+        "search_types": [SourceType.WEB.value, SourceType.NEWS.value, SourceType.OFFICIAL.value],
+        "estimated_cost_min": 200,
+        "estimated_cost_max": 500,
+    },
+    ResearchDepth.COMPREHENSIVE.value: {
+        "max_sources": 50,
+        "max_queries": 20,
+        "timeout_minutes": 60,
+        "search_types": [
+            SourceType.WEB.value, SourceType.NEWS.value,
+            SourceType.OFFICIAL.value, SourceType.ACADEMIC.value,
+        ],
+        "estimated_cost_min": 300,
+        "estimated_cost_max": 800,
+    },
+}
+
+
+# -----------------------------------------------------------------------------
+# リサーチタイプ別デフォルトセクション
+# -----------------------------------------------------------------------------
+
+RESEARCH_TYPE_DEFAULT_SECTIONS: Dict[str, List[str]] = {
+    ResearchType.COMPANY.value: [
+        "企業概要",
+        "事業内容",
+        "業績・財務",
+        "経営陣",
+        "最新ニュース",
+        "評判・口コミ",
+    ],
+    ResearchType.COMPETITOR.value: [
+        "企業概要",
+        "サービス比較",
+        "価格比較",
+        "強み・弱み分析",
+        "市場ポジション",
+        "うちとの比較",
+    ],
+    ResearchType.MARKET.value: [
+        "市場概要",
+        "市場規模・成長率",
+        "主要プレイヤー",
+        "トレンド",
+        "課題と機会",
+        "今後の展望",
+    ],
+    ResearchType.TECHNOLOGY.value: [
+        "技術概要",
+        "仕組み・原理",
+        "ユースケース",
+        "メリット・デメリット",
+        "主要ベンダー",
+        "導入事例",
+    ],
+    ResearchType.TOPIC.value: [
+        "概要",
+        "背景",
+        "現状",
+        "主要な論点",
+        "今後の展望",
+    ],
+}
+
+
+# -----------------------------------------------------------------------------
+# リサーチコスト（円、参考値）
+# -----------------------------------------------------------------------------
+
+RESEARCH_COST_PER_QUERY: Dict[str, float] = {
+    PERPLEXITY_DEFAULT_MODEL: 0.2,   # 約0.2円/クエリ
+    PERPLEXITY_PRO_MODEL: 1.0,       # 約1円/クエリ
+}
+
+# レポート生成コスト（LLM使用）
+RESEARCH_REPORT_COST_PER_1K_TOKENS: float = 3.0  # 約3円/1000トークン
+
+
+# -----------------------------------------------------------------------------
+# リサーチ制限
+# -----------------------------------------------------------------------------
+
+MAX_RESEARCH_QUERY_LENGTH: int = 1000       # クエリ最大文字数
+MAX_RESEARCH_SOURCES: int = 100             # 最大ソース数
+MAX_RESEARCH_PER_DAY_PER_USER: int = 20     # ユーザーあたり日次上限
+MAX_CONCURRENT_RESEARCHES: int = 3          # 同時実行上限
+
+
+# -----------------------------------------------------------------------------
+# リサーチエラーメッセージ
+# -----------------------------------------------------------------------------
+
+RESEARCH_ERROR_MESSAGES: Dict[str, str] = {
+    # 検証エラー
+    "EMPTY_QUERY": "調査対象（クエリ）が指定されていません。",
+    "QUERY_TOO_LONG": "クエリが長すぎます（最大{max}文字）。",
+    "INVALID_DEPTH": "サポートされていないリサーチ深度です: {depth}",
+    "INVALID_TYPE": "サポートされていないリサーチタイプです: {type}",
+
+    # 実行エラー
+    "RESEARCH_FAILED": "リサーチに失敗しました。",
+    "NO_RESULTS": "検索結果が見つかりませんでした。",
+    "INSUFFICIENT_SOURCES": "十分な情報源が見つかりませんでした。",
+    "ANALYSIS_FAILED": "情報の分析に失敗しました。",
+    "REPORT_GENERATION_FAILED": "レポートの生成に失敗しました。",
+
+    # API エラー
+    "PERPLEXITY_API_ERROR": "Perplexity APIエラー: {error}",
+    "PERPLEXITY_RATE_LIMIT": "Perplexity APIのレート制限に達しました。",
+    "PERPLEXITY_TIMEOUT": "リサーチがタイムアウトしました。",
+    "SEARCH_API_ERROR": "検索APIエラー: {error}",
+
+    # その他
+    "FEATURE_DISABLED": "ディープリサーチ機能は現在無効です。",
+    "DAILY_LIMIT_EXCEEDED": "本日のリサーチ上限（{limit}回）に達しました。",
+    "CONCURRENT_LIMIT_EXCEEDED": "同時実行上限に達しました。しばらく待ってから再試行してください。",
+}
+
+
+# -----------------------------------------------------------------------------
+# リサーチプロンプトテンプレート
+# -----------------------------------------------------------------------------
+
+RESEARCH_PLAN_GENERATION_PROMPT: str = """
+あなたは優秀なリサーチアナリストです。
+以下のリサーチクエリに対して、効果的な調査計画を作成してください。
+
+【リサーチクエリ】
+{query}
+
+【リサーチタイプ】
+{research_type}
+
+【リサーチ深度】
+{depth}
+
+【追加指示】
+{instruction}
+
+【出力形式】
+以下のJSON形式で出力してください：
+{{
+    "search_queries": ["検索クエリ1", "検索クエリ2", ...],
+    "key_questions": ["答えるべき質問1", "質問2", ...],
+    "expected_sections": ["セクション1", "セクション2", ...],
+    "search_focus": ["重点的に調べる領域1", ...],
+    "estimated_time_minutes": 10
+}}
+
+【ルール】
+- 検索クエリは具体的で、日本語と英語の両方を含める
+- 重要な情報を漏れなく収集できるよう設計する
+- リサーチ深度に応じた適切な数のクエリを生成する
+"""
+
+RESEARCH_ANALYSIS_PROMPT: str = """
+あなたは優秀なリサーチアナリストです。
+収集した情報を分析し、構造化されたレポートを作成してください。
+
+【リサーチクエリ】
+{query}
+
+【収集した情報】
+{sources}
+
+【レポート形式】
+{report_format}
+
+【出力セクション】
+{sections}
+
+【出力形式】
+Markdown形式でレポートを作成してください。
+各情報には出典を明記し、[1][2]のように参照番号を付けてください。
+
+【ルール】
+- 客観的な事実と分析を区別する
+- 不確実な情報には「〜と見られる」等の表現を使う
+- 数値や日付は可能な限り具体的に記載する
+- 出典を必ず明記する
+"""
+
+RESEARCH_SUMMARY_PROMPT: str = """
+以下のリサーチレポートを要約し、エグゼクティブサマリーを作成してください。
+
+【レポート】
+{report}
+
+【出力形式】
+- 3-5文の要約
+- 主要な発見事項（箇条書き3-5点）
+- 推奨アクション（あれば）
+
+簡潔かつ重要なポイントを漏らさないようにしてください。
 """

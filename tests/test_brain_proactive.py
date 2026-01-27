@@ -1,0 +1,484 @@
+# tests/test_brain_proactive.py
+"""
+Ultimate Brain Phase 2: 能動的モニタリング（Proactive Monitoring）のテスト
+"""
+
+import pytest
+from datetime import datetime, timedelta
+from lib.brain.proactive import (
+    ProactiveMonitor,
+    create_proactive_monitor,
+    TriggerType,
+    ProactiveMessageType,
+    ActionPriority,
+    Trigger,
+    ProactiveMessage,
+    ProactiveAction,
+    UserContext,
+    CheckResult,
+    GOAL_ABANDONED_DAYS,
+    TASK_OVERLOAD_COUNT,
+    EMOTION_DECLINE_DAYS,
+    MESSAGE_COOLDOWN_HOURS,
+    TRIGGER_PRIORITY,
+    MESSAGE_TEMPLATES,
+)
+from lib.brain.constants import JST
+
+
+# ============================================================
+# フィクスチャ
+# ============================================================
+
+@pytest.fixture
+def monitor():
+    """ProactiveMonitorインスタンスを作成（dry_run=True）"""
+    return create_proactive_monitor(dry_run=True)
+
+
+@pytest.fixture
+def sample_user_context():
+    """サンプルユーザーコンテキスト"""
+    return UserContext(
+        user_id="user_123",
+        organization_id="org_soulsyncs",
+        chatwork_account_id="cw_456",
+        dm_room_id="room_789",
+        last_activity_at=datetime.now(JST) - timedelta(days=1),
+    )
+
+
+@pytest.fixture
+def inactive_user_context():
+    """長期不在のユーザーコンテキスト"""
+    return UserContext(
+        user_id="user_inactive",
+        organization_id="org_soulsyncs",
+        chatwork_account_id="cw_inactive",
+        dm_room_id="room_inactive",
+        last_activity_at=datetime.now(JST) - timedelta(days=20),
+    )
+
+
+# ============================================================
+# 定数テスト
+# ============================================================
+
+class TestConstants:
+    """定数のテスト"""
+
+    def test_goal_abandoned_days(self):
+        """目標放置日数が正しく定義されている"""
+        assert GOAL_ABANDONED_DAYS == 7
+
+    def test_task_overload_count(self):
+        """タスク山積み件数が正しく定義されている"""
+        assert TASK_OVERLOAD_COUNT == 5
+
+    def test_emotion_decline_days(self):
+        """感情変化日数が正しく定義されている"""
+        assert EMOTION_DECLINE_DAYS == 3
+
+    def test_message_cooldown_hours(self):
+        """メッセージクールダウンが正しく定義されている"""
+        assert TriggerType.GOAL_ABANDONED in MESSAGE_COOLDOWN_HOURS
+        assert TriggerType.TASK_OVERLOAD in MESSAGE_COOLDOWN_HOURS
+        assert MESSAGE_COOLDOWN_HOURS[TriggerType.GOAL_ABANDONED] == 72
+
+    def test_trigger_priority(self):
+        """トリガー優先度が正しく定義されている"""
+        assert TRIGGER_PRIORITY[TriggerType.EMOTION_DECLINE] == ActionPriority.CRITICAL
+        assert TRIGGER_PRIORITY[TriggerType.TASK_OVERLOAD] == ActionPriority.HIGH
+
+    def test_message_templates(self):
+        """メッセージテンプレートが定義されている"""
+        assert TriggerType.GOAL_ABANDONED in MESSAGE_TEMPLATES
+        assert len(MESSAGE_TEMPLATES[TriggerType.GOAL_ABANDONED]) > 0
+
+
+# ============================================================
+# Enumテスト
+# ============================================================
+
+class TestTriggerType:
+    """TriggerType Enumのテスト"""
+
+    def test_values(self):
+        """値が正しく定義されている"""
+        assert TriggerType.GOAL_ABANDONED.value == "goal_abandoned"
+        assert TriggerType.TASK_OVERLOAD.value == "task_overload"
+        assert TriggerType.EMOTION_DECLINE.value == "emotion_decline"
+        assert TriggerType.QUESTION_UNANSWERED.value == "question_unanswered"
+        assert TriggerType.GOAL_ACHIEVED.value == "goal_achieved"
+
+    def test_all_values(self):
+        """全ての値が存在する"""
+        assert len(TriggerType) == 7
+
+
+class TestProactiveMessageType:
+    """ProactiveMessageType Enumのテスト"""
+
+    def test_values(self):
+        """値が正しく定義されている"""
+        assert ProactiveMessageType.FOLLOW_UP.value == "follow_up"
+        assert ProactiveMessageType.ENCOURAGEMENT.value == "encouragement"
+        assert ProactiveMessageType.REMINDER.value == "reminder"
+        assert ProactiveMessageType.CELEBRATION.value == "celebration"
+        assert ProactiveMessageType.CHECK_IN.value == "check_in"
+
+    def test_all_values(self):
+        """全ての値が存在する"""
+        assert len(ProactiveMessageType) == 5
+
+
+class TestActionPriority:
+    """ActionPriority Enumのテスト"""
+
+    def test_values(self):
+        """値が正しく定義されている"""
+        assert ActionPriority.CRITICAL.value == "critical"
+        assert ActionPriority.HIGH.value == "high"
+        assert ActionPriority.MEDIUM.value == "medium"
+        assert ActionPriority.LOW.value == "low"
+
+    def test_all_values(self):
+        """全ての値が存在する"""
+        assert len(ActionPriority) == 4
+
+
+# ============================================================
+# データクラステスト
+# ============================================================
+
+class TestTrigger:
+    """Triggerデータクラスのテスト"""
+
+    def test_creation(self):
+        """正しく作成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+            details={"goal_id": "goal_456", "days_since_update": 10},
+        )
+        assert trigger.trigger_type == TriggerType.GOAL_ABANDONED
+        assert trigger.user_id == "user_123"
+        assert trigger.priority == ActionPriority.MEDIUM
+        assert trigger.details["days_since_update"] == 10
+
+    def test_to_dict(self):
+        """辞書形式に変換できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.TASK_OVERLOAD,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.HIGH,
+            details={"count": 8},
+        )
+        d = trigger.to_dict()
+        assert d["trigger_type"] == "task_overload"
+        assert d["priority"] == "high"
+        assert d["details"]["count"] == 8
+
+
+class TestProactiveMessage:
+    """ProactiveMessageデータクラスのテスト"""
+
+    def test_creation(self):
+        """正しく作成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ACHIEVED,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+        )
+        message = ProactiveMessage(
+            trigger=trigger,
+            message_type=ProactiveMessageType.CELEBRATION,
+            message="おめでとうございますウル！🎉",
+            room_id="room_789",
+        )
+        assert message.message_type == ProactiveMessageType.CELEBRATION
+        assert "おめでとう" in message.message
+
+    def test_to_dict(self):
+        """辞書形式に変換できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.EMOTION_DECLINE,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.CRITICAL,
+        )
+        message = ProactiveMessage(
+            trigger=trigger,
+            message_type=ProactiveMessageType.CHECK_IN,
+            message="最近調子どうですかウル？",
+            room_id="room_789",
+        )
+        d = message.to_dict()
+        assert d["message_type"] == "check_in"
+        assert d["room_id"] == "room_789"
+
+
+class TestProactiveAction:
+    """ProactiveActionデータクラスのテスト"""
+
+    def test_creation_success(self):
+        """成功アクションを作成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+        )
+        message = ProactiveMessage(
+            trigger=trigger,
+            message_type=ProactiveMessageType.FOLLOW_UP,
+            message="目標の進捗どうですかウル？",
+        )
+        action = ProactiveAction(message=message, success=True)
+        assert action.success is True
+        assert action.error_message is None
+
+    def test_creation_failure(self):
+        """失敗アクションを作成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.TASK_OVERLOAD,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.HIGH,
+        )
+        message = ProactiveMessage(
+            trigger=trigger,
+            message_type=ProactiveMessageType.REMINDER,
+            message="タスクが溜まってますウル",
+        )
+        action = ProactiveAction(
+            message=message,
+            success=False,
+            error_message="Failed to send message",
+        )
+        assert action.success is False
+        assert action.error_message is not None
+
+
+class TestUserContext:
+    """UserContextデータクラスのテスト"""
+
+    def test_creation(self, sample_user_context):
+        """正しく作成できる"""
+        assert sample_user_context.user_id == "user_123"
+        assert sample_user_context.organization_id == "org_soulsyncs"
+        assert sample_user_context.dm_room_id == "room_789"
+
+    def test_last_activity(self, inactive_user_context):
+        """最終アクティビティが設定されている"""
+        days_since = (datetime.now(JST) - inactive_user_context.last_activity_at).days
+        assert days_since >= 20
+
+
+class TestCheckResult:
+    """CheckResultデータクラスのテスト"""
+
+    def test_creation(self):
+        """正しく作成できる"""
+        result = CheckResult(
+            user_id="user_123",
+            triggers_found=[],
+            actions_taken=[],
+        )
+        assert result.user_id == "user_123"
+        assert len(result.triggers_found) == 0
+
+    def test_with_triggers(self):
+        """トリガー付きで作成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.LONG_ABSENCE,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+            details={"days": 15},
+        )
+        result = CheckResult(
+            user_id="user_123",
+            triggers_found=[trigger],
+            actions_taken=[],
+        )
+        assert len(result.triggers_found) == 1
+
+
+# ============================================================
+# ProactiveMonitorテスト
+# ============================================================
+
+class TestProactiveMonitorInit:
+    """ProactiveMonitor初期化のテスト"""
+
+    def test_create_default(self):
+        """デフォルト設定で作成できる"""
+        monitor = create_proactive_monitor()
+        assert monitor is not None
+
+    def test_create_dry_run(self):
+        """dry_run=Trueで作成できる"""
+        monitor = create_proactive_monitor(dry_run=True)
+        assert monitor._dry_run is True
+
+    def test_create_with_pool(self):
+        """poolを指定して作成できる"""
+        monitor = create_proactive_monitor(pool=None)
+        assert monitor is not None
+
+
+class TestProactiveMonitorShouldAct:
+    """_should_act()のテスト"""
+
+    def test_should_act_with_dm_room(self, monitor, sample_user_context):
+        """DMルームがあればアクションを取る"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id=sample_user_context.user_id,
+            organization_id=sample_user_context.organization_id,
+            priority=ActionPriority.MEDIUM,
+        )
+        assert monitor._should_act(trigger, sample_user_context) is True
+
+    def test_should_not_act_without_dm_room(self, monitor):
+        """DMルームがなければアクションを取らない"""
+        user_ctx = UserContext(
+            user_id="user_no_dm",
+            organization_id="org_soulsyncs",
+            chatwork_account_id=None,
+            dm_room_id=None,
+        )
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id=user_ctx.user_id,
+            organization_id=user_ctx.organization_id,
+            priority=ActionPriority.MEDIUM,
+        )
+        assert monitor._should_act(trigger, user_ctx) is False
+
+
+class TestProactiveMonitorGenerateMessage:
+    """_generate_message()のテスト"""
+
+    def test_generate_goal_abandoned_message(self, monitor):
+        """目標放置メッセージを生成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+            details={"goal_name": "毎日1時間読書", "days": 10},
+        )
+        message = monitor._generate_message(trigger)
+        assert message is not None
+        assert len(message) > 0
+        assert "ウル" in message
+
+    def test_generate_task_overload_message(self, monitor):
+        """タスク山積みメッセージを生成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.TASK_OVERLOAD,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.HIGH,
+            details={"count": 8, "overdue_count": 3},
+        )
+        message = monitor._generate_message(trigger)
+        assert message is not None
+        assert "ウル" in message
+
+    def test_generate_emotion_decline_message(self, monitor):
+        """感情変化メッセージを生成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.EMOTION_DECLINE,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.CRITICAL,
+        )
+        message = monitor._generate_message(trigger)
+        assert message is not None
+        assert "ウル" in message
+
+    def test_generate_goal_achieved_message(self, monitor):
+        """目標達成メッセージを生成できる"""
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ACHIEVED,
+            user_id="user_123",
+            organization_id="org_soulsyncs",
+            priority=ActionPriority.MEDIUM,
+            details={"goal_name": "資格取得"},
+        )
+        message = monitor._generate_message(trigger)
+        assert message is not None
+        assert "おめでとう" in message or "ウル" in message
+
+
+class TestProactiveMonitorGetMessageType:
+    """_get_message_type()のテスト"""
+
+    def test_goal_abandoned_is_follow_up(self, monitor):
+        """目標放置はFOLLOW_UP"""
+        msg_type = monitor._get_message_type(TriggerType.GOAL_ABANDONED)
+        assert msg_type == ProactiveMessageType.FOLLOW_UP
+
+    def test_task_overload_is_reminder(self, monitor):
+        """タスク山積みはREMINDER"""
+        msg_type = monitor._get_message_type(TriggerType.TASK_OVERLOAD)
+        assert msg_type == ProactiveMessageType.REMINDER
+
+    def test_emotion_decline_is_check_in(self, monitor):
+        """感情変化はCHECK_IN"""
+        msg_type = monitor._get_message_type(TriggerType.EMOTION_DECLINE)
+        assert msg_type == ProactiveMessageType.CHECK_IN
+
+    def test_goal_achieved_is_celebration(self, monitor):
+        """目標達成はCELEBRATION"""
+        msg_type = monitor._get_message_type(TriggerType.GOAL_ACHIEVED)
+        assert msg_type == ProactiveMessageType.CELEBRATION
+
+    def test_long_absence_is_check_in(self, monitor):
+        """長期不在はCHECK_IN"""
+        msg_type = monitor._get_message_type(TriggerType.LONG_ABSENCE)
+        assert msg_type == ProactiveMessageType.CHECK_IN
+
+
+class TestProactiveMonitorLongAbsence:
+    """長期不在チェックのテスト"""
+
+    @pytest.mark.asyncio
+    async def test_check_long_absence(self, monitor, inactive_user_context):
+        """長期不在を検出できる"""
+        trigger = await monitor._check_long_absence(inactive_user_context)
+        assert trigger is not None
+        assert trigger.trigger_type == TriggerType.LONG_ABSENCE
+        assert trigger.details["days"] >= 14
+
+    @pytest.mark.asyncio
+    async def test_no_long_absence_for_active_user(self, monitor, sample_user_context):
+        """アクティブユーザーは検出されない"""
+        trigger = await monitor._check_long_absence(sample_user_context)
+        assert trigger is None
+
+
+# ============================================================
+# ファクトリ関数テスト
+# ============================================================
+
+class TestFactory:
+    """ファクトリ関数のテスト"""
+
+    def test_create_proactive_monitor(self):
+        """create_proactive_monitorが正しく動作する"""
+        monitor = create_proactive_monitor()
+        assert isinstance(monitor, ProactiveMonitor)
+
+    def test_create_with_options(self):
+        """オプション付きで作成できる"""
+        monitor = create_proactive_monitor(pool=None, dry_run=True)
+        assert isinstance(monitor, ProactiveMonitor)
+        assert monitor._dry_run is True

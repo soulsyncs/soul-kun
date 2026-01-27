@@ -390,11 +390,11 @@ class ProactiveMonitor:
             from sqlalchemy import text
 
             query = text("""
-                SELECT id, goal_text, created_at, updated_at
+                SELECT id, title, created_at, updated_at
                 FROM goals
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
-                  AND status = 'in_progress'
+                  AND status = 'active'
                   AND updated_at < :threshold
                 ORDER BY updated_at ASC
                 LIMIT 1
@@ -419,7 +419,7 @@ class ProactiveMonitor:
                     priority=TRIGGER_PRIORITY[TriggerType.GOAL_ABANDONED],
                     details={
                         "goal_id": str(row.id),
-                        "goal_name": row.goal_text[:50] if row.goal_text else "",
+                        "goal_name": row.title[:50] if row.title else "",
                         "days_since_update": days_since_update,
                     },
                 )
@@ -439,10 +439,10 @@ class ProactiveMonitor:
 
             query = text("""
                 SELECT COUNT(*) as total_count,
-                       COUNT(CASE WHEN limit_time < CURRENT_TIMESTAMP THEN 1 END) as overdue_count
+                       COUNT(CASE WHEN limit_time IS NOT NULL AND limit_time < EXTRACT(EPOCH FROM CURRENT_TIMESTAMP)::bigint THEN 1 END) as overdue_count
                 FROM chatwork_tasks
                 WHERE organization_id = :org_id
-                  AND assignee_account_id = :account_id
+                  AND assigned_to_account_id = :account_id
                   AND status = 'open'
             """)
 
@@ -532,7 +532,7 @@ class ProactiveMonitor:
 
             # 直近24時間以内に達成された目標
             query = text("""
-                SELECT id, goal_text, updated_at
+                SELECT id, title, updated_at
                 FROM goals
                 WHERE organization_id = :org_id
                   AND user_id = :user_id
@@ -560,7 +560,7 @@ class ProactiveMonitor:
                     priority=TRIGGER_PRIORITY[TriggerType.GOAL_ACHIEVED],
                     details={
                         "goal_id": str(row.id),
-                        "goal_name": row.goal_text[:50] if row.goal_text else "",
+                        "goal_name": row.title[:50] if row.title else "",
                     },
                 )
 
@@ -582,7 +582,7 @@ class ProactiveMonitor:
                 SELECT COUNT(*) as count
                 FROM chatwork_tasks
                 WHERE organization_id = :org_id
-                  AND assignee_account_id = :account_id
+                  AND assigned_to_account_id = :account_id
                   AND status = 'done'
                   AND updated_at >= :threshold
             """)
@@ -813,10 +813,10 @@ class ProactiveMonitor:
             if organization_id:
                 query = text("""
                     SELECT u.id, u.organization_id, u.chatwork_account_id,
-                           cu.dm_room_id, u.last_active_at
+                           cu.room_id AS dm_room_id, NULL AS last_active_at
                     FROM users u
-                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                        AND u.organization_id = cu.organization_id
+                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                        AND u.organization_id = cu.organization_id::varchar
                     WHERE u.organization_id = :org_id
                       AND u.is_active = true
                 """)
@@ -824,10 +824,10 @@ class ProactiveMonitor:
             else:
                 query = text("""
                     SELECT u.id, u.organization_id, u.chatwork_account_id,
-                           cu.dm_room_id, u.last_active_at
+                           cu.room_id AS dm_room_id, NULL AS last_active_at
                     FROM users u
-                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                        AND u.organization_id = cu.organization_id
+                    LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                        AND u.organization_id = cu.organization_id::varchar
                     WHERE u.is_active = true
                 """)
                 params = {}
@@ -865,10 +865,10 @@ class ProactiveMonitor:
 
             query = text("""
                 SELECT u.id, u.organization_id, u.chatwork_account_id,
-                       cu.dm_room_id, u.last_active_at
+                       cu.room_id AS dm_room_id, NULL AS last_active_at
                 FROM users u
-                LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id
-                    AND u.organization_id = cu.organization_id
+                LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::varchar
+                    AND u.organization_id = cu.organization_id::varchar
                 WHERE u.id = :user_id
                   AND u.organization_id = :org_id
             """)

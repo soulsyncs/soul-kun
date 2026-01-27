@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 10:30 JST**
+**最終更新: 2026-01-28 11:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -267,13 +267,19 @@
 >   - `generation_request`: 生成リクエスト
 >   - `has_multimodal_content()`, `has_generation_request()`, `get_multimodal_summary()`
 > - **テスト**: 28件追加（tests/test_brain_capability_bridge.py）
-> - **PR #271**: CIチェック全パス、マージ待ち
+> - **PR #271**: マージ完了
+> - **PR #272**: chatwork-webhook/main.py統合、マージ完了
+
+**完了したこと（Brain-Capability main.py統合）:** ✅ 2026-01-28 完了
+> CapabilityBridgeをchatwork-webhookに統合した。
+> - **SYSTEM_CAPABILITIES拡張**: generate_document, generate_image, generate_video追加
+> - **ハンドラー統合**: _get_brain_integration()とCapabilityBridgeを接続
+> - **PR #272**: マージ完了、デプロイ待ち
 
 **次にやること:**
-> 1. **PR #271マージ** - Brain-Capability統合基盤を本番反映
-> 2. **CapabilityBridge実運用統合** - chatwork-webhook/main.pyへの組み込み
-> 3. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
-> 4. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
+> 1. **chatwork-webhookデプロイ** - Brain-Capability統合を本番反映（v10.38.0）
+> 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 3. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
 
 ---
 
@@ -403,6 +409,17 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **11:00 JST**: Brain-Capability main.py統合 ✅ **PR #272 マージ完了**
+  - **概要**: CapabilityBridge を chatwork-webhook/main.py に統合
+  - **SYSTEM_CAPABILITIES拡張**:
+    - `generate_document`: 文書生成（Google Docs）
+    - `generate_image`: 画像生成（DALL-E）
+    - `generate_video`: 動画生成（Runway Gen-3、デフォルト無効）
+    - `create_document`: generate_documentのエイリアス
+  - **脳統合**: `_get_brain_integration()` に CapabilityBridge ハンドラーを追加
+  - **テスト**: 3327件パス
+  - **次のステップ**: chatwork-webhook 本番デプロイ
 
 - **10:30 JST**: Brain-Capability統合基盤 実装完了 ✅ **PR #271 マージ完了**
   - **概要**: 脳と機能モジュールが完全に分断されていた問題を発見し、橋渡し層を実装

@@ -265,6 +265,9 @@ class BrainContext:
     # インサイト関連
     insights: List[InsightInfo] = field(default_factory=list)
 
+    # CEO教え関連（Phase 2D）
+    ceo_teachings: Optional["CEOTeachingContext"] = None
+
     # メタデータ
     organization_id: str = ""
     room_id: str = ""
@@ -338,6 +341,12 @@ class BrainContext:
             parts.append("【進行中の目標】")
             for goal in self.active_goals[:2]:
                 parts.append(f"  - {goal.what}")
+
+        # CEO教え（Phase 2D）
+        if self.ceo_teachings and self.ceo_teachings.relevant_teachings:
+            ceo_context = self.ceo_teachings.to_prompt_context()
+            if ceo_context:
+                parts.append(ceo_context)
 
         # 記憶している人物
         if self.person_info:

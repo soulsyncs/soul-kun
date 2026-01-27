@@ -671,7 +671,7 @@ class GoalSettingDialogue:
         return session_id
 
     def _update_session(self, conn, session_id: str,
-                       current_step: str,
+                       current_step: str = None,
                        why_answer: str = None,
                        what_answer: str = None,
                        how_answer: str = None,
@@ -681,8 +681,10 @@ class GoalSettingDialogue:
         updates = ["updated_at = CURRENT_TIMESTAMP", "last_activity_at = CURRENT_TIMESTAMP"]
         params = {"session_id": session_id}
 
-        updates.append("current_step = :current_step")
-        params["current_step"] = current_step
+        # v10.38.1: current_step をオプショナルに変更（回答のみ更新するケース対応）
+        if current_step is not None:
+            updates.append("current_step = :current_step")
+            params["current_step"] = current_step
 
         if why_answer is not None:
             updates.append("why_answer = :why_answer")

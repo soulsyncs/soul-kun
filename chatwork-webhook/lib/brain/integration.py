@@ -335,6 +335,7 @@ class BrainIntegration:
         sender_name: str,
         fallback_func: Optional[Callable] = None,
         bypass_context: Optional[Dict[str, Any]] = None,
+        bypass_handlers: Optional[Dict[str, Callable]] = None,
     ) -> IntegrationResult:
         """
         メッセージを処理
@@ -348,6 +349,12 @@ class BrainIntegration:
             sender_name: 送信者名
             fallback_func: フォールバック関数（旧アーキテクチャの処理）
             bypass_context: バイパスルート検出用のコンテキスト
+            bypass_handlers: バイパスタイプごとのハンドラー関数
+                {
+                    "goal_session": async func(message, room_id, account_id, sender_name, context) -> str,
+                    "announcement_pending": async func(...) -> str,
+                    ...
+                }
 
         Returns:
             IntegrationResult: 処理結果
@@ -370,16 +377,48 @@ class BrainIntegration:
                     fallback_func, start_time
                 )
 
-            # バイパスルート検出
+            # バイパスルート検出と処理
+            # v10.38.1: バイパスハンドラーを脳の中で呼び出す（7原則準拠）
             if self.config.bypass_detection_enabled and bypass_context:
                 bypass_result = self._detect_bypass(bypass_context)
-                if bypass_result.is_bypass and not bypass_result.should_redirect:
+                if bypass_result.is_bypass:
                     self._stats["bypass_detected"] += 1
-                    # バイパスルートでも脳に通す（統合済み）
-                    logger.debug(
-                        f"Bypass detected but redirecting to brain: "
-                        f"type={bypass_result.bypass_type}"
+                    logger.info(
+                        f"🔄 Bypass detected: type={bypass_result.bypass_type}, "
+                        f"should_redirect={bypass_result.should_redirect}"
                     )
+
+                    # バイパスハンドラーが登録されていれば呼び出す
+                    if bypass_handlers and bypass_result.bypass_type:
+                        handler = bypass_handlers.get(bypass_result.bypass_type.value)
+                        if handler:
+                            try:
+                                logger.info(
+                                    f"🔄 Calling bypass handler for {bypass_result.bypass_type.value}"
+                                )
+                                result = await self._call_bypass_handler(
+                                    handler, message, room_id, account_id, sender_name,
+                                    bypass_context
+                                )
+                                if result:
+                                    processing_time_ms = int((time.time() - start_time) * 1000)
+                                    return IntegrationResult(
+                                        success=True,
+                                        message=result,
+                                        used_brain=True,
+                                        fallback_used=False,
+                                        processing_time_ms=processing_time_ms,
+                                        bypass_detected=bypass_result.bypass_type,
+                                    )
+                                # resultがNone/空の場合は脳で通常処理を継続
+                                logger.info(
+                                    f"🔄 Bypass handler returned empty, continuing to brain"
+                                )
+                            except Exception as e:
+                                logger.error(f"Bypass handler error: {e}")
+                                import traceback
+                                traceback.print_exc()
+                                # ハンドラーがエラーの場合は脳で処理を試みる
 
             # シャドウモードの場合
             if self.config.mode == IntegrationMode.SHADOW:
@@ -700,6 +739,49 @@ class BrainIntegration:
                 return False
 
         return True
+
+    async def _call_bypass_handler(
+        self,
+        handler: Callable,
+        message: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        bypass_context: Dict[str, Any],
+    ) -> Optional[str]:
+        """
+        バイパスハンドラーを呼び出す
+
+        Args:
+            handler: バイパスハンドラー関数
+            message: ユーザーのメッセージ
+            room_id: ルームID
+            account_id: アカウントID
+            sender_name: 送信者名
+            bypass_context: バイパスコンテキスト
+
+        Returns:
+            ハンドラーの戻り値（応答メッセージ）、Noneの場合は通常処理へ
+        """
+        import inspect
+
+        try:
+            # 非同期関数かどうかをチェック
+            if asyncio.iscoroutinefunction(handler):
+                result = await handler(
+                    message, room_id, account_id, sender_name, bypass_context
+                )
+            else:
+                # 同期関数の場合
+                result = handler(
+                    message, room_id, account_id, sender_name, bypass_context
+                )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Error calling bypass handler: {e}")
+            raise
 
     def _detect_bypass(
         self,

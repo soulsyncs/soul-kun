@@ -2996,6 +2996,115 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
 
 
 # =====================================================
+# v10.38.1: バイパスハンドラー（脳の中から呼び出される）
+# 脳の7原則「全ての入力は脳を通る」を守りつつ、既存の安定した
+# ハンドラーを活用するためのラッパー関数
+# =====================================================
+
+def _bypass_handle_goal_session(message, room_id, account_id, sender_name, bypass_context):
+    """
+    目標設定セッション用のバイパスハンドラー
+
+    アクティブな目標設定セッションがある場合、または目標設定を
+    開始したいキーワードが含まれている場合に呼び出される。
+
+    Returns:
+        str: 応答メッセージ、Noneの場合は通常処理へ
+    """
+    if not USE_GOAL_SETTING_LIB:
+        return None
+
+    try:
+        pool = get_pool()
+        has_session = has_active_goal_session(pool, room_id, account_id)
+
+        # 目標設定開始キーワードの検出
+        goal_start_keywords = [
+            "目標設定したい", "目標を設定したい", "目標を立てたい", "目標を決めたい",
+            "目標設定を始め", "目標登録したい", "目標を登録したい",
+            "今月の目標を設定", "個人目標を設定", "目標設定して"
+        ]
+        is_question = message.endswith("？") or any(q in message for q in ["繋がってる", "どう思う", "ちゃんと", "について"])
+        wants_goal_setting = any(kw in message for kw in goal_start_keywords) and not is_question
+
+        print(f"🎯 [バイパス] 目標設定: has_session={has_session}, wants_goal_setting={wants_goal_setting}")
+
+        if has_session or wants_goal_setting:
+            result = process_goal_setting_message(pool, room_id, account_id, message)
+            if result and result.get("success"):
+                return result.get("message", "")
+            else:
+                error_msg = result.get("message") if result else None
+                if not error_msg:
+                    error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
+                return error_msg
+
+        return None  # セッションなし、開始キーワードなしの場合は通常処理へ
+
+    except Exception as e:
+        print(f"❌ [バイパス] 目標設定エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        # エラーでもセッションがある場合はエラーメッセージを返す
+        if bypass_context.get("has_active_goal_session"):
+            return "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
+        return None
+
+
+def _bypass_handle_announcement(message, room_id, account_id, sender_name, bypass_context):
+    """
+    アナウンス確認待ち用のバイパスハンドラー
+
+    pending announcementがある場合に呼び出される。
+
+    Returns:
+        str: 応答メッセージ、Noneの場合は通常処理へ
+    """
+    try:
+        announcement_handler = _get_announcement_handler()
+        if not announcement_handler:
+            return None
+
+        pending = announcement_handler._get_pending_announcement(room_id, account_id)
+        if not pending:
+            return None
+
+        print(f"📢 [バイパス] pending announcement検出: {pending.get('id')}")
+
+        response = announcement_handler.handle_announcement_request(
+            params={"raw_message": message},
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+        )
+
+        # Noneが返った場合はフォローアップではないので通常処理へ
+        if response is None:
+            print(f"📢 [バイパス] フォローアップではない判定 → 通常処理へ")
+            return None
+
+        return response
+
+    except Exception as e:
+        print(f"❌ [バイパス] announcement エラー: {e}")
+        return None
+
+
+def _build_bypass_handlers():
+    """
+    バイパスハンドラーのマッピングを構築
+
+    Returns:
+        dict: バイパスタイプ -> ハンドラー関数のマッピング
+    """
+    return {
+        "goal_session": _bypass_handle_goal_session,
+        "announcement_pending": _bypass_handle_announcement,
+        # "task_pending" と "local_command" は既存の脳内処理で対応可能
+    }
+
+
+# =====================================================
 # v10.28.0: 脳用ハンドラーラッパー関数
 # =====================================================
 
@@ -6062,64 +6171,11 @@ def chatwork_webhook(request):
             print(f"🔒 処理開始マーク: message_id={message_id}")
 
         # =====================================================
-        # v10.31.4: 目標設定セッションは脳より先にチェック
-        # BUG-FIX: 脳アーキテクチャが目標設定セッションを無視するバグ修正
-        # 目標設定モード中のメッセージは、脳を通さず直接対話フローへ
-        # v10.31.6: 「目標設定したい」キーワードでも新規セッション開始
+        # v10.38.1: 脳より先のバイパスチェックを削除
+        # 目標設定セッション等のバイパス処理は脳の中で行う
+        # （脳の7原則「全ての入力は脳を通る」に準拠）
+        # バイパスハンドラーは _build_bypass_handlers() で定義
         # =====================================================
-        if USE_GOAL_SETTING_LIB:
-            try:
-                pool = get_pool()
-                has_session = has_active_goal_session(pool, room_id, sender_account_id)
-
-                # v10.31.7: 目標設定開始キーワードの検出
-                # BUG-FIX: 「目標設定」単独は質問でもマッチするため削除
-                # 明確に「始めたい」意図があるキーワードのみ
-                goal_start_keywords = [
-                    "目標設定したい", "目標を設定したい", "目標を立てたい", "目標を決めたい",
-                    "目標設定を始め", "目標登録したい", "目標を登録したい",
-                    "今月の目標を設定", "個人目標を設定", "目標設定して"
-                ]
-                # 質問パターンは除外（「？」で終わる or 「繋がってる」「どう」「ちゃんと」を含む）
-                is_question = clean_message.endswith("？") or any(q in clean_message for q in ["繋がってる", "どう思う", "ちゃんと", "について"])
-                wants_goal_setting = any(kw in clean_message for kw in goal_start_keywords) and not is_question
-
-                print(f"🎯 目標設定セッションチェック（脳より先）: room_id={room_id}, has_session={has_session}, wants_goal_setting={wants_goal_setting}")
-
-                if has_session or wants_goal_setting:
-                    print(f"🎯 アクティブなセッションを検出 - 対話フローにルーティング（脳をバイパス）")
-                    result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
-
-                    if result and result.get("success"):
-                        response_message = result.get("message", "")
-                        if response_message:
-                            show_guide = should_show_guide(room_id, sender_account_id)
-                            send_chatwork_message(room_id, response_message, sender_account_id, show_guide)
-                            update_conversation_timestamp(room_id, sender_account_id)
-                            return jsonify({"status": "ok", "goal_session": True})
-                        else:
-                            print(f"⚠️ 目標設定処理成功だがメッセージが空")
-                            return jsonify({"status": "ok", "goal_session": True})
-                    else:
-                        error_msg = result.get("message") if result else None
-                        if not error_msg:
-                            error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
-                        print(f"⚠️ 目標設定処理失敗: {error_msg}")
-                        send_chatwork_message(room_id, error_msg, sender_account_id, False)
-                        return jsonify({"status": "ok", "goal_session": True})
-
-            except Exception as e:
-                print(f"❌ 目標設定セッション処理で例外（脳より先のチェック）: {e}")
-                import traceback
-                traceback.print_exc()
-                # has_sessionがTrueで例外発生した場合も脳に渡さない
-                if 'has_session' in dir() and has_session:
-                    send_chatwork_message(
-                        room_id,
-                        "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺",
-                        sender_account_id, False
-                    )
-                    return jsonify({"status": "ok", "goal_session": True})
 
         # =====================================================
         # v10.29.0: 脳アーキテクチャ（BrainIntegration経由）
@@ -6136,8 +6192,9 @@ def chatwork_webhook(request):
                     mode = integration.get_mode().value
                     print(f"🧠 脳アーキテクチャで処理開始: mode={mode}")
 
-                    # バイパスコンテキストを構築
+                    # バイパスコンテキストとハンドラーを構築
                     bypass_context = _build_bypass_context(room_id, sender_account_id)
+                    bypass_handlers = _build_bypass_handlers()
 
                     # フォールバック関数（従来のai_commander + execute_action + get_ai_response）
                     async def fallback_ai_commander(msg, r_id, a_id, s_name):
@@ -6179,6 +6236,7 @@ def chatwork_webhook(request):
                                 sender_name=sender_name,
                                 fallback_func=fallback_ai_commander,
                                 bypass_context=bypass_context,
+                                bypass_handlers=bypass_handlers,
                             )
                         )
                     finally:
@@ -6214,14 +6272,9 @@ def chatwork_webhook(request):
             return jsonify({"status": "ok"})
 
         # =====================================================
-        # v10.19.0: Phase 2.5 目標設定対話セッションのチェック
-        # v10.19.4: セッション処理の堅牢化（AI司令塔フォールバック防止）
-        # v10.31.4: 脳より先のチェック（7293行目）を追加したため、
-        #           ここは脳がエラーの場合のフォールバックとして残す
-        # =====================================================
-        # アクティブな目標設定セッションがある場合は、
-        # メッセージを目標設定対話フローにルーティングする
-        # セッションが存在する場合、例外が発生してもAI司令塔には渡さない
+        # v10.38.1: 従来フロー用フォールバック（脳無効時のみ実行）
+        # 脳アーキテクチャ有効時は、bypass_handlers で脳内から処理される
+        # ここは USE_BRAIN_ARCHITECTURE=false の場合のみ実行される
         # =====================================================
         if USE_GOAL_SETTING_LIB:
             goal_session_handled = False

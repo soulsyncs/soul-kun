@@ -5893,12 +5893,17 @@ def chatwork_webhook(request):
                 pool = get_pool()
                 has_session = has_active_goal_session(pool, room_id, sender_account_id)
 
-                # v10.31.6: 目標設定開始キーワードの検出
+                # v10.31.7: 目標設定開始キーワードの検出
+                # BUG-FIX: 「目標設定」単独は質問でもマッチするため削除
+                # 明確に「始めたい」意図があるキーワードのみ
                 goal_start_keywords = [
                     "目標設定したい", "目標を設定したい", "目標を立てたい", "目標を決めたい",
-                    "目標設定", "目標登録", "今月の目標を設定", "個人目標を設定"
+                    "目標設定を始め", "目標登録したい", "目標を登録したい",
+                    "今月の目標を設定", "個人目標を設定", "目標設定して"
                 ]
-                wants_goal_setting = any(kw in clean_message for kw in goal_start_keywords)
+                # 質問パターンは除外（「？」で終わる or 「繋がってる」「どう」「ちゃんと」を含む）
+                is_question = clean_message.endswith("？") or any(q in clean_message for q in ["繋がってる", "どう思う", "ちゃんと", "について"])
+                wants_goal_setting = any(kw in clean_message for kw in goal_start_keywords) and not is_question
 
                 print(f"🎯 目標設定セッションチェック（脳より先）: room_id={room_id}, has_session={has_session}, wants_goal_setting={wants_goal_setting}")
 

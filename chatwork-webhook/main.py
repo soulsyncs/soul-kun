@@ -3126,39 +3126,13 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
     ChatWork APIでタスクを作成（リトライ機構付き）
 
     v10.24.4: handlers/task_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_task_handler()
     if handler:
         return handler.create_chatwork_task(room_id, task_body, assigned_to_account_id, limit)
 
-    # フォールバック: 旧実装
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
-
-    data = {
-        "body": task_body,
-        "to_ids": str(assigned_to_account_id)
-    }
-
-    if limit:
-        data["limit"] = limit
-
-    print(f"📤 ChatWork API リクエスト: URL={url}, data={data}")
-
-    response, success = call_chatwork_api_with_retry(
-        method="POST",
-        url=url,
-        headers={"X-ChatWorkToken": api_token},
-        data=data
-    )
-
-    if response:
-        print(f"📥 ChatWork API レスポンス: status={response.status_code}, body={response.text}")
-        if success and response.status_code == 200:
-            return response.json()
-        else:
-            print(f"ChatWork API エラー: {response.status_code} - {response.text}")
+    print("❌ TaskHandler not available - cannot create task")
     return None
 
 
@@ -3167,31 +3141,13 @@ def complete_chatwork_task(room_id, task_id):
     ChatWork APIでタスクを完了にする（リトライ機構付き）
 
     v10.24.4: handlers/task_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_task_handler()
     if handler:
         return handler.complete_chatwork_task(room_id, task_id)
 
-    # フォールバック: 旧実装
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks/{task_id}/status"
-
-    print(f"📤 ChatWork API タスク完了リクエスト: URL={url}")
-
-    response, success = call_chatwork_api_with_retry(
-        method="PUT",
-        url=url,
-        headers={"X-ChatWorkToken": api_token},
-        data={"body": "done"}
-    )
-
-    if response:
-        print(f"📥 ChatWork API レスポンス: status={response.status_code}, body={response.text}")
-        if success and response.status_code == 200:
-            return response.json()
-        else:
-            print(f"ChatWork API エラー: {response.status_code} - {response.text}")
+    print("❌ TaskHandler not available - cannot complete task")
     return None
 
 
@@ -3285,6 +3241,7 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
     """DBからタスクを検索
 
     v10.24.4: handlers/task_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
 
     Args:
         room_id: チャットルームID（search_all_rooms=Trueの場合は無視）
@@ -3295,7 +3252,6 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
         organization_id: 組織ID（部署フィルタ有効時に必要）
         search_all_rooms: True=全ルームからタスクを検索（v10.22.0 BUG-001修正）
     """
-    # 新しいモジュールを使用
     handler = _get_task_handler()
     if handler:
         return handler.search_tasks_from_db(
@@ -3304,77 +3260,8 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
             get_user_id_from_chatwork_account, get_accessible_departments
         )
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            # Phase 3.5: アクセス可能部署の取得（オプション）
-            accessible_dept_ids = None
-            if enable_dept_filter and assigned_to_account_id:
-                user_id = get_user_id_from_chatwork_account(conn, assigned_to_account_id)
-                if user_id and organization_id:
-                    accessible_dept_ids = get_accessible_departments(conn, user_id, organization_id)
-
-            # クエリ構築（v10.22.0: room_id, room_nameを追加、v10.25.0: summaryを追加）
-            query = """
-                SELECT task_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, room_id, room_name, summary
-                FROM chatwork_tasks
-            """
-            params = {}
-
-            # v10.22.0: search_all_rooms=Trueの場合はroom_idフィルタをスキップ
-            if search_all_rooms:
-                query += " WHERE 1=1"
-            else:
-                query += " WHERE room_id = :room_id"
-                params["room_id"] = room_id
-
-            if assigned_to_account_id:
-                query += " AND assigned_to_account_id = :assigned_to"
-                params["assigned_to"] = assigned_to_account_id
-
-            if assigned_by_account_id:
-                query += " AND assigned_by_account_id = :assigned_by"
-                params["assigned_by"] = assigned_by_account_id
-
-            if status and status != "all":
-                query += " AND status = :status"
-                params["status"] = status
-
-            # Phase 3.5: 部署フィルタ（アクセス可能部署またはNULL）
-            if accessible_dept_ids is not None and len(accessible_dept_ids) > 0:
-                # アクセス可能部署 または 部署未設定のタスク
-                placeholders = ", ".join([f":dept_{i}" for i in range(len(accessible_dept_ids))])
-                query += f" AND (department_id IN ({placeholders}) OR department_id IS NULL)"
-                for i, dept_id in enumerate(accessible_dept_ids):
-                    params[f"dept_{i}"] = dept_id
-            elif accessible_dept_ids is not None and len(accessible_dept_ids) == 0:
-                # アクセス可能部署がない場合は部署未設定のタスクのみ
-                query += " AND department_id IS NULL"
-
-            query += " ORDER BY limit_time ASC NULLS LAST"
-
-            result = conn.execute(sqlalchemy.text(query), params)
-            tasks = result.fetchall()
-
-            return [
-                {
-                    "task_id": row[0],
-                    "body": row[1],
-                    "limit_time": row[2],
-                    "status": row[3],
-                    "assigned_to_account_id": row[4],
-                    "assigned_by_account_id": row[5],
-                    "department_id": row[6],  # Phase 3.5対応
-                    "room_id": row[7],        # v10.22.0追加
-                    "room_name": row[8],      # v10.22.0追加
-                    "summary": row[9]         # v10.25.0追加: AI生成の要約
-                }
-                for row in tasks
-            ]
-    except Exception as e:
-        print(f"タスク検索エラー: {e}")
-        return []
+    print("❌ TaskHandler not available - cannot search tasks")
+    return []
 
 
 def update_task_status_in_db(task_id, status):
@@ -3382,28 +3269,14 @@ def update_task_status_in_db(task_id, status):
     DBのタスクステータスを更新
 
     v10.24.4: handlers/task_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_task_handler()
     if handler:
         return handler.update_task_status_in_db(task_id, status)
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            conn.execute(
-                sqlalchemy.text("""
-                    UPDATE chatwork_tasks SET status = :status WHERE task_id = :task_id
-                """),
-                {"task_id": task_id, "status": status}
-            )
-        print(f"✅ タスクステータス更新: task_id={task_id}, status={status}")
-        return True
-    except Exception as e:
-        print(f"タスクステータス更新エラー: {e}")
-        traceback.print_exc()
-        return False
+    print("❌ TaskHandler not available - cannot update task status")
+    return False
 
 
 def get_user_primary_department(conn, chatwork_account_id):
@@ -3436,94 +3309,16 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
     タスク作成時にsummaryを自動生成して保存
 
     v10.24.4: handlers/task_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_task_handler()
     if handler:
         return handler.save_chatwork_task_to_db(
             task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time
         )
 
-    # フォールバック: 旧実装
-    try:
-        # =====================================================
-        # v10.18.1: summary生成
-        # =====================================================
-        summary = None
-        if USE_TEXT_UTILS_LIB and body:
-            try:
-                # 1. まず【件名】形式を探す
-                subject = extract_task_subject(body)
-                if subject and len(subject) <= 40:
-                    summary = subject
-                    print(f"📝 件名を抽出: {summary}")
-                else:
-                    # 2. タグを除去して整形
-                    clean_body = clean_chatwork_tags(body)
-                    summary = prepare_task_display_text(clean_body, max_length=40)
-                    print(f"📝 要約を生成: {summary}")
-
-                # 3. バリデーション（挨拶のみ等は除外）
-                if summary and not validate_summary(summary, body):
-                    print(f"⚠️ 要約がバリデーション失敗、再生成: {summary}")
-                    clean_body = clean_chatwork_tags(body)
-                    summary = prepare_task_display_text(clean_body, max_length=40)
-                    if summary == "（タスク内容なし）":
-                        # ★★★ v10.24.8: 最終フォールバックも自然な位置で切る ★★★
-                        summary = _fallback_truncate_text(body, 40)
-            except Exception as e:
-                print(f"⚠️ summary生成エラー（続行）: {e}")
-                # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
-                summary = _fallback_truncate_text(body, 40) if body else "（タスク内容なし）"
-        else:
-            # lib未使用時のフォールバック
-            # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
-            if body:
-                summary = _fallback_truncate_text(body, 40)
-
-        pool = get_pool()
-
-        # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
-        department_id = None
-        if USE_USER_UTILS_LIB and assigned_to_account_id:
-            try:
-                department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
-                if department_id:
-                    print(f"📁 department_id取得成功（lib）: {department_id}")
-            except Exception as e:
-                print(f"⚠️ lib department_id取得エラー、ローカル関数にフォールバック: {e}")
-
-        with pool.begin() as conn:
-            # lib未使用時または lib取得失敗時はローカル関数を使用
-            if department_id is None and assigned_to_account_id:
-                department_id = get_user_primary_department(conn, assigned_to_account_id)
-
-            conn.execute(
-                sqlalchemy.text("""
-                    INSERT INTO chatwork_tasks
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary)
-                    ON CONFLICT (task_id) DO NOTHING
-                """),
-                {
-                    "task_id": task_id,
-                    "room_id": room_id,
-                    "assigned_by": assigned_by_account_id,
-                    "assigned_to": assigned_to_account_id,
-                    "body": body,
-                    "limit_time": limit_time,
-                    "status": "open",
-                    "department_id": department_id,
-                    "summary": summary
-                }
-            )
-        summary_preview = summary[:30] + "..." if summary and len(summary) > 30 else summary
-        print(f"✅ タスクをDBに保存: task_id={task_id}, department_id={department_id}, summary={summary_preview}")
-        return True
-    except Exception as e:
-        print(f"データベース保存エラー: {e}")
-        traceback.print_exc()
-        return False
+    print("❌ TaskHandler not available - cannot save task to DB")
+    return False
 
 
 # ===== 分析イベントログ =====
@@ -3532,7 +3327,8 @@ def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event
     """
     分析用イベントログを記録
 
-    v10.24.4: handlers/task_handler.py に委譲（フォールバック付き）
+    v10.24.4: handlers/task_handler.py に委譲
+    v10.32.0: フォールバック削除（ハンドラー必須化）
 
     Args:
         event_type: イベントタイプ（'task_created', 'memory_saved', 'memory_queried', 'general_chat'等）
@@ -3562,31 +3358,8 @@ def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event
         )
         return
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            conn.execute(
-                sqlalchemy.text("""
-                    INSERT INTO analytics_events
-                    (event_type, event_subtype, actor_account_id, actor_name, room_id, event_data, success, error_message)
-                    VALUES (:event_type, :event_subtype, :actor_id, :actor_name, :room_id, :event_data, :success, :error_message)
-                """),
-                {
-                    "event_type": event_type,
-                    "event_subtype": event_subtype,
-                    "actor_id": actor_account_id,
-                    "actor_name": actor_name,
-                    "room_id": room_id,
-                    "event_data": json.dumps(event_data, ensure_ascii=False) if event_data else None,
-                    "success": success,
-                    "error_message": error_message
-                }
-            )
-        print(f"📊 分析ログ記録: {event_type} by {actor_name}")
-    except Exception as e:
-        # ログ記録エラーは警告のみ、処理は継続
-        print(f"⚠️ 分析ログ記録エラー（処理は継続）: {e}")
+    # Handler not available - skip logging (non-critical)
+    print(f"⚠️ TaskHandler not available - skipping analytics log for {event_type}")
 
 
 # ===== pending_task（タスク作成の途中状態）管理 =====
@@ -4833,66 +4606,14 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
     v6.9.1: 通知失敗時のメッセージを事実ベースに改善
 
     v10.24.7: handlers/knowledge_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_knowledge_handler()
     if handler:
         return handler.handle_learn_knowledge(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    category = params.get("category", "other")
-    key = params.get("key", "")
-    value = params.get("value", "")
-
-    if not key or not value:
-        return "🤔 何を覚えればいいかわからなかったウル... もう少し具体的に教えてウル！🐺"
-
-    # テーブル存在確認
-    try:
-        ensure_knowledge_tables()
-    except Exception as e:
-        print(f"⚠️ 知識テーブル確認エラー: {e}")
-
-    # 管理者判定
-    if is_admin(account_id):
-        # 即時保存
-        if save_knowledge(category, key, value, str(account_id)):
-            category_names = {
-                "character": "キャラ設定",
-                "rules": "業務ルール",
-                "other": "その他"
-            }
-            cat_name = category_names.get(category, category)
-            return f"覚えたウル！🐺✨\n\n📝 **{cat_name}**\n・{key}: {value}\n\nこれからはこの知識を活かして返答するウル！"
-        else:
-            return "😢 覚えようとしたけどエラーが起きたウル... もう一度試してほしいウル！"
-    else:
-        # スタッフからの提案 → 管理部に報告
-        proposal_id = create_proposal(
-            proposed_by_account_id=str(account_id),
-            proposed_by_name=sender_name,
-            proposed_in_room_id=str(room_id),
-            category=category,
-            key=key,
-            value=value
-        )
-
-        if proposal_id:
-            # 管理部に報告
-            notified = False
-            try:
-                notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
-            except Exception as e:
-                print(f"⚠️ 管理部への報告エラー: {e}")
-
-            # v6.9.1: 通知成功/失敗に応じたメッセージ
-            # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更（心理的安全性向上）
-            if notified:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\nソウルくんが会社として問題ないか確認するウル！\n確認できたら覚えるウル！✨"
-            else:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたウル！\nソウルくんが確認中だから、少し待っててほしいウル！"
-        else:
-            return "😢 提案を記録しようとしたけどエラーが起きたウル..."
+    print("❌ KnowledgeHandler not available - cannot learn knowledge")
+    return "ごめんウル...今は知識を覚えられないウル🐺 もう一度試してほしいウル！"
 
 
 def handle_forget_knowledge(params, room_id, account_id, sender_name, context=None):
@@ -4901,28 +4622,14 @@ def handle_forget_knowledge(params, room_id, account_id, sender_name, context=No
     - 管理者のみ実行可能
 
     v10.24.7: handlers/knowledge_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_knowledge_handler()
     if handler:
         return handler.handle_forget_knowledge(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    key = params.get("key", "")
-    category = params.get("category")
-
-    if not key:
-        return "🤔 何を忘れればいいかわからなかったウル..."
-
-    # 管理者判定
-    if not is_admin(account_id):
-        return f"🙏 知識の削除は菊地さんだけができるウル！\n[To:{ADMIN_ACCOUNT_ID}] {sender_name}さんが「{key}」の設定を削除したいみたいウル！"
-
-    # 削除実行
-    if delete_knowledge(category, key):
-        return f"忘れたウル！🐺\n\n🗑️ 「{key}」の設定を削除したウル！"
-    else:
-        return f"🤔 「{key}」という設定は見つからなかったウル..."
+    print("❌ KnowledgeHandler not available - cannot forget knowledge")
+    return "ごめんウル...今は知識を消せないウル🐺 もう一度試してほしいウル！"
 
 
 def handle_list_knowledge(params, room_id, account_id, sender_name, context=None):
@@ -4930,49 +4637,14 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
     学習した知識の一覧を表示するハンドラー
 
     v10.24.7: handlers/knowledge_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_knowledge_handler()
     if handler:
         return handler.handle_list_knowledge(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    # テーブル存在確認
-    try:
-        ensure_knowledge_tables()
-    except Exception as e:
-        print(f"⚠️ 知識テーブル確認エラー: {e}")
-
-    knowledge_list = get_all_knowledge()
-
-    if not knowledge_list:
-        return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
-
-    # カテゴリごとにグループ化
-    by_category = {}
-    for k in knowledge_list:
-        cat = k["category"]
-        if cat not in by_category:
-            by_category[cat] = []
-        by_category[cat].append(f"・{k['key']}: {k['value']}")
-
-    # 整形
-    category_names = {
-        "character": "🐺 キャラ設定",
-        "rules": "📋 業務ルール",
-        "members": "👥 社員情報",
-        "other": "📝 その他"
-    }
-
-    lines = ["**覚えていること**ウル！🐺✨\n"]
-    for cat, items in by_category.items():
-        cat_name = category_names.get(cat, f"📁 {cat}")
-        lines.append(f"\n**{cat_name}**")
-        lines.extend(items)
-
-    lines.append(f"\n\n合計 {len(knowledge_list)} 件覚えてるウル！")
-
-    return "\n".join(lines)
+    print("❌ KnowledgeHandler not available - cannot list knowledge")
+    return "ごめんウル...今は知識一覧を見れないウル🐺 もう一度試してほしいウル！"
 
 
 def handle_proposal_decision(params, room_id, account_id, sender_name, context=None):
@@ -4983,57 +4655,14 @@ def handle_proposal_decision(params, room_id, account_id, sender_name, context=N
     v6.9.1: ID指定方式を推奨（handle_proposal_by_idを使用）
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.handle_proposal_decision(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    decision = params.get("decision", "").lower()
-    
-    # 管理部ルームかチェック
-    if str(room_id) != str(ADMIN_ROOM_ID):
-        # 管理部以外での「承認」「却下」は無視（一般会話として処理）
-        return None
-    
-    # 最新の承認待ち提案を取得
-    proposal = get_latest_pending_proposal()
-    
-    if not proposal:
-        return "🤔 承認待ちの提案は今ないウル！"
-    
-    # 管理者判定
-    if is_admin(account_id):
-        # 管理者による承認/却下
-        if decision == "approve" or decision in ["承認", "ok", "いいよ", "反映して", "おけ"]:
-            if approve_proposal(proposal["id"], str(account_id)):
-                # 提案者に通知
-                try:
-                    notify_proposal_result(proposal, approved=True)
-                except Exception as e:
-                    print(f"⚠️ 提案者への通知エラー: {e}")
-                
-                return f"✅ 承認したウル！🐺\n\n「{proposal['key']}: {proposal['value']}」を覚えたウル！\n{proposal['proposed_by_name']}さんにも伝えておくウル！"
-            else:
-                return "😢 承認処理でエラーが起きたウル..."
-        
-        elif decision == "reject" or decision in ["却下", "だめ", "やめて", "いらない"]:
-            if reject_proposal(proposal["id"], str(account_id)):
-                # 提案者に通知
-                try:
-                    notify_proposal_result(proposal, approved=False)
-                except Exception as e:
-                    print(f"⚠️ 提案者への通知エラー: {e}")
-                
-                return f"🙅 却下したウル！\n\n「{proposal['key']}: {proposal['value']}」は今回は見送りウル。\n{proposal['proposed_by_name']}さんにも伝えておくウル！"
-            else:
-                return "😢 却下処理でエラーが起きたウル..."
-        else:
-            return None  # 承認でも却下でもない場合は一般会話として処理
-    else:
-        # 管理者以外が承認/却下しようとした場合
-        return f"ありがとウル！🐺\n\nこの変更は菊地さんの最終承認が必要なウル！\n[To:{ADMIN_ACCOUNT_ID}] {sender_name}さんからも承認の声が出てるウル！確認お願いするウル！"
+    print("❌ ProposalHandler not available - cannot handle proposal decision")
+    return "ごめんウル...今は提案を処理できないウル🐺 もう一度試してほしいウル！"
 
 
 # =====================================================
@@ -5048,51 +4677,14 @@ def handle_proposal_by_id(proposal_id: int, decision: str, account_id: str, send
     ローカルコマンド「承認 123」「却下 123」用
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.handle_proposal_by_id(proposal_id, decision, account_id, sender_name, room_id)
 
-    # フォールバック: 旧実装
-    # 管理部ルームかチェック
-    if str(room_id) != str(ADMIN_ROOM_ID):
-        return "🤔 承認・却下は管理部ルームでお願いするウル！"
-    
-    # 管理者判定
-    if not is_admin(account_id):
-        return f"🙏 承認・却下は菊地さんだけができるウル！\n[To:{ADMIN_ACCOUNT_ID}] {sender_name}さんが提案ID={proposal_id}について操作しようとしたウル！"
-    
-    # 提案を取得
-    proposal = get_proposal_by_id(proposal_id)
-    
-    if not proposal:
-        return f"🤔 提案ID={proposal_id}は見つからなかったウル..."
-    
-    if proposal["status"] != "pending":
-        return f"🤔 提案ID={proposal_id}は既に処理済みウル（{proposal['status']}）"
-    
-    if decision == "approve":
-        if approve_proposal(proposal_id, str(account_id)):
-            try:
-                notify_proposal_result(proposal, approved=True)
-            except Exception as e:
-                print(f"⚠️ 提案者への通知エラー: {e}")
-            return f"✅ 提案ID={proposal_id}を承認したウル！🐺\n\n「{proposal['key']}: {proposal['value']}」を覚えたウル！\n{proposal['proposed_by_name']}さんにも伝えておくウル！"
-        else:
-            return "😢 承認処理でエラーが起きたウル..."
-    
-    elif decision == "reject":
-        if reject_proposal(proposal_id, str(account_id)):
-            try:
-                notify_proposal_result(proposal, approved=False)
-            except Exception as e:
-                print(f"⚠️ 提案者への通知エラー: {e}")
-            return f"🙅 提案ID={proposal_id}を却下したウル！\n\n「{proposal['key']}: {proposal['value']}」は今回は見送りウル。\n{proposal['proposed_by_name']}さんにも伝えておくウル！"
-        else:
-            return "😢 却下処理でエラーが起きたウル..."
-    
-    return "🤔 承認か却下か分からなかったウル..."
+    print("❌ ProposalHandler not available - cannot handle proposal by ID")
+    return "ごめんウル...今は提案を処理できないウル🐺 もう一度試してほしいウル！"
 
 
 def handle_list_pending_proposals(room_id: str, account_id: str):
@@ -5129,67 +4721,14 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
     「設定：キー=値」形式で呼ばれる
 
     v10.24.7: handlers/knowledge_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_knowledge_handler()
     if handler:
         return handler.handle_local_learn_knowledge(key, value, account_id, sender_name, room_id)
 
-    # フォールバック: 旧実装
-    # テーブル存在確認
-    try:
-        ensure_knowledge_tables()
-    except Exception as e:
-        print(f"⚠️ 知識テーブル確認エラー: {e}")
-
-    # カテゴリを推測（シンプルなルール）
-    category = "other"
-    key_lower = key.lower()
-    if any(w in key_lower for w in ["キャラ", "性格", "モチーフ", "口調", "名前"]):
-        category = "character"
-    elif any(w in key_lower for w in ["ルール", "業務", "タスク", "期限"]):
-        category = "rules"
-    elif any(w in key_lower for w in ["社員", "メンバー", "担当"]):
-        category = "members"
-
-    # 管理者判定
-    if is_admin(account_id):
-        if save_knowledge(category, key, value, str(account_id)):
-            category_names = {
-                "character": "キャラ設定",
-                "rules": "業務ルール",
-                "members": "社員情報",
-                "other": "その他"
-            }
-            cat_name = category_names.get(category, category)
-            return f"覚えたウル！🐺✨\n\n📝 **{cat_name}**\n・{key}: {value}"
-        else:
-            return "😢 覚えようとしたけどエラーが起きたウル..."
-    else:
-        # スタッフからの提案
-        proposal_id = create_proposal(
-            proposed_by_account_id=str(account_id),
-            proposed_by_name=sender_name,
-            proposed_in_room_id=str(room_id),
-            category=category,
-            key=key,
-            value=value
-        )
-
-        if proposal_id:
-            notified = False
-            try:
-                notified = report_proposal_to_admin(proposal_id, sender_name, key, value)
-            except Exception as e:
-                print(f"⚠️ 管理部への報告エラー: {e}")
-
-            # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更（心理的安全性向上）
-            if notified:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\nソウルくんが会社として問題ないか確認するウル！"
-            else:
-                return f"教えてくれてありがとウル！🐺\n\n提案ID: {proposal_id}\n記録はしたウル！ソウルくんが確認中だから、少し待っててほしいウル！"
-        else:
-            return "😢 提案を記録しようとしたけどエラーが起きたウル..."
+    print("❌ KnowledgeHandler not available - cannot learn knowledge locally")
+    return "ごめんウル...今は知識を覚えられないウル🐺 もう一度試してほしいウル！"
 
 
 # =====================================================
@@ -5311,80 +4850,14 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
     v10.25.0: category='memory'の場合は人物情報用メッセージ
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value, category)
 
-    # フォールバック: 旧実装
-    try:
-        chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-
-        # v10.25.0: カテゴリに応じてメッセージを変更
-        if category == 'memory':
-            # 人物情報の場合
-            try:
-                data = json.loads(value)
-                attr_type = data.get('type', 'その他')
-                attr_value = data.get('value', value)
-                content_display = f"{key}さんの{attr_type}：{attr_value}"
-            except json.JSONDecodeError:
-                content_display = f"{key}さんの情報：{value}"
-
-            message = f"""📝 人物情報の登録提案があったウル！🐺
-
-**提案ID:** {proposal_id}
-**提案者:** {proposer_name}さん
-**内容:** 「{content_display}」
-
-ソウルくんが会社として問題ないか確認するウル！
-
-・「承認 {proposal_id}」→ 覚えるウル
-・「却下 {proposal_id}」→ 見送るウル
-・「承認待ち一覧」→ 全ての提案を確認"""
-        else:
-            # 通常の知識の場合
-            message = f"""📝 知識の更新提案があったウル！🐺
-
-**提案ID:** {proposal_id}
-**提案者:** {proposer_name}さん
-**内容:** 「{key}: {value}」
-
-ソウルくんが会社として問題ないか確認するウル！
-
-・「承認 {proposal_id}」→ 反映するウル
-・「却下 {proposal_id}」→ 見送るウル
-・「承認待ち一覧」→ 全ての提案を確認"""
-        
-        url = f"https://api.chatwork.com/v2/rooms/{ADMIN_ROOM_ID}/messages"
-        headers = {"X-ChatWorkToken": chatwork_api_token}
-        data = {"body": message}
-        
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(url, headers=headers, data=data)
-            if response.status_code == 200:
-                print(f"✅ 管理部に提案を報告: proposal_id={proposal_id}")
-                # v6.9.1: 通知成功フラグを更新
-                try:
-                    pool = get_pool()
-                    with pool.begin() as conn:
-                        conn.execute(sqlalchemy.text("""
-                            UPDATE knowledge_proposals 
-                            SET admin_notified = TRUE
-                            WHERE id = :id
-                        """), {"id": proposal_id})
-                except Exception as e:
-                    print(f"⚠️ admin_notified更新エラー: {e}")
-                return True
-            else:
-                print(f"⚠️ 管理部への報告エラー: {response.status_code} - {response.text}")
-                return False
-    except Exception as e:
-        print(f"❌ 管理部への報告エラー: {e}")
-        traceback.print_exc()
-        return False
-        traceback.print_exc()
+    print("❌ ProposalHandler not available - cannot report proposal to admin")
+    return False
 
 
 def notify_proposal_result(proposal: dict, approved: bool):
@@ -5393,72 +4866,14 @@ def notify_proposal_result(proposal: dict, approved: bool):
 
     v10.24.2: handlers/proposal_handler.py に分割
     v10.25.0: category='memory'の場合は人物情報用メッセージ
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.notify_proposal_result(proposal, approved)
 
-    # フォールバック: 旧実装
-    try:
-        chatwork_api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-        room_id = proposal.get("proposed_in_room_id")
-
-        if not room_id:
-            print("⚠️ 提案元ルームIDが不明")
-            return
-
-        category = proposal.get("category", "")
-        key = proposal.get("key", "")
-        value = proposal.get("value", "")
-
-        # v10.25.0: カテゴリに応じてメッセージを変更
-        if category == 'memory':
-            # 人物情報の場合
-            try:
-                data = json.loads(value)
-                attr_type = data.get('type', 'その他')
-                attr_value = data.get('value', value)
-                content_display = f"{key}さんの{attr_type}「{attr_value}」"
-            except json.JSONDecodeError:
-                content_display = f"{key}さんの情報「{value}」"
-
-            if approved:
-                message = f"""✅ 人物情報の登録が承認されたウル！🐺✨
-
-{content_display}を覚えたウル！
-教えてくれてありがとウル！"""
-            else:
-                message = f"""🙏 人物情報の登録は今回は見送りになったウル
-
-{content_display}は登録しなかったウル。
-また何かあれば教えてウル！🐺"""
-        else:
-            # 通常の知識の場合
-            if approved:
-                message = f"""✅ 提案が承認されたウル！🐺✨
-
-「{key}: {value}」を覚えたウル！
-教えてくれてありがとウル！"""
-            else:
-                message = f"""🙏 提案は今回は見送りになったウル
-
-「{key}: {value}」は反映しなかったウル。
-また何かあれば教えてウル！🐺"""
-        
-        url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-        headers = {"X-ChatWorkToken": chatwork_api_token}
-        data = {"body": message}
-        
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(url, headers=headers, data=data)
-            if response.status_code == 200:
-                print(f"✅ 提案者に結果を通知")
-            else:
-                print(f"⚠️ 提案者への通知エラー: {response.status_code}")
-    except Exception as e:
-        print(f"❌ 提案者への通知エラー: {e}")
-        traceback.print_exc()
+    print("❌ ProposalHandler not available - cannot notify proposal result")
+    return None
 
 
 def handle_query_org_chart(params, room_id, account_id, sender_name, context=None):
@@ -5592,6 +5007,7 @@ ChatWorkアプリで直接操作してほしいウル！
 # =====================================================
 # v10.13.0: Phase 3 ナレッジ検索ハンドラー
 # v10.24.7: handlers/knowledge_handler.py に分割
+# v10.32.0: フォールバック削除（ハンドラー必須化）
 # =====================================================
 def handle_query_company_knowledge(params, room_id, account_id, sender_name, context=None):
     """
@@ -5611,93 +5027,14 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
         回答テキスト
 
     v10.24.7: handlers/knowledge_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_knowledge_handler()
     if handler:
         return handler.handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    query = params.get("query", "")
-
-    if not query:
-        return "🐺 何を調べればいいか教えてほしいウル！\n例：「有給休暇は何日？」「経費精算のルールは？」"
-
-    # v10.22.6: MVV質問の場合は直接回答（ナレッジ検索をバイパス）
-    if is_mvv_question(query):
-        print(f"📖 MVV質問検出（会社知識ハンドラー）: user={sender_name}")
-        mvv_info = get_full_mvv_info()
-        return f"""🐺 ソウルシンクスのMVVについて教えるウル！
-
-{mvv_info}
-
-何か質問があれば聞いてほしいウル！✨"""
-
-    print(f"📚 会社知識クエリ: '{query}' (sender: {sender_name})")
-
-    try:
-        # 統合ナレッジ検索を実行
-        user_id = f"chatwork_{account_id}"
-        search_result = integrated_knowledge_search(query, user_id)
-
-        source = search_result.get("source", "none")
-        confidence = search_result.get("confidence", 0)
-        formatted_context = search_result.get("formatted_context", "")
-
-        # 結果なしの場合
-        if source == "none":
-            return f"""🐺 ごめんウル！「{query}」については、まだ勉強中ウル…
-
-【ヒント】
-📁 Google Driveの「ソウルくんナレッジベース」フォルダに資料をアップロードすると、自動で学習するウル！
-📝 または、管理者に「設定: {query} = 回答内容」と教えてもらえると覚えるウル！"""
-
-        # LLMで回答を生成
-        system_prompt = f"""あなたは「ソウルくん」です。会社の知識ベースから情報を参照して回答します。
-
-【重要なルール】
-1. 提供された参考情報に基づいて回答してください
-2. 情報源を明示してください（例：「就業規則によると...」「社内マニュアルでは...」）
-3. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
-4. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
-5. 簡潔に、わかりやすく回答してください
-
-【参考情報の出典】
-検索方法: {source}（{"旧システム" if source == "legacy" else "Phase 3 Pinecone検索"}）
-信頼度: {confidence:.2f}
-
-【参考情報】
-{formatted_context}
-"""
-
-        user_message = f"質問: {query}"
-
-        # OpenRouter APIで回答を生成
-        response = call_openrouter_api(
-            system_prompt=system_prompt,
-            user_message=user_message,
-            model=MODELS["default"]
-        )
-
-        if response:
-            # 出典情報を追加
-            source_note = ""
-            if source == "phase3":
-                results = search_result.get("results", [])
-                if results:
-                    doc = results[0].get("document", {})
-                    doc_title = doc.get("title", "")
-                    if doc_title:
-                        source_note = f"\n\n📄 参考: {doc_title}"
-
-            return response + source_note
-        else:
-            return f"🐺 ごめんウル、回答の生成に失敗したウル…\nもう一度試してみてほしいウル！"
-
-    except Exception as e:
-        print(f"❌ 会社知識クエリエラー: {e}")
-        traceback.print_exc()
-        return "🐺 システムエラーが発生したウル…しばらく待ってから再度お試しくださいウル！"
+    print("❌ KnowledgeHandler not available - cannot query company knowledge")
+    return "ごめんウル...今はナレッジ検索ができないウル🐺 もう一度試してほしいウル！"
 
 
 def call_openrouter_api(system_prompt: str, user_message: str, model: str = None):
@@ -5816,199 +5153,16 @@ def handle_goal_registration(params, room_id, account_id, sender_name, context=N
 
     v10.24.6: handlers/goal_handler.py に分割
     """
-    # 新しいモジュールを使用
+    # v10.32.0: ハンドラー必須化（フォールバック削除）
     handler = _get_goal_handler()
     if handler:
         return handler.handle_goal_registration(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
-    print(f"   params: {params}")
-
-    try:
-        from datetime import date, datetime, timedelta
-        from decimal import Decimal
-        from uuid import uuid4
-        from sqlalchemy import text
-
-        goal_title = params.get("goal_title", "")
-        goal_type = params.get("goal_type", "action")  # numeric, deadline, action
-        target_value = params.get("target_value")
-        unit = params.get("unit")
-        period_type = params.get("period_type", "monthly")
-        deadline = params.get("deadline")
-
-        # =====================================================
-        # v10.19.0: 目標設定対話フロー
-        # =====================================================
-        # goal_titleが空または漠然としている場合は対話フローを開始
-        # 具体的な目標が指定されている場合は直接登録（後方互換性維持）
-        # v10.19.2: OpenRouterが生成する「新規目標の設定」などにも対応
-        # v10.19.4: AI司令塔が生成する「未定（相談中）」などにも対応
-        vague_goal_titles = [
-            # 既存パターン
-            "目標を設定したい", "目標を登録したい", "目標設定", "KPI設定",
-            "新規目標の設定", "新規目標", "目標の設定", "目標登録",
-            "今月の目標", "個人目標", "目標を立てたい", "目標を決めたい",
-            # v10.19.4 追加: AI司令塔が生成しがちなパターン
-            "未定（相談中）", "未定", "相談中", "目標相談",
-            "目標の相談", "目標について相談", "検討中", "未定義",
-        ]
-        is_vague_goal = (
-            not goal_title or
-            goal_title in vague_goal_titles or
-            (goal_title and "目標" in goal_title and "設定" in goal_title) or
-            # v10.19.4 追加: 部分一致チェック（未定・相談を含む場合）
-            (goal_title and ("未定" in goal_title or "相談" in goal_title)) or
-            # v10.19.4 追加: 極端に短いタイトルは不完全と判定
-            (goal_title and len(goal_title.strip()) < 3)
-        )
-        if is_vague_goal:
-            if USE_GOAL_SETTING_LIB:
-                print("   → 目標設定対話フローを開始")
-                pool = get_pool()
-                result = process_goal_setting_message(
-                    pool, room_id, account_id,
-                    context.get("original_message", "") if context else ""
-                )
-                return result
-            else:
-                # lib が使えない場合は従来の応答
-                return {
-                    "success": False,
-                    "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
-                }
-
-        # 以下は具体的なgoal_titleがある場合の直接登録（後方互換性維持）
-        print(f"   → 直接目標登録: {goal_title}")
-
-        # 期間を計算
-        today = date.today()
-        if period_type == "weekly":
-            period_start = today - timedelta(days=today.weekday())
-            period_end = period_start + timedelta(days=6)
-        elif period_type == "monthly":
-            period_start = today.replace(day=1)
-            if today.month == 12:
-                period_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                period_end = today.replace(month=today.month + 1, day=1) - timedelta(days=1)
-        elif period_type == "quarterly":
-            quarter = (today.month - 1) // 3
-            period_start = today.replace(month=quarter * 3 + 1, day=1)
-            if quarter == 3:
-                period_end = today.replace(year=today.year + 1, month=1, day=1) - timedelta(days=1)
-            else:
-                period_end = today.replace(month=(quarter + 1) * 3 + 1, day=1) - timedelta(days=1)
-        else:  # yearly
-            period_start = today.replace(month=1, day=1)
-            period_end = today.replace(month=12, day=31)
-
-        # deadlineがある場合はそれを使用
-        if deadline:
-            try:
-                if isinstance(deadline, str):
-                    period_end = datetime.strptime(deadline, "%Y-%m-%d").date()
-            except:
-                pass
-
-        # user_id を取得（account_id から users テーブルを検索）
-        pool = get_pool()
-        with pool.connect() as conn:
-            # account_id から user_id と organization_id を取得
-            user_result = conn.execute(
-                text("""
-                    SELECT id, organization_id, name FROM users
-                    WHERE chatwork_account_id = :account_id
-                      AND is_active = TRUE
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not user_result:
-                # ユーザーが見つからない場合はエラー（登録誘導）
-                print(f"⚠️ ユーザーが見つかりません: account_id={account_id}")
-                return {
-                    "success": False,
-                    "message": "🤔 まだソウルくんに登録されていないみたいウル！\n\n管理者に連絡して、ユーザー登録をお願いしてウル🐺"
-                }
-
-            user_id = str(user_result[0])
-            org_id = user_result[1]
-            user_name = user_result[2] or sender_name or "ユーザー"
-
-            # organization_idがNULLの場合もエラー
-            if not org_id:
-                print(f"⚠️ organization_idがNULL: user_id={user_id}")
-                return {
-                    "success": False,
-                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
-                }
-            org_id = str(org_id)
-
-            # 目標を登録
-            goal_id = str(uuid4())
-
-            insert_query = text("""
-                INSERT INTO goals (
-                    id, organization_id, user_id, goal_level, title, description,
-                    goal_type, target_value, current_value, unit, deadline,
-                    period_type, period_start, period_end, status, classification,
-                    created_by, updated_by, created_at, updated_at
-                ) VALUES (
-                    :id, :organization_id, :user_id, 'individual', :title, NULL,
-                    :goal_type, :target_value, 0, :unit, :deadline,
-                    :period_type, :period_start, :period_end, 'active', 'internal',
-                    :user_id, :user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                )
-            """)
-
-            conn.execute(insert_query, {
-                "id": goal_id,
-                "organization_id": org_id,
-                "user_id": user_id,
-                "title": goal_title,
-                "goal_type": goal_type,
-                "target_value": float(target_value) if target_value else None,
-                "unit": unit,
-                "deadline": period_end if goal_type == "deadline" else None,
-                "period_type": period_type,
-                "period_start": period_start,
-                "period_end": period_end,
-            })
-            conn.commit()
-
-            print(f"✅ 目標登録完了: goal_id={goal_id}, title={goal_title}, user_id={user_id}")
-
-            # 応答メッセージを組み立て
-            response = f"✅ 目標を登録したウル！🎯\n\n"
-            response += f"📌 目標: {goal_title}\n"
-
-            if goal_type == "numeric" and target_value:
-                formatted_value = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
-                response += f"🎯 目標値: {formatted_value}{unit or ''}\n"
-            elif goal_type == "deadline":
-                response += f"⏰ 期限: {period_end.strftime('%Y年%m月%d日')}\n"
-            elif goal_type == "action":
-                response += f"🔄 タイプ: 行動目標\n"
-
-            response += f"📅 期間: {period_start.strftime('%m/%d')}〜{period_end.strftime('%m/%d')}\n"
-            response += f"\n"
-            response += f"{user_name}さんなら絶対達成できるって、ソウルくんは信じてるウル💪🐺\n"
-            response += f"\n"
-            response += f"毎日17時に進捗を聞くから、一緒に頑張っていこうウル✨"
-
-            return {"success": True, "message": response}
-
-    except Exception as e:
-        print(f"❌ handle_goal_registration エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": "❌ 目標の登録に失敗したウル...もう一度試してほしいウル🐺"
-        }
+    print("❌ GoalHandler not available - cannot register goal")
+    return {
+        "success": False,
+        "message": "ごめんウル...今は目標を登録できないウル🐺 もう一度試してほしいウル！"
+    }
 
 
 def handle_goal_progress_report(params, room_id, account_id, sender_name, context=None):
@@ -6019,196 +5173,16 @@ def handle_goal_progress_report(params, room_id, account_id, sender_name, contex
 
     v10.24.6: handlers/goal_handler.py に分割
     """
-    # 新しいモジュールを使用
+    # v10.32.0: ハンドラー必須化（フォールバック削除）
     handler = _get_goal_handler()
     if handler:
         return handler.handle_goal_progress_report(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    print(f"📊 handle_goal_progress_report 開始: room_id={room_id}, account_id={account_id}")
-    print(f"   params: {params}")
-
-    try:
-        from datetime import date, datetime
-        from decimal import Decimal
-        from uuid import uuid4
-        from sqlalchemy import text
-
-        progress_value = params.get("progress_value")
-        daily_note = params.get("daily_note", "")
-        daily_choice = params.get("daily_choice", "")
-
-        pool = get_pool()
-        with pool.connect() as conn:
-            # ユーザー情報を取得
-            user_result = conn.execute(
-                text("""
-                    SELECT id, organization_id, name FROM users
-                    WHERE chatwork_account_id = :account_id
-                      AND is_active = TRUE
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not user_result:
-                return {
-                    "success": False,
-                    "message": "🤔 まだ目標を登録していないみたいウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
-                }
-
-            user_id = str(user_result[0])
-            org_id = user_result[1]
-            user_name = user_result[2] or sender_name or "ユーザー"
-
-            # organization_idがNULLの場合はエラー
-            if not org_id:
-                return {
-                    "success": False,
-                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
-                }
-            org_id = str(org_id)
-
-            # アクティブな目標を取得
-            goals_result = conn.execute(
-                text("""
-                    SELECT id, title, goal_type, target_value, current_value, unit, period_end
-                    FROM goals
-                    WHERE user_id = :user_id AND organization_id = :organization_id
-                      AND status = 'active'
-                    ORDER BY created_at DESC
-                    LIMIT 1
-                """),
-                {"user_id": user_id, "organization_id": org_id}
-            ).fetchone()
-
-            if not goals_result:
-                return {
-                    "success": False,
-                    "message": "🤔 アクティブな目標が見つからないウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
-                }
-
-            goal_id = str(goals_result[0])
-            goal_title = goals_result[1]
-            goal_type = goals_result[2]
-            target_value = Decimal(str(goals_result[3])) if goals_result[3] else None
-            current_value = Decimal(str(goals_result[4])) if goals_result[4] else Decimal(0)
-            unit = goals_result[5] or ""
-            period_end = goals_result[6]
-
-            today = date.today()
-
-            # 累計値を計算
-            cumulative_value = None
-            if progress_value is not None and goal_type == "numeric":
-                progress_decimal = Decimal(str(progress_value))
-
-                # 既存の累計を取得
-                prev_result = conn.execute(
-                    text("""
-                        SELECT COALESCE(SUM(value), 0) as total
-                        FROM goal_progress
-                        WHERE goal_id = :goal_id AND organization_id = :organization_id
-                          AND progress_date < :today
-                    """),
-                    {"goal_id": goal_id, "organization_id": org_id, "today": today}
-                ).fetchone()
-
-                prev_total = Decimal(str(prev_result[0])) if prev_result else Decimal(0)
-                cumulative_value = prev_total + progress_decimal
-
-            # 進捗を記録（UPSERT）
-            progress_id = str(uuid4())
-
-            conn.execute(
-                text("""
-                    INSERT INTO goal_progress (
-                        id, goal_id, organization_id, progress_date, value,
-                        cumulative_value, daily_note, daily_choice, classification,
-                        created_by, updated_by, created_at, updated_at
-                    ) VALUES (
-                        :id, :goal_id, :organization_id, :progress_date, :value,
-                        :cumulative_value, :daily_note, :daily_choice, 'internal',
-                        :user_id, :user_id, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                    )
-                    ON CONFLICT (goal_id, progress_date)
-                    DO UPDATE SET
-                        value = EXCLUDED.value,
-                        cumulative_value = EXCLUDED.cumulative_value,
-                        daily_note = EXCLUDED.daily_note,
-                        daily_choice = EXCLUDED.daily_choice,
-                        updated_at = CURRENT_TIMESTAMP,
-                        updated_by = EXCLUDED.created_by
-                """),
-                {
-                    "id": progress_id,
-                    "goal_id": goal_id,
-                    "organization_id": org_id,
-                    "progress_date": today,
-                    "value": float(progress_value) if progress_value is not None else None,
-                    "cumulative_value": float(cumulative_value) if cumulative_value is not None else None,
-                    "daily_note": daily_note or None,
-                    "daily_choice": daily_choice or None,
-                    "user_id": user_id,
-                }
-            )
-
-            # 目標のcurrent_valueを更新
-            if cumulative_value is not None:
-                conn.execute(
-                    text("""
-                        UPDATE goals
-                        SET current_value = :cumulative_value, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = :goal_id AND organization_id = :organization_id
-                    """),
-                    {"goal_id": goal_id, "organization_id": org_id, "cumulative_value": float(cumulative_value)}
-                )
-
-            conn.commit()
-
-            print(f"✅ 進捗記録完了: goal_id={goal_id}, value={progress_value}, cumulative={cumulative_value}")
-
-            # 応答メッセージを組み立て
-            response = f"✅ 進捗を記録したウル！📊\n\n"
-            response += f"📌 目標: {goal_title}\n"
-
-            if goal_type == "numeric" and progress_value is not None and target_value:
-                formatted_today = f"{int(progress_value):,}" if progress_value == int(progress_value) else f"{progress_value:,.2f}"
-                formatted_cumulative = f"{int(cumulative_value):,}" if cumulative_value == int(cumulative_value) else f"{cumulative_value:,.2f}"
-                formatted_target = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
-
-                achievement_rate = float(cumulative_value / target_value * 100) if target_value else 0
-                remaining = target_value - cumulative_value
-
-                response += f"📈 今日の実績: +{formatted_today}{unit}\n"
-                response += f"📊 累計: {formatted_cumulative}{unit} / {formatted_target}{unit}\n"
-                response += f"🎯 達成率: {achievement_rate:.1f}%\n"
-
-                if achievement_rate >= 100:
-                    response += f"\n🎉🎉🎉 目標達成おめでとうウル！！！ 🎉🎉🎉\n"
-                    response += f"{user_name}さん、すごいウル！ソウルくんも嬉しいウル🐺✨"
-                elif achievement_rate >= 80:
-                    response += f"\nあと{int(remaining):,}{unit}で達成ウル！もう少しウル💪🐺"
-                elif achievement_rate >= 50:
-                    response += f"\n半分超えたウル！この調子で頑張ろうウル🐺✨"
-                else:
-                    response += f"\nまだまだこれからウル！{user_name}さんなら絶対できるウル💪🐺"
-
-            else:
-                if daily_note:
-                    response += f"📝 報告: {daily_note}\n"
-                response += f"\n今日も頑張ったウル！{user_name}さん、素敵ウル🐺✨"
-
-            return {"success": True, "message": response}
-
-    except Exception as e:
-        print(f"❌ handle_goal_progress_report エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": "❌ 進捗の記録に失敗したウル...もう一度試してほしいウル🐺"
-        }
+    print("❌ GoalHandler not available - cannot report progress")
+    return {
+        "success": False,
+        "message": "ごめんウル...今は進捗を記録できないウル🐺 もう一度試してほしいウル！"
+    }
 
 
 def handle_goal_status_check(params, room_id, account_id, sender_name, context=None):
@@ -6219,142 +5193,16 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
 
     v10.24.6: handlers/goal_handler.py に分割
     """
-    # 新しいモジュールを使用
+    # v10.32.0: ハンドラー必須化（フォールバック削除）
     handler = _get_goal_handler()
     if handler:
         return handler.handle_goal_status_check(params, room_id, account_id, sender_name, context)
 
-    # フォールバック: 旧実装
-    print(f"📋 handle_goal_status_check 開始: room_id={room_id}, account_id={account_id}")
-
-    try:
-        from datetime import date
-        from decimal import Decimal
-        from sqlalchemy import text
-
-        pool = get_pool()
-        with pool.connect() as conn:
-            # ユーザー情報を取得
-            user_result = conn.execute(
-                text("""
-                    SELECT id, organization_id, name FROM users
-                    WHERE chatwork_account_id = :account_id
-                      AND is_active = TRUE
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not user_result:
-                return {
-                    "success": False,
-                    "message": "🤔 まだ目標を登録していないみたいウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
-                }
-
-            user_id = str(user_result[0])
-            org_id = user_result[1]
-            user_name = user_result[2] or sender_name or "ユーザー"
-
-            # organization_idがNULLの場合はエラー
-            if not org_id:
-                return {
-                    "success": False,
-                    "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
-                }
-            org_id = str(org_id)
-
-            # アクティブな目標を全て取得
-            goals_result = conn.execute(
-                text("""
-                    SELECT id, title, goal_type, target_value, current_value, unit,
-                           period_start, period_end, deadline
-                    FROM goals
-                    WHERE user_id = :user_id AND organization_id = :organization_id
-                      AND status = 'active'
-                    ORDER BY created_at DESC
-                """),
-                {"user_id": user_id, "organization_id": org_id}
-            ).fetchall()
-
-            if not goals_result:
-                return {
-                    "success": False,
-                    "message": "🤔 アクティブな目標が見つからないウル！\n「目標を設定したい」と言ってくれたら登録できるウル🐺"
-                }
-
-            today = date.today()
-
-            # 応答メッセージを組み立て
-            response = f"{user_name}さんの目標状況ウル🐺\n\n"
-
-            for i, goal in enumerate(goals_result, 1):
-                goal_id = str(goal[0])
-                goal_title = goal[1]
-                goal_type = goal[2]
-                target_value = Decimal(str(goal[3])) if goal[3] else None
-                current_value = Decimal(str(goal[4])) if goal[4] else Decimal(0)
-                unit = goal[5] or ""
-                period_start = goal[6]
-                period_end = goal[7]
-                deadline = goal[8]
-
-                days_remaining = (period_end - today).days if period_end else 0
-
-                response += f"【目標{i}】{goal_title}\n"
-
-                if goal_type == "numeric" and target_value:
-                    achievement_rate = float(current_value / target_value * 100) if target_value else 0
-                    formatted_current = f"{int(current_value):,}" if current_value == int(current_value) else f"{current_value:,.2f}"
-                    formatted_target = f"{int(target_value):,}" if target_value == int(target_value) else f"{target_value:,.2f}"
-
-                    if achievement_rate >= 100:
-                        status_emoji = "🎉"
-                    elif achievement_rate >= 80:
-                        status_emoji = "📈"
-                    elif achievement_rate >= 50:
-                        status_emoji = "📊"
-                    else:
-                        status_emoji = "⚠️"
-
-                    response += f"├ 進捗: {formatted_current}{unit} / {formatted_target}{unit}\n"
-                    response += f"├ 達成率: {achievement_rate:.1f}% {status_emoji}\n"
-                elif goal_type == "deadline":
-                    response += f"├ タイプ: 期限目標\n"
-                    response += f"├ 期限: {period_end.strftime('%Y年%m月%d日') if period_end else '未設定'}\n"
-                else:
-                    response += f"├ タイプ: 行動目標\n"
-
-                response += f"└ 残り日数: {days_remaining}日\n\n"
-
-            if len(goals_result) == 1:
-                goal = goals_result[0]
-                goal_type = goal[2]
-                target_value = Decimal(str(goal[3])) if goal[3] else None
-                current_value = Decimal(str(goal[4])) if goal[4] else Decimal(0)
-
-                if goal_type == "numeric" and target_value:
-                    achievement_rate = float(current_value / target_value * 100) if target_value else 0
-                    if achievement_rate >= 100:
-                        response += f"🎉 すごい！目標達成済みウル！次の目標を設定してもいいかもウル🐺✨"
-                    elif achievement_rate >= 80:
-                        response += f"💪 あともう少しで達成ウル！{user_name}さんなら絶対できるウル🐺"
-                    else:
-                        response += f"✨ 一緒に頑張っていこうウル！ソウルくんは{user_name}さんを応援してるウル🐺"
-                else:
-                    response += f"✨ 今日も目標に向かって頑張ろうウル🐺"
-            else:
-                response += f"✨ {len(goals_result)}個の目標を追いかけてるウル！{user_name}さん、頑張ってるウル🐺"
-
-            return {"success": True, "message": response}
-
-    except Exception as e:
-        print(f"❌ handle_goal_status_check エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": "❌ 目標の確認に失敗したウル...もう一度試してほしいウル🐺"
-        }
+    print("❌ GoalHandler not available - cannot check status")
+    return {
+        "success": False,
+        "message": "ごめんウル...今は目標を確認できないウル🐺 もう一度試してほしいウル！"
+    }
 
 
 HANDLERS = {
@@ -6418,26 +5266,13 @@ def get_conversation_history(room_id, account_id):
     会話履歴を取得
 
     v10.24.3: handlers/memory_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_memory_handler()
     if handler:
         return handler.get_conversation_history(room_id, account_id)
 
-    # フォールバック: 旧実装
-    try:
-        doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
-        doc = doc_ref.get()
-        if doc.exists:
-            data = doc.to_dict()
-            updated_at = data.get("updated_at")
-            if updated_at:
-                expiry_time = datetime.now(timezone.utc) - timedelta(hours=HISTORY_EXPIRY_HOURS)
-                if updated_at.replace(tzinfo=timezone.utc) < expiry_time:
-                    return []
-            return data.get("history", [])[-MAX_HISTORY_COUNT:]
-    except Exception as e:
-        print(f"履歴取得エラー: {e}")
+    print("❌ MemoryHandler not available - cannot get conversation history")
     return []
 
 def save_conversation_history(room_id, account_id, history):
@@ -6445,21 +5280,13 @@ def save_conversation_history(room_id, account_id, history):
     会話履歴を保存
 
     v10.24.3: handlers/memory_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_memory_handler()
     if handler:
         return handler.save_conversation_history(room_id, account_id, history)
 
-    # フォールバック: 旧実装
-    try:
-        doc_ref = db.collection("conversations").document(f"{room_id}_{account_id}")
-        doc_ref.set({
-            "history": history[-MAX_HISTORY_COUNT:],
-            "updated_at": datetime.now(timezone.utc)
-        })
-    except Exception as e:
-        print(f"履歴保存エラー: {e}")
+    print("❌ MemoryHandler not available - cannot save conversation history")
 
 
 # =====================================================
@@ -6495,133 +5322,14 @@ def process_memory_after_conversation(
         - エラーが発生しても会話処理には影響を与えない
         - 会話数が閾値未満の場合は何もしない（負荷軽減）
     """
-    # 新しいモジュールを使用
+    # v10.32.0: ハンドラー必須化（フォールバック削除）
     handler = _get_memory_handler()
     if handler:
         return handler.process_memory_after_conversation(
             room_id, account_id, sender_name, user_message, ai_response, history
         )
 
-    # フォールバック: 旧実装
-    if not USE_MEMORY_FRAMEWORK:
-        return
-
-    try:
-        print(f"🧠 Memory Framework処理開始 (room={room_id}, account={account_id})")
-
-        # 会話数が閾値未満なら何もしない
-        if len(history) < MEMORY_SUMMARY_TRIGGER_COUNT:
-            print(f"   会話数 {len(history)} < 閾値 {MEMORY_SUMMARY_TRIGGER_COUNT}, スキップ")
-            return
-
-        # ユーザー情報を取得
-        pool = get_pool()
-        with pool.connect() as conn:
-            # account_idからuser_idとorganization_idを取得
-            result = conn.execute(
-                sqlalchemy.text("""
-                    SELECT id, organization_id FROM users
-                    WHERE chatwork_account_id = :account_id
-                      AND is_active = TRUE
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not result:
-                print(f"   ⚠️ ユーザー未登録: account_id={account_id}")
-                return
-
-            user_id = result[0]
-            org_id = result[1]
-
-            if not org_id:
-                print(f"   ⚠️ organization_id未設定: user_id={user_id}")
-                org_id = MEMORY_DEFAULT_ORG_ID
-
-            print(f"   ユーザー特定: user_id={user_id}, org_id={org_id}")
-
-            # OpenRouter APIキーを取得
-            openrouter_api_key = get_secret("openrouter-api-key")
-
-            # B1: 会話サマリー生成
-            try:
-                summary_service = ConversationSummary(
-                    conn=conn,
-                    org_id=org_id,
-                    openrouter_api_key=openrouter_api_key
-                )
-
-                # 会話履歴をMemory Frameworkの形式に変換
-                conversation_history = []
-                for msg in history:
-                    conversation_history.append({
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", ""),
-                        "timestamp": datetime.now(timezone.utc)
-                    })
-
-                # 非同期関数を同期的に実行（Python 3.10+推奨）
-                result = asyncio.run(
-                    summary_service.generate_and_save(
-                        user_id=user_id,
-                        conversation_history=conversation_history,
-                        room_id=str(room_id)
-                    )
-                )
-
-                if result.success:
-                    print(f"   ✅ B1 会話サマリー生成完了: {result.message}")
-                else:
-                    print(f"   ⏭️ B1 会話サマリー: {result.message}")
-
-            except Exception as e:
-                print(f"   ⚠️ B1 会話サマリーエラー（続行）: {e}")
-
-            # B4: 会話検索インデックス
-            try:
-                search_service = ConversationSearch(
-                    conn=conn,
-                    org_id=org_id
-                )
-
-                # ユーザーメッセージをインデックス化
-                result = asyncio.run(
-                    search_service.save(
-                        user_id=user_id,
-                        message_text=user_message,
-                        message_type="user",
-                        message_time=datetime.now(timezone.utc),
-                        room_id=str(room_id)
-                    )
-                )
-
-                # AIレスポンスもインデックス化
-                if result.success:
-                    asyncio.run(
-                        search_service.save(
-                            user_id=user_id,
-                            message_text=ai_response,
-                            message_type="assistant",
-                            message_time=datetime.now(timezone.utc),
-                            room_id=str(room_id)
-                        )
-                    )
-
-                if result.success:
-                    print(f"   ✅ B4 会話インデックス完了")
-                else:
-                    print(f"   ⏭️ B4 会話インデックス: {result.message}")
-
-            except Exception as e:
-                print(f"   ⚠️ B4 会話インデックスエラー（続行）: {e}")
-
-        print(f"🧠 Memory Framework処理完了")
-
-    except Exception as e:
-        # Memory処理のエラーは会話に影響を与えない
-        print(f"⚠️ Memory Framework処理エラー（続行）: {e}")
-        traceback.print_exc()
+    print("❌ MemoryHandler not available - cannot process memory")
 
 
 # ===== AI司令塔（AIの判断力を最大活用する設計） =====
@@ -8016,85 +6724,15 @@ def ensure_overdue_tables():
     """
     遅延管理用テーブルが存在しない場合は作成
 
-    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+    v10.24.5: handlers/overdue_handler.py に委譲
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいハンドラーを使用
     handler = _get_overdue_handler()
     if handler:
         handler.ensure_overdue_tables()
         return
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            # 督促履歴テーブル
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS task_overdue_reminders (
-                    id SERIAL PRIMARY KEY,
-                    task_id BIGINT NOT NULL,
-                    account_id BIGINT NOT NULL,
-                    reminder_date DATE NOT NULL,
-                    overdue_days INTEGER NOT NULL,
-                    escalated BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(task_id, reminder_date)
-                );
-            """))
-            conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_overdue_reminders_task_id 
-                ON task_overdue_reminders(task_id);
-            """))
-            
-            # 期限変更履歴テーブル
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS task_limit_changes (
-                    id SERIAL PRIMARY KEY,
-                    task_id BIGINT NOT NULL,
-                    old_limit_time BIGINT,
-                    new_limit_time BIGINT,
-                    detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    reason_asked BOOLEAN DEFAULT FALSE,
-                    reason_received BOOLEAN DEFAULT FALSE,
-                    reason_text TEXT,
-                    reported_to_admin BOOLEAN DEFAULT FALSE
-                );
-            """))
-            conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_limit_changes_task_id 
-                ON task_limit_changes(task_id);
-            """))
-            
-            # ★ DMルームキャッシュテーブル（API節約用）
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS dm_room_cache (
-                    account_id BIGINT PRIMARY KEY,
-                    dm_room_id BIGINT NOT NULL,
-                    cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-            """))
-            
-            # ★★★ v6.8.2: エスカレーション専用テーブル（スパム防止）★★★
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS task_escalations (
-                    id SERIAL PRIMARY KEY,
-                    task_id BIGINT NOT NULL,
-                    escalated_date DATE NOT NULL,
-                    escalated_to_requester BOOLEAN DEFAULT FALSE,
-                    escalated_to_admin BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(task_id, escalated_date)
-                );
-            """))
-            conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_task_escalations_task_id 
-                ON task_escalations(task_id);
-            """))
-            
-            print("✅ 遅延管理テーブルの確認/作成完了")
-    except Exception as e:
-        print(f"⚠️ 遅延管理テーブル作成エラー: {e}")
-        traceback.print_exc()
+    print("❌ OverdueHandler not available - cannot ensure tables")
 
 
 # =====================================================
@@ -8653,8 +7291,8 @@ def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
     知識の提案を作成
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.create_proposal(
@@ -8662,32 +7300,8 @@ def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
             category, key, value, message_id
         )
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            result = conn.execute(sqlalchemy.text("""
-                INSERT INTO knowledge_proposals 
-                (proposed_by_account_id, proposed_by_name, proposed_in_room_id, 
-                 category, key, value, message_id, status)
-                VALUES (:account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
-                RETURNING id
-            """), {
-                "account_id": proposed_by_account_id,
-                "name": proposed_by_name,
-                "room_id": proposed_in_room_id,
-                "category": category,
-                "key": key,
-                "value": value,
-                "message_id": message_id
-            })
-            proposal_id = result.fetchone()[0]
-        print(f"✅ 提案を作成: ID={proposal_id}, {key}={value}")
-        return proposal_id
-    except Exception as e:
-        print(f"❌ 提案作成エラー: {e}")
-        traceback.print_exc()
-        return None
+    print("❌ ProposalHandler not available - cannot create proposal")
+    return None
 
 
 def get_pending_proposals():
@@ -8696,34 +7310,14 @@ def get_pending_proposals():
     v6.9.1: 古い順（FIFO）に変更 - 待たせている人から処理
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.get_pending_proposals()
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            # v6.9.1: ORDER BY created_at ASC（古い順）
-            result = conn.execute(sqlalchemy.text("""
-                SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
-                       category, key, value, message_id, created_at
-                FROM knowledge_proposals 
-                WHERE status = 'pending'
-                ORDER BY created_at ASC
-            """))
-            rows = result.fetchall()
-            return [{
-                "id": r[0], "proposed_by_account_id": r[1], "proposed_by_name": r[2],
-                "proposed_in_room_id": r[3], "category": r[4], "key": r[5], 
-                "value": r[6], "message_id": r[7], "created_at": r[8]
-            } for r in rows]
-    except Exception as e:
-        print(f"❌ 提案取得エラー: {e}")
-        traceback.print_exc()
-        return []
+    print("❌ ProposalHandler not available - cannot get pending proposals")
+    return []
 
 
 def get_oldest_pending_proposal():
@@ -8731,15 +7325,14 @@ def get_oldest_pending_proposal():
     最も古い承認待ち提案を取得（v6.9.1: FIFO）
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.get_oldest_pending_proposal()
 
-    # フォールバック: 旧実装
-    proposals = get_pending_proposals()
-    return proposals[0] if proposals else None
+    print("❌ ProposalHandler not available - cannot get oldest pending proposal")
+    return None
 
 
 def get_proposal_by_id(proposal_id: int):
@@ -8747,34 +7340,14 @@ def get_proposal_by_id(proposal_id: int):
     ID指定で提案を取得（v6.9.1追加）
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.get_proposal_by_id(proposal_id)
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            result = conn.execute(sqlalchemy.text("""
-                SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
-                       category, key, value, message_id, created_at, status
-                FROM knowledge_proposals 
-                WHERE id = :id
-            """), {"id": proposal_id})
-            row = result.fetchone()
-            if row:
-                return {
-                    "id": row[0], "proposed_by_account_id": row[1], "proposed_by_name": row[2],
-                    "proposed_in_room_id": row[3], "category": row[4], "key": row[5], 
-                    "value": row[6], "message_id": row[7], "created_at": row[8], "status": row[9]
-                }
-            return None
-    except Exception as e:
-        print(f"❌ 提案取得エラー: {e}")
-        traceback.print_exc()
-        return None
+    print("❌ ProposalHandler not available - cannot get proposal by ID")
+    return None
 
 
 def get_latest_pending_proposal():
@@ -8782,14 +7355,14 @@ def get_latest_pending_proposal():
     最新の承認待ち提案を取得（後方互換性のため残す）
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.get_latest_pending_proposal()
 
-    # フォールバック: 旧実装
-    return get_oldest_pending_proposal()
+    print("❌ ProposalHandler not available - cannot get latest pending proposal")
+    return None
 
 
 # =====================================================
@@ -8802,33 +7375,14 @@ def get_unnotified_proposals():
     v6.9.2追加
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.get_unnotified_proposals()
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            result = conn.execute(sqlalchemy.text("""
-                SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
-                       category, key, value, message_id, created_at
-                FROM knowledge_proposals 
-                WHERE status = 'pending' AND admin_notified = FALSE
-                ORDER BY created_at ASC
-            """))
-            rows = result.fetchall()
-            return [{
-                "id": r[0], "proposed_by_account_id": r[1], "proposed_by_name": r[2],
-                "proposed_in_room_id": r[3], "category": r[4], "key": r[5], 
-                "value": r[6], "message_id": r[7], "created_at": r[8]
-            } for r in rows]
-    except Exception as e:
-        print(f"❌ 未通知提案取得エラー: {e}")
-        traceback.print_exc()
-        return []
+    print("❌ ProposalHandler not available - cannot get unnotified proposals")
+    return []
 
 
 def retry_proposal_notification(proposal_id: int):
@@ -8837,33 +7391,14 @@ def retry_proposal_notification(proposal_id: int):
 
     v10.24.2: handlers/proposal_handler.py に分割
     v10.25.0: category対応
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.retry_proposal_notification(proposal_id)
 
-    # フォールバック: 旧実装
-    proposal = get_proposal_by_id(proposal_id)
-    if not proposal:
-        return False, f"提案ID={proposal_id}が見つからない"
-
-    if proposal["status"] != "pending":
-        return False, f"提案ID={proposal_id}は既に処理済み（{proposal['status']}）"
-
-    # 再通知を実行
-    success = report_proposal_to_admin(
-        proposal_id,
-        proposal["proposed_by_name"],
-        proposal["key"],
-        proposal["value"],
-        proposal.get("category")  # v10.25.0: カテゴリを渡す
-    )
-    
-    if success:
-        return True, f"提案ID={proposal_id}を再通知した"
-    else:
-        return False, f"提案ID={proposal_id}の再通知に失敗"
+    print("❌ ProposalHandler not available - cannot retry proposal notification")
+    return False, "ハンドラーが利用できません"
 
 
 def approve_proposal(proposal_id: int, reviewed_by: str):
@@ -8872,70 +7407,14 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
 
     v10.24.2: handlers/proposal_handler.py に分割
     v10.25.0: category='memory'の場合は人物情報として保存
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.approve_proposal(proposal_id, reviewed_by)
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            # 提案を取得
-            result = conn.execute(sqlalchemy.text("""
-                SELECT category, key, value, proposed_by_account_id
-                FROM knowledge_proposals WHERE id = :id AND status = 'pending'
-            """), {"id": proposal_id})
-            row = result.fetchone()
-
-            if not row:
-                print(f"⚠️ 提案ID={proposal_id}が見つからないか、既に処理済み")
-                return False
-
-            category, key, value, proposed_by = row
-
-            # v10.25.0: カテゴリに応じて保存先を分岐
-            if category == 'memory':
-                # 人物情報の場合
-                try:
-                    data = json.loads(value)
-                    person_name = key
-                    attr_type = data.get('type', 'その他')
-                    attr_value = data.get('value', value)
-                    save_person_attribute(person_name, attr_type, attr_value, 'proposal')
-                    print(f"✅ 人物情報を保存: {person_name}の{attr_type}={attr_value}")
-                except json.JSONDecodeError:
-                    # JSONパース失敗時はそのまま保存
-                    save_person_attribute(key, 'その他', value, 'proposal')
-                    print(f"⚠️ JSONパース失敗、そのまま保存: {key}={value}")
-            else:
-                # 通常の知識の場合
-                conn.execute(sqlalchemy.text("""
-                    INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                    VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                    ON CONFLICT (category, key)
-                    DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
-                """), {
-                    "category": category,
-                    "key": key,
-                    "value": value,
-                    "created_by": proposed_by
-                })
-
-            # 提案を承認済みに更新
-            conn.execute(sqlalchemy.text("""
-                UPDATE knowledge_proposals
-                SET status = 'approved', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE id = :id
-            """), {"id": proposal_id, "reviewed_by": reviewed_by})
-
-        print(f"✅ 提案ID={proposal_id}を承認: {key}={value}")
-        return True
-    except Exception as e:
-        print(f"❌ 提案承認エラー: {e}")
-        traceback.print_exc()
-        return False
+    print("❌ ProposalHandler not available - cannot approve proposal")
+    return False
 
 
 def reject_proposal(proposal_id: int, reviewed_by: str):
@@ -8943,27 +7422,14 @@ def reject_proposal(proposal_id: int, reviewed_by: str):
     提案を却下
 
     v10.24.2: handlers/proposal_handler.py に分割
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいモジュールを使用
     handler = _get_proposal_handler()
     if handler:
         return handler.reject_proposal(proposal_id, reviewed_by)
 
-    # フォールバック: 旧実装
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            conn.execute(sqlalchemy.text("""
-                UPDATE knowledge_proposals 
-                SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE id = :id AND status = 'pending'
-            """), {"id": proposal_id, "reviewed_by": reviewed_by})
-        print(f"✅ 提案ID={proposal_id}を却下")
-        return True
-    except Exception as e:
-        print(f"❌ 提案却下エラー: {e}")
-        traceback.print_exc()
-        return False
+    print("❌ ProposalHandler not available - cannot reject proposal")
+    return False
 
 
 def get_all_contacts():
@@ -9353,9 +7819,9 @@ def process_overdue_tasks():
     遅延タスクを処理：督促送信 + エスカレーション
     毎日8:30に実行（remind_tasksから呼び出し）
 
-    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
+    v10.24.5: handlers/overdue_handler.py に委譲
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいハンドラーを使用
     handler = _get_overdue_handler()
     if handler:
         # キャッシュリセット（ハンドラー呼び出し前）
@@ -9368,105 +7834,7 @@ def process_overdue_tasks():
         handler.process_overdue_tasks()
         return
 
-    # フォールバック: 旧実装
-    global _dm_unavailable_buffer
-    _runtime_dm_cache = {}
-    _runtime_direct_rooms = None
-    _runtime_contacts_cache = None
-    _runtime_contacts_fetched_ok = None  # v6.8.4追加
-    _dm_unavailable_buffer = []  # バッファもリセット
-    print("✅ メモリキャッシュをリセット")
-    
-    try:
-        # テーブル確認
-        ensure_overdue_tables()
-        
-        pool = get_pool()
-        now = datetime.now(JST)
-        today = now.date()
-        
-        # 期限超過の未完了タスクを取得（担当者ごとにグループ化するため）
-        with pool.connect() as conn:
-            result = conn.execute(sqlalchemy.text("""
-                SELECT 
-                    task_id, room_id, assigned_to_account_id, assigned_by_account_id,
-                    body, limit_time, assigned_to_name, assigned_by_name
-                FROM chatwork_tasks
-                WHERE status = 'open'
-                  AND skip_tracking = FALSE
-                  AND limit_time IS NOT NULL
-                  AND limit_time < :today_timestamp
-                ORDER BY assigned_to_account_id, limit_time
-            """), {"today_timestamp": int(datetime.combine(today, datetime.min.time()).replace(tzinfo=JST).timestamp())})
-            
-            overdue_tasks = result.fetchall()
-        
-        if not overdue_tasks:
-            print("✅ 期限超過タスクはありません")
-            return
-        
-        print(f"📋 期限超過タスク数: {len(overdue_tasks)}")
-        
-        # 担当者ごとにグループ化
-        tasks_by_assignee = {}
-        unassigned_tasks = []  # ★ v6.8.1: 担当者未設定のタスク
-        
-        for task in overdue_tasks:
-            account_id = task[2]  # assigned_to_account_id
-            
-            # ★ NULLチェック: 担当者未設定のタスクは別管理
-            if account_id is None:
-                unassigned_tasks.append({
-                    "task_id": task[0],
-                    "room_id": task[1],
-                    "assigned_to_account_id": task[2],
-                    "assigned_by_account_id": task[3],
-                    "body": task[4],
-                    "limit_time": task[5],
-                    "assigned_to_name": task[6] or "（未設定）",
-                    "assigned_by_name": task[7]
-                })
-                continue
-            
-            if account_id not in tasks_by_assignee:
-                tasks_by_assignee[account_id] = []
-            tasks_by_assignee[account_id].append({
-                "task_id": task[0],
-                "room_id": task[1],
-                "assigned_to_account_id": task[2],
-                "assigned_by_account_id": task[3],
-                "body": task[4],
-                "limit_time": task[5],
-                "assigned_to_name": task[6],
-                "assigned_by_name": task[7]
-            })
-        
-        # ★ 担当者未設定タスクがあれば管理部に報告
-        if unassigned_tasks:
-            report_unassigned_overdue_tasks(unassigned_tasks)
-        
-        # 担当者ごとに個人チャットへ督促送信
-        for account_id, tasks in tasks_by_assignee.items():
-            send_overdue_reminder_to_dm(account_id, tasks, today)
-        
-        # エスカレーション処理（3日以上超過）
-        process_escalations(overdue_tasks, today)
-        
-        # ★★★ v6.8.3: DM不可通知をまとめて送信 ★★★
-        flush_dm_unavailable_notifications()
-        
-        print("=" * 50)
-        print("🔔 遅延タスク処理完了")
-        print("=" * 50)
-        
-    except Exception as e:
-        print(f"❌ 遅延タスク処理エラー: {e}")
-        traceback.print_exc()
-        # エラー時もバッファをフラッシュ
-        try:
-            flush_dm_unavailable_notifications()
-        except:
-            pass
+    print("❌ OverdueHandler not available - cannot process overdue tasks")
 
 
 def send_overdue_reminder_to_dm(account_id, tasks, today):
@@ -9768,132 +8136,15 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     タスクの期限変更を検知して報告
     sync_chatwork_tasks内から呼び出される
 
-    v10.24.5: handlers/overdue_handler.py に委譲（フォールバック付き）
-
-    ★ v6.8.1変更点:
-    - UPDATE文をPostgreSQL対応（サブクエリ方式）
-    - DM見つからない時のフォールバック追加
+    v10.24.5: handlers/overdue_handler.py に委譲
+    v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    # 新しいハンドラーを使用
     handler = _get_overdue_handler()
     if handler:
         handler.detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
         return
 
-    # フォールバック: 旧実装
-    if old_limit == new_limit:
-        return
-
-    if old_limit is None or new_limit is None:
-        return
-
-    print(f"🔍 期限変更検知: task_id={task_id}, {old_limit} → {new_limit}")
-
-    pool = get_pool()
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    
-    # 変更履歴を記録
-    try:
-        with pool.begin() as conn:
-            conn.execute(
-                sqlalchemy.text("""
-                    INSERT INTO task_limit_changes (task_id, old_limit_time, new_limit_time)
-                    VALUES (:task_id, :old_limit, :new_limit)
-                """),
-                {"task_id": task_id, "old_limit": old_limit, "new_limit": new_limit}
-            )
-    except Exception as e:
-        print(f"⚠️ 期限変更履歴記録エラー: {e}")
-    
-    # 日付フォーマット
-    old_date_str = datetime.fromtimestamp(old_limit, tz=JST).strftime("%m/%d") if old_limit else "不明"
-    new_date_str = datetime.fromtimestamp(new_limit, tz=JST).strftime("%m/%d") if new_limit else "不明"
-    
-    # 延長日数計算
-    if old_limit and new_limit:
-        days_diff = (new_limit - old_limit) // 86400  # 秒→日
-        diff_str = f"{abs(days_diff)}日{'延長' if days_diff > 0 else '短縮'}"
-    else:
-        diff_str = "変更"
-    
-    assignee_name = task_info.get("assigned_to_name", "担当者")
-    assignee_id = task_info.get("assigned_to_account_id")
-    requester_name = task_info.get("assigned_by_name", "依頼者")
-    # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
-    body_short = prepare_task_display_text(clean_chatwork_tags(task_info["body"]), max_length=30)
-    
-    # ① 管理部への即時報告
-    admin_message = f"""[info][title]📝 タスク期限変更の検知[/title]
-以下のタスクの期限が変更されました：
-
-タスク: {body_short}
-担当者: {assignee_name}
-依頼者: {requester_name}
-変更前: {old_date_str}
-変更後: {new_date_str}（{diff_str}）
-
-理由を確認中ですウル🐺[/info]"""
-    
-    response = httpx.post(
-        f"https://api.chatwork.com/v2/rooms/{ADMIN_ROOM_ID}/messages",
-        headers={"X-ChatWorkToken": api_token},
-        data={"body": admin_message},
-        timeout=10.0
-    )
-    
-    if response.status_code == 200:
-        print(f"✅ 管理部への期限変更報告送信成功")
-    else:
-        print(f"❌ 管理部への期限変更報告送信失敗: {response.status_code}")
-    
-    # ② 担当者への理由質問（個人チャット）
-    if assignee_id:
-        dm_room_id = get_direct_room(assignee_id)
-        if dm_room_id:
-            dm_message = f"""{assignee_name}さん
-
-📝 タスクの期限変更を検知しましたウル！
-
-タスク: {body_short}
-変更前: {old_date_str} → 変更後: {new_date_str}（{diff_str}）
-
-期限を変更した理由を教えてほしいウル🐺"""
-            
-            response = httpx.post(
-                f"https://api.chatwork.com/v2/rooms/{dm_room_id}/messages",
-                headers={"X-ChatWorkToken": api_token},
-                data={"body": dm_message},
-                timeout=10.0
-            )
-            
-            if response.status_code == 200:
-                print(f"✅ {assignee_name}さんへの期限変更理由質問送信成功")
-                
-                # ★ 理由質問済みフラグを更新（PostgreSQL対応: サブクエリ方式）
-                try:
-                    with pool.begin() as conn:
-                        conn.execute(
-                            sqlalchemy.text("""
-                                UPDATE task_limit_changes 
-                                SET reason_asked = TRUE 
-                                WHERE id = (
-                                    SELECT id FROM task_limit_changes
-                                    WHERE task_id = :task_id
-                                    ORDER BY detected_at DESC
-                                    LIMIT 1
-                                )
-                            """),
-                            {"task_id": task_id}
-                        )
-                except Exception as e:
-                    print(f"⚠️ 理由質問フラグ更新エラー: {e}")
-            else:
-                print(f"❌ {assignee_name}さんへの期限変更理由質問送信失敗: {response.status_code}")
-        else:
-            # ★ フォールバック: DMが見つからない場合は管理部に追加報告
-            print(f"⚠️ {assignee_name}さんの個人チャットが取得できませんでした → 管理部に通知")
-            task_for_notify = [{"body": task_info["body"]}]
-            notify_dm_not_available(assignee_name, assignee_id, task_for_notify, "期限変更理由質問")
+    print("❌ OverdueHandler not available - cannot report limit changes")
 
 
 @functions_framework.http

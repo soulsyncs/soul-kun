@@ -1,0 +1,6 @@
+functions-framework==3.*
+google-cloud-secret-manager==2.*
+sqlalchemy[asyncio]==2.*
+asyncpg==0.*
+cloud-sql-python-connector[asyncpg]==1.*
+requests==2.*

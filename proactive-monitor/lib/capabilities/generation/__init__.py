@@ -1,0 +1,465 @@
+# lib/capabilities/generation/__init__.py
+"""
+Phase G1: 文書生成能力パッケージ
+
+ソウルくんに「手」を与える。
+テキスト文書（報告書、提案書、議事録等）を生成できるようにする。
+
+設計書: docs/20_next_generation_capabilities.md セクション6
+
+使用例:
+    from lib.capabilities.generation import (
+        DocumentGenerator,
+        DocumentRequest,
+        DocumentResult,
+        DocumentType,
+        GenerationStatus,
+    )
+
+    # 文書生成リクエスト
+    request = DocumentRequest(
+        title="週次報告書",
+        organization_id=org_id,
+        document_type=DocumentType.REPORT,
+        instruction="今週の進捗をまとめて",
+    )
+
+    # 入力を構築
+    input_data = GenerationInput(
+        generation_type=GenerationType.DOCUMENT,
+        organization_id=org_id,
+        document_request=request,
+    )
+
+    # 生成
+    generator = DocumentGenerator(pool, org_id)
+    result = await generator.generate(input_data)
+
+    if result.document_result.status == GenerationStatus.PENDING:
+        # アウトラインの確認を待つ
+        print(result.document_result.outline.to_user_display())
+    elif result.document_result.status == GenerationStatus.COMPLETED:
+        # 完成
+        print(result.document_result.document_url)
+
+Author: Claude Opus 4.5
+Created: 2026-01-27
+"""
+
+__version__ = "1.0.0"
+__author__ = "Claude Opus 4.5"
+
+
+# =============================================================================
+# 定数
+# =============================================================================
+
+from .constants import (
+    # 列挙型
+    GenerationType,
+    DocumentType,
+    GenerationStatus,
+    OutputFormat,
+    SectionType,
+    ConfirmationLevel,
+    QualityLevel,
+    ToneStyle,
+
+    # サポートフォーマット
+    SUPPORTED_DOCUMENT_TYPES,
+    SUPPORTED_OUTPUT_FORMATS,
+
+    # サイズ制限
+    MAX_DOCUMENT_SECTIONS,
+    MAX_SECTION_LENGTH,
+    MAX_DOCUMENT_LENGTH,
+    MAX_TITLE_LENGTH,
+    MAX_OUTLINE_ITEMS,
+    MAX_REQUEST_CONTEXT_LENGTH,
+    MAX_REFERENCE_DOCUMENTS,
+    MAX_TEMPLATE_SIZE_BYTES,
+
+    # タイムアウト
+    OUTLINE_GENERATION_TIMEOUT,
+    SECTION_GENERATION_TIMEOUT,
+    FULL_DOCUMENT_GENERATION_TIMEOUT,
+    GOOGLE_DOCS_API_TIMEOUT,
+    INFO_GATHERING_TIMEOUT,
+
+    # LLM設定
+    DEFAULT_GENERATION_MODEL,
+    HIGH_QUALITY_MODEL,
+    FAST_MODEL,
+    TEMPERATURE_SETTINGS,
+
+    # Google API設定
+    GOOGLE_DOCS_API_VERSION,
+    GOOGLE_DOCS_SCOPES,
+    GOOGLE_DRIVE_API_VERSION,
+    GOOGLE_DRIVE_SCOPES,
+
+    # Feature Flag
+    FEATURE_FLAG_NAME,
+    FEATURE_FLAG_DOCUMENT,
+    FEATURE_FLAG_IMAGE,
+    FEATURE_FLAG_RESEARCH,
+
+    # テンプレート設定
+    DEFAULT_TEMPLATE_ID,
+    DOCUMENT_TYPE_DEFAULT_SECTIONS,
+
+    # プロンプトテンプレート
+    OUTLINE_GENERATION_PROMPT,
+    SECTION_GENERATION_PROMPT,
+
+    # エラーメッセージ
+    ERROR_MESSAGES,
+
+    # 文書タイプキーワード
+    DOCUMENT_TYPE_KEYWORDS,
+
+    # コスト設定
+    COST_PER_1K_TOKENS,
+    OUTPUT_COST_MULTIPLIER,
+
+    # G2: 画像生成定数
+    ImageProvider,
+    ImageSize,
+    ImageQuality,
+    ImageStyle,
+    DEFAULT_IMAGE_PROVIDER,
+    DEFAULT_IMAGE_SIZE,
+    DEFAULT_IMAGE_QUALITY,
+    DEFAULT_IMAGE_STYLE,
+    DEFAULT_IMAGE_MODEL,
+    MAX_PROMPT_LENGTH,
+    IMAGE_COST_JPY,
+    IMAGE_ERROR_MESSAGES,
+)
+
+
+# =============================================================================
+# 例外
+# =============================================================================
+
+from .exceptions import (
+    # 基底例外
+    GenerationBaseException,
+
+    # 検証エラー
+    ValidationError,
+    EmptyTitleError,
+    TitleTooLongError,
+    InvalidDocumentTypeError,
+    InvalidOutputFormatError,
+    TooManySectionsError,
+    InsufficientContextError,
+
+    # 生成エラー
+    GenerationError,
+    OutlineGenerationError,
+    SectionGenerationError,
+    DocumentGenerationError,
+
+    # Google APIエラー
+    GoogleAPIError,
+    GoogleAuthError,
+    GoogleDocsCreateError,
+    GoogleDocsUpdateError,
+    GoogleDriveUploadError,
+
+    # タイムアウトエラー
+    GenerationTimeoutError,
+    OutlineTimeoutError,
+    SectionTimeoutError,
+    FullDocumentTimeoutError,
+
+    # その他のエラー
+    FeatureDisabledError,
+    TemplateNotFoundError,
+    LLMError,
+    LLMRateLimitError,
+
+    # デコレータ
+    wrap_generation_error,
+    wrap_sync_generation_error,
+
+    # G2: 画像生成例外
+    ImageGenerationError,
+    ImagePromptEmptyError,
+    ImagePromptTooLongError,
+    ImageInvalidSizeError,
+    ImageInvalidQualityError,
+    ContentPolicyViolationError,
+    SafetyFilterTriggeredError,
+    DALLEAPIError,
+    DALLERateLimitError,
+    DALLETimeoutError,
+    DALLEQuotaExceededError,
+    ImageSaveError,
+    ImageUploadError,
+    ImageDailyLimitExceededError,
+    ImageFeatureDisabledError,
+    wrap_image_generation_error,
+)
+
+
+# =============================================================================
+# データモデル
+# =============================================================================
+
+from .models import (
+    # 共通モデル
+    GenerationMetadata,
+    ReferenceDocument,
+
+    # セクションモデル
+    SectionOutline,
+    SectionContent,
+
+    # アウトラインモデル
+    DocumentOutline,
+
+    # リクエスト/結果モデル
+    DocumentRequest,
+    DocumentResult,
+
+    # G2: 画像生成モデル
+    ImageRequest,
+    ImageResult,
+    OptimizedPrompt,
+
+    # 統合モデル
+    GenerationInput,
+    GenerationOutput,
+)
+
+
+# =============================================================================
+# 基底クラス
+# =============================================================================
+
+from .base import (
+    LLMClient,
+    BaseGenerator,
+)
+
+
+# =============================================================================
+# ジェネレーター
+# =============================================================================
+
+from .document_generator import (
+    DocumentGenerator,
+    create_document_generator,
+)
+
+
+# =============================================================================
+# Google APIクライアント
+# =============================================================================
+
+from .google_docs_client import (
+    GoogleDocsClient,
+    create_google_docs_client,
+)
+
+
+# =============================================================================
+# G2: 画像ジェネレーター
+# =============================================================================
+
+from .image_generator import (
+    ImageGenerator,
+    create_image_generator,
+)
+
+
+# =============================================================================
+# G2: DALL-E クライアント
+# =============================================================================
+
+from .dalle_client import (
+    DALLEClient,
+    create_dalle_client,
+)
+
+
+# =============================================================================
+# 公開API
+# =============================================================================
+
+__all__ = [
+    # バージョン
+    "__version__",
+
+    # 定数 - 列挙型
+    "GenerationType",
+    "DocumentType",
+    "GenerationStatus",
+    "OutputFormat",
+    "SectionType",
+    "ConfirmationLevel",
+    "QualityLevel",
+    "ToneStyle",
+
+    # 定数 - サポートフォーマット
+    "SUPPORTED_DOCUMENT_TYPES",
+    "SUPPORTED_OUTPUT_FORMATS",
+
+    # 定数 - サイズ制限
+    "MAX_DOCUMENT_SECTIONS",
+    "MAX_SECTION_LENGTH",
+    "MAX_DOCUMENT_LENGTH",
+    "MAX_TITLE_LENGTH",
+    "MAX_OUTLINE_ITEMS",
+    "MAX_REQUEST_CONTEXT_LENGTH",
+    "MAX_REFERENCE_DOCUMENTS",
+    "MAX_TEMPLATE_SIZE_BYTES",
+
+    # 定数 - タイムアウト
+    "OUTLINE_GENERATION_TIMEOUT",
+    "SECTION_GENERATION_TIMEOUT",
+    "FULL_DOCUMENT_GENERATION_TIMEOUT",
+    "GOOGLE_DOCS_API_TIMEOUT",
+    "INFO_GATHERING_TIMEOUT",
+
+    # 定数 - LLM設定
+    "DEFAULT_GENERATION_MODEL",
+    "HIGH_QUALITY_MODEL",
+    "FAST_MODEL",
+    "TEMPERATURE_SETTINGS",
+
+    # 定数 - Google API設定
+    "GOOGLE_DOCS_API_VERSION",
+    "GOOGLE_DOCS_SCOPES",
+    "GOOGLE_DRIVE_API_VERSION",
+    "GOOGLE_DRIVE_SCOPES",
+
+    # 定数 - Feature Flag
+    "FEATURE_FLAG_NAME",
+    "FEATURE_FLAG_DOCUMENT",
+    "FEATURE_FLAG_IMAGE",
+    "FEATURE_FLAG_RESEARCH",
+
+    # 定数 - テンプレート設定
+    "DEFAULT_TEMPLATE_ID",
+    "DOCUMENT_TYPE_DEFAULT_SECTIONS",
+
+    # 定数 - プロンプトテンプレート
+    "OUTLINE_GENERATION_PROMPT",
+    "SECTION_GENERATION_PROMPT",
+
+    # 定数 - エラーメッセージ
+    "ERROR_MESSAGES",
+
+    # 定数 - 文書タイプキーワード
+    "DOCUMENT_TYPE_KEYWORDS",
+
+    # 定数 - コスト設定
+    "COST_PER_1K_TOKENS",
+    "OUTPUT_COST_MULTIPLIER",
+
+    # 例外 - 基底
+    "GenerationBaseException",
+
+    # 例外 - 検証
+    "ValidationError",
+    "EmptyTitleError",
+    "TitleTooLongError",
+    "InvalidDocumentTypeError",
+    "InvalidOutputFormatError",
+    "TooManySectionsError",
+    "InsufficientContextError",
+
+    # 例外 - 生成
+    "GenerationError",
+    "OutlineGenerationError",
+    "SectionGenerationError",
+    "DocumentGenerationError",
+
+    # 例外 - Google API
+    "GoogleAPIError",
+    "GoogleAuthError",
+    "GoogleDocsCreateError",
+    "GoogleDocsUpdateError",
+    "GoogleDriveUploadError",
+
+    # 例外 - タイムアウト
+    "GenerationTimeoutError",
+    "OutlineTimeoutError",
+    "SectionTimeoutError",
+    "FullDocumentTimeoutError",
+
+    # 例外 - その他
+    "FeatureDisabledError",
+    "TemplateNotFoundError",
+    "LLMError",
+    "LLMRateLimitError",
+
+    # 例外 - デコレータ
+    "wrap_generation_error",
+    "wrap_sync_generation_error",
+
+    # G2: 画像生成例外
+    "ImageGenerationError",
+    "ImagePromptEmptyError",
+    "ImagePromptTooLongError",
+    "ImageInvalidSizeError",
+    "ImageInvalidQualityError",
+    "ContentPolicyViolationError",
+    "SafetyFilterTriggeredError",
+    "DALLEAPIError",
+    "DALLERateLimitError",
+    "DALLETimeoutError",
+    "DALLEQuotaExceededError",
+    "ImageSaveError",
+    "ImageUploadError",
+    "ImageDailyLimitExceededError",
+    "ImageFeatureDisabledError",
+    "wrap_image_generation_error",
+
+    # モデル - 共通
+    "GenerationMetadata",
+    "ReferenceDocument",
+
+    # モデル - セクション
+    "SectionOutline",
+    "SectionContent",
+
+    # モデル - アウトライン
+    "DocumentOutline",
+
+    # モデル - リクエスト/結果
+    "DocumentRequest",
+    "DocumentResult",
+
+    # G2: 画像生成モデル
+    "ImageRequest",
+    "ImageResult",
+    "OptimizedPrompt",
+
+    # モデル - 統合
+    "GenerationInput",
+    "GenerationOutput",
+
+    # 基底クラス
+    "LLMClient",
+    "BaseGenerator",
+
+    # ジェネレーター
+    "DocumentGenerator",
+    "create_document_generator",
+
+    # G2: 画像ジェネレーター
+    "ImageGenerator",
+    "create_image_generator",
+
+    # Google APIクライアント
+    "GoogleDocsClient",
+    "create_google_docs_client",
+
+    # G2: DALL-E クライアント
+    "DALLEClient",
+    "create_dalle_client",
+]

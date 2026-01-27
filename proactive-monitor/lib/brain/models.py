@@ -1,0 +1,1007 @@
+# lib/brain/models.py
+"""
+ソウルくんの脳 - データモデル定義
+
+このファイルには、脳アーキテクチャで使用する全てのデータモデルを定義します。
+各モデルは、脳の各層間でデータを受け渡すために使用されます。
+
+設計書: docs/13_brain_architecture.md
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from typing import Optional, List, Dict, Any
+from uuid import UUID
+
+
+# =============================================================================
+# 列挙型（Enum）
+# =============================================================================
+
+
+class MemoryType(str, Enum):
+    """記憶の種類"""
+
+    CURRENT_STATE = "current_state"           # 現在の状態
+    RECENT_CONVERSATION = "recent_conversation"  # 直近の会話
+    CONVERSATION_SUMMARY = "conversation_summary"  # 会話要約
+    USER_PREFERENCES = "user_preferences"     # ユーザー嗜好
+    PERSON_INFO = "person_info"              # 人物情報
+    RECENT_TASKS = "recent_tasks"            # タスク情報
+    ACTIVE_GOALS = "active_goals"            # 目標情報
+    RELEVANT_KNOWLEDGE = "relevant_knowledge"  # 会社知識
+    INSIGHTS = "insights"                    # インサイト
+    CONVERSATION_SEARCH = "conversation_search"  # 会話検索
+
+
+class StateType(str, Enum):
+    """会話状態の種類"""
+
+    NORMAL = "normal"                # 通常状態（状態なし）
+    GOAL_SETTING = "goal_setting"    # 目標設定対話中
+    ANNOUNCEMENT = "announcement"    # アナウンス確認中
+    CONFIRMATION = "confirmation"    # 確認待ち
+    TASK_PENDING = "task_pending"    # タスク作成待ち
+    MULTI_ACTION = "multi_action"    # 複数アクション実行中
+
+
+class UrgencyLevel(str, Enum):
+    """緊急度レベル"""
+
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ConfidenceLevel(str, Enum):
+    """確信度レベル"""
+
+    VERY_LOW = "very_low"    # 0.0 - 0.3
+    LOW = "low"              # 0.3 - 0.5
+    MEDIUM = "medium"        # 0.5 - 0.7
+    HIGH = "high"            # 0.7 - 0.9
+    VERY_HIGH = "very_high"  # 0.9 - 1.0
+
+    @classmethod
+    def from_score(cls, score: float) -> "ConfidenceLevel":
+        """スコアから確信度レベルを判定"""
+        if score < 0.3:
+            return cls.VERY_LOW
+        elif score < 0.5:
+            return cls.LOW
+        elif score < 0.7:
+            return cls.MEDIUM
+        elif score < 0.9:
+            return cls.HIGH
+        else:
+            return cls.VERY_HIGH
+
+
+# =============================================================================
+# 記憶層のモデル
+# =============================================================================
+
+
+@dataclass
+class ConversationMessage:
+    """会話メッセージ"""
+
+    role: str                    # "user" or "assistant"
+    content: str                 # メッセージ内容
+    timestamp: datetime          # 送信時刻
+    message_id: Optional[str] = None
+    sender_name: Optional[str] = None
+
+
+@dataclass
+class SummaryData:
+    """会話要約データ"""
+
+    summary: str                 # 要約テキスト
+    key_topics: List[str]        # 主要トピック
+    mentioned_persons: List[str]  # 言及された人物
+    mentioned_tasks: List[str]   # 言及されたタスク
+    created_at: datetime
+
+
+@dataclass
+class PreferenceData:
+    """ユーザー嗜好データ"""
+
+    response_style: Optional[str] = None      # 応答スタイル
+    feature_usage: Dict[str, int] = field(default_factory=dict)  # 機能使用状況
+    preferred_times: List[str] = field(default_factory=list)     # 好みの時間帯
+    custom_keywords: Dict[str, str] = field(default_factory=dict)  # カスタムキーワード
+
+
+@dataclass
+class PersonInfo:
+    """人物情報"""
+
+    person_id: str
+    name: str                    # 名前
+    chatwork_account_id: Optional[str] = None
+    department: Optional[str] = None
+    role: Optional[str] = None
+    known_info: Dict[str, Any] = field(default_factory=dict)  # その他の情報
+
+
+@dataclass
+class TaskInfo:
+    """タスク情報"""
+
+    task_id: str
+    body: str                    # タスク内容
+    summary: Optional[str] = None  # AI生成の要約
+    assignee_name: Optional[str] = None
+    due_date: Optional[datetime] = None
+    status: str = "open"         # open, done
+    room_id: Optional[str] = None
+    room_name: Optional[str] = None
+
+
+@dataclass
+class GoalInfo:
+    """目標情報"""
+
+    goal_id: str
+    why: Optional[str] = None    # なぜその目標か
+    what: Optional[str] = None   # 何を達成するか
+    how: Optional[str] = None    # どうやって達成するか
+    due_date: Optional[datetime] = None
+    status: str = "active"
+
+
+@dataclass
+class GoalSessionInfo:
+    """目標設定セッション情報"""
+
+    session_id: str
+    current_step: str            # intro, why, what, how
+    retry_count: int = 0
+    created_at: datetime = field(default_factory=datetime.now)
+    data: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class KnowledgeChunk:
+    """知識チャンク"""
+
+    chunk_id: str
+    content: str                 # チャンク内容
+    source: str                  # 出典
+    relevance_score: float       # 関連度スコア
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class InsightInfo:
+    """インサイト情報"""
+
+    insight_id: str
+    insight_type: str            # frequent_question, stagnant_task, etc.
+    title: str
+    description: str
+    severity: str                # critical, high, medium, low
+    created_at: datetime
+
+
+# =============================================================================
+# 状態管理のモデル
+# =============================================================================
+
+
+@dataclass
+class ConversationState:
+    """会話状態"""
+
+    state_id: Optional[str] = None
+    organization_id: str = ""
+    room_id: str = ""
+    user_id: str = ""
+    state_type: StateType = StateType.NORMAL
+    state_step: Optional[str] = None    # 状態内のステップ（例: why, what, how）
+    state_data: Dict[str, Any] = field(default_factory=dict)
+    reference_type: Optional[str] = None  # 参照先タイプ（goal_session, announcement等）
+    reference_id: Optional[str] = None    # 参照先ID
+    expires_at: Optional[datetime] = None
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def is_active(self) -> bool:
+        """アクティブな状態かどうか"""
+        if self.state_type == StateType.NORMAL:
+            return False
+        if self.expires_at and datetime.now() > self.expires_at:
+            return False
+        return True
+
+    @property
+    def is_expired(self) -> bool:
+        """期限切れかどうか"""
+        if self.expires_at is None:
+            return False
+        return datetime.now() > self.expires_at
+
+
+# =============================================================================
+# 統合コンテキスト（脳が参照する全情報）
+# =============================================================================
+
+
+@dataclass
+class BrainContext:
+    """
+    脳が参照する統合コンテキスト
+
+    全ての記憶を統合した情報。脳はこれを参照して判断を行う。
+    """
+
+    # 現在の状態（最優先）
+    current_state: Optional[ConversationState] = None
+
+    # 会話関連
+    recent_conversation: List[ConversationMessage] = field(default_factory=list)
+    conversation_summary: Optional[SummaryData] = None
+
+    # ユーザー関連
+    user_preferences: Optional[PreferenceData] = None
+    sender_name: str = ""
+    sender_account_id: str = ""
+
+    # 人物・タスク関連
+    person_info: List[PersonInfo] = field(default_factory=list)
+    recent_tasks: List[TaskInfo] = field(default_factory=list)
+
+    # 目標関連
+    active_goals: List[GoalInfo] = field(default_factory=list)
+    goal_session: Optional[GoalSessionInfo] = None
+
+    # 知識関連（遅延取得）
+    relevant_knowledge: Optional[List[KnowledgeChunk]] = None
+
+    # インサイト関連
+    insights: List[InsightInfo] = field(default_factory=list)
+
+    # CEO教え関連（Phase 2D）
+    ceo_teachings: Optional["CEOTeachingContext"] = None
+
+    # メタデータ
+    organization_id: str = ""
+    room_id: str = ""
+    timestamp: datetime = field(default_factory=datetime.now)
+
+    def has_active_session(self) -> bool:
+        """マルチステップセッションが進行中か"""
+        return self.current_state is not None and self.current_state.is_active
+
+    def get_recent_task_names(self) -> List[str]:
+        """直近のタスク名リストを取得"""
+        result = []
+        for t in self.recent_tasks[:5]:
+            if isinstance(t, dict):
+                summary = t.get('summary') or t.get('body', '')[:50]
+            else:
+                summary = t.summary or (t.body[:50] if hasattr(t, 'body') else '')
+            result.append(summary)
+        return result
+
+    def get_known_persons(self) -> List[str]:
+        """記憶している人物名リストを取得"""
+        return [p.name for p in self.person_info]
+
+    def to_prompt_context(self) -> str:
+        """
+        LLMプロンプト用のコンテキスト文字列を生成
+
+        脳の理解層・判断層がLLMを呼び出す際に使用する。
+        """
+        parts = []
+
+        # 現在の状態
+        if self.current_state and self.current_state.is_active:
+            parts.append(f"【現在の状態】{self.current_state.state_type.value}")
+            if self.current_state.state_step:
+                parts.append(f"  ステップ: {self.current_state.state_step}")
+
+        # 送信者情報
+        parts.append(f"【送信者】{self.sender_name}")
+
+        # 直近の会話
+        if self.recent_conversation:
+            parts.append("【直近の会話】")
+            for msg in self.recent_conversation[-5:]:  # 最新5件
+                role = "ユーザー" if msg.role == "user" else "ソウルくん"
+                parts.append(f"  {role}: {msg.content[:100]}")
+
+        # 会話要約
+        if self.conversation_summary:
+            parts.append(f"【過去の話題】{', '.join(self.conversation_summary.key_topics[:3])}")
+
+        # ユーザー嗜好
+        if self.user_preferences and self.user_preferences.response_style:
+            parts.append(f"【応答スタイル】{self.user_preferences.response_style}")
+
+        # 直近のタスク
+        if self.recent_tasks:
+            parts.append("【関連タスク】")
+            for task in self.recent_tasks[:3]:
+                if isinstance(task, dict):
+                    task_name = task.get('summary') or task.get('body', '')[:40]
+                    task_status = task.get('status', 'unknown')
+                else:
+                    task_name = task.summary or (task.body[:40] if hasattr(task, 'body') else '')
+                    task_status = task.status if hasattr(task, 'status') else 'unknown'
+                parts.append(f"  - {task_name} ({task_status})")
+
+        # 目標
+        if self.active_goals:
+            parts.append("【進行中の目標】")
+            for goal in self.active_goals[:2]:
+                parts.append(f"  - {goal.what}")
+
+        # CEO教え（Phase 2D）
+        if self.ceo_teachings and self.ceo_teachings.relevant_teachings:
+            ceo_context = self.ceo_teachings.to_prompt_context()
+            if ceo_context:
+                parts.append(ceo_context)
+
+        # 記憶している人物
+        if self.person_info:
+            names = [p.name for p in self.person_info[:5]]
+            parts.append(f"【記憶している人物】{', '.join(names)}")
+
+        return "\n".join(parts)
+
+
+# =============================================================================
+# 理解層のモデル
+# =============================================================================
+
+
+@dataclass
+class ResolvedEntity:
+    """解決されたエンティティ"""
+
+    original: str                # 元の表現
+    resolved: str                # 解決後の表現
+    entity_type: str             # person, task, time, etc.
+    source: str                  # 解決に使った情報源
+    confidence: float = 1.0
+
+
+@dataclass
+class UnderstandingResult:
+    """
+    理解層の出力
+
+    ユーザーの入力を理解した結果。
+    """
+
+    # 元のメッセージ
+    raw_message: str
+
+    # 推論した意図
+    intent: str                  # 例: "search_tasks", "create_task", "ask_knowledge"
+    intent_confidence: float     # 0.0 - 1.0
+
+    # 解決されたエンティティ
+    entities: Dict[str, Any] = field(default_factory=dict)
+    # {
+    #   "person": "菊地",
+    #   "task": "経費精算",
+    #   "time": "2026-01-27T00:00:00",
+    #   "urgency": "high"
+    # }
+
+    # 曖昧性の解決結果
+    resolved_ambiguities: List[ResolvedEntity] = field(default_factory=list)
+
+    # 確認が必要か
+    needs_confirmation: bool = False
+    confirmation_reason: Optional[str] = None
+    confirmation_options: List[str] = field(default_factory=list)
+
+    # 推論の理由（デバッグ用）
+    reasoning: str = ""
+
+    # 処理時間
+    processing_time_ms: int = 0
+
+    @property
+    def confidence_level(self) -> ConfidenceLevel:
+        """確信度レベルを取得"""
+        return ConfidenceLevel.from_score(self.intent_confidence)
+
+
+# =============================================================================
+# 判断層のモデル
+# =============================================================================
+
+
+@dataclass
+class ActionCandidate:
+    """アクション候補"""
+
+    action: str                  # アクション名（SYSTEM_CAPABILITIESのキー）
+    score: float                 # マッチスコア
+    params: Dict[str, Any] = field(default_factory=dict)
+    reasoning: str = ""          # この候補を選んだ理由
+
+
+@dataclass
+class DecisionResult:
+    """
+    判断層の出力
+
+    どのアクションを実行するかの決定結果。
+    """
+
+    # 選択されたアクション
+    action: str                  # アクション名
+    params: Dict[str, Any] = field(default_factory=dict)
+
+    # 確信度
+    confidence: float = 0.0
+
+    # 確認が必要か
+    needs_confirmation: bool = False
+    confirmation_question: Optional[str] = None
+    confirmation_options: List[str] = field(default_factory=list)
+
+    # 他の候補（デバッグ用）
+    other_candidates: List[ActionCandidate] = field(default_factory=list)
+
+    # 判断の理由
+    reasoning: str = ""
+
+    # 処理時間
+    processing_time_ms: int = 0
+
+
+# =============================================================================
+# 実行層のモデル
+# =============================================================================
+
+
+@dataclass
+class HandlerResult:
+    """
+    ハンドラーの実行結果
+
+    各機能ハンドラーが返す標準化された結果。
+    """
+
+    # 成功/失敗
+    success: bool
+    message: str                 # 表示するメッセージ
+    data: Dict[str, Any] = field(default_factory=dict)  # 追加データ
+
+    # 次のアクション（連続実行用）
+    next_action: Optional[str] = None
+    next_params: Optional[Dict[str, Any]] = None
+
+    # 状態変更
+    update_state: Optional[Dict[str, Any]] = None
+
+    # 提案（先読み）
+    suggestions: List[str] = field(default_factory=list)
+
+    # エラー情報（失敗時）
+    error_code: Optional[str] = None
+    error_details: Optional[str] = None
+
+
+# =============================================================================
+# 確認リクエスト
+# =============================================================================
+
+
+@dataclass
+class ConfirmationRequest:
+    """確認リクエスト"""
+
+    question: str                # 確認の質問
+    options: List[str]           # 選択肢
+    default_option: Optional[str] = None  # デフォルト選択肢
+    timeout_seconds: int = 300   # タイムアウト（5分）
+
+    # 確認後の処理
+    on_confirm_action: str = ""  # 確認OKの場合のアクション
+    on_confirm_params: Dict[str, Any] = field(default_factory=dict)
+
+    def to_message(self) -> str:
+        """ChatWorkメッセージに変換"""
+        options_str = "\n".join(
+            f"{i}. {opt}" for i, opt in enumerate(self.options, 1)
+        )
+        return f"""🤔 確認させてほしいウル！
+
+{self.question}
+
+{options_str}
+
+番号で教えてほしいウル🐺"""
+
+
+# =============================================================================
+# 脳の最終出力
+# =============================================================================
+
+
+@dataclass
+class BrainResponse:
+    """
+    脳の最終レスポンス
+
+    process_message()の戻り値。
+    """
+
+    # 表示するメッセージ
+    message: str
+
+    # 実行されたアクション
+    action_taken: str = "none"
+    action_params: Dict[str, Any] = field(default_factory=dict)
+
+    # 成功/失敗
+    success: bool = True
+
+    # 提案（先読み）
+    suggestions: List[str] = field(default_factory=list)
+
+    # 状態変更があったか
+    state_changed: bool = False
+    new_state: Optional[str] = None
+
+    # 確認モード中か
+    awaiting_confirmation: bool = False
+
+    # デバッグ情報
+    debug_info: Dict[str, Any] = field(default_factory=dict)
+
+    # 処理時間
+    total_time_ms: int = 0
+
+
+# =============================================================================
+# Phase 2D: CEO Learning & Guardian Layer Models
+# 設計書: docs/15_phase2d_ceo_learning.md
+# =============================================================================
+
+
+class TeachingCategory(str, Enum):
+    """
+    CEO教えのカテゴリ
+
+    CEOからの「教え」を分類するための15カテゴリ。
+    """
+
+    # MVV関連（ミッション・ビジョン・バリュー）
+    MVV_MISSION = "mvv_mission"      # ミッションに関する教え
+    MVV_VISION = "mvv_vision"        # ビジョンに関する教え
+    MVV_VALUES = "mvv_values"        # バリューに関する教え
+
+    # 組織論関連
+    CHOICE_THEORY = "choice_theory"  # 選択理論に関する教え
+    SDT = "sdt"                      # 自己決定理論に関する教え
+    SERVANT = "servant"              # サーバントリーダーシップに関する教え
+    PSYCH_SAFETY = "psych_safety"    # 心理的安全性に関する教え
+
+    # 業務関連
+    BIZ_SALES = "biz_sales"          # 営業・販売に関する教え
+    BIZ_HR = "biz_hr"                # 人事・採用に関する教え
+    BIZ_ACCOUNTING = "biz_accounting"  # 経理・財務に関する教え
+    BIZ_GENERAL = "biz_general"      # その他業務全般
+
+    # 人・文化関連
+    CULTURE = "culture"              # 組織文化に関する教え
+    COMMUNICATION = "communication"  # コミュニケーションに関する教え
+    STAFF_GUIDANCE = "staff_guidance"  # スタッフへの指導に関する教え
+
+    # その他
+    OTHER = "other"                  # 分類できないもの
+
+
+class ValidationStatus(str, Enum):
+    """
+    教えの検証ステータス
+
+    Guardian層による検証の結果を表す。
+    """
+
+    PENDING = "pending"              # 検証中
+    VERIFIED = "verified"            # 検証済み（矛盾なし）
+    ALERT_PENDING = "alert_pending"  # アラート待ち（CEOの確認待ち）
+    OVERRIDDEN = "overridden"        # CEOが上書き許可（矛盾あるが保存）
+
+
+class ConflictType(str, Enum):
+    """
+    矛盾の種類
+
+    教えがどのような基準と矛盾しているかを表す。
+    """
+
+    MVV = "mvv"                      # MVV（ミッション・ビジョン・バリュー）との矛盾
+    CHOICE_THEORY = "choice_theory"  # 選択理論との矛盾
+    SDT = "sdt"                      # 自己決定理論との矛盾
+    GUIDELINES = "guidelines"        # 行動指針との矛盾
+    EXISTING = "existing"            # 既存の教えとの矛盾
+
+
+class AlertStatus(str, Enum):
+    """
+    アラートのステータス
+
+    ガーディアンアラートの処理状態を表す。
+    """
+
+    PENDING = "pending"              # CEOの回答待ち
+    ACKNOWLEDGED = "acknowledged"    # CEOが確認済み（教えを取り消し）
+    OVERRIDDEN = "overridden"        # CEOが上書き許可（矛盾あるが保存）
+    RETRACTED = "retracted"          # CEOが撤回（教えを修正する）
+
+
+class Severity(str, Enum):
+    """
+    矛盾の深刻度
+
+    検出された矛盾がどれほど深刻かを表す。
+    """
+
+    HIGH = "high"                    # 高深刻度（MVV・組織論の根幹に関わる）
+    MEDIUM = "medium"                # 中深刻度（解釈の余地あり）
+    LOW = "low"                      # 低深刻度（軽微な不整合）
+
+
+# -----------------------------------------------------------------------------
+# CEO教え関連のデータクラス
+# -----------------------------------------------------------------------------
+
+
+@dataclass
+class CEOTeaching:
+    """
+    CEOからの教え
+
+    CEOとの対話から抽出された「教え」を表す。
+    スタッフへの応答時に参照される。
+    """
+
+    # 識別情報
+    id: Optional[str] = None
+    organization_id: str = ""
+    ceo_user_id: Optional[str] = None  # Phase 4A: BPaaS展開時のCEOユーザーID
+
+    # 教えの内容
+    statement: str = ""              # 主張（何を言っているか）
+    reasoning: Optional[str] = None  # 理由（なぜそう言っているか）
+    context: Optional[str] = None    # 文脈（どんな状況で）
+    target: Optional[str] = None     # 対象（全員/マネージャー/特定部署等）
+
+    # 分類
+    category: TeachingCategory = TeachingCategory.OTHER
+    subcategory: Optional[str] = None
+    keywords: List[str] = field(default_factory=list)
+
+    # 検証結果
+    validation_status: ValidationStatus = ValidationStatus.PENDING
+    mvv_alignment_score: Optional[float] = None   # 0.0-1.0
+    theory_alignment_score: Optional[float] = None  # 0.0-1.0
+
+    # 優先度・活性化
+    priority: int = 5                # 1-10（高いほど優先）
+    is_active: bool = True
+    supersedes: Optional[str] = None  # 上書きする過去の教えID
+
+    # 利用統計
+    usage_count: int = 0
+    last_used_at: Optional[datetime] = None
+    helpful_count: int = 0
+
+    # ソース情報
+    source_room_id: Optional[str] = None
+    source_message_id: Optional[str] = None
+    extracted_at: datetime = field(default_factory=datetime.now)
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    def is_relevant_to(self, topic: str) -> bool:
+        """
+        指定されたトピックに関連があるかを判定
+
+        Args:
+            topic: 判定対象のトピック
+
+        Returns:
+            関連があればTrue
+        """
+        topic_lower = topic.lower()
+        # キーワードマッチ
+        for keyword in self.keywords:
+            if keyword.lower() in topic_lower or topic_lower in keyword.lower():
+                return True
+        # 主張内容マッチ
+        if topic_lower in self.statement.lower():
+            return True
+        return False
+
+    def to_prompt_context(self) -> str:
+        """
+        LLMプロンプト用のコンテキスト文字列を生成
+
+        Returns:
+            プロンプトに含める教えの要約
+        """
+        parts = [f"【{self.category.value}】{self.statement}"]
+        if self.reasoning:
+            parts.append(f"  理由: {self.reasoning}")
+        if self.target:
+            parts.append(f"  対象: {self.target}")
+        return "\n".join(parts)
+
+
+@dataclass
+class ConflictInfo:
+    """
+    教えの矛盾情報
+
+    Guardian層が検出した矛盾の詳細を表す。
+    """
+
+    id: Optional[str] = None
+    organization_id: str = ""
+    teaching_id: str = ""
+
+    # 矛盾情報
+    conflict_type: ConflictType = ConflictType.MVV
+    conflict_subtype: Optional[str] = None  # 例: 'mission', 'vision', 'autonomy'
+    description: str = ""            # 矛盾の説明
+    reference: str = ""              # 参照した基準（原文引用）
+    severity: Severity = Severity.MEDIUM
+
+    # 関連教え（既存教えとの矛盾の場合）
+    conflicting_teaching_id: Optional[str] = None
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+
+    def to_alert_summary(self) -> str:
+        """
+        アラート用の要約を生成
+
+        Returns:
+            人間が読みやすい矛盾の説明
+        """
+        severity_emoji = {
+            Severity.HIGH: "🔴",
+            Severity.MEDIUM: "🟡",
+            Severity.LOW: "🟢"
+        }
+        return f"{severity_emoji.get(self.severity, '⚪')} [{self.conflict_type.value}] {self.description}"
+
+
+@dataclass
+class GuardianAlert:
+    """
+    ガーディアンアラート
+
+    CEOに確認を求めるアラートを表す。
+    """
+
+    id: Optional[str] = None
+    organization_id: str = ""
+    teaching_id: str = ""
+
+    # アラート内容
+    conflict_summary: str = ""       # 矛盾の要約
+    alert_message: str = ""          # CEOへのメッセージ（ソウルくん口調）
+    alternative_suggestion: Optional[str] = None  # 代替案
+
+    # 矛盾情報リスト
+    conflicts: List[ConflictInfo] = field(default_factory=list)
+
+    # ステータス
+    status: AlertStatus = AlertStatus.PENDING
+    ceo_response: Optional[str] = None        # CEOの回答
+    ceo_reasoning: Optional[str] = None       # CEOの判断理由
+    resolved_at: Optional[datetime] = None
+
+    # 通知情報
+    notified_at: Optional[datetime] = None
+    notification_room_id: Optional[str] = None
+    notification_message_id: Optional[str] = None
+
+    # メタデータ
+    created_at: datetime = field(default_factory=datetime.now)
+    updated_at: datetime = field(default_factory=datetime.now)
+
+    @property
+    def is_resolved(self) -> bool:
+        """解決済みかどうか"""
+        return self.status != AlertStatus.PENDING
+
+    @property
+    def max_severity(self) -> Severity:
+        """矛盾の最大深刻度"""
+        if not self.conflicts:
+            return Severity.LOW
+        severities = [c.severity for c in self.conflicts]
+        if Severity.HIGH in severities:
+            return Severity.HIGH
+        if Severity.MEDIUM in severities:
+            return Severity.MEDIUM
+        return Severity.LOW
+
+    def generate_alert_message(self, teaching: CEOTeaching) -> str:
+        """
+        ソウルくん口調のアラートメッセージを生成
+
+        Args:
+            teaching: 検証対象の教え
+
+        Returns:
+            CEOに送信するメッセージ
+        """
+        severity_text = {
+            Severity.HIGH: "ちょっと気になることがあるウル...",
+            Severity.MEDIUM: "確認させてほしいウル",
+            Severity.LOW: "念のため確認ウル"
+        }
+
+        parts = [
+            f"🐺 {severity_text.get(self.max_severity, '確認ウル')}",
+            "",
+            f"さっきの「{teaching.statement[:50]}...」について、",
+            self.conflict_summary,
+            ""
+        ]
+
+        if self.alternative_suggestion:
+            parts.extend([
+                "こんな言い方はどうウル？",
+                f"→ {self.alternative_suggestion}",
+                ""
+            ])
+
+        parts.extend([
+            "どうするか教えてほしいウル：",
+            "1️⃣ そのまま保存（ソウルくんの考えを上書き）",
+            "2️⃣ 取り消し（今回は保存しない）",
+            "3️⃣ 言い直す（別の表現に変える）"
+        ])
+
+        return "\n".join(parts)
+
+
+@dataclass
+class TeachingValidationResult:
+    """
+    教えの検証結果
+
+    Guardian層による検証の完全な結果を表す。
+    """
+
+    # 検証対象
+    teaching: CEOTeaching
+
+    # 結果
+    is_valid: bool = True            # 矛盾がなければTrue
+    validation_status: ValidationStatus = ValidationStatus.VERIFIED
+
+    # 発見された矛盾
+    conflicts: List[ConflictInfo] = field(default_factory=list)
+
+    # スコア
+    mvv_alignment_score: float = 1.0      # MVVとの整合性（0.0-1.0）
+    theory_alignment_score: float = 1.0   # 組織論との整合性（0.0-1.0）
+    overall_score: float = 1.0            # 総合スコア
+
+    # 推奨アクション
+    recommended_action: str = "save"      # save, alert, reject
+    alternative_suggestion: Optional[str] = None
+
+    # 処理情報
+    validation_time_ms: int = 0
+    validated_at: datetime = field(default_factory=datetime.now)
+
+    def should_alert(self) -> bool:
+        """アラートを発生させるべきか"""
+        if not self.is_valid:
+            return True
+        # 高深刻度の矛盾がある場合
+        for conflict in self.conflicts:
+            if conflict.severity == Severity.HIGH:
+                return True
+        # スコアが低い場合
+        if self.overall_score < 0.5:
+            return True
+        return False
+
+    def get_alert_reason(self) -> str:
+        """アラートの理由を取得"""
+        if not self.conflicts:
+            return "検証結果に問題がありました"
+        # 最も深刻な矛盾を選択
+        high_conflicts = [c for c in self.conflicts if c.severity == Severity.HIGH]
+        if high_conflicts:
+            return high_conflicts[0].description
+        return self.conflicts[0].description
+
+
+@dataclass
+class TeachingUsageContext:
+    """
+    教え使用コンテキスト
+
+    教えを応答に使用する際の詳細情報を表す。
+    """
+
+    teaching_id: str
+    organization_id: str = ""
+
+    # 使用コンテキスト
+    room_id: str = ""
+    account_id: str = ""
+    user_message: str = ""
+    response_excerpt: Optional[str] = None
+
+    # 選択理由
+    relevance_score: float = 0.0     # 関連度（0.0-1.0）
+    selection_reasoning: Optional[str] = None
+
+    # フィードバック（後から更新）
+    was_helpful: Optional[bool] = None
+    feedback: Optional[str] = None
+
+    # メタデータ
+    used_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class CEOTeachingContext:
+    """
+    CEO教えの統合コンテキスト
+
+    BrainContextに追加するCEO教え関連の情報をまとめたもの。
+    """
+
+    # アクティブな教え（関連度順）
+    relevant_teachings: List[CEOTeaching] = field(default_factory=list)
+
+    # 未解決のアラート
+    pending_alerts: List[GuardianAlert] = field(default_factory=list)
+
+    # 現在のCEO判定
+    is_ceo_user: bool = False
+    ceo_user_id: Optional[str] = None
+
+    # 統計情報
+    total_teachings_count: int = 0
+    active_teachings_count: int = 0
+
+    def get_top_teachings(self, count: int = 3) -> List[CEOTeaching]:
+        """上位N件の関連教えを取得"""
+        return self.relevant_teachings[:count]
+
+    def has_pending_alerts(self) -> bool:
+        """未解決アラートがあるか"""
+        return len(self.pending_alerts) > 0
+
+    def to_prompt_context(self) -> str:
+        """LLMプロンプト用のコンテキストを生成"""
+        if not self.relevant_teachings:
+            return ""
+
+        parts = ["【会社の教え】"]
+        for teaching in self.relevant_teachings[:3]:
+            parts.append(f"・{teaching.statement}")
+            if teaching.reasoning:
+                parts.append(f"  （{teaching.reasoning}）")
+
+        return "\n".join(parts)

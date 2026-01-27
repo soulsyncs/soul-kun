@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple, Callable
 
-from .models import (
+from lib.brain.models import (
     BrainContext,
     UnderstandingResult,
     DecisionResult,
@@ -38,7 +38,7 @@ from .models import (
     StateType,
     ConfidenceLevel,
 )
-from .constants import (
+from lib.brain.constants import (
     CONFIRMATION_THRESHOLD,
     AUTO_EXECUTE_THRESHOLD,
     DANGEROUS_ACTIONS,
@@ -211,8 +211,7 @@ def _load_mvv_context():
     global _mvv_context_loaded, _detect_ng_pattern
     if not _mvv_context_loaded:
         try:
-            # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
-            from ..mvv_context import detect_ng_pattern
+            from lib.mvv_context import detect_ng_pattern
             _detect_ng_pattern = detect_ng_pattern
             _mvv_context_loaded = True
             logger.debug("MVV context module loaded successfully")

@@ -27,14 +27,14 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
-from .core import SoulkunBrain
-from .models import (
+from lib.brain.core import SoulkunBrain
+from lib.brain.models import (
     BrainContext,
     BrainResponse,
     HandlerResult,
     StateType,
 )
-from .constants import (
+from lib.brain.constants import (
     CANCEL_KEYWORDS,
     CONFIRMATION_THRESHOLD,
 )

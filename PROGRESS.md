@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 02:00 JST**
+**最終更新: 2026-01-27 21:10 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -193,15 +193,24 @@
 > - テスト56件全パス
 > - chatwork-webhookに同期済み
 
-**完了したこと（Phase 2K 能動性）:** ✅ 2026-01-28 実装完了
-> ソウルくんが「自分から声をかける」能力を追加した。
+**完了したこと（Phase 2K 能動性）:** ✅ 2026-01-28 デプロイ完了
+> ソウルくんが「自分から声をかける」能力を追加し、**本番デプロイ完了**した。
 > - **コード実装完了**: lib/brain/proactive.py（922行、40テスト済み）
 > - **DBマイグレーション完了**: 3テーブル + 1ビュー
 >   - proactive_action_logs: アクションログ
 >   - proactive_cooldowns: クールダウン管理
 >   - proactive_settings: 設定
 >   - v_proactive_stats: 統計ビュー
-> - **Cloud Function作成**: proactive-monitor/
+> - **Cloud Functionデプロイ完了**: proactive-monitor
+>   - URL: https://asia-northeast1-soulkun-production.cloudfunctions.net/proactive-monitor
+>   - メモリ: 512MB, タイムアウト: 300秒
+>   - シークレット: DB_PASSWORD, CHATWORK_API_TOKEN, SOULKUN_CHATWORK_TOKEN, OPENAI_API_KEY, OPENROUTER_API_KEY, PINECONE_API_KEY
+> - **Cloud Scheduler設定完了**: proactive-monitor-hourly
+>   - スケジュール: 毎時30分（Asia/Tokyo）
+>   - 状態: ENABLED
+> - **現在の動作状態**:
+>   - USE_PROACTIVE_MONITOR=true（有効）
+>   - PROACTIVE_DRY_RUN=true（ドライランモード、メッセージ送信なし）
 > - **トリガー条件**:
 >   1. 目標放置（7日間更新なし）
 >   2. タスク山積み（5件以上遅延）
@@ -211,12 +220,10 @@
 >   6. 長期不在（14日以上）
 
 **次にやること:**
-> 1. **Phase 2K本番デプロイ** - proactive-monitor Cloud Functionをデプロイ
-> 2. **Cloud Scheduler設定** - 毎時実行を設定
-> 3. USE_PROACTIVE_MONITOR=true で有効化（まずDRY_RUN=trueで様子見）
-> 4. 本番ログ監視継続 - 脳の判断ログを確認
-> 5. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
-> 6. **Phase G5以降**（動画生成）の実装
+> 1. **Phase 2Kドライラン監視** - ログを確認し、問題なければ`PROACTIVE_DRY_RUN=false`に変更
+> 2. 本番ログ監視継続 - 脳の判断ログを確認
+> 3. **Phase 2L以降**（実行力強化、対人力強化、自己最適化、統合・創発）の実装
+> 4. **Phase G5以降**（動画生成）の実装
 
 ---
 
@@ -238,6 +245,9 @@
 | ~~★★★~~ | ~~Phase F1 CEOフィードバック~~ | ~~8ファイル・57テスト完了~~ | ✅ **完了** |
 | ~~★★☆~~ | ~~Phase G2 画像生成~~ | ~~DALL-E連携・47テスト完了~~ | ✅ **完了** |
 | ~~★★☆~~ | ~~Phase G3 ディープリサーチ~~ | ~~Perplexity連携・49テスト完了~~ | ✅ **完了** |
+| ~~★★☆~~ | ~~Phase G4 Google Sheets/Slides~~ | ~~読み書き機能・56テスト完了~~ | ✅ **完了** |
+| ~~★★★~~ | ~~Phase 2K 能動性~~ | ~~proactive-monitor CF本番デプロイ~~ | ✅ **完了** |
+| **★★☆** | **Phase 2Kドライラン監視** | ログ確認後、PROACTIVE_DRY_RUN=falseに変更 | 📋 待機中 |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
 ---
@@ -269,7 +279,7 @@
 | 2H | 自己認識 | ✅ 完了 | 2026-01-27 | 3ファイル・41テスト完了 |
 | 2I | 理解力強化 | ✅ 完了 | 2026-01-27 | 8ファイル・58テスト完了 |
 | 2J | 判断力強化 | ✅ 完了 | 2026-01-27 | 8ファイル・テスト完了、DBマイグレ済み |
-| 2K | 能動性 | ✅ 完了 | 2026-01-28 | proactive.py 922行・40テスト・DB3テーブル・CF作成 |
+| 2K | 能動性 | ✅ 完了 | 2026-01-27 | proactive.py 922行・40テスト・DB3テーブル・CF本番デプロイ済み |
 | 2L | 実行力強化 | 📋 計画中 | - | 2026年8-9月予定 |
 | 2M | 対人力強化 | 📋 計画中 | - | 2026年9-10月予定 |
 | 2N | 自己最適化 | 📋 計画中 | - | 2026年10-11月予定 |

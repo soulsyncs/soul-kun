@@ -196,6 +196,63 @@ from lib.brain.self_critique import (
     OVERALL_REFINEMENT_THRESHOLD,
 )
 
+# Ultimate Brain - Phase 2: Confidence Calibration
+from lib.brain.confidence import (
+    ConfidenceCalibrator,
+    create_confidence_calibrator,
+    # Enum
+    RiskLevel,
+    ConfidenceAction,
+    # データモデル
+    ConfidenceAdjustment,
+    CalibratedDecision,
+    # 定数
+    CONFIDENCE_THRESHOLDS,
+    AMBIGUOUS_PATTERNS,
+    CONFIRMATION_TEMPLATES,
+)
+
+# Ultimate Brain - Phase 2: Episodic Memory
+from lib.brain.episodic_memory import (
+    EpisodicMemory,
+    create_episodic_memory,
+    # Enum
+    EpisodeType,
+    RecallTrigger,
+    # データモデル
+    Episode,
+    RecallResult,
+    RelatedEntity,
+    # 定数
+    DECAY_RATE_PER_DAY,
+    MAX_RECALL_COUNT,
+    BASE_IMPORTANCE,
+    IMPORTANT_KEYWORDS,
+)
+
+# Ultimate Brain - Phase 2: Proactive Monitoring
+from lib.brain.proactive import (
+    ProactiveMonitor,
+    create_proactive_monitor,
+    # Enum
+    TriggerType as ProactiveTriggerType,
+    ProactiveMessageType,
+    ActionPriority,
+    # データモデル
+    Trigger as ProactiveTrigger,
+    ProactiveMessage,
+    ProactiveAction,
+    UserContext,
+    CheckResult,
+    # 定数
+    GOAL_ABANDONED_DAYS,
+    TASK_OVERLOAD_COUNT,
+    EMOTION_DECLINE_DAYS,
+    MESSAGE_COOLDOWN_HOURS,
+    TRIGGER_PRIORITY,
+    MESSAGE_TEMPLATES,
+)
+
 # Phase 2E: Learning Foundation
 from lib.brain.learning_foundation import (
     # 統合クラス
@@ -403,6 +460,45 @@ __all__ = [
     "RefinedResponse",
     "QUALITY_THRESHOLDS",
     "OVERALL_REFINEMENT_THRESHOLD",
+    # Ultimate Brain - Phase 2: Confidence Calibration
+    "ConfidenceCalibrator",
+    "create_confidence_calibrator",
+    "RiskLevel",
+    "ConfidenceAction",
+    "ConfidenceAdjustment",
+    "CalibratedDecision",
+    "CONFIDENCE_THRESHOLDS",
+    "AMBIGUOUS_PATTERNS",
+    "CONFIRMATION_TEMPLATES",
+    # Ultimate Brain - Phase 2: Episodic Memory
+    "EpisodicMemory",
+    "create_episodic_memory",
+    "EpisodeType",
+    "RecallTrigger",
+    "Episode",
+    "RecallResult",
+    "RelatedEntity",
+    "DECAY_RATE_PER_DAY",
+    "MAX_RECALL_COUNT",
+    "BASE_IMPORTANCE",
+    "IMPORTANT_KEYWORDS",
+    # Ultimate Brain - Phase 2: Proactive Monitoring
+    "ProactiveMonitor",
+    "create_proactive_monitor",
+    "ProactiveTriggerType",
+    "ProactiveMessageType",
+    "ActionPriority",
+    "ProactiveTrigger",
+    "ProactiveMessage",
+    "ProactiveAction",
+    "UserContext",
+    "CheckResult",
+    "GOAL_ABANDONED_DAYS",
+    "TASK_OVERLOAD_COUNT",
+    "EMOTION_DECLINE_DAYS",
+    "MESSAGE_COOLDOWN_HOURS",
+    "TRIGGER_PRIORITY",
+    "MESSAGE_TEMPLATES",
 ]
 
-__version__ = "2.1.0"  # v10.34.0: Ultimate Brain Phase 1 - Chain-of-Thought & Self-Critique
+__version__ = "2.2.0"  # v10.35.0: Ultimate Brain Phase 2 - Confidence, Episodic Memory, Proactive

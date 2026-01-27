@@ -303,6 +303,33 @@ from .google_docs_client import (
     create_google_docs_client,
 )
 
+from .google_sheets_client import (
+    GoogleSheetsClient,
+    GoogleSheetsError,
+    GoogleSheetsCreateError,
+    GoogleSheetsReadError,
+    GoogleSheetsUpdateError,
+    create_google_sheets_client,
+)
+
+from .google_slides_client import (
+    GoogleSlidesClient,
+    GoogleSlidesError,
+    GoogleSlidesCreateError,
+    GoogleSlidesReadError,
+    GoogleSlidesUpdateError,
+    create_google_slides_client,
+    # レイアウト定数
+    LAYOUT_BLANK,
+    LAYOUT_TITLE,
+    LAYOUT_TITLE_AND_BODY,
+    LAYOUT_SECTION_HEADER,
+    LAYOUT_TITLE_ONLY,
+    LAYOUT_ONE_COLUMN_TEXT,
+    LAYOUT_TITLE_AND_TWO_COLUMNS,
+    LAYOUT_BIG_NUMBER,
+)
+
 
 # =============================================================================
 # G2: 画像ジェネレーター
@@ -548,6 +575,27 @@ __all__ = [
     # Google APIクライアント
     "GoogleDocsClient",
     "create_google_docs_client",
+    "GoogleSheetsClient",
+    "GoogleSheetsError",
+    "GoogleSheetsCreateError",
+    "GoogleSheetsReadError",
+    "GoogleSheetsUpdateError",
+    "create_google_sheets_client",
+    "GoogleSlidesClient",
+    "GoogleSlidesError",
+    "GoogleSlidesCreateError",
+    "GoogleSlidesReadError",
+    "GoogleSlidesUpdateError",
+    "create_google_slides_client",
+    # レイアウト定数
+    "LAYOUT_BLANK",
+    "LAYOUT_TITLE",
+    "LAYOUT_TITLE_AND_BODY",
+    "LAYOUT_SECTION_HEADER",
+    "LAYOUT_TITLE_ONLY",
+    "LAYOUT_ONE_COLUMN_TEXT",
+    "LAYOUT_TITLE_AND_TWO_COLUMNS",
+    "LAYOUT_BIG_NUMBER",
 
     # G2: DALL-E クライアント
     "DALLEClient",

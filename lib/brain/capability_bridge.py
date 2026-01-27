@@ -64,6 +64,9 @@ DEFAULT_FEATURE_FLAGS = {
     "ENABLE_DOCUMENT_GENERATION": True,
     "ENABLE_IMAGE_GENERATION": True,
     "ENABLE_VIDEO_GENERATION": False,  # コスト高いためデフォルト無効
+    "ENABLE_DEEP_RESEARCH": True,  # G3: ディープリサーチ
+    "ENABLE_GOOGLE_SHEETS": True,  # G4: スプレッドシート操作
+    "ENABLE_GOOGLE_SLIDES": True,  # G4: スライド操作
 
     # Feedback (Phase F)
     "ENABLE_CEO_FEEDBACK": True,
@@ -315,6 +318,23 @@ class CapabilityBridge:
         if self.feature_flags.get("ENABLE_CEO_FEEDBACK", False):
             handlers["generate_feedback"] = self._handle_feedback_generation
             handlers["ceo_feedback"] = self._handle_feedback_generation
+
+        # Deep Research (G3)
+        if self.feature_flags.get("ENABLE_DEEP_RESEARCH", False):
+            handlers["deep_research"] = self._handle_deep_research
+            handlers["research"] = self._handle_deep_research
+            handlers["investigate"] = self._handle_deep_research
+
+        # Google Sheets (G4)
+        if self.feature_flags.get("ENABLE_GOOGLE_SHEETS", False):
+            handlers["read_spreadsheet"] = self._handle_read_spreadsheet
+            handlers["write_spreadsheet"] = self._handle_write_spreadsheet
+            handlers["create_spreadsheet"] = self._handle_create_spreadsheet
+
+        # Google Slides (G4)
+        if self.feature_flags.get("ENABLE_GOOGLE_SLIDES", False):
+            handlers["read_presentation"] = self._handle_read_presentation
+            handlers["create_presentation"] = self._handle_create_presentation
 
         logger.debug(f"[CapabilityBridge] Handlers registered: {list(handlers.keys())}")
         return handlers
@@ -621,6 +641,455 @@ class CapabilityBridge:
                 message="フィードバックの生成中にエラーが発生したウル🐺",
             )
 
+    # =========================================================================
+    # G3: Deep Research ハンドラー
+    # =========================================================================
+
+    async def _handle_deep_research(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        ディープリサーチハンドラー
+
+        Args:
+            room_id: ChatWorkルームID
+            account_id: ユーザーアカウントID
+            sender_name: 送信者名
+            params: パラメータ
+                - query: 調査クエリ
+                - depth: 調査深度 (quick/standard/deep/comprehensive)
+                - research_type: 調査タイプ (general/competitor/market/technology)
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import (
+                ResearchEngine,
+                ResearchRequest,
+                ResearchDepth,
+                ResearchType,
+                GenerationInput,
+                GenerationType,
+            )
+            from uuid import UUID
+
+            query = params.get("query", "")
+            depth_str = params.get("depth", "standard")
+            research_type_str = params.get("research_type", "general")
+
+            if not query:
+                return HandlerResult(
+                    success=False,
+                    message="何について調べればいいか教えてほしいウル🐺",
+                )
+
+            # 深度のマッピング
+            depth_map = {
+                "quick": ResearchDepth.QUICK,
+                "standard": ResearchDepth.STANDARD,
+                "deep": ResearchDepth.DEEP,
+                "comprehensive": ResearchDepth.COMPREHENSIVE,
+            }
+            depth = depth_map.get(depth_str, ResearchDepth.STANDARD)
+
+            # タイプのマッピング
+            type_map = {
+                "general": ResearchType.GENERAL,
+                "competitor": ResearchType.COMPETITOR,
+                "market": ResearchType.MARKET,
+                "technology": ResearchType.TECHNOLOGY,
+            }
+            research_type = type_map.get(research_type_str, ResearchType.GENERAL)
+
+            # リサーチエンジンを初期化
+            engine = ResearchEngine(
+                pool=self.pool,
+                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+            )
+
+            # リクエスト作成
+            request = ResearchRequest(
+                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+                query=query,
+                depth=depth,
+                research_type=research_type,
+                user_id=account_id,
+                chatwork_room_id=room_id,
+                save_to_drive=True,
+            )
+
+            # リサーチ実行
+            result = await engine.generate(GenerationInput(
+                generation_type=GenerationType.RESEARCH,
+                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+                research_request=request,
+            ))
+
+            if result.success and result.research_result:
+                res = result.research_result
+                message = f"調査が完了したウル！🐺\n\n"
+                message += f"📊 **調査結果: {query[:30]}...**\n\n"
+                if res.executive_summary:
+                    message += f"**要約:**\n{res.executive_summary}\n\n"
+                if res.key_findings:
+                    message += f"**主な発見:**\n"
+                    for i, finding in enumerate(res.key_findings[:5], 1):
+                        message += f"{i}. {finding}\n"
+                    message += "\n"
+                if res.document_url:
+                    message += f"📄 詳細レポート: {res.document_url}\n"
+                if res.actual_cost_jpy:
+                    message += f"\n💰 調査コスト: ¥{res.actual_cost_jpy:.0f}"
+
+                return HandlerResult(
+                    success=True,
+                    message=message,
+                    data={
+                        "document_url": res.document_url,
+                        "sources_count": res.sources_count,
+                        "cost_jpy": res.actual_cost_jpy,
+                    },
+                )
+            else:
+                return HandlerResult(
+                    success=False,
+                    message="調査に失敗したウル🐺",
+                )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="ディープリサーチ機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Deep research failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="調査中にエラーが発生したウル🐺",
+            )
+
+    # =========================================================================
+    # G4: Google Sheets ハンドラー
+    # =========================================================================
+
+    async def _handle_read_spreadsheet(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        スプレッドシート読み込みハンドラー
+
+        Args:
+            params: パラメータ
+                - spreadsheet_id: スプレッドシートID
+                - range: 読み込み範囲（例: "Sheet1!A1:D10"）
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import GoogleSheetsClient
+
+            spreadsheet_id = params.get("spreadsheet_id", "")
+            range_name = params.get("range", "")
+
+            if not spreadsheet_id:
+                return HandlerResult(
+                    success=False,
+                    message="スプレッドシートのIDを教えてほしいウル🐺",
+                )
+
+            client = GoogleSheetsClient()
+            data = await client.read_sheet(
+                spreadsheet_id=spreadsheet_id,
+                range_name=range_name or None,
+            )
+
+            if data:
+                # Markdownテーブルに変換
+                markdown = client.to_markdown_table(data)
+                message = f"スプレッドシートの内容ウル！🐺\n\n{markdown}"
+                return HandlerResult(
+                    success=True,
+                    message=message,
+                    data={"rows": len(data), "data": data},
+                )
+            else:
+                return HandlerResult(
+                    success=True,
+                    message="スプレッドシートにデータがなかったウル🐺",
+                    data={"rows": 0, "data": []},
+                )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="スプレッドシート機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Read spreadsheet failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="スプレッドシートの読み込みに失敗したウル🐺",
+            )
+
+    async def _handle_write_spreadsheet(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        スプレッドシート書き込みハンドラー
+
+        Args:
+            params: パラメータ
+                - spreadsheet_id: スプレッドシートID
+                - range: 書き込み範囲
+                - data: 書き込みデータ（2次元配列）
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import GoogleSheetsClient
+
+            spreadsheet_id = params.get("spreadsheet_id", "")
+            range_name = params.get("range", "Sheet1!A1")
+            data = params.get("data", [])
+
+            if not spreadsheet_id:
+                return HandlerResult(
+                    success=False,
+                    message="スプレッドシートのIDを教えてほしいウル🐺",
+                )
+
+            if not data:
+                return HandlerResult(
+                    success=False,
+                    message="書き込むデータを教えてほしいウル🐺",
+                )
+
+            client = GoogleSheetsClient()
+            result = await client.write_sheet(
+                spreadsheet_id=spreadsheet_id,
+                range_name=range_name,
+                values=data,
+            )
+
+            return HandlerResult(
+                success=True,
+                message=f"スプレッドシートに書き込んだウル！🐺\n更新セル数: {result.get('updatedCells', 0)}",
+                data=result,
+            )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="スプレッドシート機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Write spreadsheet failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="スプレッドシートへの書き込みに失敗したウル🐺",
+            )
+
+    async def _handle_create_spreadsheet(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        スプレッドシート作成ハンドラー
+
+        Args:
+            params: パラメータ
+                - title: スプレッドシート名
+                - sheets: シート名のリスト（オプション）
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import GoogleSheetsClient
+
+            title = params.get("title", "新規スプレッドシート")
+            sheets = params.get("sheets", ["Sheet1"])
+
+            client = GoogleSheetsClient()
+            result = await client.create_spreadsheet(
+                title=title,
+                sheet_names=sheets,
+            )
+
+            spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{result['spreadsheetId']}"
+            return HandlerResult(
+                success=True,
+                message=f"スプレッドシートを作成したウル！🐺\n\n📊 {spreadsheet_url}",
+                data={
+                    "spreadsheet_id": result["spreadsheetId"],
+                    "url": spreadsheet_url,
+                },
+            )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="スプレッドシート機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Create spreadsheet failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="スプレッドシートの作成に失敗したウル🐺",
+            )
+
+    # =========================================================================
+    # G4: Google Slides ハンドラー
+    # =========================================================================
+
+    async def _handle_read_presentation(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        プレゼンテーション読み込みハンドラー
+
+        Args:
+            params: パラメータ
+                - presentation_id: プレゼンテーションID
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import GoogleSlidesClient
+
+            presentation_id = params.get("presentation_id", "")
+
+            if not presentation_id:
+                return HandlerResult(
+                    success=False,
+                    message="プレゼンテーションのIDを教えてほしいウル🐺",
+                )
+
+            client = GoogleSlidesClient()
+            info = await client.get_presentation_info(presentation_id)
+            content = await client.get_presentation_content(presentation_id)
+
+            # Markdown形式で内容を表示
+            markdown = client.to_markdown(content)
+            message = f"📽️ **{info.get('title', 'プレゼンテーション')}**\n\n"
+            message += f"スライド数: {info.get('slides_count', 0)}\n\n"
+            message += f"{markdown}"
+
+            return HandlerResult(
+                success=True,
+                message=message,
+                data={
+                    "title": info.get("title"),
+                    "slides_count": info.get("slides_count"),
+                    "content": content,
+                },
+            )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="プレゼンテーション機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Read presentation failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="プレゼンテーションの読み込みに失敗したウル🐺",
+            )
+
+    async def _handle_create_presentation(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        プレゼンテーション作成ハンドラー
+
+        Args:
+            params: パラメータ
+                - title: プレゼンテーション名
+                - slides: スライド内容のリスト
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.capabilities.generation import GoogleSlidesClient
+
+            title = params.get("title", "新規プレゼンテーション")
+            slides = params.get("slides", [])
+
+            client = GoogleSlidesClient()
+
+            # プレゼンテーション作成
+            result = await client.create_presentation(title=title)
+            presentation_id = result["presentationId"]
+
+            # スライドを追加
+            for slide_data in slides:
+                slide_title = slide_data.get("title", "")
+                slide_body = slide_data.get("body", "")
+                if slide_title or slide_body:
+                    await client.add_slide(
+                        presentation_id=presentation_id,
+                        layout="TITLE_AND_BODY",
+                        title=slide_title,
+                        body=slide_body,
+                    )
+
+            presentation_url = f"https://docs.google.com/presentation/d/{presentation_id}"
+            return HandlerResult(
+                success=True,
+                message=f"プレゼンテーションを作成したウル！🐺\n\n📽️ {presentation_url}",
+                data={
+                    "presentation_id": presentation_id,
+                    "url": presentation_url,
+                },
+            )
+
+        except ImportError:
+            return HandlerResult(
+                success=False,
+                message="プレゼンテーション機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Create presentation failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="プレゼンテーションの作成に失敗したウル🐺",
+            )
+
 
 # =============================================================================
 # ファクトリ関数
@@ -716,6 +1185,94 @@ GENERATION_CAPABILITIES = {
         },
         "requires_confirmation": True,
         "confirmation_template": "{period}のフィードバックを生成するウル？🐺",
+    },
+    # G3: ディープリサーチ
+    "deep_research": {
+        "name": "deep_research",
+        "description": "Web検索を使った深い調査を実行する",
+        "keywords": [
+            "調査", "調べて", "リサーチ", "分析", "調査して",
+            "詳しく調べて", "競合調査", "市場調査", "技術調査",
+        ],
+        "parameters": {
+            "query": "調査クエリ（何について調べるか）",
+            "depth": "調査深度 (quick/standard/deep/comprehensive)",
+            "research_type": "調査タイプ (general/competitor/market/technology)",
+        },
+        "requires_confirmation": True,
+        "confirmation_template": "「{query}」について{depth}調査を実行するウル？🐺",
+    },
+    # G4: Google Sheets
+    "read_spreadsheet": {
+        "name": "read_spreadsheet",
+        "description": "スプレッドシートを読み込む",
+        "keywords": [
+            "スプレッドシート読む", "シート読む", "エクセル読む",
+            "表を見せて", "スプレッドシート開いて",
+        ],
+        "parameters": {
+            "spreadsheet_id": "スプレッドシートID",
+            "range": "読み込み範囲（例: Sheet1!A1:D10）",
+        },
+        "requires_confirmation": False,
+        "confirmation_template": "",
+    },
+    "write_spreadsheet": {
+        "name": "write_spreadsheet",
+        "description": "スプレッドシートに書き込む",
+        "keywords": [
+            "スプレッドシート書く", "シート更新", "エクセル更新",
+            "表に追加", "スプレッドシート更新",
+        ],
+        "parameters": {
+            "spreadsheet_id": "スプレッドシートID",
+            "range": "書き込み範囲",
+            "data": "書き込みデータ（2次元配列）",
+        },
+        "requires_confirmation": True,
+        "confirmation_template": "スプレッドシートに書き込むウル？🐺",
+    },
+    "create_spreadsheet": {
+        "name": "create_spreadsheet",
+        "description": "新しいスプレッドシートを作成する",
+        "keywords": [
+            "スプレッドシート作成", "シート作成", "エクセル作成",
+            "新しい表を作って",
+        ],
+        "parameters": {
+            "title": "スプレッドシート名",
+            "sheets": "シート名のリスト（オプション）",
+        },
+        "requires_confirmation": True,
+        "confirmation_template": "「{title}」というスプレッドシートを作成するウル？🐺",
+    },
+    # G4: Google Slides
+    "read_presentation": {
+        "name": "read_presentation",
+        "description": "プレゼンテーションを読み込む",
+        "keywords": [
+            "スライド読む", "プレゼン読む", "スライド開いて",
+            "プレゼンテーション見せて",
+        ],
+        "parameters": {
+            "presentation_id": "プレゼンテーションID",
+        },
+        "requires_confirmation": False,
+        "confirmation_template": "",
+    },
+    "create_presentation": {
+        "name": "create_presentation",
+        "description": "新しいプレゼンテーションを作成する",
+        "keywords": [
+            "スライド作成", "プレゼン作成", "プレゼンテーション作成",
+            "スライドを作って",
+        ],
+        "parameters": {
+            "title": "プレゼンテーション名",
+            "slides": "スライド内容のリスト",
+        },
+        "requires_confirmation": True,
+        "confirmation_template": "「{title}」というプレゼンテーションを作成するウル？🐺",
     },
 }
 

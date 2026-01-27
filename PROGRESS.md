@@ -311,6 +311,25 @@
 >   - 脳アーキテクチャ: enabled=True
 >   - エラー: なし
 
+**完了したこと（CapabilityBridge ハンドラー統合強化）:** ✅ 2026-01-28 完了
+> 実装済みだが脳に繋がっていなかった3つの機能をCapabilityBridgeに統合した。
+> - **問題**: 以下の実装済み機能が脳のハンドラーに未登録だった
+>   - ディープリサーチ（ResearchEngine）
+>   - Google Sheets（GoogleSheetsClient）
+>   - Google Slides（GoogleSlidesClient）
+> - **解決策**: capability_bridge.pyに6つの新ハンドラーを追加
+>   | ハンドラー | 機能 |
+>   |-----------|------|
+>   | `deep_research`, `research`, `investigate` | Perplexity APIを使った深い調査 |
+>   | `read_spreadsheet` | スプレッドシート読み込み |
+>   | `write_spreadsheet` | スプレッドシート書き込み |
+>   | `create_spreadsheet` | スプレッドシート作成 |
+>   | `read_presentation` | プレゼンテーション読み込み |
+>   | `create_presentation` | プレゼンテーション作成 |
+> - **Feature Flags追加**: ENABLE_DEEP_RESEARCH, ENABLE_GOOGLE_SHEETS, ENABLE_GOOGLE_SLIDES
+> - **テスト**: 44件（16件追加）全パス
+> - **chatwork-webhook同期**: 完了
+
 **実装中（Phase 2L 実行力強化）:** 🔧 2026-01-28 基盤実装完了
 > ソウルくんに「完璧にやり遂げる」能力を追加中。複雑なリクエストを自動分解して実行できるようになる。
 > - **設計書完成**: docs/21_phase2l_execution_excellence.md（456行）

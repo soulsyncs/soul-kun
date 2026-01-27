@@ -8,6 +8,20 @@
 設計書: docs/13_brain_architecture.md
 設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
 設計書: docs/18_phase2e_learning_foundation.md（Phase 2E: 学習基盤）
+設計書: docs/19_ultimate_brain_architecture.md（Ultimate Brain: 高度な認知能力）
+
+【v10.37.0 変更点】Phase 3: Multi-Agent System
+- 専門家エージェント群を追加（7種類）
+  - Orchestrator: 全エージェントを統括する脳
+  - TaskExpert: タスク管理の専門家
+  - GoalExpert: 目標達成支援の専門家
+  - KnowledgeExpert: ナレッジ管理の専門家
+  - HRExpert: 人事・労務の専門家
+  - EmotionExpert: 感情ケアの専門家
+  - OrganizationExpert: 組織構造の専門家
+- エージェント間通信プロトコル（AgentMessage, AgentResponse）
+- 能力ベースのルーティング（キーワードスコアリング）
+- 並列実行サポート
 
 【7つの鉄則】
 1. 全ての入力は脳を通る（バイパスルート禁止）
@@ -252,6 +266,72 @@ from lib.brain.proactive import (
     TRIGGER_PRIORITY,
     MESSAGE_TEMPLATES,
 )
+
+# Ultimate Brain - Phase 3: Learning Loop
+from lib.brain.learning_loop import (
+    LearningLoop,
+    create_learning_loop,
+    # Enum
+    FeedbackType,
+    FailureCause,
+    ImprovementType,
+    LearningStatus,
+    # データモデル
+    Feedback,
+    DecisionSnapshot,
+    FailureAnalysis,
+    Improvement,
+    LearningEntry,
+    LearningStatistics,
+    # 定数
+    LEARNING_HISTORY_RETENTION_DAYS,
+    MIN_SAMPLES_FOR_IMPROVEMENT,
+    THRESHOLD_MIN,
+    THRESHOLD_MAX,
+    THRESHOLD_ADJUSTMENT_STEP,
+    PATTERN_MIN_CONFIDENCE,
+    DEFAULT_KEYWORD_WEIGHT,
+    LEARNING_LOG_BUFFER_SIZE,
+    ANALYSIS_DECISION_LOOKBACK,
+    EFFECTIVENESS_MEASUREMENT_DAYS,
+)
+
+# Ultimate Brain - Phase 3: Organization Graph
+from lib.brain.org_graph import (
+    OrganizationGraph,
+    create_organization_graph,
+    # Enum
+    RelationshipType as OrgRelationshipType,
+    CommunicationStyle,
+    InteractionType,
+    ExpertiseArea,
+    # データモデル
+    PersonNode,
+    PersonRelationship,
+    Interaction as OrgInteraction,
+    OrganizationGraphStats,
+    RelationshipInsight,
+    # 定数
+    INFLUENCE_SCORE_MIN,
+    INFLUENCE_SCORE_MAX,
+    INFLUENCE_SCORE_DEFAULT,
+    TRUST_LEVEL_MIN,
+    TRUST_LEVEL_MAX,
+    TRUST_LEVEL_DEFAULT,
+    RELATIONSHIP_STRENGTH_MIN,
+    RELATIONSHIP_STRENGTH_MAX,
+    RELATIONSHIP_STRENGTH_DEFAULT,
+    INTERACTION_HISTORY_DAYS,
+    STRENGTH_DECAY_RATE,
+    TRUST_DECAY_RATE,
+    MIN_INTERACTIONS_FOR_RELATIONSHIP,
+    STRENGTH_INCREMENT,
+    TRUST_INCREMENT,
+    GRAPH_CACHE_TTL,
+)
+
+# Ultimate Brain - Phase 3: Multi-Agent System
+from lib.brain import agents
 
 # Phase 2E: Learning Foundation
 from lib.brain.learning_foundation import (
@@ -499,6 +579,59 @@ __all__ = [
     "MESSAGE_COOLDOWN_HOURS",
     "TRIGGER_PRIORITY",
     "MESSAGE_TEMPLATES",
+    # Ultimate Brain - Phase 3: Learning Loop
+    "LearningLoop",
+    "create_learning_loop",
+    "FeedbackType",
+    "FailureCause",
+    "ImprovementType",
+    "LearningStatus",
+    "Feedback",
+    "DecisionSnapshot",
+    "FailureAnalysis",
+    "Improvement",
+    "LearningEntry",
+    "LearningStatistics",
+    "LEARNING_HISTORY_RETENTION_DAYS",
+    "MIN_SAMPLES_FOR_IMPROVEMENT",
+    "THRESHOLD_MIN",
+    "THRESHOLD_MAX",
+    "THRESHOLD_ADJUSTMENT_STEP",
+    "PATTERN_MIN_CONFIDENCE",
+    "DEFAULT_KEYWORD_WEIGHT",
+    "LEARNING_LOG_BUFFER_SIZE",
+    "ANALYSIS_DECISION_LOOKBACK",
+    "EFFECTIVENESS_MEASUREMENT_DAYS",
+    # Ultimate Brain - Phase 3: Organization Graph
+    "OrganizationGraph",
+    "create_organization_graph",
+    "OrgRelationshipType",
+    "CommunicationStyle",
+    "InteractionType",
+    "ExpertiseArea",
+    "PersonNode",
+    "PersonRelationship",
+    "OrgInteraction",
+    "OrganizationGraphStats",
+    "RelationshipInsight",
+    "INFLUENCE_SCORE_MIN",
+    "INFLUENCE_SCORE_MAX",
+    "INFLUENCE_SCORE_DEFAULT",
+    "TRUST_LEVEL_MIN",
+    "TRUST_LEVEL_MAX",
+    "TRUST_LEVEL_DEFAULT",
+    "RELATIONSHIP_STRENGTH_MIN",
+    "RELATIONSHIP_STRENGTH_MAX",
+    "RELATIONSHIP_STRENGTH_DEFAULT",
+    "INTERACTION_HISTORY_DAYS",
+    "STRENGTH_DECAY_RATE",
+    "TRUST_DECAY_RATE",
+    "MIN_INTERACTIONS_FOR_RELATIONSHIP",
+    "STRENGTH_INCREMENT",
+    "TRUST_INCREMENT",
+    "GRAPH_CACHE_TTL",
+    # Ultimate Brain - Phase 3: Multi-Agent System
+    "agents",
 ]
 
-__version__ = "2.2.0"  # v10.35.0: Ultimate Brain Phase 2 - Confidence, Episodic Memory, Proactive
+__version__ = "2.5.0"  # v10.37.0: Ultimate Brain Phase 3 - Multi-Agent System

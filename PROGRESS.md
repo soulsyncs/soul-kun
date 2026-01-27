@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 15:50 JST**
+**最終更新: 2026-01-28 07:20 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -504,6 +504,17 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **07:18 JST**: chatwork-webhook v10.38.1 本番デプロイ ✅ **revision 00225-tel** **PR #278**
+  - **概要**: 目標設定対話で長文入力時にエラーが発生するバグを修正
+  - **原因**: `_update_session()` の `current_step` パラメータが必須だったが、LLM解析後に回答のみを更新する際に渡されていなかった
+  - **修正内容**:
+    - `current_step` をオプショナルパラメータ (`= None`) に変更
+    - 渡された場合のみ UPDATE 文に含めるように条件分岐を追加
+  - **影響ファイル**:
+    - `chatwork-webhook/lib/goal_setting.py`
+    - `lib/goal_setting.py`
+    - `proactive-monitor/lib/goal_setting.py`
 
 - **15:08 JST**: chatwork-webhook v10.38.0 本番デプロイ ✅ **revision 00216-xac**
   - **概要**: Brain-Capability統合を本番環境にデプロイ

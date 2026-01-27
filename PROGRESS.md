@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 22:55 JST**
+**最終更新: 2026-01-27 23:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -140,11 +140,24 @@
 > - テスト58件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase 2J 判断力強化）:** ✅ 2026-01-27 完了
+> ソウルくんの「判断力」を大幅に強化した。多角的思考、トレードオフ判断、リスク・リターン評価、過去判断との整合性チェックができるようになった。
+> - 8ファイル実装完了（lib/brain/advanced_judgment/）
+> - OptionEvaluator: 複数選択肢の比較評価（重み付けスコアリング、ランキング）
+> - TradeoffAnalyzer: トレードオフの明示化（「Aを取ればBを犠牲に」の言語化）
+> - RiskAssessor: リスク・リターンの定量評価（発生確率×影響度、期待値計算）
+> - ConsistencyChecker: 過去の判断との整合性チェック（類似判断検索、矛盾検出）
+> - AdvancedJudgment: 全コンポーネント統合クラス
+> - DBマイグレーション（4テーブル、RLS設定、Feature Flags）
+> - テスト実装完了（test_advanced_judgment.py）
+> - chatwork-webhookに同期済み
+
 **次にやること:**
-> 1. **Phase G1（文書生成）の実装** - ソウルくんに「書く能力」を追加
-> 2. DBマイグレーション実行（Phase 2F, 2G, 2H, M1, M2, F1, Model Orchestrator）
-> 3. 本番ログ監視継続 - 脳の判断ログを確認
-> 4. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
+> 1. DBマイグレーション実行（Phase 2F, 2G, 2H, 2I, 2J, M1, M2, G1, F1, Model Orchestrator）
+> 2. 本番ログ監視継続 - 脳の判断ログを確認
+> 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
+> 4. **Phase 2K以降**（能動性、実行力強化、対人力強化、自己最適化、統合・創発）の実装
+> 5. **Phase G2以降**（画像生成、ディープリサーチ、動画生成）の実装
 
 ---
 
@@ -162,6 +175,7 @@
 | ~~★★★~~ | ~~Phase 2G 記憶の強化~~ | ~~5ファイル・38テスト完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase 2H 自己認識~~ | ~~3ファイル・41テスト完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase 2I 理解力強化~~ | ~~8ファイル・58テスト完了~~ | ✅ **完了** |
+| ~~★★★~~ | ~~Phase 2J 判断力強化~~ | ~~8ファイル実装完了~~ | ✅ **完了** |
 | ~~★★★~~ | ~~Phase F1 CEOフィードバック~~ | ~~8ファイル・57テスト完了~~ | ✅ **完了** |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
@@ -202,7 +216,8 @@
 | **SM** | **スマートモデル管理** | 📋 設計完了 | - | 最新AIモデル最適コスト利用（3-4週間） |
 | **M1** | **Multimodal入力** | ✅ 完了 | 2026-01-27 | 画像/PDF/URL読み込み（Phase M1完了） |
 | **M2** | **音声入力** | ✅ 完了 | 2026-01-27 | 音声文字起こし・話者分離（Phase M2完了） |
-| **G** | **Generation** | 📋 設計完了 | - | 資料/画像/動画生成（5-6週間） |
+| **G1** | **文書生成** | ✅ 完了 | 2026-01-27 | 7ファイル・84テスト完了（Phase G1完了） |
+| **G2-G4** | **画像/リサーチ/動画** | 📋 設計完了 | - | 画像/動画生成、ディープリサーチ |
 | **F1** | **CEO Feedback** | ✅ 完了 | 2026-01-27 | 8ファイル・57テスト完了（Phase F1完了） |
 | **AA** | **Autonomous Agent** | 📋 設計完了 | - | 自律エージェント（6-8週間） |
 | 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
@@ -266,6 +281,29 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **23:00 JST**: Phase G1 文書生成能力 実装完了 ✅ **次世代能力 Phase G1 完全完了**
+  - **概要**: ソウルくんに「手」を追加。Google Docsで文書（報告書、提案書、議事録等）を自動生成できるようになった
+  - **設計書**: `docs/20_next_generation_capabilities.md` セクション6.3
+  - **新規ファイル（7ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/capabilities/generation/__init__.py` | パッケージエクスポート（70+エクスポート） |
+    | `lib/capabilities/generation/constants.py` | Enum定義（DocumentType, GenerationStatus等）、テンプレート設定 |
+    | `lib/capabilities/generation/exceptions.py` | 例外クラス（20種類: ValidationError, GoogleDocsCreateError等） |
+    | `lib/capabilities/generation/models.py` | データモデル（DocumentRequest, DocumentResult, DocumentOutline等） |
+    | `lib/capabilities/generation/base.py` | BaseGenerator、LLMClient（OpenRouter API連携） |
+    | `lib/capabilities/generation/document_generator.py` | DocumentGenerator（アウトライン生成、セクション生成） |
+    | `lib/capabilities/generation/google_docs_client.py` | GoogleDocsClient（Google Docs API連携） |
+  - **主な機能**:
+    - 文書タイプ自動判定（12種類: 提案書、報告書、議事録、マニュアル等）
+    - アウトライン生成（LLM連携、確認フロー付き）
+    - セクションごとの内容生成（品質レベル: Draft/Standard/High/Premium）
+    - Google Docsへの自動出力（Markdown→Docs変換）
+    - 共有設定（フォルダ移動、権限設定）
+    - コスト計算・追跡
+  - **テスト**: 84件全パス（`tests/test_generation.py`）
+  - **同期**: chatwork-webhook/lib/capabilities/generation/に同期済み
 
 - **22:15 JST**: Phase M2 音声入力能力 実装完了 ✅ **次世代能力 Phase M2 完全完了**
   - **概要**: ソウルくんに「耳」を追加。音声ファイルを聞いて文字起こし・話者分離・要約ができるようになった

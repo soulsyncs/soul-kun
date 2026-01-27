@@ -35,6 +35,9 @@ from lib.brain.models import (
     StateType,
     ConfidenceLevel,
     ConversationMessage,
+    # Phase 2D: CEO Learning
+    CEOTeachingContext,
+    CEOTeaching,
 )
 
 from lib.brain.constants import (
@@ -77,6 +80,14 @@ from lib.brain.understanding import BrainUnderstanding
 from lib.brain.decision import BrainDecision
 from lib.brain.execution import BrainExecution
 from lib.brain.learning import BrainLearning
+
+# Phase 2D: CEO Learning & Guardian
+from lib.brain.ceo_learning import (
+    CEOLearningService,
+    CEO_ACCOUNT_IDS,
+)
+from lib.brain.guardian import GuardianService
+from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
 logger = logging.getLogger(__name__)
 
@@ -169,6 +180,22 @@ class SoulkunBrain:
             enable_learning=True,
         )
 
+        # Phase 2D: CEO Learning層の初期化
+        self.ceo_teaching_repo = CEOTeachingRepository(
+            pool=pool,
+            organization_id=org_id,
+        )
+        self.ceo_learning = CEOLearningService(
+            pool=pool,
+            organization_id=org_id,
+            llm_caller=get_ai_response_func,
+        )
+        self.guardian = GuardianService(
+            pool=pool,
+            organization_id=org_id,
+            llm_caller=get_ai_response_func,
+        )
+
         # 内部状態
         self._initialized = False
 
@@ -215,6 +242,18 @@ class SoulkunBrain:
                 sender_name=sender_name,
                 message=message,
             )
+
+            # 1.5 Phase 2D: CEO教え処理
+            # CEOからのメッセージなら教えを抽出（非同期で実行）
+            if self._is_ceo_user(account_id):
+                asyncio.create_task(
+                    self._process_ceo_message_safely(message, room_id, account_id, sender_name)
+                )
+
+            # 関連するCEO教えをコンテキストに追加
+            ceo_context = await self._get_ceo_teachings_context(message, account_id)
+            if ceo_context:
+                context.ceo_teachings = ceo_context
 
             # 2. 状態チェック: マルチステップセッション中？
             current_state = await self._get_current_state(room_id, account_id)
@@ -965,6 +1004,98 @@ class SoulkunBrain:
             )
         except Exception as e:
             logger.warning(f"Error logging decision: {e}")
+
+    # =========================================================================
+    # Phase 2D: CEO Learning層
+    # =========================================================================
+
+    def _is_ceo_user(self, account_id: str) -> bool:
+        """
+        CEOユーザーかどうかを判定
+
+        Args:
+            account_id: ユーザーのアカウントID
+
+        Returns:
+            bool: CEOユーザーならTrue
+        """
+        return account_id in CEO_ACCOUNT_IDS
+
+    async def _process_ceo_message_safely(
+        self,
+        message: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+    ) -> None:
+        """
+        CEOメッセージから教えを抽出（エラーを無視）
+
+        非同期で実行され、メイン処理をブロックしない。
+        抽出された教えはCEOLearningServiceで処理・保存される。
+
+        Args:
+            message: CEOのメッセージ
+            room_id: ChatWorkルームID
+            account_id: CEOのアカウントID
+            sender_name: CEOの名前
+        """
+        try:
+            logger.info(f"🎓 Processing CEO message from {sender_name}")
+
+            # CEOLearningServiceで教えを抽出・保存
+            result = await self.ceo_learning.process_ceo_message(
+                message=message,
+                room_id=room_id,
+                account_id=account_id,
+            )
+
+            if result.success and result.teachings_saved > 0:
+                logger.info(
+                    f"📚 Saved {result.teachings_saved} teachings from CEO message"
+                )
+            elif result.teachings_extracted == 0:
+                logger.debug("No teachings detected in CEO message")
+
+        except Exception as e:
+            logger.warning(f"Error processing CEO message: {e}")
+
+    async def _get_ceo_teachings_context(
+        self,
+        message: str,
+        account_id: Optional[str] = None,
+    ) -> Optional[CEOTeachingContext]:
+        """
+        関連するCEO教えをコンテキストに追加
+
+        現在のメッセージに関連する教えを取得し、
+        CEOTeachingContextとして返す。
+
+        Args:
+            message: 現在のメッセージ
+            account_id: ユーザーのアカウントID（CEOかどうかの判定用）
+
+        Returns:
+            Optional[CEOTeachingContext]: 関連するCEO教えのコンテキスト
+        """
+        try:
+            # CEOLearningServiceのget_ceo_teaching_contextを使用
+            is_ceo = self._is_ceo_user(account_id) if account_id else False
+
+            ceo_context = self.ceo_learning.get_ceo_teaching_context(
+                query=message,
+                is_ceo=is_ceo,
+            )
+
+            # 関連する教えがなければNoneを返す
+            if not ceo_context.relevant_teachings:
+                return None
+
+            return ceo_context
+
+        except Exception as e:
+            logger.warning(f"Error getting CEO teachings context: {e}")
+            return None
 
 
 # =============================================================================

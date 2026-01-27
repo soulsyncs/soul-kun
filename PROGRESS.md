@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 15:00 JST**
+**最終更新: 2026-01-27 16:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -44,19 +44,28 @@
 > フォールバック機構（`BRAIN_FALLBACK_ENABLED=true`）により、脳がエラーを起こしても旧コードが自動実行される。
 > revision 00195-zot でデプロイ完了。
 
-**完了したこと（Phase 2D CEO Learning）:** 🔄 2026-01-27 進行中
+**完了したこと（Phase 2D CEO Learning）:** ✅ 2026-01-27 完了
 > CEOの日常会話から「教え」を自動抽出し、スタッフへのアドバイスに活用する機能を実装した。
-> コード実装完了（PR #220 基盤 + PR #221 脳統合）。
-> **残り作業**: DBマイグレーション実行 → 本番デプロイ
+> - DBマイグレーション完了（4テーブル、21制約、27インデックス）
+> - コード実装完了（ceo_learning.py, ceo_teaching_repository.py, guardian.py）
+> - 脳統合完了（core.pyに統合済み）
+> - テスト56件全パス
+> - chatwork-webhookに同期済み
+
+**完了したこと（Phase 2E Learning Foundation）:** ✅ 2026-01-27 完了
+> フィードバックから学習する仕組みを構築した。
+> - 12ファイル実装完了（lib/brain/learning_foundation/）
+> - 学習抽出、権限管理、矛盾検出、効果追跡など
+> - テスト119件全パス
+> - chatwork-webhookに同期済み
 
 **次にやること:**
-> 1. Phase 2D DBマイグレーション実行（`migrations/phase2d_ceo_learning.sql`）
-> 2. chatwork-webhook 本番デプロイ（Phase 2D統合版）
-> 3. 本番ログ監視（1-3日）- 脳の判断ログを確認
-> 4. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
-> 5. **脳みそ完全化計画（Phase 2E〜2O）の開始**
->    - docs/17_brain_completion_roadmap.md を参照
->    - Phase 2E: 学習基盤の設計から開始
+> 1. Phase 2Fの実装開始（結果からの学習）
+>    - docs/17_brain_completion_roadmap.md参照
+>    - 暗黙フィードバックの解釈
+>    - 成功パターンの自動抽出
+> 2. 本番ログ監視継続 - 脳の判断ログを確認
+> 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
 
 ---
 
@@ -68,7 +77,9 @@
 | ~~★★★~~ | ~~Phase C: Feature Flag集約~~ | ~~15個のフラグが散らばっていて保守性が悪い~~ | ✅ **完了 (v10.31.0)** |
 | ~~★★☆~~ | ~~Phase D: 接続設定集約~~ | ~~8ファイルに同じDB接続文字列がある~~ | ✅ **完了 (v10.31.1)** |
 | ~~★★☆~~ | ~~脳アーキテクチャ本番有効化~~ | ~~シャドウモード稼働中 → 段階的ロールアウト~~ | ✅ **完了 (v10.31.3)** |
-| **★★★** | **Phase 2D DBマイグレーション + デプロイ** | コード完了、DB・デプロイ待ち | 🔄 進行中 |
+| ~~★★★~~ | ~~Phase 2D CEO Learning~~ | ~~DB・コード・統合完了~~ | ✅ **完了 (v10.32.1)** |
+| ~~★★★~~ | ~~Phase 2E Learning Foundation~~ | ~~12ファイル・119テスト完了~~ | ✅ **完了** |
+| **★★★** | **Phase 2F 結果からの学習** | 暗黙フィードバック解釈・成功パターン抽出 | 📋 次の作業 |
 | **★★☆** | **本番ログ監視・旧コード削除** | 脳の判断ログを確認、問題なければ旧コード削除 | 📋 待機中 |
 
 ---
@@ -93,9 +104,9 @@
 | X | アナウンス機能 | ✅ 完了 | 2026-01-25 | v10.26.0、PR #127/PR #129/PR #130 |
 | C | 会議系 | 📋 未着手 | - | 議事録自動化（Q3予定） |
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後 |
-| 2D | CEO教え＆守護者層 | 🔄 進行中 | - | v10.32.1、PR #220/PR #221、脳統合完了 |
-| 2E | 学習基盤 | 📋 計画中 | - | docs/17_brain_completion_roadmap.md |
-| 2F | 結果からの学習 | 📋 計画中 | - | 2026年2-3月予定 |
+| 2D | CEO教え＆守護者層 | ✅ 完了 | 2026-01-27 | v10.32.1、DB+コード+統合+56テスト完了 |
+| 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |
+| 2F | 結果からの学習 | 📋 次の作業 | - | 暗黙フィードバック・成功パターン抽出 |
 | 2G | 記憶の強化 | 📋 計画中 | - | 2026年3-4月予定 |
 | 2H | 自己認識 | 📋 計画中 | - | 2026年4-5月予定 |
 | 2I | 理解力強化 | 📋 計画中 | - | 2026年5-6月予定 |
@@ -166,6 +177,38 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **16:30 JST**: Phase 2D + Phase 2E 完了確認 ✅ **脳みそ完全化計画 2/11 完了**
+  - **概要**: Phase 2D（CEO Learning）とPhase 2E（Learning Foundation）の完了を確認
+  - **Phase 2D CEO Learning**:
+    | 項目 | 状態 | 詳細 |
+    |------|------|------|
+    | DBマイグレーション | ✅ 完了 | 4テーブル、21制約、27インデックス |
+    | コード実装 | ✅ 完了 | ceo_learning.py, ceo_teaching_repository.py, guardian.py |
+    | 脳統合 | ✅ 完了 | core.pyにCEOLearningService, GuardianService統合 |
+    | テスト | ✅ 完了 | 56件全パス |
+    | 同期 | ✅ 完了 | chatwork-webhook/lib/brain/に同期済み |
+  - **Phase 2E Learning Foundation**:
+    | 項目 | 状態 | 詳細 |
+    |------|------|------|
+    | コード実装 | ✅ 完了 | 12ファイル（lib/brain/learning_foundation/） |
+    | テスト | ✅ 完了 | 119件全パス |
+    | 同期 | ✅ 完了 | chatwork-webhook/lib/brain/learning_foundation/に同期済み |
+  - **Phase 2E ファイル一覧**:
+    - `__init__.py` (19KB) - エクスポート
+    - `applier.py` (24KB) - 学習適用
+    - `authority_resolver.py` (16KB) - 権限解決
+    - `conflict_detector.py` (18KB) - 矛盾検出
+    - `constants.py` (11KB) - 定数
+    - `detector.py` (20KB) - 学習検出
+    - `effectiveness_tracker.py` (19KB) - 効果追跡
+    - `extractor.py` (17KB) - 学習抽出
+    - `manager.py` (21KB) - 学習管理
+    - `models.py` (19KB) - データモデル
+    - `patterns.py` (20KB) - パターン
+    - `repository.py` (37KB) - リポジトリ
+  - **脳みそ完全化計画 進捗**: 2/11 Phase完了（2D, 2E）
+  - **次のステップ**: Phase 2F（結果からの学習）の実装
 
 - **15:00 JST**: Ultimate Brain Phase 3 - Multi-Agent System (v10.37.0) ✅ **PR #239 マージ完了**
   - **概要**: 脳アーキテクチャの「究極の脳」Phase 3実装 - マルチエージェントシステム

@@ -32,13 +32,13 @@ USE_PROACTIVE_MONITOR = os.environ.get("USE_PROACTIVE_MONITOR", "false").lower()
 PROACTIVE_DRY_RUN = os.environ.get("PROACTIVE_DRY_RUN", "true").lower() == "true"
 
 
-def get_db_pool():
-    """データベース接続プールを取得"""
+async def get_async_pool():
+    """非同期データベース接続プールを取得"""
     try:
-        from lib.db import get_db_pool as _get_db_pool
-        return _get_db_pool()
+        from lib.db import get_async_db_pool
+        return await get_async_db_pool()
     except Exception as e:
-        logger.error(f"Failed to get DB pool: {e}")
+        logger.error(f"Failed to get async DB pool: {e}")
         return None
 
 
@@ -57,7 +57,7 @@ async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
 
-    pool = get_db_pool()
+    pool = await get_async_pool()
     if not pool:
         logger.error("[ProactiveMonitor] No database pool available")
         return {"status": "error", "message": "No database pool"}

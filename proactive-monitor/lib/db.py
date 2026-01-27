@@ -205,8 +205,8 @@ async def get_async_db_pool():
     """
     SQLAlchemy 非同期コネクションプールを取得
 
-    FastAPI 用の非同期コネクションプール。
-    asyncpg を使用した高速な非同期接続。
+    FastAPI / Cloud Functions 用の非同期コネクションプール。
+    asyncpg + Cloud SQL Connector を使用した非同期接続。
 
     Returns:
         sqlalchemy.ext.asyncio.AsyncEngine
@@ -217,45 +217,53 @@ async def get_async_db_pool():
             result = await conn.execute(text("SELECT * FROM users"))
             rows = result.fetchall()
     """
-    global _async_pool
+    # 遅延インポート（FastAPI環境でのみ使用）
+    from sqlalchemy.ext.asyncio import create_async_engine
 
-    if _async_pool is None:
-        with _async_pool_lock:
-            if _async_pool is None:
-                # 遅延インポート（FastAPI環境でのみ使用）
-                from sqlalchemy.ext.asyncio import create_async_engine
+    settings = get_settings()
 
-                settings = get_settings()
+    # ローカル開発時は直接接続
+    if settings.DB_HOST:
+        url = (
+            f"postgresql+asyncpg://{settings.DB_USER}:"
+            f"{_get_db_password()}@{settings.DB_HOST}:"
+            f"{settings.DB_PORT}/{settings.DB_NAME}"
+        )
+        return create_async_engine(
+            url,
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+            pool_timeout=settings.DB_POOL_TIMEOUT,
+            pool_recycle=settings.DB_POOL_RECYCLE,
+            pool_pre_ping=True,
+        )
+    else:
+        # Cloud Run/Functions では Cloud SQL Connector を使用
+        # 注意: Connectorは現在のイベントループで作成する必要がある
+        from google.cloud.sql.connector import Connector
+        import asyncio
 
-                # Cloud SQL への直接接続URL
-                # Cloud Run では Cloud SQL Proxy 経由で接続
-                if settings.DB_HOST:
-                    url = (
-                        f"postgresql+asyncpg://{settings.DB_USER}:"
-                        f"{_get_db_password()}@{settings.DB_HOST}:"
-                        f"{settings.DB_PORT}/{settings.DB_NAME}"
-                    )
-                else:
-                    # Cloud Run/Functions環境ではUnixソケット経由
-                    socket_path = (
-                        f"/cloudsql/{settings.INSTANCE_CONNECTION_NAME}"
-                    )
-                    url = (
-                        f"postgresql+asyncpg://{settings.DB_USER}:"
-                        f"{_get_db_password()}@/{settings.DB_NAME}"
-                        f"?host={socket_path}"
-                    )
+        loop = asyncio.get_running_loop()
+        connector = Connector(loop=loop)
+        password = _get_db_password()
 
-                _async_pool = create_async_engine(
-                    url,
-                    pool_size=settings.DB_POOL_SIZE,
-                    max_overflow=settings.DB_MAX_OVERFLOW,
-                    pool_timeout=settings.DB_POOL_TIMEOUT,
-                    pool_recycle=settings.DB_POOL_RECYCLE,
-                    pool_pre_ping=True,
-                )
+        async def getconn():
+            return await connector.connect_async(
+                settings.INSTANCE_CONNECTION_NAME,
+                "asyncpg",
+                user=settings.DB_USER,
+                password=password,
+                db=settings.DB_NAME,
+            )
 
-    return _async_pool
+        return create_async_engine(
+            "postgresql+asyncpg://",
+            async_creator=getconn,
+            pool_size=settings.DB_POOL_SIZE,
+            max_overflow=settings.DB_MAX_OVERFLOW,
+            pool_timeout=settings.DB_POOL_TIMEOUT,
+            pool_recycle=settings.DB_POOL_RECYCLE,
+        )
 
 
 async def get_async_db_session():

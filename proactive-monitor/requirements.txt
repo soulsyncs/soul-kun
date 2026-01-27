@@ -2,7 +2,7 @@ functions-framework==3.*
 google-cloud-secret-manager==2.*
 sqlalchemy[asyncio]==2.*
 asyncpg==0.*
-cloud-sql-python-connector[pg8000]==1.*
+cloud-sql-python-connector[asyncpg,pg8000]==1.*
 pg8000>=1.30.0
 requests==2.*
 httpx==0.*

@@ -12,7 +12,7 @@ Created: 2026-01-27
 from typing import Optional, Dict, Any
 from functools import wraps
 
-from .constants import GenerationType, ERROR_MESSAGES
+from .constants import GenerationType, ERROR_MESSAGES, IMAGE_ERROR_MESSAGES
 
 
 # =============================================================================
@@ -619,6 +619,308 @@ def wrap_sync_generation_error(func):
             raise GenerationError(
                 message=f"Unexpected error: {str(e)}",
                 error_code="UNEXPECTED_ERROR",
+                original_error=e,
+            )
+    return wrapper
+
+
+# =============================================================================
+# Phase G2: 画像生成エラー
+# =============================================================================
+
+
+class ImageGenerationError(GenerationBaseException):
+    """画像生成エラーの基底クラス"""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "IMAGE_GENERATION_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            generation_type=GenerationType.IMAGE,
+            details=details,
+            original_error=original_error,
+        )
+
+    def to_user_message(self) -> str:
+        return f"画像生成エラー: {self.message}"
+
+
+class ImagePromptEmptyError(ImageGenerationError):
+    """プロンプト空エラー"""
+
+    def __init__(self):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["EMPTY_PROMPT"],
+            error_code="EMPTY_PROMPT",
+        )
+
+    def to_user_message(self) -> str:
+        return "どんな画像を作りたいか教えてください。"
+
+
+class ImagePromptTooLongError(ImageGenerationError):
+    """プロンプト長すぎエラー"""
+
+    def __init__(self, actual_length: int, max_length: int):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["PROMPT_TOO_LONG"].format(max=max_length),
+            error_code="PROMPT_TOO_LONG",
+            details={"actual_length": actual_length, "max_length": max_length},
+        )
+        self.actual_length = actual_length
+        self.max_length = max_length
+
+    def to_user_message(self) -> str:
+        return f"プロンプトが長すぎます（{self.actual_length}文字）。{self.max_length}文字以内にしてください。"
+
+
+class ImageInvalidSizeError(ImageGenerationError):
+    """無効なサイズエラー"""
+
+    def __init__(self, size: str, provider: str, supported_sizes: list):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["SIZE_NOT_SUPPORTED_BY_PROVIDER"].format(
+                provider=provider, size=size
+            ),
+            error_code="INVALID_SIZE",
+            details={"size": size, "provider": provider, "supported_sizes": supported_sizes},
+        )
+        self.size = size
+        self.provider = provider
+        self.supported_sizes = supported_sizes
+
+    def to_user_message(self) -> str:
+        return f"サイズ「{self.size}」は{self.provider}でサポートされていません。"
+
+
+class ImageInvalidQualityError(ImageGenerationError):
+    """無効な品質エラー"""
+
+    def __init__(self, quality: str, provider: str):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["INVALID_QUALITY"].format(quality=quality),
+            error_code="INVALID_QUALITY",
+            details={"quality": quality, "provider": provider},
+        )
+        self.quality = quality
+        self.provider = provider
+
+    def to_user_message(self) -> str:
+        return f"品質「{self.quality}」は{self.provider}でサポートされていません。"
+
+
+class ContentPolicyViolationError(ImageGenerationError):
+    """コンテンツポリシー違反エラー"""
+
+    def __init__(self, details: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["CONTENT_POLICY_VIOLATION"],
+            error_code="CONTENT_POLICY_VIOLATION",
+            details=details,
+        )
+
+    def to_user_message(self) -> str:
+        return "申し訳ありませんが、そのような画像は生成できません。別の内容でお試しください。"
+
+
+class SafetyFilterTriggeredError(ImageGenerationError):
+    """安全フィルター発動エラー"""
+
+    def __init__(self, details: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["SAFETY_FILTER_TRIGGERED"],
+            error_code="SAFETY_FILTER_TRIGGERED",
+            details=details,
+        )
+
+    def to_user_message(self) -> str:
+        return "安全フィルターが作動しました。プロンプトを修正してください。"
+
+
+# -----------------------------------------------------------------------------
+# DALL-E API エラー
+# -----------------------------------------------------------------------------
+
+
+class DALLEAPIError(ImageGenerationError):
+    """DALL-E API エラーの基底クラス"""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "DALLE_API_ERROR",
+        model: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            details={"model": model, **(details or {})},
+            original_error=original_error,
+        )
+        self.model = model
+
+    def to_user_message(self) -> str:
+        return "画像生成サービスでエラーが発生しました。もう一度お試しください。"
+
+
+class DALLERateLimitError(DALLEAPIError):
+    """DALL-E レート制限エラー"""
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["DALLE_RATE_LIMIT"],
+            error_code="DALLE_RATE_LIMIT",
+            model=model,
+            details={"retry_after": retry_after},
+        )
+        self.retry_after = retry_after
+
+    def to_user_message(self) -> str:
+        if self.retry_after:
+            return f"画像生成サービスが混み合っています。{self.retry_after}秒後に再試行してください。"
+        return "画像生成サービスが混み合っています。しばらく待ってから再試行してください。"
+
+
+class DALLETimeoutError(DALLEAPIError):
+    """DALL-E タイムアウトエラー"""
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
+    ):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["DALLE_TIMEOUT"],
+            error_code="DALLE_TIMEOUT",
+            model=model,
+            details={"timeout_seconds": timeout_seconds},
+        )
+        self.timeout_seconds = timeout_seconds
+
+    def to_user_message(self) -> str:
+        return "画像生成がタイムアウトしました。もう一度お試しください。"
+
+
+class DALLEQuotaExceededError(DALLEAPIError):
+    """DALL-E クォータ超過エラー"""
+
+    def __init__(self, model: Optional[str] = None):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["DALLE_QUOTA_EXCEEDED"],
+            error_code="DALLE_QUOTA_EXCEEDED",
+            model=model,
+        )
+
+    def to_user_message(self) -> str:
+        return "画像生成の利用上限に達しました。管理者にお問い合わせください。"
+
+
+# -----------------------------------------------------------------------------
+# 画像保存エラー
+# -----------------------------------------------------------------------------
+
+
+class ImageSaveError(ImageGenerationError):
+    """画像保存エラー"""
+
+    def __init__(
+        self,
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["SAVE_FAILED"],
+            error_code="IMAGE_SAVE_FAILED",
+            details=details,
+            original_error=original_error,
+        )
+
+    def to_user_message(self) -> str:
+        return "画像の保存に失敗しました。"
+
+
+class ImageUploadError(ImageGenerationError):
+    """画像アップロードエラー"""
+
+    def __init__(
+        self,
+        destination: str = "Google Drive",
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["UPLOAD_FAILED"],
+            error_code="IMAGE_UPLOAD_FAILED",
+            details={"destination": destination, **(details or {})},
+            original_error=original_error,
+        )
+        self.destination = destination
+
+    def to_user_message(self) -> str:
+        return f"{self.destination}へのアップロードに失敗しました。"
+
+
+class ImageDailyLimitExceededError(ImageGenerationError):
+    """日次上限超過エラー"""
+
+    def __init__(self, limit: int):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["DAILY_LIMIT_EXCEEDED"].format(limit=limit),
+            error_code="DAILY_LIMIT_EXCEEDED",
+            details={"limit": limit},
+        )
+        self.limit = limit
+
+    def to_user_message(self) -> str:
+        return f"本日の画像生成上限（{self.limit}枚）に達しました。明日また試してください。"
+
+
+class ImageFeatureDisabledError(ImageGenerationError):
+    """画像生成機能無効エラー"""
+
+    def __init__(self):
+        super().__init__(
+            message=IMAGE_ERROR_MESSAGES["FEATURE_DISABLED"],
+            error_code="IMAGE_FEATURE_DISABLED",
+        )
+
+    def to_user_message(self) -> str:
+        return "画像生成機能は現在ご利用いただけません。"
+
+
+def wrap_image_generation_error(func):
+    """
+    非同期関数の例外を画像生成例外にラップするデコレータ
+
+    使用例:
+        @wrap_image_generation_error
+        async def generate_image():
+            ...
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except ImageGenerationError:
+            raise
+        except GenerationBaseException:
+            raise
+        except Exception as e:
+            raise ImageGenerationError(
+                message=f"Unexpected error: {str(e)}",
+                error_code="UNEXPECTED_IMAGE_ERROR",
                 original_error=e,
             )
     return wrapper

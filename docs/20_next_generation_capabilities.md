@@ -820,6 +820,11 @@ class ImageGenerator:
 
 ### 5.5 ディープリサーチ（G3）
 
+**ステータス:** ✅ 実装完了（2026-01-27）
+
+Perplexity等を使用したディープリサーチ機能。複数ソースから情報を収集し、分析レポートを生成。
+詳細は `lib/capabilities/generation/research_engine.py` を参照。
+
 #### 5.5.1 概要
 
 Perplexityのような深い調査機能。複数ソースから情報を収集し、分析レポートを生成。
@@ -994,7 +999,7 @@ CREATE INDEX idx_generation_logs_type_status
 | G0 | 基盤（生成フレームワーク） | 3日 | なし | ✅ 完了 |
 | G1 | 文書生成（Google Docs連携） | 1.5週間 | G0 | ✅ 完了 |
 | G2 | 画像生成（DALL-E連携） | 1週間 | G0 | ✅ 完了 |
-| G3 | ディープリサーチ | 1.5週間 | G0, Phase M3 |
+| G3 | ディープリサーチ | 1.5週間 | G0, Phase M3 | ✅ 完了 |
 | G4 | スプレッドシート生成 | 4日 | G0 |
 | G5 | 動画生成（Runway連携） | 1週間 | G0, G2 |
 | G6 | 統合テスト | 3日 | G1-G5 |

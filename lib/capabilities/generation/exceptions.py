@@ -12,7 +12,7 @@ Created: 2026-01-27
 from typing import Optional, Dict, Any
 from functools import wraps
 
-from .constants import GenerationType, ERROR_MESSAGES, IMAGE_ERROR_MESSAGES
+from .constants import GenerationType, ERROR_MESSAGES, IMAGE_ERROR_MESSAGES, RESEARCH_ERROR_MESSAGES
 
 
 # =============================================================================
@@ -921,6 +921,326 @@ def wrap_image_generation_error(func):
             raise ImageGenerationError(
                 message=f"Unexpected error: {str(e)}",
                 error_code="UNEXPECTED_IMAGE_ERROR",
+                original_error=e,
+            )
+    return wrapper
+
+
+# =============================================================================
+# Phase G3: ディープリサーチエラー
+# =============================================================================
+
+
+class ResearchError(GenerationBaseException):
+    """リサーチエラーの基底クラス"""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "RESEARCH_ERROR",
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            generation_type=GenerationType.RESEARCH,
+            details=details,
+            original_error=original_error,
+        )
+
+    def to_user_message(self) -> str:
+        return f"リサーチエラー: {self.message}"
+
+
+class ResearchQueryEmptyError(ResearchError):
+    """クエリ空エラー"""
+
+    def __init__(self):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["EMPTY_QUERY"],
+            error_code="EMPTY_QUERY",
+        )
+
+    def to_user_message(self) -> str:
+        return "何について調べたいか教えてください。"
+
+
+class ResearchQueryTooLongError(ResearchError):
+    """クエリ長すぎエラー"""
+
+    def __init__(self, actual_length: int, max_length: int):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["QUERY_TOO_LONG"].format(max=max_length),
+            error_code="QUERY_TOO_LONG",
+            details={"actual_length": actual_length, "max_length": max_length},
+        )
+        self.actual_length = actual_length
+        self.max_length = max_length
+
+    def to_user_message(self) -> str:
+        return f"クエリが長すぎます（{self.actual_length}文字）。{self.max_length}文字以内にしてください。"
+
+
+class ResearchInvalidDepthError(ResearchError):
+    """無効なリサーチ深度エラー"""
+
+    def __init__(self, depth: str):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["INVALID_DEPTH"].format(depth=depth),
+            error_code="INVALID_DEPTH",
+            details={"depth": depth},
+        )
+        self.depth = depth
+
+    def to_user_message(self) -> str:
+        return f"リサーチ深度「{self.depth}」はサポートされていません。"
+
+
+class ResearchInvalidTypeError(ResearchError):
+    """無効なリサーチタイプエラー"""
+
+    def __init__(self, research_type: str):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["INVALID_TYPE"].format(type=research_type),
+            error_code="INVALID_TYPE",
+            details={"research_type": research_type},
+        )
+        self.research_type = research_type
+
+    def to_user_message(self) -> str:
+        return f"リサーチタイプ「{self.research_type}」はサポートされていません。"
+
+
+class ResearchNoResultsError(ResearchError):
+    """検索結果なしエラー"""
+
+    def __init__(self, query: str):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["NO_RESULTS"],
+            error_code="NO_RESULTS",
+            details={"query": query},
+        )
+        self.query = query
+
+    def to_user_message(self) -> str:
+        return "該当する情報が見つかりませんでした。検索キーワードを変えてお試しください。"
+
+
+class ResearchInsufficientSourcesError(ResearchError):
+    """情報源不足エラー"""
+
+    def __init__(self, found_count: int, required_count: int):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["INSUFFICIENT_SOURCES"],
+            error_code="INSUFFICIENT_SOURCES",
+            details={"found_count": found_count, "required_count": required_count},
+        )
+        self.found_count = found_count
+        self.required_count = required_count
+
+    def to_user_message(self) -> str:
+        return "十分な情報源が見つかりませんでした。検索条件を広げてお試しください。"
+
+
+class ResearchAnalysisError(ResearchError):
+    """分析エラー"""
+
+    def __init__(
+        self,
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["ANALYSIS_FAILED"],
+            error_code="ANALYSIS_FAILED",
+            details=details,
+            original_error=original_error,
+        )
+
+    def to_user_message(self) -> str:
+        return "情報の分析に失敗しました。もう一度お試しください。"
+
+
+class ResearchReportGenerationError(ResearchError):
+    """レポート生成エラー"""
+
+    def __init__(
+        self,
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["REPORT_GENERATION_FAILED"],
+            error_code="REPORT_GENERATION_FAILED",
+            details=details,
+            original_error=original_error,
+        )
+
+    def to_user_message(self) -> str:
+        return "レポートの生成に失敗しました。もう一度お試しください。"
+
+
+# -----------------------------------------------------------------------------
+# Perplexity API エラー
+# -----------------------------------------------------------------------------
+
+
+class PerplexityAPIError(ResearchError):
+    """Perplexity API エラーの基底クラス"""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "PERPLEXITY_API_ERROR",
+        model: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=message,
+            error_code=error_code,
+            details={"model": model, **(details or {})},
+            original_error=original_error,
+        )
+        self.model = model
+
+    def to_user_message(self) -> str:
+        return "リサーチサービスでエラーが発生しました。もう一度お試しください。"
+
+
+class PerplexityRateLimitError(PerplexityAPIError):
+    """Perplexity レート制限エラー"""
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        retry_after: Optional[int] = None,
+    ):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["PERPLEXITY_RATE_LIMIT"],
+            error_code="PERPLEXITY_RATE_LIMIT",
+            model=model,
+            details={"retry_after": retry_after},
+        )
+        self.retry_after = retry_after
+
+    def to_user_message(self) -> str:
+        if self.retry_after:
+            return f"リサーチサービスが混み合っています。{self.retry_after}秒後に再試行してください。"
+        return "リサーチサービスが混み合っています。しばらく待ってから再試行してください。"
+
+
+class PerplexityTimeoutError(PerplexityAPIError):
+    """Perplexity タイムアウトエラー"""
+
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        timeout_seconds: Optional[int] = None,
+    ):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["PERPLEXITY_TIMEOUT"],
+            error_code="PERPLEXITY_TIMEOUT",
+            model=model,
+            details={"timeout_seconds": timeout_seconds},
+        )
+        self.timeout_seconds = timeout_seconds
+
+    def to_user_message(self) -> str:
+        return "リサーチがタイムアウトしました。もう一度お試しください。"
+
+
+class SearchAPIError(ResearchError):
+    """検索API エラー"""
+
+    def __init__(
+        self,
+        api_name: str = "Search API",
+        details: Optional[Dict[str, Any]] = None,
+        original_error: Optional[Exception] = None,
+    ):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["SEARCH_API_ERROR"].format(error=api_name),
+            error_code="SEARCH_API_ERROR",
+            details={"api_name": api_name, **(details or {})},
+            original_error=original_error,
+        )
+        self.api_name = api_name
+
+    def to_user_message(self) -> str:
+        return "検索サービスでエラーが発生しました。もう一度お試しください。"
+
+
+# -----------------------------------------------------------------------------
+# リサーチ制限エラー
+# -----------------------------------------------------------------------------
+
+
+class ResearchDailyLimitExceededError(ResearchError):
+    """日次上限超過エラー"""
+
+    def __init__(self, limit: int):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["DAILY_LIMIT_EXCEEDED"].format(limit=limit),
+            error_code="DAILY_LIMIT_EXCEEDED",
+            details={"limit": limit},
+        )
+        self.limit = limit
+
+    def to_user_message(self) -> str:
+        return f"本日のリサーチ上限（{self.limit}回）に達しました。明日また試してください。"
+
+
+class ResearchConcurrentLimitExceededError(ResearchError):
+    """同時実行上限超過エラー"""
+
+    def __init__(self, limit: int):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["CONCURRENT_LIMIT_EXCEEDED"],
+            error_code="CONCURRENT_LIMIT_EXCEEDED",
+            details={"limit": limit},
+        )
+        self.limit = limit
+
+    def to_user_message(self) -> str:
+        return "現在、複数のリサーチが実行中です。しばらく待ってから再試行してください。"
+
+
+class ResearchFeatureDisabledError(ResearchError):
+    """リサーチ機能無効エラー"""
+
+    def __init__(self):
+        super().__init__(
+            message=RESEARCH_ERROR_MESSAGES["FEATURE_DISABLED"],
+            error_code="RESEARCH_FEATURE_DISABLED",
+        )
+
+    def to_user_message(self) -> str:
+        return "ディープリサーチ機能は現在ご利用いただけません。"
+
+
+def wrap_research_error(func):
+    """
+    非同期関数の例外をリサーチ例外にラップするデコレータ
+
+    使用例:
+        @wrap_research_error
+        async def research():
+            ...
+    """
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except ResearchError:
+            raise
+        except GenerationBaseException:
+            raise
+        except Exception as e:
+            raise ResearchError(
+                message=f"Unexpected error: {str(e)}",
+                error_code="UNEXPECTED_RESEARCH_ERROR",
                 original_error=e,
             )
     return wrapper

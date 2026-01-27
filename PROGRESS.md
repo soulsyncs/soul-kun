@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 17:30 JST**
+**最終更新: 2026-01-27 20:15 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -74,12 +74,32 @@
 > - テスト38件全パス
 > - chatwork-webhookに同期済み
 
+**完了したこと（Phase 2H Self-Awareness）:** ✅ 2026-01-27 完了
+> ソウルくんに「自己認識」能力を追加した。自分の得意・不得意を把握し、確信度を評価できる。
+> - 3ファイル実装完了（lib/brain/self_awareness/）
+> - 能力スコア追跡（14カテゴリ）
+> - 限界認識・記録（10タイプ）
+> - 確信度評価（HIGH/MEDIUM/LOW/VERY_LOW）
+> - 自己診断機能（日次/週次/月次）
+> - 5テーブルのDBマイグレーション
+> - テスト41件全パス
+> - chatwork-webhookに同期済み
+
+**完了したこと（Phase M1 Multimodal入力）:** ✅ 2026-01-27 完了
+> ソウルくんに「目」を追加した。画像・PDF・URLを理解できるようになった。
+> - 10ファイル実装完了（lib/capabilities/multimodal/）
+> - 画像処理（Vision API連携、メタデータ抽出、エンティティ抽出）
+> - PDF処理（テキスト抽出、OCR対応、ページ分析）
+> - URL処理（Webスクレイピング、コンテンツ分析、セキュリティチェック）
+> - DBマイグレーション（2テーブル、処理ログ＆エンティティ）
+> - テスト55件全パス
+> - chatwork-webhookに同期済み
+
 **次にやること:**
-> 1. Phase 2Hの実装開始（自己認識）
->    - docs/17_brain_completion_roadmap.md参照
-> 2. DBマイグレーション実行（Phase 2F, 2G）
-> 3. 本番ログ監視継続 - 脳の判断ログを確認
-> 4. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
+> 1. DBマイグレーション実行（Phase 2F, 2G, 2H, M1）
+> 2. 本番ログ監視継続 - 脳の判断ログを確認
+> 3. 問題なければ旧コード削除を検討（docs/16_old_code_removal_plan.md参照）
+> 4. Phase 3以降（統合テスト、パフォーマンス最適化）の計画策定
 
 ---
 
@@ -133,7 +153,7 @@
 | 2N | 自己最適化 | 📋 計画中 | - | 2026年10-11月予定 |
 | 2O | 統合・創発 | 📋 計画中 | - | 2026年11-12月予定 |
 | **SM** | **スマートモデル管理** | 📋 設計完了 | - | 最新AIモデル最適コスト利用（3-4週間） |
-| **M** | **Multimodal** | 📋 設計完了 | - | 画像/PDF/URL読み込み（4-5週間） |
+| **M1** | **Multimodal入力** | ✅ 完了 | 2026-01-27 | 画像/PDF/URL読み込み（Phase M1完了） |
 | **G** | **Generation** | 📋 設計完了 | - | 資料/画像/動画生成（5-6週間） |
 | **F** | **Feedback** | 📋 設計完了 | - | CEOへの事実ベースフィードバック（4-5週間） |
 | **AA** | **Autonomous Agent** | 📋 設計完了 | - | 自律エージェント（6-8週間） |
@@ -198,6 +218,34 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **17:45 JST**: Phase M1 Multimodal入力能力 実装完了 ✅ **次世代能力 1/4 完了**
+  - **概要**: ソウルくんに「目」を追加。画像・PDF・URLを理解できるようになった
+  - **設計書**: `docs/20_next_generation_capabilities.md` セクション5
+  - **新規ファイル（10ファイル）**:
+    | ファイル | 説明 |
+    |---------|------|
+    | `lib/capabilities/__init__.py` | 能力層パッケージ初期化 |
+    | `lib/capabilities/multimodal/__init__.py` | パッケージエクスポート |
+    | `lib/capabilities/multimodal/constants.py` | Enum定義、制限値、Vision APIモデル |
+    | `lib/capabilities/multimodal/exceptions.py` | 25種類の例外クラス、デコレータ |
+    | `lib/capabilities/multimodal/models.py` | 15種類のデータモデル |
+    | `lib/capabilities/multimodal/base.py` | BaseMultimodalProcessor、VisionAPIClient |
+    | `lib/capabilities/multimodal/image_processor.py` | ImageProcessor（Vision API連携） |
+    | `lib/capabilities/multimodal/pdf_processor.py` | PDFProcessor（テキスト/OCR対応） |
+    | `lib/capabilities/multimodal/url_processor.py` | URLProcessor（セキュリティチェック付き） |
+  - **DBマイグレーション**: `migrations/phase_m1_multimodal.sql`
+    - `multimodal_processing_logs`: 処理ログ（26カラム、8インデックス、RLS）
+    - `multimodal_extracted_entities`: 抽出エンティティ（14カラム、7インデックス）
+    - `v_multimodal_stats`: 統計情報ビュー
+    - `cleanup_old_multimodal_logs()`: クリーンアップ関数
+  - **主な機能**:
+    - 画像処理: フォーマット検証、メタデータ抽出、Vision API分析、エンティティ抽出
+    - PDF処理: テキスト/スキャン判定、pypdf抽出、OCR対応、ページ分析
+    - URL処理: セキュリティチェック、HTMLパース、コンテンツ分析、タイプ判定
+    - 共通: 処理ログ記録、エンティティ正規化、コスト追跡
+  - **テスト**: 55件全パス（`tests/test_multimodal.py`）
+  - **同期**: chatwork-webhook/lib/capabilities/に同期済み
 
 - **17:30 JST**: Phase 2G Memory Enhancement 実装完了 ✅ **脳みそ完全化計画 4/11 完了**
   - **概要**: エピソード記憶と知識グラフの基盤を構築

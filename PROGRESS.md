@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 07:20 JST**
+**最終更新: 2026-01-28 17:35 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -504,6 +504,20 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **17:35 JST**: chatwork-webhook v10.39.0 本番デプロイ ✅ **revision 00223-vt7** **PR #279**
+  - **概要**: バイパス処理を脳の中に統合（7原則準拠）
+  - **変更内容**:
+    - BrainIntegration.process_message() に bypass_handlers パラメータ追加
+    - _call_bypass_handler() メソッド追加
+    - main.py にバイパスハンドラー関数追加（_bypass_handle_goal_session, _bypass_handle_announcement）
+    - main.py の脳より先のバイパスチェックを削除
+  - **効果**:
+    - 脳の7原則「全ての入力は脳を通る」に準拠
+    - 目標設定セッション、アナウンス機能が脳を通って処理される
+  - **旧リビジョン**: chatwork-webhook-00222（推定）
+  - **新リビジョン**: chatwork-webhook-00223-vt7
+  - **プロジェクト**: soulkun-production（※soulkun-chatworkではない）
 
 - **07:18 JST**: chatwork-webhook v10.38.1 本番デプロイ ✅ **revision 00225-tel** **PR #278**
   - **概要**: 目標設定対話で長文入力時にエラーが発生するバグを修正

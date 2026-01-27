@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-27 12:00 JST**
+**最終更新: 2026-01-27 13:40 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -166,6 +166,23 @@
 ## 直近の主な成果
 
 ### 2026-01-27
+
+- **13:40 JST**: Ultimate Brain Phase 1 - Chain-of-Thought & Self-Critique (v10.34.0) ✅ **PR #235 マージ完了**
+  - **概要**: 脳アーキテクチャの「究極の脳」Phase 1実装 - 思考連鎖と自己批判
+  - **設計書**: `docs/19_ultimate_brain_architecture.md`（新規）
+  - **Chain-of-Thought** (`lib/brain/chain_of_thought.py` - 450行):
+    - 5ステップ思考連鎖で入力を段階的に分析
+    - 入力分類（8種: question, request, report, confirmation, emotion, chat, command, unknown）
+    - 構造分析（疑問文、命令文、否定形、条件形）
+    - 意図推論（キーワードマッチング + ネガティブキーワード）
+    - コンテキスト照合（状態依存の判断）
+    - 結論導出（確信度ベース）
+  - **Self-Critique** (`lib/brain/self_critique.py` - 580行):
+    - 6品質基準で回答を評価・改善
+    - relevance（関連性）、completeness（完全性）、consistency（一貫性）
+    - tone（ソウルくんらしさ - ウル表現）、actionability（実行可能性）、safety（機密情報検出）
+  - **効果**: 「目標設定として繋がってる？」のような曖昧な入力を正しく解釈
+  - **テスト**: 90件（chain_of_thought: 44件, self_critique: 46件）、全体2199件パス
 
 - **18:30 JST**: Phase 1 旧コード削除 (v10.33.0) ✅ **PR #224 マージ完了**
   - **概要**: chatwork-webhook/main.pyから不要になった旧コード（フォールバック、未使用関数）を削除

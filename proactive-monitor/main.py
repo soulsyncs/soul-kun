@@ -35,8 +35,8 @@ PROACTIVE_DRY_RUN = os.environ.get("PROACTIVE_DRY_RUN", "true").lower() == "true
 def get_db_pool():
     """データベース接続プールを取得"""
     try:
-        from lib.db import get_async_pool
-        return get_async_pool()
+        from lib.db import get_db_pool as _get_db_pool
+        return _get_db_pool()
     except Exception as e:
         logger.error(f"Failed to get DB pool: {e}")
         return None

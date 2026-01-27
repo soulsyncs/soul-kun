@@ -7,6 +7,7 @@
 
 設計書: docs/13_brain_architecture.md
 設計書: docs/14_brain_refactoring_plan.md（Phase B: SYSTEM_CAPABILITIES拡張）
+設計書: docs/17_brain_completion_roadmap.md（Phase 2I: 理解力強化）
 設計書: docs/18_phase2e_learning_foundation.md（Phase 2E: 学習基盤）
 設計書: docs/19_ultimate_brain_architecture.md（Ultimate Brain: 高度な認知能力）
 
@@ -445,6 +446,53 @@ from lib.brain.model_orchestrator import (
     FEATURE_FLAG_NAME as MODEL_ORCHESTRATOR_FLAG_NAME,
 )
 
+# Phase 2I: Deep Understanding（理解力強化）
+from lib.brain.deep_understanding import (
+    # 統合クラス
+    DeepUnderstanding,
+    create_deep_understanding,
+    # コンポーネント
+    IntentInferenceEngine,
+    EmotionReader,
+    VocabularyManager,
+    HistoryAnalyzer,
+    # ファクトリー
+    create_intent_inference_engine,
+    create_emotion_reader,
+    create_vocabulary_manager,
+    create_history_analyzer,
+    # Enum
+    ImplicitIntentType,
+    ReferenceResolutionStrategy,
+    OrganizationContextType,
+    VocabularyCategory,
+    EmotionCategory,
+    UrgencyLevel as DeepUrgencyLevel,
+    NuanceType,
+    ContextRecoverySource,
+    # データモデル
+    DeepUnderstandingInput,
+    DeepUnderstandingOutput,
+    ResolvedReference,
+    ImplicitIntent,
+    IntentInferenceResult,
+    VocabularyEntry,
+    OrganizationContext,
+    OrganizationContextResult,
+    DetectedEmotion,
+    DetectedUrgency,
+    DetectedNuance,
+    EmotionReadingResult,
+    ContextFragment,
+    RecoveredContext,
+    # Feature Flags
+    FEATURE_FLAG_DEEP_UNDERSTANDING,
+    FEATURE_FLAG_IMPLICIT_INTENT,
+    FEATURE_FLAG_ORGANIZATION_CONTEXT,
+    FEATURE_FLAG_EMOTION_READING,
+    FEATURE_FLAG_VOCABULARY_LEARNING,
+)
+
 __all__ = [
     # メインクラス
     "SoulkunBrain",
@@ -745,6 +793,50 @@ __all__ = [
     "FALLBACK_CHAINS",
     "MAX_RETRIES",
     "MODEL_ORCHESTRATOR_FLAG_NAME",
+    # Phase 2I: Deep Understanding（理解力強化）
+    # 統合クラス
+    "DeepUnderstanding",
+    "create_deep_understanding",
+    # コンポーネント
+    "IntentInferenceEngine",
+    "EmotionReader",
+    "VocabularyManager",
+    "HistoryAnalyzer",
+    # ファクトリー
+    "create_intent_inference_engine",
+    "create_emotion_reader",
+    "create_vocabulary_manager",
+    "create_history_analyzer",
+    # Enum
+    "ImplicitIntentType",
+    "ReferenceResolutionStrategy",
+    "OrganizationContextType",
+    "VocabularyCategory",
+    "EmotionCategory",
+    "DeepUrgencyLevel",
+    "NuanceType",
+    "ContextRecoverySource",
+    # データモデル
+    "DeepUnderstandingInput",
+    "DeepUnderstandingOutput",
+    "ResolvedReference",
+    "ImplicitIntent",
+    "IntentInferenceResult",
+    "VocabularyEntry",
+    "OrganizationContext",
+    "OrganizationContextResult",
+    "DetectedEmotion",
+    "DetectedUrgency",
+    "DetectedNuance",
+    "EmotionReadingResult",
+    "ContextFragment",
+    "RecoveredContext",
+    # Feature Flags
+    "FEATURE_FLAG_DEEP_UNDERSTANDING",
+    "FEATURE_FLAG_IMPLICIT_INTENT",
+    "FEATURE_FLAG_ORGANIZATION_CONTEXT",
+    "FEATURE_FLAG_EMOTION_READING",
+    "FEATURE_FLAG_VOCABULARY_LEARNING",
 ]
 
-__version__ = "2.7.0"  # v10.39.0: Phase 0 - Model Orchestrator
+__version__ = "2.8.0"  # v10.40.0: Phase 2I - Deep Understanding

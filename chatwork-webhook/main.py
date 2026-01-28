@@ -688,7 +688,42 @@ SYSTEM_CAPABILITIES = {
         },
     },
 
-    
+    # ===== 接続情報クエリ（v10.44.2） =====
+    "connection_query": {
+        "name": "DM可能な相手一覧",
+        "description": "ソウルくんがChatWorkで1on1（DM）できる相手の一覧を返す。代表のみ閲覧可能。",
+        "category": "connection",
+        "enabled": True,
+        "trigger_examples": [
+            "DMできる相手は誰？",
+            "DMできる人教えて",
+            "1on1で繋がってる人一覧教えて",
+            "直接チャットできる相手は？",
+            "個別で繋がってる人は？",
+        ],
+        "params_schema": {},
+        "handler": "handle_connection_query",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["DM", "1on1", "繋がってる", "直接チャット", "個別"],
+                "secondary": ["話せる", "チャットできる", "コネクション"],
+                "negative": ["タスク", "目標", "記憶"],
+            },
+            "intent_keywords": {
+                "primary": ["DMできる相手", "DMできる人", "1on1で繋がってる", "直接チャットできる相手", "個別で繋がってる人"],
+                "secondary": ["DM", "1on1", "個別", "繋がってる", "直接", "話せる", "チャットできる"],
+                "modifiers": ["教えて", "一覧", "誰", "全員", "名前", "どんな人"],
+                "negative": ["タスク", "目標", "記憶", "覚えて"],
+                "confidence_boost": 1.5,  # 最優先
+            },
+            "risk_level": "low",
+            "priority": 1,  # 最優先
+        },
+    },
+
+
     "chatwork_task_complete": {
         "name": "ChatWorkタスク完了",
         "description": "タスクを完了状態にする。「完了にして」「終わった」などの要望に対応。番号指定またはタスク内容で特定。",
@@ -2966,6 +3001,7 @@ def _get_brain_integration():
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
             # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
+            # Note: connection_queryはCapabilityBridge経由で登録される（設計原則準拠）
             "continue_goal_setting": _brain_continue_goal_setting,
             "continue_announcement": _brain_continue_announcement,
             "continue_task_pending": _brain_continue_task_pending,
@@ -3078,6 +3114,7 @@ def _get_brain():
             "api_limitation": _brain_handle_api_limitation,
             "general_conversation": _brain_handle_general_conversation,
             # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
+            # Note: connection_queryはCapabilityBridge経由で登録される（設計原則準拠）
             "continue_goal_setting": _brain_continue_goal_setting,
             "continue_announcement": _brain_continue_announcement,
             "continue_task_pending": _brain_continue_task_pending,
@@ -4090,6 +4127,10 @@ async def _brain_handle_api_limitation(params, room_id, account_id, sender_name,
         return HandlerResult(success=True, message=result if result else "API制限の説明ウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"API制限説明でエラーが発生したウル🐺")
+
+
+# Note: connection_queryのハンドラーはCapabilityBridge経由で登録される
+# （設計原則「機能拡張しても脳の構造は変わらない。カタログへの追加のみ」に準拠）
 
 
 async def _brain_handle_general_conversation(params, room_id, account_id, sender_name, context):

@@ -24,7 +24,7 @@
 
 Author: Claude Code
 Created: 2026-01-28
-Version: 1.2.0 (v10.40.10: ホワイトリスト方式の個人情報ガード)
+Version: 1.2.1 (v10.40.11: 保存結果に基づく返信修正・デバッグログ追加)
 """
 
 import json

@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 19:10 JST**
+**最終更新: 2026-01-28 19:20 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -436,6 +436,28 @@
 > - **ログ内容**: action, detected_memory_reference, conflict_reason, user_response
 > - **設計**: 非同期保存（実行速度に影響なし）
 > - **⚠️ 課題**: Cloud Functionsではローカルファイルが非永続。Cloud Logging対応が必要。
+
+**完了したこと（v10.43.0 Persona Layer）:** ✅ 2026-01-28 19:15 JST デプロイ完了
+> ソウルくんに「人格レイヤー」を追加した。Company Persona（全ユーザー共通）+ Add-on（個人向け）で一貫した行動指針を注入。
+> - **PR**: #302（Persona Layer本体）, #304（ログ修正）, #307（get_pool修正）
+> - **新規モジュール**: `chatwork-webhook/lib/persona/`
+>   - `__init__.py`: `build_persona_prompt()` メイン関数
+>   - `company_base.py`: Company Persona v1（10行の行動指針）
+>   - `addon_manager.py`: Add-on CRUD（DB連携）
+> - **symlink**: `lib/persona` → `chatwork-webhook/lib/persona`
+> - **DBテーブル**: `persona_addons`（Kazu Add-on v1 投入済み）
+> - **main.py統合**: `get_ai_response()` に Persona 注入ロジック追加（全5箇所のcall site対応）
+> - **安全対策**:
+>   - MAX_PERSONA_CHARS = 1200（長さ制限）
+>   - account_id が None の場合は Add-on スキップ
+>   - DB接続失敗時も会話継続（try/except）
+>   - ログは `🎭 Persona injected | addon=yes/no` のみ（個人名非出力）
+> - **本番デプロイ**: chatwork_webhook v6
+> - **⚠️ バグ修正済み**: `get_db_pool()` → `get_pool()` に修正（#307）
+
+**次回確認事項（v10.43.0 Persona Layer）:**
+> - ChatWorkで「おはよう」等の一般会話を送信し、ログで `🎭 Persona injected | addon=yes` を確認する
+> - カズ以外のアカウントで送信し、`addon=no` になることを確認する
 
 ---
 

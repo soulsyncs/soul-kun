@@ -129,6 +129,13 @@ from lib.brain.execution_excellence import (
 )
 from lib.feature_flags import is_execution_excellence_enabled as ff_execution_excellence_enabled
 
+# v10.46.0: 観測機能（Observability Layer）
+from lib.brain.observability import (
+    BrainObservability,
+    ContextType,
+    create_observability,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -251,6 +258,13 @@ class SoulkunBrain:
         self.execution_excellence: Optional[ExecutionExcellence] = None
         self._init_execution_excellence()
 
+        # v10.46.0: 観測機能（Observability Layer）
+        self.observability = create_observability(
+            org_id=org_id,
+            enable_cloud_logging=True,
+            enable_persistence=False,  # 将来的にTrue
+        )
+
         # 内部状態
         self._initialized = False
 
@@ -364,9 +378,14 @@ class SoulkunBrain:
             # 4. 判断層: アクションを決定
             decision = await self._decide(understanding, context)
 
-            # v10.45.0: Intent判定ログ（Cloud Loggingで追跡可能に）
-            text_preview = message[:40].replace('\n', ' ') if message else ""
-            print(f"🧠 intent={understanding.intent} route={decision.action} user={account_id} text={text_preview}")
+            # v10.46.0: 観測ログ - 意図判定（脳が統一管理）
+            self.observability.log_intent(
+                intent=understanding.intent,
+                route=decision.action,
+                confidence=decision.confidence,
+                account_id=account_id,
+                raw_message=message,
+            )
 
             # 4.1 確認が必要？
             if decision.needs_confirmation:
@@ -435,6 +454,15 @@ class SoulkunBrain:
                     suggestions=result.suggestions,
                     update_state=result.update_state,
                 )
+
+            # v10.46.0: 観測ログ - 実行結果（脳が統一管理）
+            self.observability.log_execution(
+                action=decision.action,
+                success=result.success,
+                account_id=account_id,
+                execution_time_ms=self._elapsed_ms(start_time),
+                error_code=result.data.get("error_code") if result.data and not result.success else None,
+            )
 
             # 6. 記憶更新（非同期で実行、エラーは無視）
             asyncio.create_task(

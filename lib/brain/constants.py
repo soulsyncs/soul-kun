@@ -213,10 +213,12 @@ URGENCY_KEYWORDS: Dict[str, str] = {
 # =============================================================================
 
 # 機能選択時の重み付け
+# v10.42.0 P2: life_axis_alignment追加（従来の重みを調整）
 CAPABILITY_SCORING_WEIGHTS: Dict[str, float] = {
-    "keyword_match": 0.4,    # キーワードマッチ
-    "intent_match": 0.3,     # 意図マッチ
-    "context_match": 0.3,    # 文脈マッチ
+    "keyword_match": 0.35,      # キーワードマッチ（0.4→0.35）
+    "intent_match": 0.25,       # 意図マッチ（0.3→0.25）
+    "context_match": 0.25,      # 文脈マッチ（0.3→0.25）
+    "life_axis_alignment": 0.15,  # 人生軸との整合性（v10.42.0 P2）
 }
 
 # 複数アクション検出用の接続詞

@@ -409,7 +409,8 @@ class BrainDecision:
                 # TODO: 複数アクションのキュー管理（Phase F以降）
 
             # ステップ3: 機能候補の抽出とスコアリング
-            candidates = self._score_capabilities(understanding)
+            # v10.42.0 P2: contextを渡して人生軸との整合性も評価
+            candidates = self._score_capabilities(understanding, context)
 
             if not candidates:
                 # 候補がない場合は汎用応答
@@ -630,11 +631,13 @@ class BrainDecision:
     def _score_capabilities(
         self,
         understanding: UnderstandingResult,
+        context: Optional[BrainContext] = None,
     ) -> List[ActionCandidate]:
         """
         全ての機能に対してスコアリングを行い、候補リストを返す
 
-        スコア = キーワードマッチ(40%) + 意図マッチ(30%) + 文脈マッチ(30%)
+        v10.42.0 P2: 人生軸との整合性スコアを追加
+        スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
         """
         candidates = []
 
@@ -643,6 +646,7 @@ class BrainDecision:
                 cap_key,
                 capability,
                 understanding,
+                context,
             )
 
             if score > CAPABILITY_MIN_SCORE_THRESHOLD:  # 最低スコア閾値
@@ -667,30 +671,40 @@ class BrainDecision:
         cap_key: str,
         capability: Dict[str, Any],
         understanding: UnderstandingResult,
+        context: Optional[BrainContext] = None,
     ) -> float:
         """
         単一の機能に対するスコアを計算
 
-        スコア = キーワードマッチ(40%) + 意図マッチ(30%) + 文脈マッチ(30%)
+        v10.42.0 P2: 人生軸との整合性スコアを追加
+        スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
         """
         weights = CAPABILITY_SCORING_WEIGHTS
         message = understanding.raw_message.lower()
         intent = understanding.intent
 
-        # 1. キーワードマッチ（40%）
+        # 1. キーワードマッチ（35%）
         keyword_score = self._calculate_keyword_score(cap_key, message)
 
-        # 2. 意図マッチ（30%）
+        # 2. 意図マッチ（25%）
         intent_score = self._calculate_intent_score(cap_key, intent, capability)
 
-        # 3. 文脈マッチ（30%）
+        # 3. 文脈マッチ（25%）
         context_score = self._calculate_context_score(cap_key, understanding)
+
+        # 4. v10.42.0 P2: 人生軸との整合性（15%）
+        life_axis_score = self._calculate_life_axis_alignment(
+            cap_key,
+            message,
+            context,
+        )
 
         # 重み付け合計
         total_score = (
-            keyword_score * weights.get("keyword_match", 0.4) +
-            intent_score * weights.get("intent_match", 0.3) +
-            context_score * weights.get("context_match", 0.3)
+            keyword_score * weights.get("keyword_match", 0.35) +
+            intent_score * weights.get("intent_match", 0.25) +
+            context_score * weights.get("context_match", 0.25) +
+            life_axis_score * weights.get("life_axis_alignment", 0.15)
         )
 
         return min(1.0, total_score)
@@ -801,6 +815,145 @@ class BrainDecision:
                 score += 0.5
 
         return min(1.0, score)
+
+    def _calculate_life_axis_alignment(
+        self,
+        cap_key: str,
+        message: str,
+        context: Optional[BrainContext] = None,
+    ) -> float:
+        """
+        v10.42.0 P2: 人生軸との整合性スコアを計算
+
+        ユーザーの人生軸・価値観・長期目標とアクションの整合性を評価。
+        人生軸に反する場合はスコアを下げ、整合する場合は上げる。
+
+        Args:
+            cap_key: アクション名
+            message: ユーザーメッセージ（小文字化済み）
+            context: 脳コンテキスト（user_life_axisを含む）
+
+        Returns:
+            float: 人生軸との整合性スコア（0.0〜1.0）
+        """
+        # 人生軸データがない場合はニュートラル（0.5）
+        if context is None or context.user_life_axis is None:
+            return 0.5
+
+        life_axis_data = context.user_life_axis
+        if not life_axis_data:
+            return 0.5
+
+        # 人生軸から価値観・原則を抽出
+        life_values = []
+        life_goals = []
+        life_why = None
+
+        for memory in life_axis_data:
+            memory_type = memory.get("memory_type", "")
+            content = memory.get("content", "").lower()
+
+            if memory_type == "life_why":
+                life_why = content
+            elif memory_type == "values":
+                life_values.append(content)
+            elif memory_type == "principles":
+                life_values.append(content)
+            elif memory_type == "long_term_goal":
+                life_goals.append(content)
+            elif memory_type == "identity":
+                life_values.append(content)
+
+        # 整合性スコアの計算
+        alignment_score = 0.5  # ベーススコア（ニュートラル）
+
+        # 1. 目標関連アクションと長期目標の整合性
+        if cap_key.startswith("goal_") and life_goals:
+            # 目標に関連するキーワードがメッセージに含まれているか
+            for goal in life_goals:
+                if self._has_semantic_overlap(message, goal):
+                    alignment_score += 0.3
+                    logger.debug(
+                        f"🎯 [P2 Life Axis] Goal alignment detected: "
+                        f"action={cap_key}, goal='{goal[:30]}...'"
+                    )
+                    break
+
+        # 2. 人生WHYとの整合性
+        if life_why:
+            # 人生WHYに関連するアクションにはボーナス
+            if self._has_semantic_overlap(message, life_why):
+                alignment_score += 0.2
+                logger.debug(
+                    f"🔥 [P2 Life Axis] Life WHY alignment detected: "
+                    f"action={cap_key}"
+                )
+
+        # 3. 価値観との整合性/反する検出
+        for value in life_values:
+            if self._has_semantic_overlap(message, value):
+                alignment_score += 0.15
+                logger.debug(
+                    f"💎 [P2 Life Axis] Value alignment detected: "
+                    f"action={cap_key}, value='{value[:30]}...'"
+                )
+                break
+
+        # 4. 反価値観検出（スコアダウン）
+        # 例: 「適当でいい」「とりあえず」などの価値観軽視表現
+        anti_value_patterns = [
+            "適当でいい",
+            "とりあえず",
+            "どうでもいい",
+            "意味ない",
+            "無駄",
+            "やめたい",  # ただし転職リスクはP1で処理済み
+        ]
+        for pattern in anti_value_patterns:
+            if pattern in message and life_values:
+                alignment_score -= 0.2
+                logger.info(
+                    f"⚠️ [P2 Life Axis] Anti-value pattern detected: "
+                    f"pattern='{pattern}'"
+                )
+                break
+
+        # スコアを0.0〜1.0の範囲にクランプ
+        return max(0.0, min(1.0, alignment_score))
+
+    def _has_semantic_overlap(self, text1: str, text2: str) -> bool:
+        """
+        v10.42.0 P2: 2つのテキスト間に意味的な重複があるか判定
+
+        シンプルなキーワードマッチングで判定（将来的にはEmbedding比較も可能）
+
+        Args:
+            text1: テキスト1
+            text2: テキスト2
+
+        Returns:
+            bool: 意味的な重複があればTrue
+        """
+        # 日本語対応: N-gramベースの部分文字列マッチング
+        # 2文字以上の連続する部分文字列が両方に含まれているかチェック
+
+        # 短いテキストの場合は直接部分一致をチェック
+        shorter = text1 if len(text1) <= len(text2) else text2
+        longer = text2 if len(text1) <= len(text2) else text1
+
+        # 2文字以上のN-gramを生成して比較
+        min_gram_length = 2
+        max_gram_length = min(6, len(shorter))
+
+        for n in range(max_gram_length, min_gram_length - 1, -1):
+            for i in range(len(shorter) - n + 1):
+                gram = shorter[i:i + n]
+                # スペースや句読点のみのN-gramはスキップ
+                if gram.strip() and not gram.isspace():
+                    if gram in longer:
+                        return True
+
+        return False
 
     def _extract_params_for_capability(
         self,

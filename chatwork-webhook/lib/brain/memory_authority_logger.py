@@ -2,10 +2,10 @@
 """
 Memory Authority 観測モードロガー
 
-v10.43.1: P4 SOFT_CONFLICT観測用ログ保存
+v10.43.2: Cloud Logging対応（ローカルファイル保存廃止）
 
 【役割】
-P4 MemoryAuthorityがSOFT_CONFLICTを検出した全ケースをログ保存し、
+P4 MemoryAuthorityがSOFT_CONFLICTを検出した全ケースをCloud Loggingに保存し、
 将来の精度改善のためのデータを蓄積する。
 
 【ログ内容】
@@ -15,19 +15,25 @@ P4 MemoryAuthorityがSOFT_CONFLICTを検出した全ケースをログ保存し�
 - user_response: ユーザーの応答（OK/修正）
 
 【設計方針】
+- Cloud Loggingに構造化ログとして出力
 - 非同期で保存（実行速度に影響を与えない）
-- JSON形式で保存（後から分析可能）
 - 判定ロジックは変更しない（観測のみ）
 """
 
 import asyncio
-import json
 import logging
 import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+try:
+    import google.cloud.logging
+    from google.cloud.logging_v2 import Logger
+    CLOUD_LOGGING_AVAILABLE = True
+except ImportError:
+    CLOUD_LOGGING_AVAILABLE = False
+    Logger = None
 
 logger = logging.getLogger(__name__)
 
@@ -87,46 +93,46 @@ class MemoryAuthorityLogger:
     """
     Memory Authority 観測モードロガー
 
-    SOFT_CONFLICT検出を非同期でJSONファイルに保存する。
+    SOFT_CONFLICT検出をCloud Loggingに構造化ログとして出力する。
     """
 
-    DEFAULT_LOG_DIR = "logs/memory_authority"
-    DEFAULT_LOG_FILE = "soft_conflicts.jsonl"
+    CLOUD_LOGGER_NAME = "memory_authority_soft_conflicts"
 
     def __init__(
         self,
-        log_dir: Optional[str] = None,
-        log_file: Optional[str] = None,
         enabled: bool = True,
     ):
         """
         Args:
-            log_dir: ログ保存ディレクトリ
-            log_file: ログファイル名
             enabled: ロギングが有効か（Feature Flag連携用）
         """
-        self.log_dir = Path(log_dir or self.DEFAULT_LOG_DIR)
-        self.log_file = log_file or self.DEFAULT_LOG_FILE
         self.enabled = enabled
         self._pending_logs: Dict[str, SoftConflictLog] = {}
+        self._cloud_logger: Optional[Logger] = None
+        self._client = None
 
-        # ログディレクトリを作成
-        if self.enabled:
+        # Cloud Loggingクライアント初期化
+        if self.enabled and CLOUD_LOGGING_AVAILABLE:
             try:
-                self.log_dir.mkdir(parents=True, exist_ok=True)
+                self._client = google.cloud.logging.Client()
+                self._cloud_logger = self._client.logger(self.CLOUD_LOGGER_NAME)
+                logger.debug(
+                    f"MemoryAuthorityLogger initialized with Cloud Logging: "
+                    f"logger_name={self.CLOUD_LOGGER_NAME}"
+                )
             except Exception as e:
-                logger.warning(f"Failed to create log directory: {e}")
-                self.enabled = False
+                logger.warning(f"Failed to initialize Cloud Logging client: {e}")
+                self._cloud_logger = None
+        elif self.enabled and not CLOUD_LOGGING_AVAILABLE:
+            logger.warning(
+                "google-cloud-logging not available. "
+                "Logs will only go to standard logging."
+            )
 
         logger.debug(
             f"MemoryAuthorityLogger initialized: "
-            f"enabled={self.enabled}, log_dir={self.log_dir}"
+            f"enabled={self.enabled}, cloud_logging={self._cloud_logger is not None}"
         )
-
-    @property
-    def log_path(self) -> Path:
-        """ログファイルのフルパス"""
-        return self.log_dir / self.log_file
 
     def log_soft_conflict(
         self,
@@ -227,7 +233,7 @@ class MemoryAuthorityLogger:
         user_response: str,
     ) -> bool:
         """
-        ユーザーの応答を更新してログを確定保存
+        ユーザーの応答を更新してCloud Loggingに出力
 
         Args:
             log_id: ログID
@@ -246,16 +252,16 @@ class MemoryAuthorityLogger:
         log_entry = self._pending_logs.pop(log_id)
         log_entry.user_response = user_response
 
-        # ファイルに保存
+        # Cloud Loggingに出力
         try:
-            self._write_log(log_entry)
+            self._write_to_cloud_logging(log_entry)
             logger.info(
-                f"[MemoryAuthorityLogger] User response saved: "
+                f"[MemoryAuthorityLogger] User response saved to Cloud Logging: "
                 f"log_id={log_id}, response={user_response}"
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to write log: {e}")
+            logger.error(f"Failed to write to Cloud Logging: {e}")
             # 失敗したらペンディングに戻す
             self._pending_logs[log_id] = log_entry
             return False
@@ -279,7 +285,7 @@ class MemoryAuthorityLogger:
 
     def flush_pending(self, default_response: str = "timeout") -> int:
         """
-        ペンディングログを全て確定保存
+        ペンディングログを全てCloud Loggingに出力
 
         ユーザー応答がタイムアウトした場合等に使用。
 
@@ -299,118 +305,34 @@ class MemoryAuthorityLogger:
 
         return count
 
-    def _write_log(self, log_entry: SoftConflictLog) -> None:
+    def _write_to_cloud_logging(self, log_entry: SoftConflictLog) -> None:
         """
-        ログをJSONLファイルに追記
+        Cloud Loggingに構造化ログを出力
 
         Args:
             log_entry: ログエントリ
         """
-        try:
-            with open(self.log_path, "a", encoding="utf-8") as f:
-                json_line = json.dumps(log_entry.to_dict(), ensure_ascii=False)
-                f.write(json_line + "\n")
-        except Exception as e:
-            logger.error(f"Failed to write log to {self.log_path}: {e}")
-            raise
+        log_dict = log_entry.to_dict()
 
-    def read_logs(
-        self,
-        start_date: Optional[str] = None,
-        end_date: Optional[str] = None,
-        action_filter: Optional[str] = None,
-        response_filter: Optional[str] = None,
-        limit: int = 1000,
-    ) -> List[SoftConflictLog]:
+        if self._cloud_logger is not None:
+            try:
+                self._cloud_logger.log_struct(log_dict, severity="INFO")
+            except Exception as e:
+                logger.warning(f"Cloud Logging failed: {e}")
+                # フォールバック: 標準ログに出力
+                logger.info(f"[SOFT_CONFLICT_LOG] {log_dict}")
+        else:
+            # Cloud Logging利用不可の場合は標準ログに出力
+            logger.info(f"[SOFT_CONFLICT_LOG] {log_dict}")
+
+    def get_pending_count(self) -> int:
         """
-        ログを読み込み（分析用）
-
-        Args:
-            start_date: 開始日（ISO形式）
-            end_date: 終了日（ISO形式）
-            action_filter: アクション名でフィルタ
-            response_filter: ユーザー応答でフィルタ
-            limit: 最大件数
+        ペンディングログの件数を取得
 
         Returns:
-            List[SoftConflictLog]: ログエントリのリスト
+            int: ペンディング件数
         """
-        if not self.log_path.exists():
-            return []
-
-        logs = []
-        try:
-            with open(self.log_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip():
-                        continue
-
-                    try:
-                        data = json.loads(line)
-                        log_entry = SoftConflictLog(**data)
-
-                        # フィルタリング
-                        if start_date and log_entry.timestamp < start_date:
-                            continue
-                        if end_date and log_entry.timestamp > end_date:
-                            continue
-                        if action_filter and log_entry.action != action_filter:
-                            continue
-                        if response_filter and log_entry.user_response != response_filter:
-                            continue
-
-                        logs.append(log_entry)
-
-                        if len(logs) >= limit:
-                            break
-                    except (json.JSONDecodeError, TypeError) as e:
-                        logger.warning(f"Failed to parse log line: {e}")
-                        continue
-
-        except Exception as e:
-            logger.error(f"Failed to read logs from {self.log_path}: {e}")
-
-        return logs
-
-    def get_statistics(self) -> Dict[str, Any]:
-        """
-        ログ統計を取得（分析用）
-
-        Returns:
-            Dict[str, Any]: 統計情報
-        """
-        logs = self.read_logs(limit=10000)
-
-        if not logs:
-            return {
-                "total_count": 0,
-                "response_distribution": {},
-                "action_distribution": {},
-                "avg_confidence": 0.0,
-            }
-
-        # 応答分布
-        response_dist: Dict[str, int] = {}
-        for log in logs:
-            resp = log.user_response or "pending"
-            response_dist[resp] = response_dist.get(resp, 0) + 1
-
-        # アクション分布
-        action_dist: Dict[str, int] = {}
-        for log in logs:
-            action_dist[log.action] = action_dist.get(log.action, 0) + 1
-
-        # 平均確信度
-        confidences = [log.confidence for log in logs if log.confidence > 0]
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-
-        return {
-            "total_count": len(logs),
-            "response_distribution": response_dist,
-            "action_distribution": action_dist,
-            "avg_confidence": round(avg_confidence, 3),
-            "pending_count": len(self._pending_logs),
-        }
+        return len(self._pending_logs)
 
 
 # =============================================================================
@@ -422,16 +344,12 @@ _logger_instance: Optional[MemoryAuthorityLogger] = None
 
 
 def get_memory_authority_logger(
-    log_dir: Optional[str] = None,
-    log_file: Optional[str] = None,
     enabled: bool = True,
 ) -> MemoryAuthorityLogger:
     """
     MemoryAuthorityLoggerのシングルトンインスタンスを取得
 
     Args:
-        log_dir: ログ保存ディレクトリ（初回のみ有効）
-        log_file: ログファイル名（初回のみ有効）
         enabled: ロギングが有効か（初回のみ有効）
 
     Returns:
@@ -441,8 +359,6 @@ def get_memory_authority_logger(
 
     if _logger_instance is None:
         _logger_instance = MemoryAuthorityLogger(
-            log_dir=log_dir,
-            log_file=log_file,
             enabled=enabled,
         )
 
@@ -450,8 +366,6 @@ def get_memory_authority_logger(
 
 
 def create_memory_authority_logger(
-    log_dir: Optional[str] = None,
-    log_file: Optional[str] = None,
     enabled: bool = True,
 ) -> MemoryAuthorityLogger:
     """
@@ -460,15 +374,11 @@ def create_memory_authority_logger(
     シングルトンを使わずに新しいインスタンスが必要な場合に使用。
 
     Args:
-        log_dir: ログ保存ディレクトリ
-        log_file: ログファイル名
         enabled: ロギングが有効か
 
     Returns:
         MemoryAuthorityLogger: 新しいロガーインスタンス
     """
     return MemoryAuthorityLogger(
-        log_dir=log_dir,
-        log_file=log_file,
         enabled=enabled,
     )

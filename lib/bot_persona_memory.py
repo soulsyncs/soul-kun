@@ -215,9 +215,14 @@ def is_valid_bot_persona(message: str, key: str = "", value: str = "") -> tuple:
     if re.search(r"(ソウルくん|そうるくん|soul.?kun)", check_text, re.IGNORECASE):
         is_soulkun_subject = True
 
-    # 二人称でソウルくんを指している（「君の好物は」など）
-    if re.search(r"(君|きみ|お前|おまえ)(の|は|が)", check_text):
-        is_soulkun_subject = True
+    # 二人称 + 「の」 + 許可キーワード の形のみ許可
+    # 例：「君の好物は」「きみの口調は」
+    # 注意：「君は明るい」などの曖昧な表現は許可しない
+    for keyword in ALLOWED_KEYWORDS_FLAT:
+        pattern = rf"(君|きみ|お前|おまえ)の{re.escape(keyword)}(は|が|を)?"
+        if re.search(pattern, check_text):
+            is_soulkun_subject = True
+            break
 
     # 主語なしで許可キーワードで始まる（「好物は〜」→ソウルくんの設定と推定）
     if key and key in ALLOWED_KEYWORDS_FLAT:

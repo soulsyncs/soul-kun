@@ -207,6 +207,24 @@ class TestValidBotPersonaWhitelist:
         result_is_valid, result_reason = is_valid_bot_persona(message, key, value)
         assert result_is_valid == is_valid, f"Message: {message}, Expected: {is_valid}, Got: {result_is_valid}, Reason: {result_reason}"
 
+    @pytest.mark.parametrize("message,key,value,is_valid", [
+        # 二人称の曖昧な表現はブロック
+        ("君は明るい性格だね", "性格", "明るい", False),
+        ("お前は優しいやつだ", "性格", "優しい", False),
+        ("きみは元気だね", "性格", "元気", False),
+        ("おまえは冷静だ", "性格", "冷静", False),
+
+        # 二人称 + 「の」 + 許可キーワード は許可
+        ("君の好物は10円パン", "好物", "10円パン", True),
+        ("きみの口調はウル", "口調", "ウル", True),
+        ("お前の性格は明るい", "性格", "明るい", True),
+        ("おまえの趣味はゲーム", "趣味", "ゲーム", True),
+    ])
+    def test_second_person_safety(self, message, key, value, is_valid):
+        """二人称の安全性: 「君は〜」はブロック、「君の好物は〜」は許可"""
+        result_is_valid, result_reason = is_valid_bot_persona(message, key, value)
+        assert result_is_valid == is_valid, f"Message: {message}, Expected: {is_valid}, Got: {result_is_valid}, Reason: {result_reason}"
+
 
 class TestWhitelistCategories:
     """ホワイトリスト許可カテゴリのテスト"""

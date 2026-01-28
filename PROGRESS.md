@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 19:30 JST**
+**最終更新: 2026-01-28 19:10 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -767,6 +767,21 @@ else:
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **19:10 JST**: v10.40.13 長期記憶判定をbrain無効時にも対応 ✅ **PR #306 デプロイ完了**
+  - **問題**: `USE_BRAIN_ARCHITECTURE=false`時、古い`handle_save_memory`が使われ、`is_long_term_memory_request()`が呼ばれていなかった
+  - **原因**: brain有効時のみ`_brain_handle_save_memory`が使われる設計だった
+  - **修正**: 古い`handle_save_memory`にも長期記憶判定ロジックを追加
+  - **動作**: `is_long_term_memory_request()` → True → `user_long_term_memory`へ保存
+  - **デバッグログ追加**: `🔍 [save_memory DEBUG] is_long_term=..., save_to=...`
+  - **Revision**: `chatwork-webhook-00264-few`
+  - **次回**: Chatworkでテスト送信 → ログで保存先確認
+
+- **18:46 JST**: v10.40.12 人生軸・価値観パターン拡張 ✅ **PR #301 マージ完了**
+  - **追加パターン**: 「人生軸は」「俺の軸は」「私の価値観は」「大事にしているのは」
+  - **成功メッセージ**: 「大事な軸、ちゃんと覚えたウル！これからの会話に活かすウルね🐺✨」
+  - **テスト**: 72件全パス
+  - **Revision**: `chatwork-webhook-00263-vuf`
 
 - **19:30 JST**: P4 Memory Authority 観測モード - 本番検証完了 ✅ **調査報告**
   - **結論**: v10.43.1は本番デプロイ済み、ただしログ永続化に問題あり

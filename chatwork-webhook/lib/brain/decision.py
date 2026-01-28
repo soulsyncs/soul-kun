@@ -193,8 +193,9 @@ CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "secondary": ["こんにちは", "ありがとう", "どう思う"],
         "negative": [],
     },
-    # v10.44.0: Connection Query（DM可能な相手一覧）
+    # v10.44.1: Connection Query（DM可能な相手一覧）- 優先度強化
     "connection_query": {
+        "priority": 100,  # 最優先レベル
         "primary": ["DM", "1on1", "繋がってる", "直接チャット", "個別"],
         "secondary": ["話せる", "チャットできる", "コネクション"],
         "negative": ["タスク", "目標", "記憶"],

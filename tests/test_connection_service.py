@@ -294,7 +294,7 @@ class TestConnectionQueryIntent:
         assert "primary" in keywords
         assert "secondary" in keywords
         assert "negative" in keywords
-        assert keywords["confidence_boost"] == 0.85
+        assert keywords["confidence_boost"] == 1.2  # v10.44.1: 優先度強化
 
     def test_decision_keywords_defined(self):
         """connection_query がCAPABILITY_KEYWORDSに定義されている"""
@@ -337,3 +337,72 @@ class TestCEOAccountSync:
         # 両方に同じIDが含まれている
         assert "1728974" in ORIGINAL_IDS
         assert "1728974" in SERVICE_IDS
+
+
+# =============================================================================
+# DMルーティングテスト（v10.44.1）
+# =============================================================================
+
+class TestDMQuestionRouting:
+    """DMに関する質問が connection_query にルーティングされるかテスト"""
+
+    def test_dm_question_keyword_match(self):
+        """「DMできる相手は誰？」がキーワードマッチする"""
+        from lib.brain.understanding import INTENT_KEYWORDS
+
+        keywords = INTENT_KEYWORDS["connection_query"]
+        message = "DMできる相手は誰？"
+
+        # primaryキーワードが含まれる
+        primary_match = any(kw in message for kw in keywords["primary"])
+        # secondaryキーワードが含まれる
+        secondary_match = any(kw in message for kw in keywords["secondary"])
+        # modifierキーワードが含まれる
+        modifier_match = any(kw in message for kw in keywords["modifiers"])
+
+        assert primary_match or secondary_match, "DM関連キーワードがマッチしない"
+        assert modifier_match, "modifierキーワードがマッチしない"
+
+    @pytest.mark.parametrize("message", [
+        "DMできる相手は誰？",
+        "DMできる人を教えて",
+        "1on1で繋がってる人は？",
+        "ソウルくんと直接チャットできる相手は？",
+        "個別で繋がってる人の一覧",
+    ])
+    def test_dm_messages_match_keywords(self, message):
+        """DMメッセージがキーワードにマッチする"""
+        from lib.brain.understanding import INTENT_KEYWORDS
+
+        keywords = INTENT_KEYWORDS["connection_query"]
+
+        # primary, secondary, modifiers のいずれかにマッチ
+        all_keywords = (
+            keywords["primary"]
+            + keywords["secondary"]
+            + keywords["modifiers"]
+        )
+        matches = [kw for kw in all_keywords if kw in message]
+
+        assert len(matches) > 0, f"'{message}' がキーワードにマッチしない"
+
+    def test_confidence_boost_is_high(self):
+        """confidence_boost が高く設定されている"""
+        from lib.brain.understanding import INTENT_KEYWORDS
+
+        keywords = INTENT_KEYWORDS["connection_query"]
+
+        # 1.0以上で優先されるはず
+        assert keywords["confidence_boost"] >= 1.0, (
+            f"confidence_boost が低い: {keywords['confidence_boost']}"
+        )
+
+    def test_priority_in_decision_keywords(self):
+        """decision.py で priority が設定されている"""
+        from lib.brain.decision import CAPABILITY_KEYWORDS
+
+        keywords = CAPABILITY_KEYWORDS["connection_query"]
+
+        # priority が設定されている
+        assert "priority" in keywords, "priority が設定されていない"
+        assert keywords["priority"] >= 100, "priority が低い"

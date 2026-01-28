@@ -1,8 +1,14 @@
 """
-目標設定対話フロー管理モジュール（Phase 2.5 v1.7）
+目標設定対話フロー管理モジュール（Phase 2.5 v1.8 - 神経接続修理版）
 
 アチーブメント社・選択理論に基づく目標設定対話を管理。
 WHY → WHAT → HOW の順で一問一答形式で目標を設定する。
+
+v1.8 変更点（神経接続修理）:
+- 状態管理を brain_conversation_states に一本化
+- 対話ログを brain_dialogue_logs に一本化
+- goal_setting_sessions / goal_setting_logs への依存を削除
+- user_id として ChatWork account_id を使用（脳の設計に準拠）
 
 v1.7 変更点:
 - 臨機応変な対応（Adaptive Response Enhancement）
@@ -52,6 +58,267 @@ CONFIRMATION_PATTERNS = [
     "うん", "はい", "いいよ", "大丈夫", "問題ない",
     "それで", "それでいい", "いいです", "オーケー"
 ]
+
+# v10.40.1: 否定接続パターン（「合ってるけど」等を検出）
+# これらが含まれる場合、肯定語があっても confirmed=False にする
+BUT_CONNECTOR_PATTERNS = [
+    "けど", "だけど", "けれど", "だけれど",
+    "が、", "が，", "ただ、", "ただ，",
+    "でも", "しかし", "一方で", "ただし",
+    "んだけど", "んですけど", "のですが", "んですが",
+]
+
+# v10.40.1: フィードバック要求パターン（「評価して」等を検出）
+# これらが含まれる場合、登録せずに導きの対話に入る
+FEEDBACK_REQUEST_PATTERNS = [
+    # 評価・フィードバック要求
+    "フィードバック", "評価", "見て", "どう思う", "どうかな",
+    "正しい", "合ってるか", "間違ってない", "これでいい？",
+    "これでいい", "大丈夫？", "大丈夫かな", "いいの？",
+    # 改善・アドバイス要求
+    "改善", "アドバイス", "教えて", "どうすれば", "どうしたら",
+    "足りない", "不足", "抜けて", "漏れて",
+    # 分解・具体化要求
+    "分解", "細かく", "具体的", "ブレイクダウン",
+    "目先", "短期", "今月", "今週", "今日",
+    # 確認・質問要求
+    "わかる？", "わかります？", "伝わって", "理解して",
+    "聞いて", "聞きたい", "質問", "相談",
+]
+
+# v10.40.2: 迷い・不安パターン（「不安」「自信ない」等を検出）
+# これらが含まれる場合も、登録せずに導きの対話に入る
+DOUBT_ANXIETY_PATTERNS = [
+    # 不安・自信のなさ
+    "不安", "自信ない", "自信がない", "自信なさそう",
+    "違うかも", "間違ってるかも", "これじゃない",
+    "わからない", "わかんない", "迷う", "迷って",
+    # 曖昧・不確実
+    "曖昧", "あいまい", "ぼんやり", "漠然",
+    "ふわっと", "なんとなく", "適当",
+    # v10.40.6: 微妙な反応も迷いとして検出
+    "微妙", "うーん", "びみょう",
+    # 心配・懸念
+    "心配", "不十分", "足りてる？", "ちゃんとして",
+]
+
+# v10.40.3: 明示的リスタートパターン
+# これらが含まれる場合のみ、セッションをリセットして最初から開始
+RESTART_PATTERNS = [
+    "もう一度", "最初から", "やり直", "リセット", "リスタート",
+    "初めから", "はじめから", "仕切り直", "やりなおし",
+    "新しく目標", "別の目標", "違う目標",
+]
+
+
+def _wants_restart(text: str) -> bool:
+    """
+    v10.40.3: 明示的なリスタート要求を検出
+
+    「もう一度目標設定したい」「やり直したい」等の場合のみ、
+    セッションをリセットして最初から開始する。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: リスタート要求（セッションをリセット）
+        False: リスタート要求ではない（セッション継続）
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in RESTART_PATTERNS)
+
+
+def _has_but_connector(text: str) -> bool:
+    """
+    v10.40.1: 否定接続（「けど」「だけど」等）を検出
+
+    「合ってるけど」のような場合、confirmed=False にするためのガード。
+    これは応急処置であり、将来的には brain/understanding.py に移行予定。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: 否定接続が含まれる（確認として扱わない）
+        False: 否定接続がない
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in BUT_CONNECTOR_PATTERNS)
+
+
+def _has_feedback_request(text: str) -> bool:
+    """
+    v10.40.1: フィードバック要求を検出
+
+    「フィードバックして」「正しい？」等の場合、登録せずに導きの対話に入る。
+    これは応急処置であり、将来的には brain/understanding.py に移行予定。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: フィードバック要求が含まれる（登録しない）
+        False: フィードバック要求がない
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in FEEDBACK_REQUEST_PATTERNS)
+
+
+def _has_doubt_or_anxiety(text: str) -> bool:
+    """
+    v10.40.2: 迷い・不安を検出
+
+    「不安」「自信ない」「違うかも」等の場合、導きの対話に入る。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: 迷い・不安が含まれる（導きの対話へ）
+        False: 迷い・不安がない
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in DOUBT_ANXIETY_PATTERNS)
+
+
+def _is_pure_confirmation(text: str) -> bool:
+    """
+    v10.40.1: 純粋な確認かどうかを判定
+
+    confirmed = 肯定語あり AND 否定接続なし AND FB要求なし
+
+    これにより「合ってるけど〜」「OKだけど教えて」等での誤登録を防止。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: 純粋な確認（登録OK）
+        False: 追加要求あり（登録しない）
+    """
+    text_lower = text.lower().strip()
+
+    # 1. 肯定語チェック
+    has_confirmation = any(
+        pattern in text_lower for pattern in CONFIRMATION_PATTERNS
+    )
+    if not has_confirmation:
+        return False
+
+    # 2. 否定接続チェック（「けど」等があればNG）
+    if _has_but_connector(text):
+        print(f"   ⚠️ 否定接続検出: 確認として扱わない")
+        return False
+
+    # 3. フィードバック要求チェック
+    if _has_feedback_request(text):
+        print(f"   ⚠️ フィードバック要求検出: 確認として扱わない")
+        return False
+
+    return True
+
+
+# =============================================================================
+# v10.40.3: フェーズ自動判定（Phase Auto-Inference）
+# ユーザー発話からWHY/WHAT/HOWの充足度を推定し、既に充足したフェーズをスキップ
+# =============================================================================
+
+# WHY充足パターン（将来像・ありたい姿・動機）
+WHY_FULFILLED_PATTERNS = [
+    # ありたい姿
+    "なりたい", "目指して", "目指す", "理想",
+    # 動機・理由
+    "ために", "だから", "したくて", "したいから",
+    # ビジョン・将来
+    "将来", "いつか", "ゆくゆく", "最終的に",
+    # 価値観
+    "大事", "大切", "重要", "意味がある",
+    # 願望
+    "〜ようになりたい", "できるようになりたい", "認められたい",
+]
+
+# WHAT充足パターン（テーマ・目標・成果）
+WHAT_FULFILLED_PATTERNS = [
+    # テーマ・領域
+    "テーマ", "領域", "分野", "方向性",
+    # 目標・ゴール
+    "目標", "ゴール", "達成", "成果",
+    # 数値・KPI
+    "件", "万", "円", "%", "人", "回",
+    # 期限
+    "今月", "今週", "月末", "週末", "年末", "月次", "年次",
+]
+
+# HOW充足パターン（行動・習慣・頻度）
+HOW_FULFILLED_PATTERNS = [
+    # 頻度
+    "毎日", "毎週", "毎朝", "毎晩", "週に", "日に",
+    # 行動
+    "やる", "する", "行う", "実践", "実行",
+    # 習慣
+    "習慣", "ルーティン", "継続", "続ける",
+    # 具体的行動
+    "電話", "訪問", "メール", "報告", "確認",
+]
+
+
+def _infer_fulfilled_phases(text: str) -> Dict[str, bool]:
+    """
+    v10.40.3: ユーザー発話からフェーズの充足度を推定
+
+    WHY/WHAT/HOWそれぞれについて、ユーザーの発話に
+    該当する情報が含まれているかを判定。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        {"why": True/False, "what": True/False, "how": True/False}
+    """
+    text_lower = text.lower()
+
+    return {
+        "why": any(p in text_lower for p in WHY_FULFILLED_PATTERNS),
+        "what": any(p in text_lower for p in WHAT_FULFILLED_PATTERNS),
+        "how": any(p in text_lower for p in HOW_FULFILLED_PATTERNS),
+    }
+
+
+def _get_next_unfulfilled_step(
+    fulfilled: Dict[str, bool],
+    current_step: str,
+    session: Dict[str, Any]
+) -> Optional[str]:
+    """
+    v10.40.3: 次に質問すべきステップを判定
+
+    既に充足しているステップはスキップし、未充足のステップを返す。
+    セッションに既に回答がある場合もスキップ。
+
+    Args:
+        fulfilled: 各フェーズの充足状況
+        current_step: 現在のステップ
+        session: セッション情報
+
+    Returns:
+        次のステップ名（"why", "what", "how", "confirm"）
+        全て充足済みなら "confirm"
+    """
+    steps = ["why", "what", "how"]
+
+    for step in steps:
+        # 既にセッションに回答がある場合はスキップ
+        answer_key = f"{step}_answer"
+        if session.get(answer_key):
+            continue
+
+        # 今回の発話で充足していない場合は、このステップを次に
+        if not fulfilled.get(step, False):
+            return step
+
+    # 全て充足 → confirm へ
+    return "confirm"
 
 
 # =====================================================
@@ -143,6 +410,21 @@ TEMPLATES = {
 
 {user_name}さんなら絶対達成できるって、ソウルくんは信じてるウル💪🐺
 毎日17時に進捗を聞くから、一緒に頑張っていこうウル✨""",
+
+    # v10.40.2: 導きの対話（目標の質チェック）
+    # フィードバック要求や迷い・不安を検出した場合に使用
+    "quality_check": """🐺 {user_name}さん、確認してくれてありがとうウル！
+
+ソウルくんも一緒に考えさせてウル。
+
+{quality_feedback}
+
+━━━━━━━━━━━━━━━━━━
+{quality_questions}
+━━━━━━━━━━━━━━━━━━
+
+📋 この方向で登録する？それとも調整する？
+「OK」で登録、もしくは修正したい部分を教えてウル🐺✨""",
 
     # NG応答: 抽象的すぎる
     "ng_abstract": """🤔 もう少し具体的に教えてほしいウル！
@@ -355,6 +637,53 @@ TEMPLATES = {
 {user_name}さん、また目標を設定したくなったらいつでも声をかけてウル🐺✨
 
 「目標を設定したい」と言ってくれたら、いつでも始められるウル！""",
+
+    # =====================================================
+    # v10.40.3: スマート質問（フェーズ自動判定用）
+    # ユーザーの回答から既に分かっている情報を活かした質問
+    # =====================================================
+
+    # テーマが分かっている場合のWHAT質問（具体化に絞る）
+    "smart_what_with_themes": """🎯 なるほど！{themes}に力を入れていくんだね！
+
+ありがとうウル🐺
+
+では、この中でまず**今月具体的に達成したい成果**を教えてほしいウル！
+
+例えば：
+• 「{theme_example}で〇〇を達成」
+• 「〇件」「〇%」「〇日までに」など数字で
+
+どれか1つでいいから、具体的に教えてウル🐺✨""",
+
+    # 方向性が分かっている場合のHOW質問
+    "smart_how_with_goal": """💪 「{goal}」を目指すんだね！素敵ウル🐺
+
+あと少し！**毎日・毎週の具体的な行動**を教えてほしいウル！
+
+例えば：
+• 「毎日〇〇分」「週に〇回」
+• 「毎朝〇〇をする」「帰宅前に〇〇」
+
+どんな行動を習慣にするか、教えてウル🐺✨""",
+
+    # 複数情報が一度に来た時の確認
+    "smart_confirm_extracted": """🐺 {user_name}さん、ありがとうウル！
+
+ソウルくんなりに整理してみたウル：
+
+━━━━━━━━━━━━━━━━━━
+🔥 【WHY - 想い】
+{why_summary}
+
+🎯 【WHAT - 目指すゴール】
+{what_summary}
+
+💪 【HOW - 具体的な行動】
+{how_summary}
+━━━━━━━━━━━━━━━━━━
+
+{missing_message}""",
 }
 
 
@@ -491,6 +820,68 @@ class GoalSettingDialogue:
                 return True
         return False
 
+    def _extract_themes_from_message(self, message: str) -> Optional[str]:
+        """
+        v10.40.3: メッセージからテーマ・領域を抽出
+
+        「SNS発信とAI開発と組織化」のような複数テーマを
+        「SNS発信、AI開発、組織化」の形式で返す。
+
+        Args:
+            message: ユーザーメッセージ
+
+        Returns:
+            抽出されたテーマ（カンマ区切り）またはNone
+        """
+        # 「〜と〜と〜」パターンを検出
+        import re
+
+        # パターン1: 「AとBとC」形式
+        pattern1 = r'([^。、]+?)と([^。、]+?)と([^。、]+?)(?:に|を|の|で|は|が)'
+        match = re.search(pattern1, message)
+        if match:
+            return f"{match.group(1).strip()}、{match.group(2).strip()}、{match.group(3).strip()}"
+
+        # パターン2: 「A・B・C」形式
+        pattern2 = r'([^。、]+?)・([^。、]+?)・([^。、]+?)(?:に|を|の|で|は|が)'
+        match = re.search(pattern2, message)
+        if match:
+            return f"{match.group(1).strip()}、{match.group(2).strip()}、{match.group(3).strip()}"
+
+        # パターン3: 「A、B、C」形式
+        pattern3 = r'([^。]+?)、([^。]+?)、([^。]+?)(?:に|を|の|で|は|が)'
+        match = re.search(pattern3, message)
+        if match:
+            return f"{match.group(1).strip()}、{match.group(2).strip()}、{match.group(3).strip()}"
+
+        # パターン4: 「AとB」形式（2つ）
+        pattern4 = r'([^。、]+?)と([^。、]+?)(?:に|を|の|で|は|が)'
+        match = re.search(pattern4, message)
+        if match:
+            return f"{match.group(1).strip()}、{match.group(2).strip()}"
+
+        # テーマっぽいキーワードがあれば抽出
+        theme_keywords = [
+            "発信", "開発", "組織", "営業", "マーケ", "採用",
+            "教育", "研修", "企画", "設計", "分析", "改善",
+        ]
+        found_themes = []
+        for kw in theme_keywords:
+            if kw in message:
+                # キーワードを含む文節を抽出
+                idx = message.find(kw)
+                start = max(0, idx - 5)
+                end = min(len(message), idx + len(kw) + 5)
+                snippet = message[start:end].strip()
+                # 重複チェック
+                if snippet not in found_themes and len(snippet) < 20:
+                    found_themes.append(snippet)
+
+        if found_themes:
+            return "、".join(found_themes[:3])  # 最大3つ
+
+        return None
+
     def _analyze_long_response_with_llm(self, message: str, session: Dict[str, Any]) -> Optional[Dict[str, str]]:
         """
         長文の回答をLLMで解析してWHY/WHAT/HOWを抽出
@@ -600,27 +991,132 @@ class GoalSettingDialogue:
 
         return response
 
+    def _generate_quality_check_response(
+        self,
+        session: Dict[str, Any],
+        user_message: str,
+        pattern_type: str
+    ) -> str:
+        """
+        v10.40.2: 導きの対話（目標の質チェック）応答を生成
+
+        設計書に基づき、心理的安全性を確保しつつ目標の質を高める質問を生成。
+        - WHY: 内発的動機（誰が喜ぶ/どんな自分でいたい/何を大事にしたい）
+        - WHAT: 測定可能（数字/期限/定義が曖昧なら具体化）
+        - HOW: 行動（頻度/量/最初の一歩/今週やること）
+        - 障害: 想定される障害と対策を1つだけ問う
+
+        NG厳守: ジャッジではなく改善、詰問禁止
+        """
+        why = session.get("why_answer", "")
+        what = session.get("what_answer", "")
+        how = session.get("how_answer", "")
+
+        # 目標の質を評価し、質問を生成
+        quality_issues = []
+        quality_questions = []
+
+        # WHYの評価：内発的動機が見えるか
+        if why:
+            # 外発的動機のパターン
+            external_patterns = ["言われた", "やらなきゃ", "しなければ", "義務", "命令", "指示"]
+            is_external = any(p in why for p in external_patterns)
+            # 内発的動機のパターン
+            internal_patterns = ["したい", "なりたい", "実現", "大切", "大事", "喜ぶ", "幸せ"]
+            has_internal = any(p in why for p in internal_patterns)
+
+            if is_external and not has_internal:
+                quality_issues.append("WHYに外発的動機が見える")
+                quality_questions.append(
+                    "💭 この目標を達成したら、誰が喜ぶウル？そして{user_name}さん自身はどんな気持ちになるウル？"
+                )
+            elif not has_internal and len(why) < 30:
+                quality_issues.append("WHYが短い・内発的動機が薄い")
+                quality_questions.append(
+                    "💭 もう少し聞かせてウル。この目標を通じて、どんな自分になりたいウル？"
+                )
+
+        # WHATの評価：測定可能か
+        if what:
+            # 数値・期限のパターン
+            has_number = any(c.isdigit() for c in what)
+            date_patterns = ["月", "日", "週", "年", "まで", "期限", "締切"]
+            has_date = any(p in what for p in date_patterns)
+
+            if not has_number and not has_date:
+                quality_issues.append("WHATに数値・期限がない")
+                if len(quality_questions) < 2:
+                    quality_questions.append(
+                        "🎯 いつまでに、どのくらい達成できたら「やった！」と言えるウル？"
+                    )
+
+        # HOWの評価：具体的な行動か
+        if how:
+            action_patterns = ["毎日", "毎週", "回", "時間", "分", "件"]
+            has_frequency = any(p in how for p in action_patterns)
+
+            if not has_frequency:
+                quality_issues.append("HOWに頻度・量がない")
+                if len(quality_questions) < 2:
+                    quality_questions.append(
+                        "💪 最初の一歩として、今週は何をするウル？具体的に決めておくと動きやすいウル"
+                    )
+
+        # 障害の質問（質問が1つ以下の場合のみ）
+        if len(quality_questions) < 2:
+            quality_questions.append(
+                "🤔 この目標を達成する上で、一番の壁になりそうなことは何ウル？"
+            )
+
+        # 質問を最大2つに制限
+        quality_questions = quality_questions[:2]
+
+        # 心理的安全性を確保したフィードバック
+        if pattern_type == "feedback_request":
+            quality_feedback = f"""確認してくれてありがとうウル🐺
+目標設定に「正解」はないウル。大切なのは{self.user_name}さん自身が「これでいく！」と思えること。
+
+ただ、達成確率を上げるために、ソウルくんからいくつか確認させてウル。"""
+        else:  # doubt_anxiety
+            quality_feedback = f"""迷いがあるの、すごくわかるウル🐺
+目標って、最初から完璧じゃなくていいウル。走りながら調整していけばOK。
+
+でもせっかくなので、もう少しだけ一緒に考えさせてウル。"""
+
+        # 質問テキストを生成
+        questions_text = ""
+        for i, q in enumerate(quality_questions, 1):
+            questions_text += f"❓ 質問{i}: {q.format(user_name=self.user_name)}\n"
+
+        response = TEMPLATES["quality_check"].format(
+            user_name=self.user_name,
+            quality_feedback=quality_feedback,
+            quality_questions=questions_text.strip()
+        )
+
+        return response
+
     def _get_active_session(self, conn) -> Optional[Dict[str, Any]]:
         """
-        アクティブなセッションを取得
+        アクティブなセッションを取得（v1.8: brain_conversation_states使用）
 
-        24時間以内の未完了セッションを検索。
+        brain_conversation_states から state_type='goal_setting' のセッションを検索。
+        user_id は ChatWork account_id を使用。
         """
         result = conn.execute(
             text("""
-                SELECT id, current_step, why_answer, what_answer, how_answer,
-                       started_at, expires_at
-                FROM goal_setting_sessions
-                WHERE user_id = :user_id
+                SELECT id, state_step, state_data, created_at, expires_at
+                FROM brain_conversation_states
+                WHERE user_id = :account_id
                   AND organization_id = :org_id
-                  AND chatwork_room_id = :room_id
-                  AND status = 'in_progress'
+                  AND room_id = :room_id
+                  AND state_type = 'goal_setting'
                   AND expires_at > CURRENT_TIMESTAMP
-                ORDER BY started_at DESC
+                ORDER BY created_at DESC
                 LIMIT 1
             """),
             {
-                "user_id": self.user_id,
+                "account_id": self.account_id,
                 "org_id": self.org_id,
                 "room_id": self.room_id
             }
@@ -629,46 +1125,80 @@ class GoalSettingDialogue:
         if not result:
             return None
 
+        # state_data から WHY/WHAT/HOW 回答を取得
+        state_data = result[2] or {}
+
         return {
             "id": str(result[0]),
-            "current_step": result[1],
-            "why_answer": result[2],
-            "what_answer": result[3],
-            "how_answer": result[4],
-            "started_at": result[5],
-            "expires_at": result[6]
+            "current_step": result[1] or "why",
+            "why_answer": state_data.get("why_answer"),
+            "what_answer": state_data.get("what_answer"),
+            "how_answer": state_data.get("how_answer"),
+            "started_at": result[3],
+            "expires_at": result[4]
         }
 
     def _create_session(self, conn) -> str:
         """
-        新規セッションを作成
+        新規セッションを作成（v1.8: brain_conversation_states使用）
 
         v10.19.4: セッションは最初から 'why' ステップで作成する。
         'intro' は論理的なステップとしては存在せず、イントロメッセージ送信後は
         すぐに WHY ステップに入る。これにより、ユーザーの最初の返信が
         必ず WHY 回答として処理される。
+
+        v1.8: brain_conversation_states に状態を作成。
+        user_id には ChatWork account_id を使用。
         """
-        session_id = str(uuid4())
-        conn.execute(
+        # v10.40.4: UPSERT修正 - 既存セッションの回答を保護
+        # INSERT時のみ state_step='why', state_data='{}' を設定
+        # UPDATE時は expires_at と updated_at のみ更新（回答を上書きしない）
+        result = conn.execute(
             text("""
-                INSERT INTO goal_setting_sessions (
-                    id, organization_id, user_id, chatwork_room_id,
-                    status, current_step, started_at, expires_at
+                INSERT INTO brain_conversation_states (
+                    organization_id, room_id, user_id,
+                    state_type, state_step, state_data,
+                    expires_at, timeout_minutes,
+                    created_at, updated_at
                 ) VALUES (
-                    :id, :org_id, :user_id, :room_id,
-                    'in_progress', 'why', CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP + INTERVAL '24 hours'
+                    :org_id, :room_id, :account_id,
+                    'goal_setting', 'why', '{}',
+                    CURRENT_TIMESTAMP + INTERVAL '24 hours', 1440,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (organization_id, room_id, user_id)
+                DO UPDATE SET
+                    expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours',
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
             """),
             {
-                "id": session_id,
                 "org_id": self.org_id,
-                "user_id": self.user_id,
-                "room_id": self.room_id
+                "room_id": self.room_id,
+                "account_id": self.account_id
             }
         )
+        row = result.fetchone()
+        session_id = str(row[0]) if row else str(uuid4())
         conn.commit()
         return session_id
+
+    def _clear_session(self, conn, session_id: str) -> None:
+        """
+        セッションをクリア（v10.40.3: リスタート用）
+
+        明示的なリスタート要求時に使用。
+        brain_conversation_states から削除してセッションを終了。
+        """
+        conn.execute(
+            text("""
+                DELETE FROM brain_conversation_states
+                WHERE id = :session_id
+            """),
+            {"session_id": session_id}
+        )
+        conn.commit()
+        print(f"   ✅ Session cleared: {session_id}")
 
     def _update_session(self, conn, session_id: str,
                        current_step: str = None,
@@ -677,39 +1207,55 @@ class GoalSettingDialogue:
                        how_answer: str = None,
                        status: str = None,
                        goal_id: str = None) -> None:
-        """セッションを更新"""
-        updates = ["updated_at = CURRENT_TIMESTAMP", "last_activity_at = CURRENT_TIMESTAMP"]
-        params = {"session_id": session_id}
+        """
+        セッションを更新（v1.8: brain_conversation_states使用）
 
-        # v10.38.1: current_step をオプショナルに変更（回答のみ更新するケース対応）
+        state_data JSONBに WHY/WHAT/HOW 回答を格納。
+        status='completed' の場合は状態をクリア（DELETEではなくstate_type更新）。
+        """
+        # まず現在のstate_dataを取得
+        current = conn.execute(
+            text("""
+                SELECT state_data FROM brain_conversation_states
+                WHERE id = :session_id
+            """),
+            {"session_id": session_id}
+        ).fetchone()
+
+        current_data = (current[0] if current and current[0] else {}) or {}
+
+        # state_dataを更新
+        if why_answer is not None:
+            current_data["why_answer"] = why_answer
+        if what_answer is not None:
+            current_data["what_answer"] = what_answer
+        if how_answer is not None:
+            current_data["how_answer"] = how_answer
+        if goal_id is not None:
+            current_data["goal_id"] = goal_id
+
+        # 更新クエリを構築
+        updates = ["updated_at = CURRENT_TIMESTAMP"]
+        params = {"session_id": session_id, "state_data": json.dumps(current_data)}
+
         if current_step is not None:
-            updates.append("current_step = :current_step")
+            updates.append("state_step = :current_step")
             params["current_step"] = current_step
 
-        if why_answer is not None:
-            updates.append("why_answer = :why_answer")
-            params["why_answer"] = why_answer
+        updates.append("state_data = CAST(:state_data AS jsonb)")
 
-        if what_answer is not None:
-            updates.append("what_answer = :what_answer")
-            params["what_answer"] = what_answer
+        # タイムアウト延長
+        updates.append("expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours'")
 
-        if how_answer is not None:
-            updates.append("how_answer = :how_answer")
-            params["how_answer"] = how_answer
-
-        if status is not None:
-            updates.append("status = :status")
-            params["status"] = status
-            if status == "completed":
-                updates.append("completed_at = CURRENT_TIMESTAMP")
-
-        if goal_id is not None:
-            updates.append("goal_id = :goal_id")
-            params["goal_id"] = goal_id
+        # status='completed' の場合は state_type を 'normal' に変更
+        if status == "completed":
+            updates.append("state_type = 'normal'")
+            updates.append("state_step = NULL")
+            current_data["completed_at"] = datetime.utcnow().isoformat()
+            params["state_data"] = json.dumps(current_data)
 
         conn.execute(
-            text(f"UPDATE goal_setting_sessions SET {', '.join(updates)} WHERE id = :session_id"),
+            text(f"UPDATE brain_conversation_states SET {', '.join(updates)} WHERE id = :session_id"),
             params
         )
         conn.commit()
@@ -721,25 +1267,32 @@ class GoalSettingDialogue:
                         feedback_given: bool = False,
                         result: str = None,
                         step_attempt: int = 1) -> None:
-        """対話ログを記録"""
+        """
+        対話ログを記録（v1.8: brain_dialogue_logs使用）
+
+        全対話フローのログを統一管理するbrain_dialogue_logsに記録。
+        chatwork_account_id を使用。
+        """
         log_id = str(uuid4())
         conn.execute(
             text("""
-                INSERT INTO goal_setting_logs (
-                    id, organization_id, session_id, user_id,
-                    step, step_attempt, user_message, ai_response,
+                INSERT INTO brain_dialogue_logs (
+                    id, organization_id, chatwork_account_id, room_id,
+                    state_type, state_step, step_attempt,
+                    user_message, ai_response,
                     detected_pattern, evaluation_result, feedback_given, result
                 ) VALUES (
-                    :id, :org_id, :session_id, :user_id,
-                    :step, :step_attempt, :user_message, :ai_response,
+                    :id, :org_id, :account_id, :room_id,
+                    'goal_setting', :step, :step_attempt,
+                    :user_message, :ai_response,
                     :detected_pattern, :evaluation_result, :feedback_given, :result
                 )
             """),
             {
                 "id": log_id,
                 "org_id": self.org_id,
-                "session_id": session_id,
-                "user_id": self.user_id,
+                "account_id": self.account_id,
+                "room_id": self.room_id,
                 "step": step,
                 "step_attempt": step_attempt,
                 "user_message": user_message,
@@ -753,15 +1306,27 @@ class GoalSettingDialogue:
         conn.commit()
 
     def _get_step_attempt_count(self, conn, session_id: str, step: str) -> int:
-        """現在のステップの試行回数を取得"""
+        """
+        現在のステップの試行回数を取得（v1.8: brain_dialogue_logs使用）
+
+        chatwork_account_idとroom_idで検索。session_idは使用しない。
+        """
         result = conn.execute(
             text("""
-                SELECT COUNT(*) FROM goal_setting_logs
-                WHERE session_id = :session_id
+                SELECT COUNT(*) FROM brain_dialogue_logs
+                WHERE chatwork_account_id = :account_id
+                  AND room_id = :room_id
                   AND organization_id = :org_id
-                  AND step = :step
+                  AND state_type = 'goal_setting'
+                  AND state_step = :step
+                  AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
             """),
-            {"session_id": session_id, "org_id": self.org_id, "step": step}
+            {
+                "account_id": self.account_id,
+                "room_id": self.room_id,
+                "org_id": self.org_id,
+                "step": step
+            }
         ).fetchone()
         return (result[0] or 0) + 1
 
@@ -1108,6 +1673,13 @@ class GoalSettingDialogue:
             # アクティブなセッションを確認
             session = self._get_active_session(conn)
 
+            # v10.40.3: 明示的リスタート要求のチェック
+            # 既存セッションがあっても、「やり直したい」等の場合はリセット
+            if session is not None and user_message and _wants_restart(user_message):
+                print(f"   🔄 Restart requested: clearing existing session {session['id']}")
+                self._clear_session(conn, session["id"])
+                session = None  # 新規セッション開始へ
+
             if session is None:
                 # 新規セッション開始（v10.19.4: セッションは最初から 'why' で作成）
                 session_id = self._create_session(conn)
@@ -1181,9 +1753,9 @@ class GoalSettingDialogue:
         if current_step == "confirm":
             print(f"   📋 確認ステップ: ユーザー応答「{user_message[:30]}...」")
 
-            # OKパターンをチェック
-            message_lower = user_message.lower().strip()
-            is_confirmed = any(pattern in message_lower for pattern in CONFIRMATION_PATTERNS)
+            # OKパターンをチェック（v10.40.1: 純粋な確認のみ受け付ける）
+            # 「合ってるけど、フィードバックして」のような否定接続やFB要求は確認とみなさない
+            is_confirmed = _is_pure_confirmation(user_message)
 
             if is_confirmed:
                 print(f"   ✅ 確認OK - 目標を登録します")
@@ -1227,40 +1799,115 @@ class GoalSettingDialogue:
                     "pattern": "confirmed"
                 }
             else:
-                # 修正リクエストの可能性
-                print(f"   🔄 修正リクエストを処理")
-                # LLMで修正内容を解析
-                extracted = self._analyze_long_response_with_llm(user_message, session)
+                # v10.40.2: フィードバック要求/迷い・不安の場合は「導きの対話」へ
+                is_feedback_request = _has_feedback_request(user_message)
+                is_doubt_anxiety = _has_doubt_or_anxiety(user_message)
 
-                if extracted:
-                    # 修正内容を更新
-                    updates = {}
-                    if extracted.get("why"):
-                        updates["why_answer"] = extracted["why"]
-                        session["why_answer"] = extracted["why"]
-                    if extracted.get("what"):
-                        updates["what_answer"] = extracted["what"]
-                        session["what_answer"] = extracted["what"]
-                    if extracted.get("how"):
-                        updates["how_answer"] = extracted["how"]
-                        session["how_answer"] = extracted["how"]
+                if is_feedback_request or is_doubt_anxiety:
+                    # 導きの対話（目標の質チェック）
+                    pattern_type = "feedback_request" if is_feedback_request else "doubt_anxiety"
+                    print(f"   💡 導きの対話へ: {pattern_type}")
 
-                    if updates:
+                    response = self._generate_quality_check_response(
+                        session, user_message, pattern_type
+                    )
+
+                    self._log_interaction(
+                        conn, session_id, "confirm",
+                        user_message, response,
+                        detected_pattern=pattern_type,
+                        result="quality_check",
+                        step_attempt=step_attempt
+                    )
+
+                    return {
+                        "success": True,
+                        "message": response,
+                        "session_id": session_id,
+                        "step": "confirm",
+                        "pattern": pattern_type
+                    }
+
+                # =====================================================
+                # v10.40.6: confirm無限ループ完全防止パッチ
+                # =====================================================
+                # ルール:
+                # - 長文 かつ LLM抽出成功 かつ 有効な修正あり → 要約更新
+                # - それ以外は全て → 導きの対話へフォールバック
+                # - 「同じ要約を再表示」は絶対にしない
+                # =====================================================
+
+                print(f"   🔄 入力を分析中...")
+
+                # 長文の場合のみLLMで修正解析を試みる
+                if len(user_message) >= LONG_RESPONSE_THRESHOLD:
+                    extracted = self._analyze_long_response_with_llm(user_message, session)
+
+                    # 有効な修正が抽出できた場合のみ要約を更新
+                    has_valid_updates = (
+                        extracted and
+                        (extracted.get("why") or extracted.get("what") or extracted.get("how"))
+                    )
+
+                    if has_valid_updates:
+                        # 修正内容を更新
+                        updates = {}
+                        if extracted.get("why"):
+                            updates["why_answer"] = extracted["why"]
+                            session["why_answer"] = extracted["why"]
+                        if extracted.get("what"):
+                            updates["what_answer"] = extracted["what"]
+                            session["what_answer"] = extracted["what"]
+                        if extracted.get("how"):
+                            updates["how_answer"] = extracted["how"]
+                            session["how_answer"] = extracted["how"]
+
                         self._update_session(conn, session_id, **updates)
 
-                # 修正後の内容で再確認
-                response = self._generate_understanding_response(
-                    {"why": session.get("why_answer", ""),
-                     "what": session.get("what_answer", ""),
-                     "how": session.get("how_answer", "")},
-                    session
+                        # 修正後の内容で再確認
+                        response = self._generate_understanding_response(
+                            {"why": session.get("why_answer", ""),
+                             "what": session.get("what_answer", ""),
+                             "how": session.get("how_answer", "")},
+                            session
+                        )
+
+                        self._log_interaction(
+                            conn, session_id, "confirm",
+                            user_message, response,
+                            detected_pattern="modification_request",
+                            result="retry",
+                            step_attempt=step_attempt
+                        )
+
+                        return {
+                            "success": True,
+                            "message": response,
+                            "session_id": session_id,
+                            "step": "confirm",
+                            "pattern": "modification_request"
+                        }
+
+                # =====================================================
+                # フォールバック: 導きの対話（無限ループ防止の安全パッチ）
+                # =====================================================
+                # ここに到達するケース:
+                # - 短文だった（LLM解析スキップ）
+                # - LLM解析が失敗した（None返却）
+                # - LLM解析は成功したが有効な修正が抽出できなかった
+                #
+                # 重要: 同じ要約を再表示せず、目標の質を確認する対話へ
+                # =====================================================
+                print(f"   💡 導きの対話へフォールバック（無限ループ防止）")
+                response = self._generate_quality_check_response(
+                    session, user_message, "clarification_needed"
                 )
 
                 self._log_interaction(
                     conn, session_id, "confirm",
                     user_message, response,
-                    detected_pattern="modification_request",
-                    result="retry",
+                    detected_pattern="clarification_fallback",
+                    result="quality_check",
                     step_attempt=step_attempt
                 )
 
@@ -1269,7 +1916,7 @@ class GoalSettingDialogue:
                     "message": response,
                     "session_id": session_id,
                     "step": "confirm",
-                    "pattern": "modification_request"
+                    "pattern": "clarification_fallback"
                 }
 
         # =====================================================
@@ -1474,26 +2121,98 @@ class GoalSettingDialogue:
     def _accept_and_proceed(self, conn, session: Dict[str, Any], user_message: str,
                            current_step: str, pattern: str, evaluation: dict,
                            step_attempt: int) -> Dict[str, Any]:
-        """回答を受け入れて次のステップへ進む"""
+        """
+        回答を受け入れて次のステップへ進む
+
+        v10.40.3: フェーズ自動判定
+        ユーザーの回答から複数フェーズの情報を検出し、
+        既に充足しているフェーズはスキップする。
+        """
         session_id = session["id"]
 
-        # 回答を保存
+        # v10.40.3: フェーズ自動判定
+        fulfilled = _infer_fulfilled_phases(user_message)
+        print(f"   🧠 フェーズ判定: {fulfilled}")
+
+        # 回答を保存（現在のステップ + 追加で検出されたフェーズ）
         if current_step == "why":
-            self._update_session(conn, session_id, current_step="what", why_answer=user_message)
-            next_step = "what"
-            feedback = f"「{user_message[:30]}...」という想いを持っているんだね！"
-            response = TEMPLATES["why_to_what"].format(
-                user_name=self.user_name,
-                feedback=feedback
-            )
+            # WHY回答を保存
+            session["why_answer"] = user_message
+
+            # v10.40.3: WHAT/HOW情報も含まれていれば抽出
+            updates = {"why_answer": user_message}
+            if fulfilled.get("what"):
+                # WHATレベルの情報（テーマ・目標）が含まれている
+                print(f"   🎯 WHAT情報も検出: テーマ・領域を含む")
+                # テーマを抽出してセッションに保存（次の質問で使う）
+                session["detected_themes"] = user_message
+
+            # 次のステップを決定
+            next_step = _get_next_unfulfilled_step(fulfilled, current_step, session)
+
+            if next_step == "what" and fulfilled.get("what"):
+                # テーマは分かっているが具体的な数値がない場合
+                # スマート質問を使用
+                themes = self._extract_themes_from_message(user_message)
+                if themes:
+                    response = TEMPLATES["smart_what_with_themes"].format(
+                        user_name=self.user_name,
+                        themes=themes,
+                        theme_example=themes.split("、")[0] if "、" in themes else themes
+                    )
+                else:
+                    feedback = f"「{user_message[:30]}...」という想いを持っているんだね！"
+                    response = TEMPLATES["why_to_what"].format(
+                        user_name=self.user_name,
+                        feedback=feedback
+                    )
+            elif next_step == "how":
+                # WHATもスキップしてHOWへ
+                feedback = f"「{user_message[:30]}...」を目指すんだね！"
+                response = TEMPLATES["what_to_how"].format(
+                    user_name=self.user_name,
+                    feedback=feedback
+                )
+            elif next_step == "confirm":
+                # 全て揃った（稀なケース）
+                response = self._generate_understanding_response(
+                    {"why": user_message, "what": "", "how": ""},
+                    session
+                )
+            else:
+                feedback = f"「{user_message[:30]}...」という想いを持っているんだね！"
+                response = TEMPLATES["why_to_what"].format(
+                    user_name=self.user_name,
+                    feedback=feedback
+                )
+
+            self._update_session(conn, session_id, current_step=next_step, **updates)
+
         elif current_step == "what":
-            self._update_session(conn, session_id, current_step="how", what_answer=user_message)
-            next_step = "how"
-            feedback = f"「{user_message[:30]}...」を目指すんだね！"
-            response = TEMPLATES["what_to_how"].format(
-                user_name=self.user_name,
-                feedback=feedback
-            )
+            session["what_answer"] = user_message
+            updates = {"what_answer": user_message}
+
+            # 次のステップを決定
+            next_step = _get_next_unfulfilled_step(fulfilled, current_step, session)
+
+            if next_step == "how" and fulfilled.get("how"):
+                # HOW情報も含まれている場合はconfirmへ
+                next_step = "confirm"
+                response = self._generate_understanding_response(
+                    {"why": session.get("why_answer", ""),
+                     "what": user_message,
+                     "how": ""},
+                    session
+                )
+            else:
+                feedback = f"「{user_message[:30]}...」を目指すんだね！"
+                response = TEMPLATES["what_to_how"].format(
+                    user_name=self.user_name,
+                    feedback=feedback
+                )
+
+            self._update_session(conn, session_id, current_step=next_step, **updates)
+
         elif current_step == "how":
             # 目標登録
             session["why_answer"] = session.get("why_answer", "")
@@ -1853,15 +2572,27 @@ class GoalSettingDialogue:
             print(f"⚠️ セッション統計更新エラー（続行）: {e}")
 
     def _get_total_retry_count(self, conn, session_id: str) -> int:
-        """セッション内の総リトライ回数を取得"""
+        """
+        セッション内の総リトライ回数を取得（v1.8: brain_dialogue_logs使用）
+
+        chatwork_account_idとroom_idで24時間以内のリトライを検索。
+        """
         try:
             result = conn.execute(
                 text("""
-                    SELECT COUNT(*) FROM goal_setting_logs
-                    WHERE session_id = :session_id
+                    SELECT COUNT(*) FROM brain_dialogue_logs
+                    WHERE chatwork_account_id = :account_id
+                      AND room_id = :room_id
+                      AND organization_id = :org_id
+                      AND state_type = 'goal_setting'
                       AND result = 'retry'
+                      AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
                 """),
-                {"session_id": session_id}
+                {
+                    "account_id": self.account_id,
+                    "room_id": self.room_id,
+                    "org_id": self.org_id
+                }
             ).fetchone()
             return result[0] if result else 0
         except Exception:
@@ -1920,15 +2651,16 @@ class GoalSettingDialogue:
 
 def has_active_goal_session(pool, room_id: str, account_id: str) -> bool:
     """
-    アクティブな目標設定セッションが存在するかチェック
+    アクティブな目標設定セッションが存在するかチェック（v1.8: brain_conversation_states使用）
 
     chatwork-webhook から呼び出して、通常のAI応答をバイパスするかどうか判定する。
+    user_id として chatwork_account_id を直接使用。
     """
     with pool.connect() as conn:
-        # ユーザー情報を取得
+        # ユーザー情報を取得（org_idの取得のみ）
         user_result = conn.execute(
             text("""
-                SELECT id, organization_id FROM users
+                SELECT organization_id FROM users
                 WHERE chatwork_account_id = :account_id
                 LIMIT 1
             """),
@@ -1938,24 +2670,23 @@ def has_active_goal_session(pool, room_id: str, account_id: str) -> bool:
         if not user_result:
             return False
 
-        user_id = str(user_result[0])
-        org_id = str(user_result[1]) if user_result[1] else None
+        org_id = str(user_result[0]) if user_result[0] else None
 
         if not org_id:
             return False
 
-        # アクティブなセッションをチェック
+        # brain_conversation_statesでアクティブなセッションをチェック
         result = conn.execute(
             text("""
-                SELECT COUNT(*) FROM goal_setting_sessions
-                WHERE user_id = :user_id
+                SELECT COUNT(*) FROM brain_conversation_states
+                WHERE user_id = :account_id
                   AND organization_id = :org_id
-                  AND chatwork_room_id = :room_id
-                  AND status = 'in_progress'
+                  AND room_id = :room_id
+                  AND state_type = 'goal_setting'
                   AND expires_at > CURRENT_TIMESTAMP
             """),
             {
-                "user_id": user_id,
+                "account_id": str(account_id),
                 "org_id": org_id,
                 "room_id": str(room_id)
             }

@@ -40,6 +40,58 @@ class GoalHandler:
         self.process_goal_setting_message_func = process_goal_setting_message_func
         self.use_goal_setting_lib = use_goal_setting_lib
 
+    def _check_dialogue_completed(self, room_id: str, account_id: str) -> bool:
+        """
+        v10.40.1: 対話フロー完了確認（神経接続修理 - brain_conversation_statesのみ参照）
+
+        brain_conversation_states で直近5分以内に目標設定対話が完了したかをチェック。
+        完了時には state_data->completed_at が設定されている。
+
+        Returns:
+            True: 対話フロー完了済み（登録可能）
+            False: 対話未完了（登録不可）
+        """
+        try:
+            pool = self.get_pool()
+            with pool.connect() as conn:
+                # ユーザーの organization_id を取得
+                user_result = conn.execute(
+                    text("""
+                        SELECT organization_id FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if not user_result or not user_result[0]:
+                    return False
+
+                org_id = str(user_result[0])
+
+                # brain_conversation_states で直近5分以内に完了したセッションをチェック
+                # 完了時には state_type='normal' に変更され、state_data に completed_at が設定される
+                result = conn.execute(
+                    text("""
+                        SELECT id, state_data
+                        FROM brain_conversation_states
+                        WHERE user_id = :account_id
+                          AND organization_id = :org_id
+                          AND room_id = :room_id
+                          AND state_type = 'normal'
+                          AND state_data->>'completed_at' IS NOT NULL
+                          AND updated_at > NOW() - INTERVAL '5 minutes'
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id), "org_id": org_id, "room_id": str(room_id)}
+                ).fetchone()
+
+                return result is not None
+        except Exception as e:
+            print(f"⚠️ 対話完了確認エラー: {e}")
+            return False
+
     def handle_goal_registration(
         self,
         params: Dict[str, Any],
@@ -52,7 +104,11 @@ class GoalHandler:
         目標登録ハンドラー（Phase 2.5 v1.6）
 
         v10.19.0: WHY→WHAT→HOW の一問一答形式の目標設定対話を開始。
-        具体的なgoal_titleがある場合は直接登録（後方互換性維持）。
+
+        v10.40.0: 対話フロー必須化
+        - LLMの直接判定による登録を禁止
+        - 必ず WHY→WHAT→HOW 対話を経由しないと登録不可
+        - 「導く存在」としてのソウルくんを実現
 
         アチーブメント社・選択理論に基づく目標設定支援。
         """
@@ -60,56 +116,69 @@ class GoalHandler:
         print(f"   params: {params}")
 
         try:
-            goal_title = params.get("goal_title", "")
-            goal_type = params.get("goal_type", "action")  # numeric, deadline, action
-            target_value = params.get("target_value")
-            unit = params.get("unit")
-            period_type = params.get("period_type", "monthly")
-            deadline = params.get("deadline")
+            # =====================================================
+            # v10.40.0: 対話フロー必須ガード
+            # =====================================================
+            # 対話フローを経由せずに呼ばれた場合は、対話開始へ誘導
+            # これにより「LLMが直接登録」を完全に防止
 
-            # =====================================================
-            # v10.19.0: 目標設定対話フロー
-            # =====================================================
-            # goal_titleが空または漠然としている場合は対話フローを開始
-            # 具体的な目標が指定されている場合は直接登録（後方互換性維持）
-            # v10.19.2: OpenRouterが生成する「新規目標の設定」などにも対応
-            # v10.19.4: AI司令塔が生成する「未定（相談中）」などにも対応
-            vague_goal_titles = [
-                # 既存パターン
-                "目標を設定したい", "目標を登録したい", "目標設定", "KPI設定",
-                "新規目標の設定", "新規目標", "目標の設定", "目標登録",
-                "今月の目標", "個人目標", "目標を立てたい", "目標を決めたい",
-                # v10.19.4 追加: AI司令塔が生成しがちなパターン
-                "未定（相談中）", "未定", "相談中", "目標相談",
-                "目標の相談", "目標について相談", "検討中", "未定義",
-            ]
-            is_vague_goal = (
-                not goal_title or
-                goal_title in vague_goal_titles or
-                (goal_title and "目標" in goal_title and "設定" in goal_title) or
-                # v10.19.4 追加: 部分一致チェック（未定・相談を含む場合）
-                (goal_title and ("未定" in goal_title or "相談" in goal_title)) or
-                # v10.19.4 追加: 極端に短いタイトルは不完全と判定
-                (goal_title and len(goal_title.strip()) < 3)
-            )
-            if is_vague_goal:
+            # context から対話完了フラグを確認
+            dialogue_completed = False
+            if context:
+                dialogue_completed = context.get("dialogue_completed", False)
+                # brain_conversation_states から確認ステップ完了をチェック
+                if not dialogue_completed:
+                    dialogue_completed = context.get("from_goal_setting_dialogue", False)
+
+            # DB から対話完了を確認（フラグがない場合）
+            if not dialogue_completed:
+                dialogue_completed = self._check_dialogue_completed(room_id, account_id)
+
+            goal_title = params.get("goal_title", "")
+
+            # 対話未完了の場合は必ず対話フローへ誘導
+            if not dialogue_completed:
+                print("   ⛔ 対話フロー未完了 → 対話開始へ誘導")
+
                 if self.use_goal_setting_lib and self.process_goal_setting_message_func:
-                    print("   → 目標設定対話フローを開始")
+                    # 対話フローを開始
                     pool = self.get_pool()
-                    result = self.process_goal_setting_message_func(
-                        pool, room_id, account_id,
-                        context.get("original_message", "") if context else ""
-                    )
-                    return result
+                    original_message = context.get("original_message", "") if context else ""
+
+                    # ユーザーの入力が長文の場合、「目標の素材」として扱う旨を伝える
+                    if len(original_message) > 100:
+                        intro_message = (
+                            "🐺 素敵な目標への想いを聞かせてくれてありがとうウル！\n\n"
+                            "ソウルくんは「正しい目標達成の技術」でサポートするウル✨\n"
+                            "一緒に整理していこうウル！\n\n"
+                        )
+                        result = self.process_goal_setting_message_func(
+                            pool, room_id, account_id,
+                            "目標設定したい"  # 対話開始トリガー
+                        )
+                        if result.get("success") and result.get("message"):
+                            result["message"] = intro_message + result["message"]
+                        return result
+                    else:
+                        return self.process_goal_setting_message_func(
+                            pool, room_id, account_id,
+                            original_message or "目標設定したい"
+                        )
                 else:
-                    # lib が使えない場合は従来の応答
                     return {
                         "success": False,
-                        "message": "🤔 目標の内容を教えてほしいウル！\n\n例えば「粗利300万円」とか「毎日日報を書く」みたいに教えてくれると登録できるウル🐺"
+                        "message": (
+                            "🐺 目標設定は対話形式で進めるウル！\n\n"
+                            "まずは「目標設定したい」と言ってほしいウル✨\n"
+                            "WHY・WHAT・HOWの3つの質問で、\n"
+                            "あなたを正しい目標達成へ導くウル🐺"
+                        )
                     }
 
-            # 以下は具体的なgoal_titleがある場合の直接登録（後方互換性維持）
-            print(f"   → 直接目標登録: {goal_title}")
+            # =====================================================
+            # 対話完了後の登録処理（ここに到達 = 対話完了済み）
+            # =====================================================
+            print(f"   ✅ 対話完了確認済み → 目標登録: {goal_title}")
 
             # 期間を計算
             today = date.today()

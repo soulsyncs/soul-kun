@@ -3248,7 +3248,7 @@ async def _handle_save_long_term_memory(message: str, room_id: str, account_id: 
                     "message": "ユーザー情報が見つからなかったウル...🐺"
                 }
 
-            user_id = str(user_result[0])
+            user_id = int(user_result[0])  # v10.40.8: integerとして保持
             org_id = str(user_result[1]) if user_result[1] else None
 
             if not org_id:

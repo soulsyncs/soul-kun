@@ -27,6 +27,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple, Callable
 
 from lib.brain.models import (
@@ -225,6 +226,19 @@ def _load_mvv_context():
 # =============================================================================
 
 
+class EnforcementAction(Enum):
+    """
+    v10.42.0 P1: MVV/NG検出時の強制アクション
+
+    NGパターン検出時に「警告→続行」ではなく
+    「ブロック→強制アクション」を実行するための列挙型。
+    """
+    NONE = "none"                      # 通常処理（強制なし）
+    FORCE_LISTENING = "force_listening"  # 傾聴モード強制遷移（CRITICAL/HIGH）
+    BLOCK_AND_SUGGEST = "block_and_suggest"  # 実行ブロック + 代替提案（MEDIUM）
+    WARN_ONLY = "warn_only"            # 警告のみ（LOW）
+
+
 @dataclass
 class MVVCheckResult:
     """MVV整合性チェック結果"""
@@ -234,6 +248,8 @@ class MVVCheckResult:
     ng_response_hint: Optional[str] = None
     risk_level: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
+    # v10.42.0 P1: 強制アクション
+    enforcement_action: EnforcementAction = EnforcementAction.NONE
 
 
 class BrainDecision:
@@ -430,8 +446,55 @@ class BrainDecision:
                 logger.warning(
                     f"NG pattern detected: {mvv_result.ng_pattern_type}"
                 )
-                # NGパターンの場合でも処理は続行するが、警告を付与
-                # 実際の対応はレスポンス生成層で行う
+
+                # v10.42.0 P1: 強制アクションに基づいて決定を上書き
+                if mvv_result.enforcement_action == EnforcementAction.FORCE_LISTENING:
+                    # CRITICAL/HIGH → 傾聴モードへ強制遷移
+                    logger.warning(
+                        f"🚨 [P1 Enforcement] Overriding action to forced_listening "
+                        f"(original: {best_candidate.action})"
+                    )
+                    return DecisionResult(
+                        action="forced_listening",  # 傾聴モード用の特別なアクション
+                        params={
+                            "original_action": best_candidate.action,
+                            "ng_pattern_type": mvv_result.ng_pattern_type,
+                            "response_hint": mvv_result.ng_response_hint,
+                            "risk_level": mvv_result.risk_level,
+                        },
+                        confidence=1.0,  # 強制なので確信度は最大
+                        needs_confirmation=False,
+                        reasoning=(
+                            f"NGパターン({mvv_result.ng_pattern_type})検出により"
+                            f"傾聴モードへ強制遷移"
+                        ),
+                        processing_time_ms=self._elapsed_ms(start_time),
+                    )
+
+                elif mvv_result.enforcement_action == EnforcementAction.BLOCK_AND_SUGGEST:
+                    # MEDIUM → 実行ブロック + 代替メッセージ
+                    logger.info(
+                        f"💡 [P1 Enforcement] Overriding action to suggest_alternative "
+                        f"(original: {best_candidate.action})"
+                    )
+                    return DecisionResult(
+                        action="suggest_alternative",  # 代替提案用の特別なアクション
+                        params={
+                            "original_action": best_candidate.action,
+                            "ng_pattern_type": mvv_result.ng_pattern_type,
+                            "response_hint": mvv_result.ng_response_hint,
+                            "risk_level": mvv_result.risk_level,
+                        },
+                        confidence=1.0,
+                        needs_confirmation=False,
+                        reasoning=(
+                            f"NGパターン({mvv_result.ng_pattern_type})検出により"
+                            f"代替提案を実行"
+                        ),
+                        processing_time_ms=self._elapsed_ms(start_time),
+                    )
+
+                # WARN_ONLY または NONE → 従来通り処理続行
 
             # パラメータをマージ（理解層のエンティティ + 候補のパラメータ）
             merged_params = {**understanding.entities, **best_candidate.params}
@@ -854,6 +917,33 @@ class BrainDecision:
                 result.warnings.append(
                     f"NGパターン検出: {ng_result.pattern_type}"
                 )
+
+                # v10.42.0 P1: リスクレベルに応じた強制アクションを設定
+                risk_level_value = result.risk_level
+                if risk_level_value == "CRITICAL":
+                    # ng_mental_health → 傾聴モード強制遷移
+                    result.enforcement_action = EnforcementAction.FORCE_LISTENING
+                    logger.warning(
+                        f"🚨 [P1 Enforcement] CRITICAL risk → FORCE_LISTENING: "
+                        f"{ng_result.pattern_type}"
+                    )
+                elif risk_level_value == "HIGH":
+                    # ng_retention_critical → 傾聴モード強制遷移
+                    result.enforcement_action = EnforcementAction.FORCE_LISTENING
+                    logger.warning(
+                        f"⚠️ [P1 Enforcement] HIGH risk → FORCE_LISTENING: "
+                        f"{ng_result.pattern_type}"
+                    )
+                elif risk_level_value == "MEDIUM":
+                    # ng_company_criticism, ng_low_psychological_safety → ブロック+代替提案
+                    result.enforcement_action = EnforcementAction.BLOCK_AND_SUGGEST
+                    logger.info(
+                        f"💡 [P1 Enforcement] MEDIUM risk → BLOCK_AND_SUGGEST: "
+                        f"{ng_result.pattern_type}"
+                    )
+                else:
+                    # LOW → 警告のみ
+                    result.enforcement_action = EnforcementAction.WARN_ONLY
 
         except Exception as e:
             logger.warning(f"Error checking MVV alignment: {e}")

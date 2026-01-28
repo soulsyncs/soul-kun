@@ -172,9 +172,18 @@ from lib.brain.ceo_learning import (
 
 from lib.brain.guardian import (
     GuardianService,
+    # v10.42.0 P0: Guardian Gate
+    GuardianActionType,
+    GuardianActionResult,
     MVV_VALIDATION_CRITERIA,
     CHOICE_THEORY_CRITERIA,
     SDT_CRITERIA,
+)
+
+# v10.42.0 P1: Decision Layer Enforcement
+from lib.brain.decision import (
+    EnforcementAction,
+    MVVCheckResult,
 )
 
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
@@ -578,9 +587,15 @@ __all__ = [
     "CATEGORY_KEYWORDS",
     # ガーディアン層
     "GuardianService",
+    # v10.42.0 P0: Guardian Gate
+    "GuardianActionType",
+    "GuardianActionResult",
     "MVV_VALIDATION_CRITERIA",
     "CHOICE_THEORY_CRITERIA",
     "SDT_CRITERIA",
+    # v10.42.0 P1: Decision Layer Enforcement
+    "EnforcementAction",
+    "MVVCheckResult",
     # Phase 2E: Learning Foundation（v10.33.0）
     # 統合クラス
     "BrainLearning",

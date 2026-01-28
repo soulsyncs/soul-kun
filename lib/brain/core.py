@@ -113,6 +113,11 @@ from lib.brain.memory_authority import (
     MemoryDecision,
     create_memory_authority,
 )
+
+# v10.43.1 P4: Memory Authority Observation Logger
+from lib.brain.memory_authority_logger import (
+    get_memory_authority_logger,
+)
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
 # Phase 2L: ExecutionExcellence（実行力強化）
@@ -1768,6 +1773,19 @@ class SoulkunBrain:
                     f"⚠️ [MemoryAuthority] Confirmation required: {decision.action}, "
                     f"reasons={ma_result.reasons}"
                 )
+
+                # v10.43.1: SOFT_CONFLICT観測モード - 非同期でログ保存
+                asyncio.create_task(
+                    self._log_soft_conflict_safely(
+                        action=decision.action,
+                        ma_result=ma_result,
+                        room_id=room_id,
+                        account_id=account_id,
+                        organization_id=context.organization_id,
+                        message_excerpt=original_message,
+                    )
+                )
+
                 return HandlerResult(
                     success=True,
                     message=ma_result.confirmation_message or (
@@ -1994,6 +2012,68 @@ class SoulkunBrain:
             )
         except Exception as e:
             logger.warning(f"Error logging decision: {e}")
+
+    async def _log_soft_conflict_safely(
+        self,
+        action: str,
+        ma_result: MemoryAuthorityResult,
+        room_id: str,
+        account_id: str,
+        organization_id: str,
+        message_excerpt: str,
+    ) -> None:
+        """
+        v10.43.1: SOFT_CONFLICTを観測モードログに非同期保存
+
+        実行速度に影響を与えないよう、エラーは無視して処理を続行。
+
+        Args:
+            action: 実行しようとしたアクション
+            ma_result: MemoryAuthorityの判定結果
+            room_id: ChatWorkルームID
+            account_id: ユーザーアカウントID
+            organization_id: 組織ID
+            message_excerpt: 元メッセージの抜粋
+        """
+        try:
+            ma_logger = get_memory_authority_logger()
+
+            # 検出された記憶参照を構築
+            detected_memory_reference = ""
+            if ma_result.conflicts:
+                excerpts = [c.get("excerpt", "") for c in ma_result.conflicts]
+                detected_memory_reference = " | ".join(excerpts[:3])
+
+            # 矛盾理由を構築
+            conflict_reason = ""
+            if ma_result.reasons:
+                conflict_reason = " / ".join(ma_result.reasons[:3])
+
+            # 詳細な矛盾情報
+            conflict_details = [
+                {
+                    "memory_type": c.get("memory_type", ""),
+                    "excerpt": c.get("excerpt", ""),
+                    "why_conflict": c.get("why_conflict", ""),
+                    "severity": c.get("severity", ""),
+                }
+                for c in ma_result.conflicts
+            ]
+
+            await ma_logger.log_soft_conflict_async(
+                action=action,
+                detected_memory_reference=detected_memory_reference,
+                conflict_reason=conflict_reason,
+                room_id=room_id,
+                account_id=account_id,
+                organization_id=organization_id,
+                message_excerpt=message_excerpt,
+                conflict_details=conflict_details,
+                confidence=ma_result.confidence,
+            )
+
+        except Exception as e:
+            logger.warning(f"Error logging soft conflict: {e}")
 
     # =========================================================================
     # Phase 2D: CEO Learning層

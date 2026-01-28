@@ -240,5 +240,121 @@ class TestSecurityAccessControl:
             assert is_long_term_memory_request(msg) is False, f"Should NOT be user memory: {msg}"
 
 
+class TestV10_40_12_PatternExtension:
+    """
+    v10.40.12: 人生軸・価値観検知パターン拡張のテスト
+
+    追加されたパターン:
+    - 「人生軸は」（「の」なしでも検出）
+    - 一人称 + 軸/価値観/信条
+    - 「大事にしているのは」「大切にしていることは」
+    """
+
+    @pytest.mark.parametrize("message,expected,reason", [
+        # ========================================
+        # 検出されるべきケース（True）
+        # ========================================
+        # 人生軸パターン（v10.40.12で強化）
+        ("俺の人生軸は挑戦", True, "一人称 + 人生軸"),
+        ("私の人生軸は家族", True, "一人称 + 人生軸"),
+        ("僕の人生軸は成長", True, "一人称 + 人生軸"),
+        ("人生軸は挑戦", True, "人生軸（「の」なし）"),
+        ("人生の軸は成長", True, "人生の軸"),
+        ("自分の軸は誠実さ", True, "自分の軸"),
+        ("俺の軸は挑戦", True, "一人称 + 軸"),
+        ("私の軸は家族", True, "一人称 + 軸"),
+
+        # 価値観パターン（v10.40.12で強化）
+        ("俺の価値観は誠実さ", True, "一人称 + 価値観"),
+        ("私の価値観は家族第一", True, "一人称 + 価値観"),
+        ("価値観は正直であること", True, "価値観は"),
+
+        # 信条パターン（v10.40.12で強化）
+        ("俺の信条は全力投球", True, "一人称 + 信条"),
+        ("私の信条は諦めないこと", True, "一人称 + 信条"),
+        ("信条は常に前向き", True, "信条は"),
+        ("俺の信念は挑戦", True, "一人称 + 信念"),
+        ("私の信念は誠実さ", True, "一人称 + 信念"),
+
+        # 大切にしている表現（v10.40.12で追加）
+        ("大事にしているのは家族", True, "大事にしているのは"),
+        ("大切にしていることは信頼", True, "大切にしていることは"),
+        ("大切にしているものは時間", True, "大切にしているものは"),
+        ("大事にしていることは挑戦", True, "大事にしていることは"),
+
+        # ========================================
+        # 検出されないべきケース（False）
+        # ========================================
+        # 一般的な文章
+        ("今日はいい天気だね", False, "一般的な文章"),
+        ("タスクを追加して", False, "タスク依頼"),
+        ("会議の予定を教えて", False, "情報照会"),
+
+        # ソウルくん設定（bot_personaに行くべき）
+        ("ソウルくんの性格は優しい", False, "ボット設定"),
+        ("好物は10円パン", False, "ボット設定"),
+        ("口調はウル", False, "ボット設定"),
+
+        # 人物情報（person_attributesに行くべき）
+        ("田中さんは営業部", False, "人物情報"),
+        ("山田くんの好物はラーメン", False, "人物情報"),
+    ])
+    def test_v10_40_12_pattern_detection(self, message, expected, reason):
+        """v10.40.12のパターン拡張テスト"""
+        result = is_long_term_memory_request(message)
+        assert result == expected, f"Message: '{message}' - Expected: {expected}, Got: {result}. Reason: {reason}"
+
+
+class TestBotPersonaVsLongTermMemorySeparation:
+    """
+    bot_persona_memory と user_long_term_memory の完全分離テスト
+
+    v10.40.12: 両者は完全に別ルートで処理される
+    """
+
+    def test_user_life_axis_goes_to_long_term(self):
+        """ユーザーの人生軸は長期記憶として検出される"""
+        user_axis_messages = [
+            "俺の人生軸は挑戦",
+            "私の価値観は誠実さ",
+            "大事にしているのは家族",
+            "信条は諦めないこと",
+            "僕の軸は成長",
+        ]
+        for msg in user_axis_messages:
+            result = is_long_term_memory_request(msg)
+            assert result == True, f"Should be detected as long-term memory: {msg}"
+
+    def test_bot_persona_not_detected_as_long_term(self):
+        """ボット設定は長期記憶として検出されない"""
+        from lib.bot_persona_memory import is_bot_persona_setting
+
+        bot_persona_messages = [
+            "ソウルくんの性格は優しい",
+            "ソウルくんの好物は10円パン",
+            "好物は10円パン",
+            "口調はウル",
+            "語尾はだウル",
+            "モチーフ動物は狼",
+        ]
+        for msg in bot_persona_messages:
+            # bot_personaとして検出される
+            assert is_bot_persona_setting(msg) == True, f"Should be bot_persona: {msg}"
+            # 長期記憶としては検出されない
+            assert is_long_term_memory_request(msg) == False, f"Should NOT be long-term: {msg}"
+
+    def test_soulkun_personality_goes_to_bot_persona(self):
+        """「ソウルくんの性格は優しい」はbot_persona_memoryに保存される"""
+        from lib.bot_persona_memory import is_bot_persona_setting
+
+        message = "ソウルくんの性格は優しい"
+
+        # bot_personaとして検出される
+        assert is_bot_persona_setting(message) == True
+
+        # 長期記憶としては検出されない
+        assert is_long_term_memory_request(message) == False
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

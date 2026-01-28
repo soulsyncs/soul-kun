@@ -5209,9 +5209,87 @@ def handle_save_memory(params, room_id, account_id, sender_name, context=None):
     v10.25.0: 提案制を追加
     - 管理者（カズさん）からは即時保存
     - 他のスタッフからは提案として記録し、確認後に保存
+
+    v10.40.13: brain無効時も長期記憶判定を実行
+    - is_long_term_memory_request() でパターン検出
+    - 人生軸・価値観 → user_long_term_memory へ保存
+    - それ以外 → 従来の person_attributes へ保存
     """
     print(f"📝 handle_save_memory 開始")
     print(f"   params: {json.dumps(params, ensure_ascii=False)}")
+
+    # =====================================================
+    # v10.40.13: 長期記憶判定（brain無効時対応）
+    # =====================================================
+    original_message = ""
+    if context:
+        if isinstance(context, dict):
+            original_message = context.get("original_message", "")
+        elif hasattr(context, "original_message"):
+            original_message = getattr(context, "original_message", "")
+
+    print(f"🔍 [save_memory DEBUG] msg={original_message[:60]}..." if len(original_message) > 60 else f"🔍 [save_memory DEBUG] msg={original_message}")
+
+    # 長期記憶パターンを検出
+    is_long_term = False
+    if USE_LONG_TERM_MEMORY and original_message:
+        is_long_term = is_long_term_memory_request(original_message)
+    print(f"🔍 [save_memory DEBUG] is_long_term={is_long_term}")
+
+    if is_long_term:
+        # 長期記憶として保存
+        print(f"🔍 [save_memory DEBUG] save_to=user_long_term_memory")
+        try:
+            pool = get_pool()
+
+            # ユーザー情報を取得
+            with pool.connect() as conn:
+                user_result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id, organization_id FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if not user_result:
+                    print(f"🔍 [save_memory DEBUG] user not found")
+                    return "🤔 ユーザー情報が見つからなかったウル...登録状況を確認してほしいウル🐺"
+
+                user_id = int(user_result[0])
+                org_id = str(user_result[1]) if user_result[1] else None
+
+                if not org_id:
+                    print(f"🔍 [save_memory DEBUG] org not found")
+                    return "🤔 組織情報が見つからなかったウル...🐺"
+
+            # 長期記憶を保存
+            result = save_long_term_memory(
+                pool=pool,
+                org_id=org_id,
+                user_id=user_id,
+                user_name=sender_name,
+                message=original_message
+            )
+
+            print(f"🔍 [save_memory DEBUG] long_term_result success={result.get('success', False)}")
+
+            if result.get("success"):
+                return result.get("message", "大事な軸、ちゃんと覚えたウル！🐺✨")
+            else:
+                return result.get("message", "🤔 保存できなかったウル...もう一度試してほしいウル！")
+
+        except Exception as e:
+            print(f"❌ 長期記憶保存エラー: {e}")
+            import traceback
+            traceback.print_exc()
+            return f"🤔 長期記憶の保存中にエラーが発生したウル...🐺"
+
+    # =====================================================
+    # 従来の人物情報記憶処理（長期記憶ではない場合）
+    # =====================================================
+    print(f"🔍 [save_memory DEBUG] save_to=person_attributes")
 
     attributes = params.get("attributes", [])
     print(f"   attributes: {attributes}")

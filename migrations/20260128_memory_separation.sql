@@ -1,26 +1,25 @@
 -- =====================================================
 -- v10.40.9: メモリ分離マイグレーション
 --
--- 1. bot_persona_memory テーブル（ソウルくんのキャラ設定専用）
--- 2. user_long_term_memory に scope カラム追加
--- 3. soulkun_knowledge から bot_persona_memory へデータ移行
+-- 構成:
+--   Phase 1: スキーマ変更（短時間DDL）
+--   Phase 2: データ移行（トランザクション分離）
+--   Phase 3: インデックス作成（CONCURRENTLY でロック回避）
 --
 -- 実行方法:
 --   cat migrations/20260128_memory_separation.sql | gcloud sql connect soulkun-db --user=postgres --database=soulkun
 --
--- トランザクション: BEGIN〜COMMIT で全体をラップ（失敗時は自動ロールバック）
 -- 冪等性: IF NOT EXISTS / ON CONFLICT で再実行可能
+-- ロック: Phase 3 は CONCURRENTLY で通常クエリをブロックしない
 -- =====================================================
 
--- トランザクション開始
-BEGIN;
 
 -- =====================================================
--- 1. bot_persona_memory テーブル作成
+-- Phase 1: スキーマ変更（短時間DDL）
 -- =====================================================
--- ソウルくんのキャラ設定・好み・性格などを保存
--- 全ユーザー共通で参照される
+-- DDLは自動コミットされる。テーブル作成とカラム追加は高速。
 
+-- 1-1. bot_persona_memory テーブル作成
 CREATE TABLE IF NOT EXISTS bot_persona_memory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     organization_id UUID NOT NULL,
@@ -53,27 +52,15 @@ CREATE TABLE IF NOT EXISTS bot_persona_memory (
     CONSTRAINT uq_bot_persona_org_key UNIQUE (organization_id, key)
 );
 
--- インデックス
-CREATE INDEX IF NOT EXISTS idx_bot_persona_memory_org
-    ON bot_persona_memory(organization_id);
-CREATE INDEX IF NOT EXISTS idx_bot_persona_memory_category
-    ON bot_persona_memory(organization_id, category);
-
 -- コメント
 COMMENT ON TABLE bot_persona_memory IS 'ソウルくんのキャラ設定・ペルソナ情報（全ユーザー共通）';
 COMMENT ON COLUMN bot_persona_memory.key IS '設定キー（好物, モチーフ動物, 口調など）';
 COMMENT ON COLUMN bot_persona_memory.value IS '設定値';
 COMMENT ON COLUMN bot_persona_memory.category IS 'カテゴリ: character(キャラ設定), personality(性格), preference(好み)';
 
-
--- =====================================================
--- 2. user_long_term_memory に scope カラム追加
--- =====================================================
--- scope: PRIVATE（本人のみ）, ORG_SHARED（組織内共有）
-
+-- 1-2. user_long_term_memory に scope カラム追加
 DO $$
 BEGIN
-    -- scope カラムが存在しない場合のみ追加
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns
         WHERE table_name = 'user_long_term_memory'
@@ -82,23 +69,19 @@ BEGIN
         ALTER TABLE user_long_term_memory
         ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'PRIVATE';
 
-        -- コメント追加
         COMMENT ON COLUMN user_long_term_memory.scope IS
             'アクセススコープ: PRIVATE(本人のみ), ORG_SHARED(組織内共有)';
     END IF;
 END $$;
 
--- scopeのインデックス
-CREATE INDEX IF NOT EXISTS idx_user_long_term_memory_scope
-    ON user_long_term_memory(user_id, scope);
-
 
 -- =====================================================
--- 3. soulkun_knowledge から bot_persona_memory へデータ移行
+-- Phase 2: データ移行（トランザクション分離）
 -- =====================================================
--- category='character' のデータを移行
+-- データ移行のみトランザクションでラップ。失敗時はロールバック。
 
--- 移行前にバックアップ的なログを残す（メタデータに移行元を記録）
+BEGIN;
+
 INSERT INTO bot_persona_memory (
     organization_id,
     key,
@@ -133,23 +116,31 @@ ON CONFLICT (organization_id, key) DO UPDATE SET
     metadata = bot_persona_memory.metadata || jsonb_build_object('updated_via_migration', CURRENT_TIMESTAMP),
     updated_at = CURRENT_TIMESTAMP;
 
+COMMIT;
+
 
 -- =====================================================
--- 4. 移行完了後、soulkun_knowledge から character を削除
---    （安全のため、コメントアウト。手動実行推奨）
+-- Phase 3: インデックス作成（CONCURRENTLY でロック回避）
 -- =====================================================
+-- CONCURRENTLY: テーブルロックを取得せず、通常クエリと並行して作成
+-- 注意: トランザクション内では実行不可
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bot_persona_memory_org
+    ON bot_persona_memory(organization_id);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_bot_persona_memory_category
+    ON bot_persona_memory(organization_id, category);
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_long_term_memory_scope
+    ON user_long_term_memory(user_id, scope);
+
+
+-- =====================================================
+-- 移行完了後の手動作業（オプション）
+-- =====================================================
+-- soulkun_knowledge から character を削除する場合:
 -- DELETE FROM soulkun_knowledge WHERE category = 'character';
 
-
--- =====================================================
--- 確認用クエリ
--- =====================================================
--- SELECT * FROM bot_persona_memory;
--- SELECT * FROM user_long_term_memory;
--- SELECT COUNT(*) FROM soulkun_knowledge WHERE category = 'character';
-
--- トランザクション完了
-COMMIT;
 
 -- =====================================================
 -- 設計メモ

@@ -92,7 +92,11 @@ from lib.brain.ceo_learning import (
     CEOLearningService,
     CEO_ACCOUNT_IDS,
 )
-from lib.brain.guardian import GuardianService
+from lib.brain.guardian import (
+    GuardianService,
+    GuardianActionResult,
+    GuardianActionType,
+)
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
 # Phase 2L: ExecutionExcellence（実行力強化）
@@ -1578,6 +1582,7 @@ class SoulkunBrain:
         BrainExecutionクラスに委譲。
         v10.28.6: 実行層に強化（Phase F完了）
         v10.39.0: Phase 2L ExecutionExcellence統合
+        v10.42.0: P0 Guardian Gate追加（価値観違反ブロック）
 
         判断層からの指令に基づいてハンドラーを呼び出し、結果を統合する。
         - 5ステップ実行フロー（取得→検証→実行→統合→提案）
@@ -1586,19 +1591,64 @@ class SoulkunBrain:
         - 先読み提案生成
         - Phase 2L: 複合タスクはExecutionExcellenceで自動分解・実行
         """
-        # Phase 2L: 複合タスクの場合はExecutionExcellenceを使用
-        if self.execution_excellence:
-            # 元のメッセージを取得（最新の会話履歴から）
-            original_message = ""
-            if context.recent_conversation:
-                # 最新のユーザーメッセージを取得
-                for msg in reversed(context.recent_conversation):
-                    if msg.role == "user":
-                        original_message = msg.content
-                        break
+        # =================================================================
+        # v10.42.0 P0: Guardian Gate - 価値観評価（実行前の必須チェック）
+        # =================================================================
+        # 元のメッセージを取得
+        original_message = ""
+        if context.recent_conversation:
+            for msg in reversed(context.recent_conversation):
+                if msg.role == "user":
+                    original_message = msg.content
+                    break
 
+        if original_message:
+            guardian_result = self.guardian.evaluate_action(
+                user_message=original_message,
+                action=decision.action,
+                context={"room_id": room_id, "account_id": account_id},
+            )
+
+            # BLOCK_AND_SUGGEST: 実行ブロック + 代替メッセージ返却
+            if guardian_result.action_type == GuardianActionType.BLOCK_AND_SUGGEST:
+                logger.warning(
+                    f"🛑 [Guardian Gate] Action blocked: {decision.action}, "
+                    f"reason={guardian_result.blocked_reason}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=guardian_result.alternative_message or (
+                        "🐺 ちょっと気になることがあるウル。話を聞かせてほしいウル"
+                    ),
+                )
+
+            # FORCE_MODE_SWITCH: 強制モード遷移
+            if guardian_result.action_type == GuardianActionType.FORCE_MODE_SWITCH:
+                logger.warning(
+                    f"🚨 [Guardian Gate] Force mode switch: {decision.action} → {guardian_result.force_mode}, "
+                    f"reason={guardian_result.blocked_reason}"
+                )
+                # モード遷移は呼び出し元で処理するため、ここでは代替メッセージを返す
+                # 将来的にはStateManagerと連携してモード遷移を実行
+                return HandlerResult(
+                    success=True,
+                    message=guardian_result.alternative_message or (
+                        "🐺 大事な話ウルね。ゆっくり聞かせてほしいウル"
+                    ),
+                )
+
+            # APPROVE: 通過（ログのみ）
+            if guardian_result.ng_pattern_type:
+                logger.debug(
+                    f"[Guardian Gate] Approved with caution: {decision.action}, "
+                    f"ng_pattern={guardian_result.ng_pattern_type}"
+                )
+
+        # Phase 2L: 複合タスクの場合はExecutionExcellenceを使用
+        # (original_message は上で取得済み)
+        if self.execution_excellence and original_message:
             # 複合タスク判定
-            if original_message and self.execution_excellence.should_use_workflow(original_message, context):
+            if self.execution_excellence.should_use_workflow(original_message, context):
                 logger.info(f"🔄 Using ExecutionExcellence for complex request: {original_message[:50]}...")
                 try:
                     ee_result = await self.execution_excellence.execute_request(

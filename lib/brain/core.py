@@ -104,6 +104,13 @@ from lib.brain.execution_excellence import (
 )
 from lib.feature_flags import is_execution_excellence_enabled as ff_execution_excellence_enabled
 
+# v10.41.0: 長期記憶検出のインポート（goal_setting中の最優先ルーティング用）
+try:
+    from lib.long_term_memory import is_long_term_memory_request
+except ImportError:
+    def is_long_term_memory_request(message: str) -> bool:
+        return False
+
 logger = logging.getLogger(__name__)
 
 
@@ -938,6 +945,15 @@ class SoulkunBrain:
             False: 目標設定の回答として処理すべき
         """
         message_lower = message.lower().strip()
+
+        # =====================================================
+        # 0. v10.41.0: 長期記憶要求は最優先で別意図として扱う
+        # =====================================================
+        # 「これは目標じゃなくて人生軸として覚えて」等の場合、
+        # goal_response_keywordsとの競合に関係なく中断すべき
+        if is_long_term_memory_request(message):
+            logger.info(f"🔥 Long-term memory request detected, allowing interruption: {message[:50]}")
+            return True
 
         # =====================================================
         # 1. STOP_WORDSチェック（明示的中断のみ許可）

@@ -183,6 +183,14 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "modifiers": [],
         "confidence_boost": 0.5,
     },
+    # v10.44.0: Connection Query（DM可能な相手一覧）
+    "connection_query": {
+        "primary": ["DMできる相手", "1on1で繋がってる", "直接チャットできる", "個別で繋がってる"],
+        "secondary": ["DM", "1on1", "個別", "繋がってる", "直接", "話せる", "チャットできる"],
+        "modifiers": ["教えて", "一覧", "誰", "全員", "名前"],
+        "negative": ["タスク", "目標", "記憶", "覚えて"],
+        "confidence_boost": 0.85,
+    },
 }
 
 

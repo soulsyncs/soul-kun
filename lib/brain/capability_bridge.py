@@ -336,6 +336,10 @@ class CapabilityBridge:
             handlers["read_presentation"] = self._handle_read_presentation
             handlers["create_presentation"] = self._handle_create_presentation
 
+        # Connection Query（v10.44.0: DM可能な相手一覧）
+        # Feature Flag不要（常に有効）
+        handlers["connection_query"] = self._handle_connection_query
+
         logger.debug(f"[CapabilityBridge] Handlers registered: {list(handlers.keys())}")
         return handlers
 
@@ -1088,6 +1092,82 @@ class CapabilityBridge:
             return HandlerResult(
                 success=False,
                 message="プレゼンテーションの作成に失敗したウル🐺",
+            )
+
+    # =========================================================================
+    # Connection Query（v10.44.0）
+    # =========================================================================
+
+    async def _handle_connection_query(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """
+        接続クエリハンドラー（DM可能な相手一覧）
+
+        セキュリティ:
+        - OWNER（CEO/Admin）のみ全リストを開示
+        - 非OWNERには拒否メッセージ
+
+        Args:
+            room_id: ChatWorkルームID
+            account_id: リクエスト者のアカウントID
+            sender_name: 送信者名
+            params: パラメータ（未使用）
+
+        Returns:
+            HandlerResult
+        """
+        try:
+            from lib.connection_service import ConnectionService
+            from lib.connection_logger import get_connection_logger
+            from lib.chatwork import ChatworkClient
+
+            # ChatWorkクライアント取得
+            client = ChatworkClient()
+
+            # サービス実行
+            service = ConnectionService(
+                chatwork_client=client,
+                org_id=self.org_id,
+            )
+            result = service.query_connections(account_id)
+
+            # 構造化ログ出力
+            conn_logger = get_connection_logger()
+            conn_logger.log_query(
+                requester_user_id=account_id,
+                allowed=result.allowed,
+                result_count=result.total_count,
+                organization_id=self.org_id,
+                room_id=room_id,
+            )
+
+            return HandlerResult(
+                success=True,
+                message=result.message,
+                data={
+                    "allowed": result.allowed,
+                    "total_count": result.total_count,
+                    "truncated": result.truncated,
+                } if result.allowed else None,
+            )
+
+        except ImportError as e:
+            logger.error(f"[CapabilityBridge] Connection query import error: {e}")
+            return HandlerResult(
+                success=False,
+                message="接続クエリ機能が利用できないウル🐺",
+            )
+        except Exception as e:
+            logger.error(f"[CapabilityBridge] Connection query failed: {e}", exc_info=True)
+            return HandlerResult(
+                success=False,
+                message="接続情報の取得に失敗したウル🐺",
             )
 
 

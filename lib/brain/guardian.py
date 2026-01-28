@@ -2,17 +2,23 @@
 """
 ガーディアン層（Guardian Layer）
 
-CEOの教えがMVV・組織論と矛盾していないかを検証し、
-矛盾を検出した場合はCEOにアラートを送信する層。
+v10.42.0: アクション実行前の価値観評価機能を追加
+
+【2つの役割】
+1. CEO Teaching検証: CEOの教えがMVV・組織論と矛盾していないか検証
+2. アクション評価: 実行前にユーザーメッセージを価値観で評価（P0: Soul OS Gate）
 
 設計書: docs/15_phase2d_ceo_learning.md
 
-【重要な設計原則】
+【CEO Teaching検証の設計原則】
 1. ガーディアンは「拒否」する権限を持たない
 2. 矛盾を「指摘」するのみ
 3. 最終判断はCEOに委ねる
-4. グレーゾーンはCEOの判断に委ねる
-5. 検出精度よりも説明の質を重視する
+
+【アクション評価の設計原則（v10.42.0 P0）】
+1. 価値観違反は「ブロック」可能（強制力あり）
+2. CRITICAL/HIGHリスクは即座にモード遷移
+3. 代替案を提示して終了
 """
 
 import json
@@ -20,6 +26,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple
 
 from sqlalchemy.engine import Engine
@@ -853,3 +860,163 @@ conflict_type:
     def get_alert_by_teaching_id(self, teaching_id: str) -> Optional[GuardianAlert]:
         """教えIDでアラートを取得"""
         return self._alert_repo.get_alert_by_teaching_id(teaching_id)
+
+    # -------------------------------------------------------------------------
+    # v10.42.0 P0: アクション実行前の価値観評価（Soul OS Gate）
+    # -------------------------------------------------------------------------
+
+    def evaluate_action(
+        self,
+        user_message: str,
+        action: str,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> "GuardianActionResult":
+        """
+        アクション実行前に価値観評価を行う
+
+        v10.42.0 P0: 「必ず通る門」として機能
+        - APPROVE: 実行OK
+        - BLOCK_AND_SUGGEST: 実行ブロック + 代替案メッセージ
+        - FORCE_MODE_SWITCH: モード強制遷移
+
+        Args:
+            user_message: ユーザーからのメッセージ
+            action: 実行予定のアクション名
+            context: 追加コンテキスト（ユーザー情報等）
+
+        Returns:
+            GuardianActionResult
+        """
+        # mvv_context からNG Pattern検出をインポート
+        try:
+            from lib.mvv_context import detect_ng_pattern, RiskLevel, AlertType
+        except ImportError:
+            try:
+                from mvv_context import detect_ng_pattern, RiskLevel, AlertType
+            except ImportError:
+                # フォールバック: 常にAPPROVE
+                logger.warning("mvv_context not available, guardian gate bypassed")
+                return GuardianActionResult(
+                    action_type=GuardianActionType.APPROVE,
+                    original_action=action,
+                )
+
+        # NG Pattern検出
+        ng_result = detect_ng_pattern(user_message)
+
+        if not ng_result.detected:
+            # 問題なし → APPROVE
+            return GuardianActionResult(
+                action_type=GuardianActionType.APPROVE,
+                original_action=action,
+            )
+
+        # NG Pattern検出時の処理
+        risk_level = ng_result.risk_level
+        alert_type = ng_result.alert_type
+
+        # CRITICAL (ng_mental_health) → 強制モード遷移
+        if risk_level == RiskLevel.CRITICAL:
+            logger.warning(
+                f"🚨 [Guardian Gate] CRITICAL risk detected: "
+                f"pattern={ng_result.pattern_type}, keyword={ng_result.matched_keyword}"
+            )
+            return GuardianActionResult(
+                action_type=GuardianActionType.FORCE_MODE_SWITCH,
+                original_action=action,
+                blocked_reason=f"CRITICAL: {ng_result.pattern_type}",
+                ng_pattern_type=ng_result.pattern_type,
+                ng_keyword=ng_result.matched_keyword,
+                force_mode="listening",  # 傾聴モードへ強制遷移
+                alternative_message=ng_result.response_hint or (
+                    "つらい状況なんだウルね。話してくれてありがとうウル。"
+                    "専門家に相談することも考えてほしいウル。"
+                    "今は何でも話していいウル🐺"
+                ),
+            )
+
+        # HIGH (ng_retention_critical) → ブロック + 傾聴モード遷移
+        if risk_level == RiskLevel.HIGH:
+            logger.warning(
+                f"⚠️ [Guardian Gate] HIGH risk detected: "
+                f"pattern={ng_result.pattern_type}, keyword={ng_result.matched_keyword}"
+            )
+            return GuardianActionResult(
+                action_type=GuardianActionType.FORCE_MODE_SWITCH,
+                original_action=action,
+                blocked_reason=f"HIGH: {ng_result.pattern_type}",
+                ng_pattern_type=ng_result.pattern_type,
+                ng_keyword=ng_result.matched_keyword,
+                force_mode="listening",  # 傾聴モードへ
+                alternative_message=ng_result.response_hint or (
+                    "そう感じてるウルね。まず話を聞かせてウル🐺"
+                ),
+            )
+
+        # MEDIUM → ブロック + 代替案提示
+        if risk_level == RiskLevel.MEDIUM:
+            logger.info(
+                f"💡 [Guardian Gate] MEDIUM risk detected: "
+                f"pattern={ng_result.pattern_type}, action will be modified"
+            )
+            return GuardianActionResult(
+                action_type=GuardianActionType.BLOCK_AND_SUGGEST,
+                original_action=action,
+                blocked_reason=f"MEDIUM: {ng_result.pattern_type}",
+                ng_pattern_type=ng_result.pattern_type,
+                ng_keyword=ng_result.matched_keyword,
+                alternative_message=ng_result.response_hint,
+            )
+
+        # LOW → APPROVE（警告ログのみ）
+        logger.debug(
+            f"[Guardian Gate] LOW risk detected: "
+            f"pattern={ng_result.pattern_type}, continuing with caution"
+        )
+        return GuardianActionResult(
+            action_type=GuardianActionType.APPROVE,
+            original_action=action,
+            ng_pattern_type=ng_result.pattern_type,
+            ng_keyword=ng_result.matched_keyword,
+        )
+
+
+# =============================================================================
+# v10.42.0 P0: アクション評価結果
+# =============================================================================
+
+
+class GuardianActionType(Enum):
+    """Guardian評価結果タイプ"""
+    APPROVE = "approve"                    # 実行OK
+    BLOCK_AND_SUGGEST = "block_and_suggest"  # 実行ブロック + 代替案
+    FORCE_MODE_SWITCH = "force_mode_switch"  # モード強制遷移
+
+
+@dataclass
+class GuardianActionResult:
+    """
+    Guardian評価結果
+
+    v10.42.0 P0: アクション実行前の価値観評価結果
+    """
+    action_type: GuardianActionType
+    original_action: str
+    blocked_reason: Optional[str] = None
+    ng_pattern_type: Optional[str] = None
+    ng_keyword: Optional[str] = None
+    alternative_message: Optional[str] = None
+    force_mode: Optional[str] = None  # 強制遷移先のモード
+
+    @property
+    def should_block(self) -> bool:
+        """実行をブロックすべきか"""
+        return self.action_type in (
+            GuardianActionType.BLOCK_AND_SUGGEST,
+            GuardianActionType.FORCE_MODE_SWITCH,
+        )
+
+    @property
+    def should_force_mode_switch(self) -> bool:
+        """モード強制遷移すべきか"""
+        return self.action_type == GuardianActionType.FORCE_MODE_SWITCH

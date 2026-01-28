@@ -58,21 +58,27 @@ COMMENT ON COLUMN bot_persona_memory.key IS '設定キー（好物, モチーフ
 COMMENT ON COLUMN bot_persona_memory.value IS '設定値';
 COMMENT ON COLUMN bot_persona_memory.category IS 'カテゴリ: character(キャラ設定), personality(性格), preference(好み)';
 
--- 1-2. user_long_term_memory に scope カラム追加
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_name = 'user_long_term_memory'
-        AND column_name = 'scope'
-    ) THEN
-        ALTER TABLE user_long_term_memory
-        ADD COLUMN scope VARCHAR(20) NOT NULL DEFAULT 'PRIVATE';
+-- 1-2. user_long_term_memory に scope カラム追加（安全版）
+-- 3ステップ方式: テーブルリライトを回避し、長時間ロックを防ぐ
 
-        COMMENT ON COLUMN user_long_term_memory.scope IS
-            'アクセススコープ: PRIVATE(本人のみ), ORG_SHARED(組織内共有)';
-    END IF;
-END $$;
+-- Step 1: NULL許可でカラム追加（高速DDL、テーブルリライトなし）
+ALTER TABLE user_long_term_memory
+ADD COLUMN IF NOT EXISTS scope VARCHAR(20);
+
+-- Step 2: 既存データに値を埋める（バッチ更新）
+UPDATE user_long_term_memory
+SET scope = 'PRIVATE'
+WHERE scope IS NULL;
+
+-- Step 3: デフォルト値とNOT NULL制約を追加
+ALTER TABLE user_long_term_memory
+ALTER COLUMN scope SET DEFAULT 'PRIVATE';
+
+ALTER TABLE user_long_term_memory
+ALTER COLUMN scope SET NOT NULL;
+
+COMMENT ON COLUMN user_long_term_memory.scope IS
+    'アクセススコープ: PRIVATE(本人のみ), ORG_SHARED(組織内共有)';
 
 
 -- =====================================================

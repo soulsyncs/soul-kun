@@ -189,7 +189,8 @@ class LongTermMemoryManager:
     人生軸・価値観・長期WHYを保存する。
     """
 
-    def __init__(self, pool, org_id: str, user_id: str, user_name: str = ""):
+    def __init__(self, pool, org_id: str, user_id, user_name: str = ""):
+        # user_id: int or str (DBはintegerだが文字列でも動作)
         """
         初期化
 
@@ -376,7 +377,7 @@ class LongTermMemoryManager:
 def save_long_term_memory(
     pool,
     org_id: str,
-    user_id: str,
+    user_id,  # int or str
     user_name: str,
     message: str
 ) -> Dict[str, Any]:
@@ -385,8 +386,8 @@ def save_long_term_memory(
 
     Args:
         pool: DB接続プール
-        org_id: 組織ID
-        user_id: ユーザーID
+        org_id: 組織ID (UUID string)
+        user_id: ユーザーID (integer, users.user_id)
         user_name: ユーザー名
         message: ユーザーメッセージ
 

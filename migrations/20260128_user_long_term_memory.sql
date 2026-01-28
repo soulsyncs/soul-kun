@@ -4,10 +4,11 @@
 -- =====================================================
 
 -- テーブル作成
+-- v10.40.8: usersテーブルに合わせてuser_idをintegerに変更
 CREATE TABLE IF NOT EXISTS user_long_term_memory (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID NOT NULL REFERENCES organizations(id),
-    user_id UUID NOT NULL REFERENCES users(id),
+    organization_id UUID NOT NULL,
+    user_id INTEGER NOT NULL,
 
     -- 記憶タイプ
     -- life_why: 人生のWHY・存在意義
@@ -25,7 +26,11 @@ CREATE TABLE IF NOT EXISTS user_long_term_memory (
 
     -- タイムスタンプ
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+
+    -- 外部キー制約
+    CONSTRAINT fk_user_long_term_memory_org FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE,
+    CONSTRAINT fk_user_long_term_memory_user FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE
 );
 
 -- インデックス
@@ -35,14 +40,6 @@ CREATE INDEX IF NOT EXISTS idx_user_long_term_memory_type
     ON user_long_term_memory(user_id, memory_type);
 CREATE INDEX IF NOT EXISTS idx_user_long_term_memory_created
     ON user_long_term_memory(user_id, created_at DESC);
-
--- RLS（Row Level Security）
-ALTER TABLE user_long_term_memory ENABLE ROW LEVEL SECURITY;
-
--- RLSポリシー
-CREATE POLICY user_long_term_memory_org_isolation ON user_long_term_memory
-    FOR ALL
-    USING (organization_id = current_setting('app.organization_id', true)::uuid);
 
 -- コメント
 COMMENT ON TABLE user_long_term_memory IS 'ユーザーの長期記憶（人生軸、価値観、長期WHYなど）';

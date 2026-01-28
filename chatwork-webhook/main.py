@@ -321,6 +321,8 @@ _announcement_handler = None
 # =====================================================
 try:
     from lib.brain import (
+        # Version (単一ソース)
+        BRAIN_VERSION,
         # Core classes
         SoulkunBrain,
         BrainResponse,
@@ -336,7 +338,7 @@ try:
     )
     USE_BRAIN_ARCHITECTURE = is_brain_enabled()  # 環境変数から判定
     _brain_mode = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower()
-    print(f"✅ lib/brain loaded (v10.29.0), enabled={USE_BRAIN_ARCHITECTURE}, mode={_brain_mode}")
+    print(f"✅ lib/brain loaded (v{BRAIN_VERSION}), enabled={USE_BRAIN_ARCHITECTURE}, mode={_brain_mode}")
 except ImportError as e:
     print(f"⚠️ lib/brain not available: {e}")
     USE_BRAIN_ARCHITECTURE = False

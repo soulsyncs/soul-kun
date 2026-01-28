@@ -1336,6 +1336,17 @@ class SoulkunBrain:
         # P5安全装置①: 空オプション検知
         # ========================================
         if not options:
+            # 構造化ログ（アラート条件用）
+            logger.warning(
+                "EMPTY_CONFIRMATION_OPTIONS",
+                extra={
+                    "event_type": "empty_confirmation",
+                    "user_id": account_id,
+                    "room_id": room_id,
+                    "pending_action": pending_action,
+                },
+            )
+            # テキストログ（後方互換）
             logger.warning(
                 f"[DIALOGUE_LOOP_DETECTED] Empty confirmation_options detected. "
                 f"pending_action={pending_action}, room={room_id}"
@@ -1361,6 +1372,19 @@ class SoulkunBrain:
 
             if new_retry_count >= 2:
                 # ループ検知: 2回以上リトライ → フォールバック
+                # 構造化ログ（アラート条件用）
+                logger.warning(
+                    "DIALOGUE_LOOP_DETECTED",
+                    extra={
+                        "event_type": "dialogue_loop",
+                        "retry_count": new_retry_count,
+                        "user_id": account_id,
+                        "room_id": room_id,
+                        "pending_action": pending_action,
+                        "last_response": last_response[:50] if last_response else None,
+                    },
+                )
+                # テキストログ（後方互換）
                 logger.warning(
                     f"[DIALOGUE_LOOP_DETECTED] Max retries reached. "
                     f"retry_count={new_retry_count}, last_response={last_response[:50] if last_response else 'N/A'}, "

@@ -8,6 +8,7 @@ SoulkunBrainクラスの基本機能をテストします。
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime, timedelta
+from freezegun import freeze_time
 
 from lib.brain.core import SoulkunBrain, create_brain
 from lib.brain.models import (
@@ -520,6 +521,7 @@ class TestProcessMessage:
 class TestModels:
     """データモデルのテスト"""
 
+    @freeze_time("2025-01-15 12:00:00")
     def test_conversation_state_is_active(self):
         """ConversationStateのis_activeプロパティ"""
         # アクティブな状態

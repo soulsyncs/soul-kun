@@ -10,6 +10,7 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
+from freezegun import freeze_time
 
 from lib.brain.state_manager import BrainStateManager
 from lib.brain.models import ConversationState, StateType
@@ -493,6 +494,7 @@ class TestUpdateStep:
 class TestConversationStateModel:
     """ConversationStateモデルのテスト"""
 
+    @freeze_time("2025-01-15 12:00:00")
     def test_is_active_returns_true_for_active_state(self):
         """アクティブな状態ではis_activeがTrue"""
         state = ConversationState(
@@ -506,6 +508,7 @@ class TestConversationStateModel:
         state = ConversationState(state_type=StateType.NORMAL)
         assert state.is_active is False
 
+    @freeze_time("2025-01-15 12:00:00")
     def test_is_active_returns_false_when_expired(self):
         """期限切れではis_activeがFalse"""
         state = ConversationState(
@@ -514,6 +517,7 @@ class TestConversationStateModel:
         )
         assert state.is_active is False
 
+    @freeze_time("2025-01-15 12:00:00")
     def test_is_expired_returns_true_when_expired(self):
         """期限切れではis_expiredがTrue"""
         state = ConversationState(
@@ -522,6 +526,7 @@ class TestConversationStateModel:
         )
         assert state.is_expired is True
 
+    @freeze_time("2025-01-15 12:00:00")
     def test_is_expired_returns_false_when_not_expired(self):
         """期限内ではis_expiredがFalse"""
         state = ConversationState(

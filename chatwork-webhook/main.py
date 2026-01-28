@@ -149,9 +149,10 @@ except ImportError as e:
 
 # =====================================================
 # v10.43.0: 人格レイヤー（Company Persona + Add-on）
+# v10.46.0: Persona観測ログ追加
 # =====================================================
 try:
-    from lib.persona import build_persona_prompt
+    from lib.persona import build_persona_prompt, log_persona_path
     USE_PERSONA_LAYER = True
     # 安全制限: Personaプロンプトの最大文字数（トークン肥大化防止）
     MAX_PERSONA_CHARS = 1200
@@ -160,6 +161,9 @@ except ImportError as e:
     print(f"⚠️ lib/persona not available: {e}")
     USE_PERSONA_LAYER = False
     MAX_PERSONA_CHARS = 0
+    # フォールバック用ダミー関数
+    def log_persona_path(*args, **kwargs):
+        pass
 
 # =====================================================
 # v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
@@ -3720,11 +3724,49 @@ async def _brain_handle_forget_knowledge(params, room_id, account_id, sender_nam
 
 
 async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name, context):
+    """
+    知識一覧ハンドラー
+
+    v10.40.17: 「軸を確認」等の長期記憶クエリは long_term_memory から取得
+    """
     from lib.brain.models import HandlerResult
+    import re
     try:
+        # v10.40.17: 長期記憶クエリパターンを検出
+        original_message = ""
+        if context:
+            original_message = getattr(context, 'original_message', '') or ''
+            if not original_message and hasattr(context, 'to_dict'):
+                ctx_dict = context.to_dict()
+                original_message = ctx_dict.get('original_message', '')
+
+        long_term_query_patterns = [
+            r"軸を(確認|教えて|見せて)",
+            r"(俺|私|自分)の軸",
+            r"人生の軸",
+            r"価値観を(確認|教えて)",
+        ]
+
+        is_long_term_query = False
+        for pattern in long_term_query_patterns:
+            if re.search(pattern, original_message, re.IGNORECASE):
+                is_long_term_query = True
+                break
+
+        if is_long_term_query:
+            print(f"🔍 [list_knowledge] long_term_query detected, redirecting to long_term_memory")
+            result = await _handle_query_long_term_memory(
+                account_id=account_id,
+                sender_name=sender_name
+            )
+            if result.get("success"):
+                return HandlerResult(success=True, message=result.get("message", ""))
+            # 長期記憶がなければ従来処理にフォールバック
+
         result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "知識一覧を取得したウル🐺")
     except Exception as e:
+        print(f"❌ list_knowledge error: {e}")
         return HandlerResult(success=False, message=f"知識一覧でエラーが発生したウル🐺")
 
 
@@ -6763,7 +6805,9 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
     api_key = get_secret("openrouter-api-key")
 
     # v10.43.0: 人格レイヤー（Company Persona + Add-on）の構築
+    # v10.46.0: Persona観測ログ統一化
     persona_prompt = ""
+    addon_applied = False
     if USE_PERSONA_LAYER and response_language == "ja":
         try:
             org_id = MEMORY_DEFAULT_ORG_ID
@@ -6777,11 +6821,25 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
             if persona_prompt and len(persona_prompt) > MAX_PERSONA_CHARS:
                 print(f"⚠️ Persona prompt truncated: {len(persona_prompt)} -> {MAX_PERSONA_CHARS}")
                 persona_prompt = persona_prompt[:MAX_PERSONA_CHARS]
+            # Add-on適用有無をプロンプト内容から判定
+            addon_applied = "【追加指針：" in persona_prompt if persona_prompt else False
             if persona_prompt:
-                print(f"🎭 Persona injected | addon={'yes' if account_id else 'no'}")
+                log_persona_path(
+                    path="get_ai_response",
+                    injected=True,
+                    addon=addon_applied,
+                    account_id=account_id,
+                )
         except Exception as e:
             print(f"⚠️ Persona build failed (continuing without): {e}")
             persona_prompt = ""
+            log_persona_path(
+                path="get_ai_response",
+                injected=False,
+                addon=False,
+                account_id=account_id,
+                extra="build_failed",
+            )
 
     # v10.22.0: 組織論的行動指針コンテキストの生成
     org_theory_context = ""

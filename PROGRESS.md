@@ -727,6 +727,19 @@ else:
 
 ### 2026-01-28
 
+- **16:30 JST**: goal_setting v10.40.6 - confirm無限ループ完全防止パッチ ✅ **PR #287**
+  - **概要**: confirmステップでLLM解析失敗時に同じ要約を繰り返さないよう修正
+  - **変更内容**:
+    - `lib/goal_setting.py`:
+      - confirmステップのロジック整理（長文 かつ LLM抽出成功 かつ 有効な修正あり → 要約更新、それ以外 → 導きの対話へ）
+      - `has_valid_updates`による明示的チェック追加
+      - DOUBT_ANXIETY_PATTERNSに「微妙」「うーん」「びみょう」を追加
+      - patternを`clarification_fallback`に変更
+    - `lib/brain/core.py`:
+      - v10.40.5: STOP_WORDS/continuation_intents/短文継続ルールの整理
+  - **テスト**: 136件全パス（+3件追加: TestConfirmFallback）
+  - **デプロイ**: chatwork-webhook revision 00236-pbh
+
 - **14:30 JST**: goal_setting v10.40.3 - リスタートバグ修正 & フェーズ自動判定 ✅
   - **概要**: 2つのバグ修正と1つの機能改善
   - **修正1: セッション継続ガード**

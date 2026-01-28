@@ -6,6 +6,7 @@ main.pyから分割された目標登録・進捗報告・確認の機能を提�
 分割元: chatwork-webhook/main.py
 分割日: 2026-01-25
 バージョン: v10.24.6
+v10.46.0: Persona観測ログ追加
 """
 
 import traceback
@@ -15,6 +16,14 @@ from uuid import uuid4
 from typing import Optional, Dict, Any, Callable
 
 from sqlalchemy import text
+
+# v10.46.0: Persona観測ログ
+try:
+    from lib.persona import log_persona_path
+except ImportError:
+    # フォールバック用ダミー関数
+    def log_persona_path(*args, **kwargs):
+        pass
 
 
 class GoalHandler:
@@ -111,8 +120,18 @@ class GoalHandler:
         - 「導く存在」としてのソウルくんを実現
 
         アチーブメント社・選択理論に基づく目標設定支援。
+
+        v10.46.0: Persona観測ログ追加
         """
         print(f"🎯 handle_goal_registration 開始: room_id={room_id}, account_id={account_id}")
+        # v10.46.0: Persona観測ログ（goal_registrationは直接応答のためinjected=no）
+        log_persona_path(
+            path="goal_registration",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
         print(f"   params: {params}")
 
         try:
@@ -179,6 +198,13 @@ class GoalHandler:
             # 対話完了後の登録処理（ここに到達 = 対話完了済み）
             # =====================================================
             print(f"   ✅ 対話完了確認済み → 目標登録: {goal_title}")
+
+            # パラメータ抽出（v10.46.0: 欠落していた抽出処理を追加）
+            period_type = params.get("period_type", "monthly")
+            goal_type = params.get("goal_type", "action")
+            target_value = params.get("target_value")
+            unit = params.get("unit", "")
+            deadline = params.get("deadline")
 
             # 期間を計算
             today = date.today()
@@ -318,9 +344,19 @@ class GoalHandler:
         目標進捗報告ハンドラー（Phase 2.5）
 
         goal_progress テーブルに進捗を記録する。
+
+        v10.46.0: Persona観測ログ追加
         """
         print(f"📊 handle_goal_progress_report 開始: room_id={room_id}, account_id={account_id}")
         print(f"   params: {params}")
+        # v10.46.0: Persona観測ログ（goal_progress_reportは直接応答のためinjected=no）
+        log_persona_path(
+            path="goal_progress_report",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
 
         try:
             progress_value = params.get("progress_value")
@@ -509,8 +545,18 @@ class GoalHandler:
         目標確認ハンドラー（Phase 2.5）
 
         現在の目標と進捗状況を返す。
+
+        v10.46.0: Persona観測ログ追加
         """
         print(f"📋 handle_goal_status_check 開始: room_id={room_id}, account_id={account_id}")
+        # v10.46.0: Persona観測ログ（goal_status_checkは直接応答のためinjected=no）
+        log_persona_path(
+            path="goal_status_check",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
 
         try:
             pool = self.get_pool()
@@ -632,8 +678,18 @@ class GoalHandler:
         目標一覧・整理ハンドラー（v10.45.0）
 
         既存の目標一覧を表示する、または整理・削除・修正する。
+
+        v10.46.0: Persona観測ログ追加
         """
         print(f"📋 handle_goal_review 開始: room_id={room_id}, account_id={account_id}")
+        # v10.46.0: Persona観測ログ（goal_reviewは直接応答のためinjected=no）
+        log_persona_path(
+            path="goal_review",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
 
         action = params.get("action", "list")
 
@@ -757,8 +813,18 @@ class GoalHandler:
 
         目標の決め方や優先順位について相談する。
         このハンドラーはgeneral_conversationにフォールバックし、LLMを使って相談に回答する。
+
+        v10.46.0: Persona観測ログ追加
         """
         print(f"💬 handle_goal_consult 開始: room_id={room_id}, account_id={account_id}")
+        # v10.46.0: Persona観測ログ（goal_consultはLLMフォールバックのためget_ai_responseで別途注入される）
+        log_persona_path(
+            path="goal_consult",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="fallback_to_general",
+        )
 
         consultation_topic = params.get("consultation_topic", "")
 

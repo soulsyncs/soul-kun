@@ -727,6 +727,13 @@ else:
 
 ### 2026-01-28
 
+- **17:15 JST**: goal_setting v10.40.7 - state_step二重設定SQLエラー修正 ✅ **PR #289**
+  - **原因**: `_update_session()`でstatus='completed'とcurrent_step両方指定時、state_stepが2回設定されてPostgreSQLエラー
+  - **エラー**: `multiple assignments to same column "state_step"`
+  - **修正**: if-elif構造に変更してstatus='completed'時はcurrent_stepの設定をスキップ
+  - **テスト**: 139件全パス（+3件追加: TestUpdateSessionSQL）
+  - **デプロイ**: chatwork-webhook revision 00237-lgr
+
 - **16:30 JST**: goal_setting v10.40.6 - confirm無限ループ完全防止パッチ ✅ **PR #287**
   - **概要**: confirmステップでLLM解析失敗時に同じ要約を繰り返さないよう修正
   - **変更内容**:

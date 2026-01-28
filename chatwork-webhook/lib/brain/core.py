@@ -1318,20 +1318,91 @@ class SoulkunBrain:
         sender_name: str,
         start_time: float,
     ) -> BrainResponse:
-        """確認への応答を処理"""
+        """
+        確認への応答を処理
+
+        v10.43.3: P5対話フロー無限ループバグ修正
+        - ループ検知機構追加（最大2回のリトライ）
+        - 空オプション時の安全装置
+        - フォールバック対話
+        """
         pending_action = state.state_data.get("pending_action")
         pending_params = state.state_data.get("pending_params", {})
         options = state.state_data.get("confirmation_options", [])
+        retry_count = state.state_data.get("confirmation_retry_count", 0)
+        last_response = state.state_data.get("last_confirmation_response", "")
+
+        # ========================================
+        # P5安全装置①: 空オプション検知
+        # ========================================
+        if not options:
+            logger.warning(
+                f"[DIALOGUE_LOOP_DETECTED] Empty confirmation_options detected. "
+                f"pending_action={pending_action}, room={room_id}"
+            )
+            # 確認フローを脱出し、通常処理へ
+            await self._clear_state(room_id, account_id, "empty_options_fallback")
+            return BrainResponse(
+                message="うまく質問を理解できなかったウル🙏\nもう一度普通の言葉で教えてほしいウル！",
+                action_taken="confirmation_fallback",
+                state_changed=True,
+                new_state="normal",
+                total_time_ms=self._elapsed_ms(start_time),
+            )
 
         # 応答を解析
         selected_option = self._parse_confirmation_response(message, options)
 
         if selected_option is None:
-            # 理解できない応答
+            # ========================================
+            # P5安全装置②: ループ検知（最大2回リトライ）
+            # ========================================
+            new_retry_count = retry_count + 1
+
+            if new_retry_count >= 2:
+                # ループ検知: 2回以上リトライ → フォールバック
+                logger.warning(
+                    f"[DIALOGUE_LOOP_DETECTED] Max retries reached. "
+                    f"retry_count={new_retry_count}, last_response={last_response[:50] if last_response else 'N/A'}, "
+                    f"pending_action={pending_action}, room={room_id}"
+                )
+                await self._clear_state(room_id, account_id, "loop_detected_fallback")
+                return BrainResponse(
+                    message="うまく質問を理解できなかったウル🙏\nもう一度普通の言葉で教えてほしいウル！",
+                    action_taken="confirmation_loop_fallback",
+                    state_changed=True,
+                    new_state="normal",
+                    debug_info={
+                        "loop_detected": True,
+                        "retry_count": new_retry_count,
+                        "pending_action": pending_action,
+                    },
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+            # リトライカウントを更新
+            await self._update_state_step(
+                room_id=room_id,
+                user_id=account_id,
+                new_step=state.state_step or "confirmation",
+                additional_data={
+                    "confirmation_retry_count": new_retry_count,
+                    "last_confirmation_response": "番号で教えてほしいウル🐺",
+                },
+            )
+
+            # オプションを再表示して案内
+            options_text = "\n".join([f"{i+1}. {opt}" for i, opt in enumerate(options)])
+            retry_message = f"🐺 以下から番号で選んでほしいウル！\n\n{options_text}\n\n（「やめる」でキャンセルできるウル）"
+
             return BrainResponse(
-                message="番号で教えてほしいウル🐺",
+                message=retry_message,
                 action_taken="confirmation_retry",
                 awaiting_confirmation=True,
+                debug_info={
+                    "retry_count": new_retry_count,
+                    "options_count": len(options),
+                },
                 total_time_ms=self._elapsed_ms(start_time),
             )
 

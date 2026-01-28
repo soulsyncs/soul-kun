@@ -1238,7 +1238,14 @@ class GoalSettingDialogue:
         updates = ["updated_at = CURRENT_TIMESTAMP"]
         params = {"session_id": session_id, "state_data": json.dumps(current_data)}
 
-        if current_step is not None:
+        # v10.40.7: status='completed' の場合は state_step を NULL に設定するため、
+        # current_step の設定をスキップ（二重設定によるSQL文法エラー防止）
+        if status == "completed":
+            updates.append("state_type = 'normal'")
+            updates.append("state_step = NULL")
+            current_data["completed_at"] = datetime.utcnow().isoformat()
+            params["state_data"] = json.dumps(current_data)
+        elif current_step is not None:
             updates.append("state_step = :current_step")
             params["current_step"] = current_step
 
@@ -1246,13 +1253,6 @@ class GoalSettingDialogue:
 
         # タイムアウト延長
         updates.append("expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours'")
-
-        # status='completed' の場合は state_type を 'normal' に変更
-        if status == "completed":
-            updates.append("state_type = 'normal'")
-            updates.append("state_step = NULL")
-            current_data["completed_at"] = datetime.utcnow().isoformat()
-            params["state_data"] = json.dumps(current_data)
 
         conn.execute(
             text(f"UPDATE brain_conversation_states SET {', '.join(updates)} WHERE id = :session_id"),

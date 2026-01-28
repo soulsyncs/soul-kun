@@ -406,3 +406,105 @@ class TestDMQuestionRouting:
         # priority が設定されている
         assert "priority" in keywords, "priority が設定されていない"
         assert keywords["priority"] >= 100, "priority が低い"
+
+
+# =============================================================================
+# ルーティング強制テスト（v10.44.2）
+# =============================================================================
+
+class TestConnectionQueryPriorityOverride:
+    """connection_query が他のintentより必ず優先されることをテスト"""
+
+    def test_priority_override_actions_defined(self):
+        """PRIORITY_OVERRIDE_ACTIONS に connection_query が定義されている"""
+        from lib.brain.decision import BrainDecision
+
+        # クラス属性として定義されている
+        assert hasattr(BrainDecision, "PRIORITY_OVERRIDE_ACTIONS")
+        assert "connection_query" in BrainDecision.PRIORITY_OVERRIDE_ACTIONS
+
+    def test_priority_override_triggers_defined(self):
+        """PRIORITY_OVERRIDE_TRIGGERS に connection_query のトリガーが定義されている"""
+        from lib.brain.decision import BrainDecision
+
+        assert hasattr(BrainDecision, "PRIORITY_OVERRIDE_TRIGGERS")
+        triggers = BrainDecision.PRIORITY_OVERRIDE_TRIGGERS.get("connection_query", [])
+
+        # 主要なトリガーキーワードが含まれている
+        assert "dm" in triggers
+        assert "1on1" in triggers
+
+    @pytest.mark.parametrize("message,expected_trigger", [
+        ("DMできる相手は誰？", True),
+        ("DMできる人教えて", True),
+        ("1on1で繋がってる人一覧教えて", True),
+        ("直接チャットできる相手は？", True),
+        ("個別で繋がってる人は？", True),
+        ("今日の天気は？", False),
+        ("タスク一覧を見せて", False),
+    ])
+    def test_trigger_keywords_match(self, message, expected_trigger):
+        """トリガーキーワードが正しくマッチする"""
+        from lib.brain.decision import BrainDecision
+
+        triggers = BrainDecision.PRIORITY_OVERRIDE_TRIGGERS.get("connection_query", [])
+        message_lower = message.lower()
+
+        has_trigger = any(t in message_lower for t in triggers)
+        assert has_trigger == expected_trigger, (
+            f"'{message}' のトリガーマッチが期待と異なる: "
+            f"expected={expected_trigger}, actual={has_trigger}"
+        )
+
+    def test_apply_priority_override_promotes_connection_query(self):
+        """_apply_priority_override が connection_query を先頭に昇格させる"""
+        from lib.brain.decision import BrainDecision
+        from lib.brain.models import ActionCandidate, UnderstandingResult
+
+        decision = BrainDecision(org_id="test")
+
+        # connection_query が2番目にある候補リスト
+        candidates = [
+            ActionCandidate(action="memory_recall", score=0.9, params={}, reasoning=""),
+            ActionCandidate(action="connection_query", score=0.7, params={}, reasoning=""),
+            ActionCandidate(action="general_conversation", score=0.5, params={}, reasoning=""),
+        ]
+
+        understanding = UnderstandingResult(
+            raw_message="DMできる相手は誰？",
+            intent="connection_query",
+            intent_confidence=0.8,
+            entities={},
+        )
+
+        # 優先度強制を適用
+        result = decision._apply_priority_override(candidates, understanding)
+
+        # connection_query が先頭になっている
+        assert result[0].action == "connection_query", (
+            f"先頭が connection_query ではない: {result[0].action}"
+        )
+
+    def test_apply_priority_override_no_trigger_no_change(self):
+        """トリガーキーワードがない場合は変更なし"""
+        from lib.brain.decision import BrainDecision
+        from lib.brain.models import ActionCandidate, UnderstandingResult
+
+        decision = BrainDecision(org_id="test")
+
+        candidates = [
+            ActionCandidate(action="memory_recall", score=0.9, params={}, reasoning=""),
+            ActionCandidate(action="connection_query", score=0.7, params={}, reasoning=""),
+        ]
+
+        understanding = UnderstandingResult(
+            raw_message="田中さんについて教えて",  # トリガーキーワードなし
+            intent="memory_recall",
+            intent_confidence=0.8,
+            entities={},
+        )
+
+        result = decision._apply_priority_override(candidates, understanding)
+
+        # 順序は変わらない
+        assert result[0].action == "memory_recall"

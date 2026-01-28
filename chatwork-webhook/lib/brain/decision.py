@@ -430,6 +430,18 @@ class BrainDecision:
                     processing_time_ms=self._elapsed_ms(start_time),
                 )
 
+            # ステップ3.5: 優先度強制ルール（v10.44.2）
+            # connection_query は「データソースがChatWork接続情報」のため、
+            # 記憶/雑談/組織図より常に優先される
+            candidates = self._apply_priority_override(candidates, understanding)
+
+            # ルーティングログ（原因追跡用）
+            candidate_names = [c.action for c in candidates[:5]]
+            logger.info(
+                f"ROUTED_INTENT={candidates[0].action if candidates else 'none'} "
+                f"candidates={candidate_names}"
+            )
+
             # ステップ4: 最適な候補を選択
             best_candidate = candidates[0]
             other_candidates = candidates[1:5]  # 上位5件まで
@@ -630,6 +642,79 @@ class BrainDecision:
         segments = [s for s in segments if len(s) > 2]
 
         return segments if segments else [message]
+
+    # =========================================================================
+    # ステップ3.5: 優先度強制ルール（v10.44.2）
+    # =========================================================================
+
+    # 優先度強制対象のアクション（データソースが固有のため、記憶/雑談より優先）
+    PRIORITY_OVERRIDE_ACTIONS = ["connection_query"]
+
+    # 優先度強制が効くためのキーワード（これらがあればオーバーライド発動）
+    PRIORITY_OVERRIDE_TRIGGERS = {
+        "connection_query": ["dm", "1on1", "繋がってる", "直接チャット", "個別"],
+    }
+
+    def _apply_priority_override(
+        self,
+        candidates: List[ActionCandidate],
+        understanding: UnderstandingResult,
+    ) -> List[ActionCandidate]:
+        """
+        優先度強制ルールを適用
+
+        connection_query など、データソースが固有のアクションは、
+        記憶/雑談/組織図より常に優先される。
+
+        v10.44.2: 「DMできる相手は誰？」が memory_recall に流れる問題を修正
+
+        Args:
+            candidates: スコアリング済みの候補リスト
+            understanding: 理解結果
+
+        Returns:
+            優先度調整後の候補リスト
+        """
+        if not candidates:
+            return candidates
+
+        message_lower = understanding.raw_message.lower()
+
+        # 優先度強制対象のアクションが候補にあるかチェック
+        for priority_action in self.PRIORITY_OVERRIDE_ACTIONS:
+            # 候補に含まれているか
+            priority_candidate = None
+            priority_index = -1
+
+            for i, c in enumerate(candidates):
+                if c.action == priority_action:
+                    priority_candidate = c
+                    priority_index = i
+                    break
+
+            if priority_candidate is None:
+                continue
+
+            # トリガーキーワードがメッセージに含まれているか
+            triggers = self.PRIORITY_OVERRIDE_TRIGGERS.get(priority_action, [])
+            has_trigger = any(t in message_lower for t in triggers)
+
+            if has_trigger:
+                # 優先度強制: 先頭に移動
+                logger.info(
+                    f"🎯 PRIORITY_OVERRIDE: {priority_action} forced to top "
+                    f"(was #{priority_index + 1}, score={priority_candidate.score:.2f})"
+                )
+
+                # 新しいリストを作成: priority_action を先頭に
+                new_candidates = [priority_candidate]
+                for c in candidates:
+                    if c.action != priority_action:
+                        new_candidates.append(c)
+
+                return new_candidates
+
+        return candidates
 
     # =========================================================================
     # ステップ3: 機能候補の抽出とスコアリング

@@ -316,12 +316,17 @@ class BrainObservability:
         Args:
             log_entry: ログエントリ
         """
-        # Cloud Loggingへの出力
+        # Cloud Loggingへの出力（logger.infoを使用して構造化ログ対応）
         if self.enable_cloud_logging:
-            print(log_entry.to_log_string())
+            logger.info(log_entry.to_log_string())
 
         # バッファに追加（永続化用）
         if self.enable_persistence:
+            # メモリリーク防止: 最大1000件でバッファ制限
+            MAX_BUFFER_SIZE = 1000
+            if len(self._log_buffer) >= MAX_BUFFER_SIZE:
+                self._log_buffer.pop(0)  # 最古のログを削除
+
             self._log_buffer.append(log_entry)
 
             # バッファが一定サイズに達したらフラッシュ

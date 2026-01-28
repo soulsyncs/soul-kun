@@ -5,10 +5,13 @@ Company Persona (B) + Add-on (C) を組み合わせた人格レイヤー
 v10.46.0: Persona観測ログ追加
 - log_persona_path: 全経路でPersonaの状態をログ出力
 """
+import logging
 from typing import Optional
 
 from .company_base import get_company_persona
 from .addon_manager import get_user_addon
+
+logger = logging.getLogger(__name__)
 
 
 def log_persona_path(
@@ -46,7 +49,7 @@ def log_persona_path(
     if extra:
         details["extra"] = extra
 
-    print(f"🎭 ctx=persona path={path} applied={applied_str} account={account_str} ({details})")
+    logger.info(f"🎭 ctx=persona path={path} applied={applied_str} account={account_str} ({details})")
 
 
 def build_persona_prompt(

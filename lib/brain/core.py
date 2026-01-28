@@ -105,6 +105,14 @@ from lib.brain.value_authority import (
     ValueDecision,
     create_value_authority,
 )
+
+# v10.43.0 P4: Memory Authority Layer
+from lib.brain.memory_authority import (
+    MemoryAuthority,
+    MemoryAuthorityResult,
+    MemoryDecision,
+    create_memory_authority,
+)
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
 # Phase 2L: ExecutionExcellence（実行力強化）
@@ -1721,6 +1729,70 @@ class SoulkunBrain:
             # APPROVE: 通過
             logger.debug(
                 f"✅ [ValueAuthority] Action approved: {decision.action}"
+            )
+
+        # =================================================================
+        # v10.43.0 P4: Memory Authority - 長期記憶との最終整合性チェック
+        # =================================================================
+        if context.user_life_axis:
+            memory_authority = create_memory_authority(
+                long_term_memory=context.user_life_axis,
+                user_name=sender_name,
+                organization_id=context.organization_id,
+            )
+
+            ma_result = memory_authority.evaluate(
+                message=original_message,
+                action=decision.action,
+                action_params=decision.params,
+                context={"room_id": room_id, "account_id": account_id},
+            )
+
+            # BLOCK_AND_SUGGEST: HARD CONFLICTを検出
+            if ma_result.decision == MemoryDecision.BLOCK_AND_SUGGEST:
+                logger.info(
+                    f"🛡️ [MemoryAuthority] Action blocked: {decision.action}, "
+                    f"reasons={ma_result.reasons}, conflicts={len(ma_result.conflicts)}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=ma_result.alternative_message or (
+                        f"🐺 {sender_name}さんが以前決めた方針と矛盾してるかもウル。"
+                        "確認してほしいウル🐺"
+                    ),
+                )
+
+            # REQUIRE_CONFIRMATION: SOFT CONFLICTを検出
+            if ma_result.decision == MemoryDecision.REQUIRE_CONFIRMATION:
+                logger.info(
+                    f"⚠️ [MemoryAuthority] Confirmation required: {decision.action}, "
+                    f"reasons={ma_result.reasons}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=ma_result.confirmation_message or (
+                        f"🐺 {sender_name}さん、ちょっと確認させてウル。"
+                        "本当に進めていいウル？🐺"
+                    ),
+                )
+
+            # FORCE_MODE_SWITCH: 重大な矛盾で強制遷移
+            if ma_result.decision == MemoryDecision.FORCE_MODE_SWITCH:
+                logger.warning(
+                    f"🚨 [MemoryAuthority] Force mode switch: {decision.action} → {ma_result.forced_mode}, "
+                    f"reasons={ma_result.reasons}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=ma_result.alternative_message or (
+                        "🐺 大事な話ウルね。ゆっくり聞かせてほしいウル"
+                    ),
+                )
+
+            # APPROVE: 通過
+            logger.debug(
+                f"✅ [MemoryAuthority] Action approved: {decision.action}, "
+                f"confidence={ma_result.confidence:.2f}"
             )
 
         # Phase 2L: 複合タスクの場合はExecutionExcellenceを使用

@@ -196,6 +196,22 @@ from lib.brain.value_authority import (
     GOAL_CONTRADICTION_PATTERNS,
 )
 
+# v10.43.0 P4: Memory Authority Layer
+from lib.brain.memory_authority import (
+    MemoryAuthority,
+    MemoryAuthorityResult,
+    MemoryDecision,
+    MemoryConflict,
+    create_memory_authority,
+    normalize_text,
+    extract_keywords,
+    has_keyword_match,
+    calculate_overlap_score,
+    HARD_CONFLICT_PATTERNS,
+    SOFT_CONFLICT_PATTERNS,
+    ALIGNMENT_PATTERNS,
+)
+
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
 from lib.brain.chain_of_thought import (
     ChainOfThought,
@@ -613,6 +629,19 @@ __all__ = [
     "create_value_authority",
     "LIFE_AXIS_VIOLATION_PATTERNS",
     "GOAL_CONTRADICTION_PATTERNS",
+    # v10.43.0 P4: Memory Authority Layer
+    "MemoryAuthority",
+    "MemoryAuthorityResult",
+    "MemoryDecision",
+    "MemoryConflict",
+    "create_memory_authority",
+    "normalize_text",
+    "extract_keywords",
+    "has_keyword_match",
+    "calculate_overlap_score",
+    "HARD_CONFLICT_PATTERNS",
+    "SOFT_CONFLICT_PATTERNS",
+    "ALIGNMENT_PATTERNS",
     # Phase 2E: Learning Foundation（v10.33.0）
     # 統合クラス
     "BrainLearning",

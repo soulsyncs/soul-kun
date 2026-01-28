@@ -190,6 +190,7 @@ else:
             AlertType,
             is_mvv_question,
             get_full_mvv_info,
+            ensure_soul_os_compliant,  # v10.41.0: 社長の魂OSガードレール
         )
         USE_MVV_CONTEXT = True
         print("✅ lib/mvv_context.py loaded for organizational theory guidelines")
@@ -3612,8 +3613,13 @@ def _brain_continue_goal_setting(message, room_id, account_id, sender_name, stat
                             f"\n\n💡 目標設定の途中だったウル！続ける場合は「続ける」、"
                             f"やめる場合は「やめる」と言ってウル🐺"
                         )
+                        # v10.41.0: 社長の魂OSガードレールを適用
+                        final_message = ensure_soul_os_compliant(
+                            ltm_result.get("message", "") + followup_message,
+                            context="goal_setting_ltm_redirect"
+                        )
                         return {
-                            "message": ltm_result.get("message", "") + followup_message,
+                            "message": final_message,
                             "success": True,
                             "session_completed": False,
                             "new_state": None,

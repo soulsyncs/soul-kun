@@ -22,6 +22,18 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+# v10.41.0: 社長の魂OSガードレール
+try:
+    from lib.mvv_context import ensure_soul_os_compliant
+except ImportError:
+    # chatwork-webhook環境ではlib.がない場合がある
+    try:
+        from mvv_context import ensure_soul_os_compliant
+    except ImportError:
+        # フォールバック: ガードレールなしで動作
+        def ensure_soul_os_compliant(response: str, context: str = "general") -> str:
+            return response
+
 logger = logging.getLogger(__name__)
 
 
@@ -282,6 +294,12 @@ class LongTermMemoryManager:
                 user_name=self.user_name,
                 memory_type_label=type_label,
                 content=content
+            )
+
+            # v10.41.0: 社長の魂OSガードレールを適用
+            response_message = ensure_soul_os_compliant(
+                response_message,
+                context="long_term_memory_save"
             )
 
             return {

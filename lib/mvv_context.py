@@ -801,7 +801,96 @@ def get_full_mvv_info() -> str:
 
 
 # ============================================================
-# 11. エクスポート
+# 11. 社長の魂OS ガードレール（v10.41.0）
+# ============================================================
+
+# レスポンスに含まれてはいけないNGワード（可能性を閉じる言葉）
+RESPONSE_NG_WORDS = [
+    # 否定・不可能
+    "無理", "できない", "不可能", "ダメ",
+    # 命令・指示
+    "しなさい", "やりなさい", "すべき", "しなければ",
+    # 比較・批判
+    "他の人は", "みんなは", "普通は",
+    # 否定から入る
+    "それは違う", "間違い",
+]
+
+# 可能性を信じるキーワード（含まれていると良い言葉）
+POSSIBILITY_WORDS = [
+    "できる", "可能性", "一緒に", "サポート", "応援",
+    "成長", "挑戦", "チャレンジ", "頑張", "信じ",
+]
+
+
+def apply_soul_os_guardrail(
+    response: str,
+    context: str = "general",
+    log_violations: bool = True
+) -> Tuple[str, bool, List[str]]:
+    """
+    社長の魂OS ガードレールを適用
+
+    レスポンスがMVV/禁止事項/5軸チェックに適合しているか検証し、
+    違反があればログ出力する。
+
+    Args:
+        response: チェック対象のレスポンス文字列
+        context: コンテキスト情報（ログ用）
+        log_violations: 違反をログ出力するか
+
+    Returns:
+        (response, is_safe, violations) のタプル
+        - response: 元のレスポンス（現時点では修正せず返す）
+        - is_safe: NGワードが含まれていない場合True
+        - violations: 検出されたNGワードのリスト
+    """
+    violations = []
+
+    # NGワードチェック
+    for ng_word in RESPONSE_NG_WORDS:
+        if ng_word in response:
+            violations.append(ng_word)
+
+    is_safe = len(violations) == 0
+
+    if log_violations and violations:
+        print(f"⚠️ [Soul OS Guardrail] context={context}, violations={violations}")
+
+    return response, is_safe, violations
+
+
+def ensure_soul_os_compliant(
+    response: str,
+    context: str = "general"
+) -> str:
+    """
+    社長の魂OSに準拠したレスポンスを返す
+
+    現時点では検証とログ出力のみ行い、レスポンス自体は変更しない。
+    将来的にはNGワードを含む場合に再生成を促すなどの拡張が可能。
+
+    Args:
+        response: チェック対象のレスポンス
+        context: コンテキスト情報
+
+    Returns:
+        レスポンス文字列（現時点では元のまま返す）
+    """
+    checked_response, is_safe, violations = apply_soul_os_guardrail(
+        response, context, log_violations=True
+    )
+
+    # 将来的にはis_safe=Falseの場合に
+    # - 再生成を促す
+    # - NGワードを置換する
+    # などの処理を追加可能
+
+    return checked_response
+
+
+# ============================================================
+# 12. エクスポート
 # ============================================================
 
 __all__ = [
@@ -819,6 +908,8 @@ __all__ = [
     "ORGANIZATIONAL_THEORY_PROMPT",
     "NG_PATTERNS",
     "BASIC_NEED_KEYWORDS",
+    "RESPONSE_NG_WORDS",
+    "POSSIBILITY_WORDS",
     # 関数
     "detect_ng_pattern",
     "analyze_basic_needs",
@@ -827,4 +918,6 @@ __all__ = [
     "get_situation_response_guide",
     "is_mvv_question",
     "get_full_mvv_info",
+    "apply_soul_os_guardrail",
+    "ensure_soul_os_compliant",
 ]

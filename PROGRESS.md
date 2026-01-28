@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 17:00 JST**
+**最終更新: 2026-01-28 19:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -415,6 +415,28 @@
 > - **本番結果**: user_long_term_memory 0件、bot_persona_memory 作成完了
 > - **テスト**: 67件全パス
 
+**完了したこと（P4 Memory Authority v10.43.0）:** ✅ 2026-01-28 19:00 JST マージ完了
+> 長期記憶との矛盾をチェックする最終ゲートキーパー層を実装した。
+> - **PR**: #303
+> - **新規ファイル**: `lib/brain/memory_authority.py`
+> - **テスト**: 43件全パス
+> - **判定フロー**: P3 ValueAuthority → P4 MemoryAuthority → 実行
+> - **判定結果**:
+>   - APPROVE: 矛盾なし、実行OK
+>   - BLOCK_AND_SUGGEST: HARD CONFLICT、実行ブロック+代替案
+>   - REQUIRE_CONFIRMATION: SOFT CONFLICT、確認が必要
+>   - FORCE_MODE_SWITCH: 重大な矛盾、モード強制遷移
+> - **設計思想**: 誤ブロック最小化（HARD CONFLICTのみ即ブロック）
+
+**完了したこと（P4 観測モード v10.43.1）:** ✅ 2026-01-28 19:02 JST マージ完了
+> SOFT_CONFLICT検出時にログを保存する観測モード機能を実装した。
+> - **PR**: #305
+> - **新規ファイル**: `lib/brain/memory_authority_logger.py`
+> - **テスト**: 29件全パス（P4関連合計72件）
+> - **ログ内容**: action, detected_memory_reference, conflict_reason, user_response
+> - **設計**: 非同期保存（実行速度に影響なし）
+> - **⚠️ 課題**: Cloud Functionsではローカルファイルが非永続。Cloud Logging対応が必要。
+
 ---
 
 ## 🔧 障害報告書: v10.40.1〜v10.40.2（2026-01-28）
@@ -745,6 +767,26 @@ else:
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **19:30 JST**: P4 Memory Authority 観測モード - 本番検証完了 ✅ **調査報告**
+  - **結論**: v10.43.1は本番デプロイ済み、ただしログ永続化に問題あり
+  - **検証結果**:
+    - ✅ PR #305 (v10.43.1) はmainにマージ済み
+    - ✅ chatwork-webhook は 2026-01-28T10:08:54Z にデプロイ済み
+    - ❌ ログ保存パス `logs/memory_authority/` はCloud Functionsで非永続（インスタンス再起動で消失）
+  - **推奨対応**: Cloud Loggingへの出力に変更（コスト最小、実装容易）
+  - **優先度**: 中（観測データが蓄積されないと精度改善に使えない）
+  - **次回タスク**: 「P4 観測ログ Cloud Logging 対応」で継続
+
+- **19:02 JST**: P4 Memory Authority 観測モード実装 (v10.43.1) ✅ **PR #305 マージ完了**
+  - **概要**: SOFT_CONFLICT検出時にログを保存する観測モード機能
+  - **新規ファイル**:
+    - `lib/brain/memory_authority_logger.py`: ログ保存クラス
+    - `tests/test_memory_authority_logger.py`: 29テスト
+  - **ログ内容**: action, detected_memory_reference, conflict_reason, user_response
+  - **設計**: 非同期保存（asyncio.create_task）で実行速度に影響なし
+  - **テスト**: P4関連72件パス（P4本体:43 + ロガー:29）
+  - **判定ロジック変更**: なし（観測のみ）
 
 - **17:15 JST**: goal_setting v10.40.7 - state_step二重設定SQLエラー修正 ✅ **PR #289**
   - **原因**: `_update_session()`でstatus='completed'とcurrent_step両方指定時、state_stepが2回設定されてPostgreSQLエラー

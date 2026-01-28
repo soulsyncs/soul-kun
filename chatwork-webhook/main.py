@@ -3213,6 +3213,10 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
     - ボットペルソナ設定 → bot_persona_memoryに保存
     - 長期記憶パターン → user_long_term_memoryに保存
     - それ以外 → 従来の人物情報記憶（persons/person_attributes）
+
+    v10.40.11: 保存結果に基づく返信修正
+    - success=True の場合のみ「覚えた」と返す
+    - 保存先を明確にログ出力
     """
     from lib.brain.models import HandlerResult
     try:
@@ -3224,27 +3228,65 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
                 ctx_dict = context.to_dict()
                 original_message = ctx_dict.get('original_message', '')
 
+        # v10.40.11: デバッグログ
+        print(f"🔍 [save_memory DEBUG] message: {original_message[:80]}..." if len(original_message) > 80 else f"🔍 [save_memory DEBUG] message: {original_message}")
+
+        # v10.40.11: is_bot_persona_setting() の判定結果をログ
+        is_persona = is_bot_persona_setting(original_message) if USE_BOT_PERSONA_MEMORY and original_message else False
+        print(f"🔍 [save_memory DEBUG] is_bot_persona_setting() = {is_persona}")
+
         # v10.40.9: ボットペルソナ設定を先に検出
-        if USE_BOT_PERSONA_MEMORY and original_message and is_bot_persona_setting(original_message):
+        if is_persona:
             print(f"🐺 ボットペルソナ設定検出: {original_message[:50]}...")
             result = await _handle_save_bot_persona(
                 original_message, room_id, account_id, sender_name
             )
+            print(f"🔍 [save_memory DEBUG] 保存先: bot_persona_memory, success={result.get('success', False)}")
             return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
 
         # v10.40.8: 長期記憶パターンを検出
-        if USE_LONG_TERM_MEMORY and original_message and is_long_term_memory_request(original_message):
+        is_long_term = is_long_term_memory_request(original_message) if USE_LONG_TERM_MEMORY and original_message else False
+        print(f"🔍 [save_memory DEBUG] is_long_term_memory_request() = {is_long_term}")
+
+        if is_long_term:
             print(f"🔥 長期記憶パターン検出: {original_message[:50]}...")
             result = await _handle_save_long_term_memory(
                 original_message, room_id, account_id, sender_name
             )
+            print(f"🔍 [save_memory DEBUG] 保存先: user_long_term_memory, success={result.get('success', False)}")
             return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
+
+        # v10.40.11: ボットペルソナでも長期記憶でもない場合
+        # 人物情報として適切かどうか確認
+        attributes = params.get("attributes", [])
+        print(f"🔍 [save_memory DEBUG] attributes: {attributes}")
+
+        if not attributes:
+            # 属性が抽出できなかった場合 → 保存しない
+            print(f"🔍 [save_memory DEBUG] 保存先: none (属性なし)")
+            return HandlerResult(
+                success=False,
+                message="🤔 何を覚えればいいかわからなかったウル...もう少し詳しく教えてほしいウル！"
+            )
 
         # 通常の人物情報記憶
         result = handle_save_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "覚えたウル🐺")
+
+        # v10.40.11: 結果に基づいて返信（handle_save_memoryは文字列を返す）
+        if result:
+            print(f"🔍 [save_memory DEBUG] 保存先: person_attributes")
+            # 保存成功（メッセージが返ってきた）
+            return HandlerResult(success=True, message=result)
+        else:
+            print(f"🔍 [save_memory DEBUG] 保存先: none (保存失敗)")
+            return HandlerResult(
+                success=False,
+                message="🤔 保存できなかったウル...もう一度試してほしいウル！"
+            )
     except Exception as e:
         print(f"❌ 記憶保存エラー: {e}")
+        import traceback
+        traceback.print_exc()
         return HandlerResult(success=False, message=f"記憶保存でエラーが発生したウル🐺")
 
 
@@ -3315,7 +3357,13 @@ async def _handle_save_bot_persona(
 
     ソウルくんのキャラ設定（好物、口調など）を保存。
     管理者のみ設定可能。
+
+    v10.40.11: ホワイトリスト拒否時のリダイレクト対応
+    - user_idを渡して、拒否時はuser_long_term_memoryへリダイレクト
+    - デバッグログ追加
     """
+    from lib.bot_persona_memory import extract_persona_key_value, is_valid_bot_persona
+
     try:
         # 管理者チェック
         if not is_admin(account_id):
@@ -3326,18 +3374,23 @@ async def _handle_save_bot_persona(
 
         pool = get_pool()
 
-        # 組織IDを取得
+        # v10.40.11: ユーザー情報を取得（user_idも含む）
+        user_id = None
+        org_id = None
         with pool.connect() as conn:
             user_result = conn.execute(
                 sqlalchemy.text("""
-                    SELECT organization_id FROM users
+                    SELECT id, organization_id FROM users
                     WHERE chatwork_account_id = :account_id
                     LIMIT 1
                 """),
                 {"account_id": str(account_id)}
             ).fetchone()
 
-            if not user_result:
+            if user_result:
+                user_id = int(user_result[0])
+                org_id = str(user_result[1]) if user_result[1] else None
+            else:
                 # 組織が見つからない場合はデフォルト組織を使用
                 org_result = conn.execute(
                     sqlalchemy.text("""
@@ -3346,13 +3399,6 @@ async def _handle_save_bot_persona(
                 ).fetchone()
                 if org_result:
                     org_id = str(org_result[0])
-                else:
-                    return {
-                        "success": False,
-                        "message": "組織情報が見つからなかったウル...🐺"
-                    }
-            else:
-                org_id = str(user_result[0]) if user_result[0] else None
 
         if not org_id:
             return {
@@ -3360,14 +3406,32 @@ async def _handle_save_bot_persona(
                 "message": "組織情報が見つからなかったウル...🐺"
             }
 
-        # ボットペルソナを保存
+        # v10.40.11: デバッグログ - キー/値の抽出
+        kv = extract_persona_key_value(message)
+        print(f"🔍 [bot_persona DEBUG] extracted key={kv.get('key')}, value={kv.get('value')}")
+
+        # v10.40.11: デバッグログ - ホワイトリスト判定
+        is_valid, reason = is_valid_bot_persona(message, kv.get("key", ""), kv.get("value", ""))
+        print(f"🔍 [bot_persona DEBUG] is_valid_bot_persona() = {is_valid}, reason={reason}")
+
+        # ボットペルソナを保存（user_idを渡してリダイレクト機能を有効化）
         result = save_bot_persona(
             pool=pool,
             org_id=org_id,
             message=message,
             account_id=str(account_id),
-            sender_name=sender_name
+            sender_name=sender_name,
+            user_id=user_id  # v10.40.11: リダイレクト用にuser_idを追加
         )
+
+        # v10.40.11: 保存先をログ出力
+        redirected_to = result.get("redirected_to", "")
+        if redirected_to:
+            print(f"🔍 [bot_persona DEBUG] 実際の保存先: {redirected_to}")
+        elif result.get("success"):
+            print(f"🔍 [bot_persona DEBUG] 実際の保存先: bot_persona_memory")
+        else:
+            print(f"🔍 [bot_persona DEBUG] 実際の保存先: none (保存失敗)")
 
         return result
 

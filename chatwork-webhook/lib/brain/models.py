@@ -275,6 +275,10 @@ class BrainContext:
     # CEO教え関連（Phase 2D）
     ceo_teachings: Optional["CEOTeachingContext"] = None
 
+    # v10.42.0 P2: ユーザーの人生軸・価値観・長期目標
+    # UserLongTermMemory.get_all()の結果を格納
+    user_life_axis: Optional[List[Dict[str, Any]]] = None
+
     # Phase M: マルチモーダルコンテキスト（画像・PDF・音声・URL処理結果）
     # lib.capabilities.multimodal.brain_integration.MultimodalBrainContext
     multimodal_context: Optional[Any] = None

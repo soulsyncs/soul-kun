@@ -437,5 +437,130 @@ class TestSaveWithPersonalInfoGuard:
         assert "長期記憶" in formatted
 
 
+class TestV10_40_11_BotPersonaEntryPoint:
+    """
+    v10.40.11: is_bot_persona_setting() のエントリーポイントテスト
+
+    これらのテストケースは、bot_persona_memoryへの保存パスに入る前の
+    ゲートキーパーとして機能するis_bot_persona_setting()をテストする。
+
+    期待される動作:
+    - True → bot_persona保存パスに入る（その後ホワイトリストでフィルタ）
+    - False → bot_persona保存パスに入らない（「覚えた」とは返さない）
+    """
+
+    @pytest.mark.parametrize("message,expected,reason", [
+        # ========================================
+        # 拒否されるべきケース（False）
+        # ========================================
+        # 二人称 + 述語形式（「君は〜」）→ ボット設定と認識しない
+        ("君は明るい性格だね", False, "「君は」形式はボット設定パターンに該当しない"),
+        ("きみは優しいね", False, "「きみは」形式はボット設定パターンに該当しない"),
+        ("お前は頭がいい", False, "「お前は」形式はボット設定パターンに該当しない"),
+
+        # 役職者への言及 → ボット設定ではない
+        ("社長は努力家", False, "役職者への言及はボット設定ではない"),
+        ("部長は厳しい人だ", False, "役職者への言及はボット設定ではない"),
+        ("マネージャーは優秀", False, "役職者への言及はボット設定ではない"),
+
+        # 一人称の人生軸 → 長期記憶として処理すべき
+        ("俺の人生軸は挑戦", False, "一人称の人生軸はボット設定ではない"),
+        ("私の人生の軸は家族", False, "一人称の人生軸はボット設定ではない"),
+        ("僕の価値観は誠実さ", False, "一人称の価値観はボット設定ではない"),
+
+        # 一般的な文章（キーワードを含まない）
+        ("今日はいい天気だね", False, "一般的な文章はボット設定ではない"),
+        ("タスクを追加して", False, "タスク依頼はボット設定ではない"),
+        ("会議の予定を教えて", False, "情報照会はボット設定ではない"),
+
+        # ========================================
+        # 許可されるべきケース（True）
+        # ========================================
+        # 明示的なソウルくん設定
+        ("ソウルくんの好物は10円パン", True, "明示的なソウルくん設定は許可"),
+        ("ソウルくんの性格は明るい", True, "明示的なソウルくん設定は許可"),
+
+        # 二人称 + 「の」形式（「君の〜は」）→ ボット設定として認識
+        ("君の好物は10円パン", True, "「君の好物は」形式は許可"),
+        ("君の口調はウルウル", True, "「君の口調は」形式は許可"),
+        ("君の性格は元気", True, "「君の性格は」形式は許可"),
+
+        # 主語なし + キーワード + は
+        ("好物は10円パン", True, "主語なし「好物は」形式は許可"),
+        ("口調はウル", True, "主語なし「口調は」形式は許可"),
+        ("性格は明るい", True, "主語なし「性格は」形式は許可"),
+    ])
+    def test_entry_point_gating(self, message, expected, reason):
+        """
+        is_bot_persona_setting() のゲーティング動作を検証
+
+        このテストが失敗する場合:
+        - True期待でFalse → 正当なボット設定がbot_personaパスに入らない
+        - False期待でTrue → 不適切なメッセージがbot_personaパスに入る
+        """
+        result = is_bot_persona_setting(message)
+        assert result == expected, f"Message: '{message}' - Expected: {expected}, Got: {result}. Reason: {reason}"
+
+
+class TestV10_40_11_IntegrationScenarios:
+    """
+    v10.40.11: 統合シナリオテスト
+
+    実際のユーザーが送信しそうなメッセージに対する
+    期待される動作を検証する。
+    """
+
+    @pytest.mark.parametrize("message,should_enter_bot_persona,should_pass_whitelist", [
+        # ========================================
+        # シナリオ1: 曖昧な二人称表現
+        # ========================================
+        # 「君は明るい性格だね」
+        # → is_bot_persona_setting() = False → bot_personaパスに入らない
+        # → ホワイトリストチェックは行われない
+        ("君は明るい性格だね", False, None),
+
+        # ========================================
+        # シナリオ2: 役職者への言及
+        # ========================================
+        # 「社長は努力家」
+        # → is_bot_persona_setting() = False → bot_personaパスに入らない
+        ("社長は努力家", False, None),
+
+        # ========================================
+        # シナリオ3: 個人の人生軸
+        # ========================================
+        # 「俺の人生軸は挑戦」
+        # → is_bot_persona_setting() = False → bot_personaパスに入らない
+        # → is_long_term_memory_request() で処理されるべき
+        ("俺の人生軸は挑戦", False, None),
+
+        # ========================================
+        # シナリオ4: 正当なボット設定（ホワイトリスト通過）
+        # ========================================
+        ("ソウルくんの好物は10円パン", True, True),
+        ("好物は10円パン", True, True),
+        ("君の好物は10円パン", True, True),
+
+        # ========================================
+        # シナリオ5: ボット設定パスに入るがホワイトリストで拒否
+        # ========================================
+        # 「君の性格は明るい」 → パスに入る → ホワイトリスト通過
+        ("君の性格は明るい", True, True),
+    ])
+    def test_integration_flow(self, message, should_enter_bot_persona, should_pass_whitelist):
+        """統合フローのテスト"""
+        # Step 1: エントリーポイント判定
+        enters_bot_persona = is_bot_persona_setting(message)
+        assert enters_bot_persona == should_enter_bot_persona, \
+            f"Message: '{message}' - Entry point check failed"
+
+        # Step 2: ホワイトリスト判定（bot_personaパスに入る場合のみ）
+        if should_enter_bot_persona and should_pass_whitelist is not None:
+            kv = extract_persona_key_value(message)
+            is_valid, reason = is_valid_bot_persona(message, kv.get("key", ""), kv.get("value", ""))
+            assert is_valid == should_pass_whitelist, \
+                f"Message: '{message}' - Whitelist check failed. Reason: {reason}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

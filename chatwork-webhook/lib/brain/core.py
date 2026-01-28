@@ -97,6 +97,14 @@ from lib.brain.guardian import (
     GuardianActionResult,
     GuardianActionType,
 )
+
+# v10.42.0 P3: Value Authority Layer
+from lib.brain.value_authority import (
+    ValueAuthority,
+    ValueAuthorityResult,
+    ValueDecision,
+    create_value_authority,
+)
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
 
 # Phase 2L: ExecutionExcellence（実行力強化）
@@ -1643,6 +1651,77 @@ class SoulkunBrain:
                     f"[Guardian Gate] Approved with caution: {decision.action}, "
                     f"ng_pattern={guardian_result.ng_pattern_type}"
                 )
+
+        # =================================================================
+        # v10.42.0 P3: Value Authority - 人生軸との最終整合性チェック
+        # =================================================================
+        # 人生軸データがある場合のみチェック
+        if context.user_life_axis:
+            value_authority = create_value_authority(
+                user_life_axis=context.user_life_axis,
+                user_name=sender_name,
+                organization_id=context.organization_id,
+            )
+
+            # NGパターン結果を構築（Guardian Gateの結果から）
+            ng_pattern_result = None
+            if original_message and hasattr(self, 'guardian'):
+                guardian_result_for_va = self.guardian.evaluate_action(
+                    user_message=original_message,
+                    action=decision.action,
+                    context={"room_id": room_id, "account_id": account_id},
+                )
+                if guardian_result_for_va.ng_pattern_type:
+                    ng_pattern_result = {
+                        "risk_level": (
+                            "CRITICAL" if guardian_result_for_va.action_type == GuardianActionType.FORCE_MODE_SWITCH
+                            and "mental_health" in (guardian_result_for_va.ng_pattern_type or "")
+                            else "HIGH" if guardian_result_for_va.action_type == GuardianActionType.FORCE_MODE_SWITCH
+                            else "MEDIUM" if guardian_result_for_va.action_type == GuardianActionType.BLOCK_AND_SUGGEST
+                            else "LOW"
+                        ),
+                        "pattern_type": guardian_result_for_va.ng_pattern_type,
+                        "original_action": decision.action,
+                    }
+
+            va_result = value_authority.evaluate_action(
+                action=decision.action,
+                action_params=decision.params,
+                user_message=original_message,
+                ng_pattern_result=ng_pattern_result,
+            )
+
+            # BLOCK_AND_SUGGEST: 人生軸との矛盾を検出
+            if va_result.decision == ValueDecision.BLOCK_AND_SUGGEST:
+                logger.info(
+                    f"🛡️ [ValueAuthority] Action blocked: {decision.action}, "
+                    f"reason={va_result.reason}, violation={va_result.violation_type}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=va_result.alternative_message or (
+                        f"🐺 {sender_name}さんの価値観と少しずれがありそうウル。"
+                        "一緒に考えようウル🐺"
+                    ),
+                )
+
+            # FORCE_MODE_SWITCH: 傾聴モードへ強制遷移
+            if va_result.decision == ValueDecision.FORCE_MODE_SWITCH:
+                logger.warning(
+                    f"🚨 [ValueAuthority] Force mode switch: {decision.action} → {va_result.forced_mode}, "
+                    f"reason={va_result.reason}"
+                )
+                return HandlerResult(
+                    success=True,
+                    message=va_result.alternative_message or (
+                        "🐺 大事な話ウルね。ゆっくり聞かせてほしいウル"
+                    ),
+                )
+
+            # APPROVE: 通過
+            logger.debug(
+                f"✅ [ValueAuthority] Action approved: {decision.action}"
+            )
 
         # Phase 2L: 複合タスクの場合はExecutionExcellenceを使用
         # (original_message は上で取得済み)

@@ -6617,7 +6617,7 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
         try:
             org_id = MEMORY_DEFAULT_ORG_ID
             persona_prompt = build_persona_prompt(
-                pool=get_db_pool(),
+                pool=get_pool(),
                 org_id=org_id,
                 user_id=account_id if account_id else None,  # Noneの場合Add-onスキップ
                 user_name=sender_name,

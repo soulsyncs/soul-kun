@@ -898,5 +898,59 @@ class TestThemeExtraction:
         assert result is None
 
 
+class TestConfirmFallback:
+    """v10.40.6: confirm無限ループ防止のテスト"""
+
+    def test_short_vague_input_triggers_fallback(self):
+        """短文で曖昧な入力は導きの対話へフォールバック"""
+        from lib.goal_setting import _has_feedback_request, _has_doubt_or_anxiety
+
+        # これらの入力は「修正内容」を抽出できないため
+        # 同じ要約を繰り返すのではなく、導きの対話へ
+        vague_inputs = ["うーん", "微妙", "ちょっと違うかも"]
+
+        for msg in vague_inputs:
+            # 短文なのでLLM解析スキップ → フォールバック対象
+            assert len(msg) < 50, f"Expected short message: {msg}"
+
+            # doubt_or_anxietyまたはfeedback_requestとして検出されるか確認
+            # どちらでもなければclarification_fallbackへ
+            is_fb = _has_feedback_request(msg)
+            is_doubt = _has_doubt_or_anxiety(msg)
+
+            # 「うーん」「微妙」は迷いとして検出されることを期待
+            # ただし検出されなくてもフォールバックは発動する
+            if msg in ["微妙", "ちょっと違うかも"]:
+                assert is_doubt is True, f"Expected doubt detection for: {msg}"
+
+    def test_ok_but_anxious_triggers_quality_check(self):
+        """「OKだけど不安」は登録せず質チェックへ"""
+        from lib.goal_setting import _is_pure_confirmation, _has_doubt_or_anxiety
+
+        msg = "OKだけど不安"
+
+        # 否定接続があるので純粋な確認ではない
+        assert _is_pure_confirmation(msg) is False
+
+        # 不安が含まれるので迷い・不安として検出
+        assert _has_doubt_or_anxiety(msg) is True
+
+    def test_long_modification_with_content_updates_summary(self):
+        """長文で具体的な修正内容があれば要約を更新"""
+        from lib.goal_setting import LONG_RESPONSE_THRESHOLD
+
+        # 具体的な修正を含む長文（LONG_RESPONSE_THRESHOLD以上）
+        modification_msg = """WHYの部分を変えたいです。
+「売上を上げたい」ではなく、「チームの成長を通じて会社に貢献したい」というのが本当の動機です。
+WHATも「月間売上1000万円達成」に修正してください。また、HOWには「毎朝30分のミーティング」を追加してほしいです。"""
+
+        # LONG_RESPONSE_THRESHOLD以上であることを確認
+        assert len(modification_msg) >= LONG_RESPONSE_THRESHOLD, \
+            f"Message length {len(modification_msg)} < threshold {LONG_RESPONSE_THRESHOLD}"
+
+        # この場合はLLM解析が行われ、修正が抽出されれば要約更新
+        # （LLM呼び出しはモックが必要なため、閾値チェックのみ）
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -96,6 +96,8 @@ DOUBT_ANXIETY_PATTERNS = [
     # 曖昧・不確実
     "曖昧", "あいまい", "ぼんやり", "漠然",
     "ふわっと", "なんとなく", "適当",
+    # v10.40.6: 微妙な反応も迷いとして検出
+    "微妙", "うーん", "びみょう",
     # 心配・懸念
     "心配", "不十分", "足りてる？", "ちゃんとして",
 ]
@@ -1826,15 +1828,28 @@ class GoalSettingDialogue:
                         "pattern": pattern_type
                     }
 
-                # v10.40.4: 修正リクエストまたは不明な入力を処理
-                # 長文の場合のみLLM解析を試みる
+                # =====================================================
+                # v10.40.6: confirm無限ループ完全防止パッチ
+                # =====================================================
+                # ルール:
+                # - 長文 かつ LLM抽出成功 かつ 有効な修正あり → 要約更新
+                # - それ以外は全て → 導きの対話へフォールバック
+                # - 「同じ要約を再表示」は絶対にしない
+                # =====================================================
+
                 print(f"   🔄 入力を分析中...")
 
+                # 長文の場合のみLLMで修正解析を試みる
                 if len(user_message) >= LONG_RESPONSE_THRESHOLD:
-                    # 長文: LLMで修正内容を解析
                     extracted = self._analyze_long_response_with_llm(user_message, session)
 
-                    if extracted:
+                    # 有効な修正が抽出できた場合のみ要約を更新
+                    has_valid_updates = (
+                        extracted and
+                        (extracted.get("why") or extracted.get("what") or extracted.get("how"))
+                    )
+
+                    if has_valid_updates:
                         # 修正内容を更新
                         updates = {}
                         if extracted.get("why"):
@@ -1847,34 +1862,42 @@ class GoalSettingDialogue:
                             updates["how_answer"] = extracted["how"]
                             session["how_answer"] = extracted["how"]
 
-                        if updates:
-                            self._update_session(conn, session_id, **updates)
-                            # 修正後の内容で再確認
-                            response = self._generate_understanding_response(
-                                {"why": session.get("why_answer", ""),
-                                 "what": session.get("what_answer", ""),
-                                 "how": session.get("how_answer", "")},
-                                session
-                            )
+                        self._update_session(conn, session_id, **updates)
 
-                            self._log_interaction(
-                                conn, session_id, "confirm",
-                                user_message, response,
-                                detected_pattern="modification_request",
-                                result="retry",
-                                step_attempt=step_attempt
-                            )
+                        # 修正後の内容で再確認
+                        response = self._generate_understanding_response(
+                            {"why": session.get("why_answer", ""),
+                             "what": session.get("what_answer", ""),
+                             "how": session.get("how_answer", "")},
+                            session
+                        )
 
-                            return {
-                                "success": True,
-                                "message": response,
-                                "session_id": session_id,
-                                "step": "confirm",
-                                "pattern": "modification_request"
-                            }
+                        self._log_interaction(
+                            conn, session_id, "confirm",
+                            user_message, response,
+                            detected_pattern="modification_request",
+                            result="retry",
+                            step_attempt=step_attempt
+                        )
 
-                # v10.40.4: 短文 or LLM解析失敗 → 導きの対話へフォールバック
-                # 同じ要約を繰り返すのではなく、目標の質を確認する対話へ
+                        return {
+                            "success": True,
+                            "message": response,
+                            "session_id": session_id,
+                            "step": "confirm",
+                            "pattern": "modification_request"
+                        }
+
+                # =====================================================
+                # フォールバック: 導きの対話（無限ループ防止の安全パッチ）
+                # =====================================================
+                # ここに到達するケース:
+                # - 短文だった（LLM解析スキップ）
+                # - LLM解析が失敗した（None返却）
+                # - LLM解析は成功したが有効な修正が抽出できなかった
+                #
+                # 重要: 同じ要約を再表示せず、目標の質を確認する対話へ
+                # =====================================================
                 print(f"   💡 導きの対話へフォールバック（無限ループ防止）")
                 response = self._generate_quality_check_response(
                     session, user_message, "clarification_needed"
@@ -1883,7 +1906,7 @@ class GoalSettingDialogue:
                 self._log_interaction(
                     conn, session_id, "confirm",
                     user_message, response,
-                    detected_pattern="clarification_needed",
+                    detected_pattern="clarification_fallback",
                     result="quality_check",
                     step_attempt=step_attempt
                 )
@@ -1893,7 +1916,7 @@ class GoalSettingDialogue:
                     "message": response,
                     "session_id": session_id,
                     "step": "confirm",
-                    "pattern": "clarification_needed"
+                    "pattern": "clarification_fallback"
                 }
 
         # =====================================================

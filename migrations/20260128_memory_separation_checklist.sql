@@ -116,7 +116,7 @@ AND indexname LIKE 'idx_%'
 ORDER BY tablename, indexname;
 
 \echo ''
-\echo '===== POST-6: 整合性チェック ====='
+\echo '===== POST-6: 整合性チェック（FK） ====='
 -- bot_persona_memory の organization_id が有効か
 SELECT
     'bot_persona_memory FK check' as check_name,
@@ -130,6 +130,24 @@ WHERE NOT EXISTS (
 );
 
 \echo ''
+\echo '===== POST-7: organization_id NULL チェック ====='
+-- 設計方針: 組織単位ペルソナが前提（NOT NULL制約）
+-- 期待値: 0件（NULLは許容しない）
+SELECT
+    'bot_persona_memory org_id NULL check' as check_name,
+    CASE
+        WHEN COUNT(*) = 0 THEN 'OK: No NULL org_id (design compliant)'
+        ELSE 'ERROR: ' || COUNT(*) || ' records with NULL org_id'
+    END as result
+FROM bot_persona_memory
+WHERE organization_id IS NULL;
+
+\echo ''
 \echo '============================================='
 \echo 'Checklist Complete'
+\echo '============================================='
+\echo ''
+\echo '設計メモ:'
+\echo '  bot_persona_memory.organization_id: NOT NULL（組織単位ペルソナ）'
+\echo '  グローバル共通ペルソナは想定していない'
 \echo '============================================='

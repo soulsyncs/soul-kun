@@ -4,7 +4,16 @@
 -- 1. bot_persona_memory テーブル（ソウルくんのキャラ設定専用）
 -- 2. user_long_term_memory に scope カラム追加
 -- 3. soulkun_knowledge から bot_persona_memory へデータ移行
+--
+-- 実行方法:
+--   cat migrations/20260128_memory_separation.sql | gcloud sql connect soulkun-db --user=postgres --database=soulkun
+--
+-- トランザクション: BEGIN〜COMMIT で全体をラップ（失敗時は自動ロールバック）
+-- 冪等性: IF NOT EXISTS / ON CONFLICT で再実行可能
 -- =====================================================
+
+-- トランザクション開始
+BEGIN;
 
 -- =====================================================
 -- 1. bot_persona_memory テーブル作成
@@ -138,3 +147,14 @@ ON CONFLICT (organization_id, key) DO UPDATE SET
 -- SELECT * FROM bot_persona_memory;
 -- SELECT * FROM user_long_term_memory;
 -- SELECT COUNT(*) FROM soulkun_knowledge WHERE category = 'character';
+
+-- トランザクション完了
+COMMIT;
+
+-- =====================================================
+-- 設計メモ
+-- =====================================================
+-- bot_persona_memory.organization_id:
+--   NOT NULL制約あり（組織単位ペルソナが前提）
+--   各組織が独自のボットペルソナを持てる設計（マルチテナント対応）
+--   グローバル共通ペルソナは想定していない

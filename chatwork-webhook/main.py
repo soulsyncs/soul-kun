@@ -3566,10 +3566,11 @@ async def _handle_query_long_term_memory(
         pool = get_pool()
 
         # リクエスターのユーザー情報を取得
+        # v10.40.16: users.id が正しいカラム名（user_id ではない）
         with pool.connect() as conn:
             requester_result = conn.execute(
                 sqlalchemy.text("""
-                    SELECT user_id, organization_id FROM users
+                    SELECT id, organization_id FROM users
                     WHERE chatwork_account_id = :account_id
                     LIMIT 1
                 """),

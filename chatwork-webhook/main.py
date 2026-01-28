@@ -7201,6 +7201,33 @@ def chatwork_webhook(request):
         except Exception as e:
             print(f"❌ pending announcement チェックエラー: {e}")
 
+        # =====================================================
+        # v10.40.14: ルーティング前ガード（長期記憶を強制save_memory）
+        # AI司令塔に依存せず、受信直後にローカル判定でルーティング
+        # =====================================================
+        if USE_LONG_TERM_MEMORY:
+            try:
+                is_long_term = is_long_term_memory_request(clean_message)
+                if is_long_term:
+                    print(f"🔍 [router_guard] long_term=True action=save_memory msg={clean_message[:50]}...")
+                    # 強制的にsave_memoryとして処理
+                    forced_command = {
+                        "action": "save_memory",
+                        "params": {
+                            "attributes": [{"key": "raw_long_term_message", "value": clean_message}]
+                        },
+                        "reasoning": "[router_guard] 長期記憶パターン検出による強制ルーティング"
+                    }
+                    forced_context = {"original_message": clean_message}
+                    action_response = execute_action(forced_command, sender_name, room_id, sender_account_id, forced_context)
+                    if action_response:
+                        show_guide = should_show_guide(room_id, sender_account_id)
+                        send_chatwork_message(room_id, action_response, sender_account_id, show_guide)
+                        update_conversation_timestamp(room_id, sender_account_id)
+                        return jsonify({"status": "ok"})
+            except Exception as e:
+                print(f"❌ [router_guard] エラー（続行）: {e}")
+
         # AI司令塔に判断を委ねる（AIの判断力を最大活用）
         command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
         

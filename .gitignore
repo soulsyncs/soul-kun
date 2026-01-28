@@ -232,3 +232,6 @@ watch-google-drive/lib/embedding.py
 watch-google-drive/lib/google_drive.py
 watch-google-drive/lib/pinecone_client.py
 watch-google-drive/lib/secrets.py
+
+# Claude Code backup (local only)
+.claude_backup/

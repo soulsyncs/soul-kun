@@ -212,6 +212,14 @@ from lib.brain.memory_authority import (
     ALIGNMENT_PATTERNS,
 )
 
+# v10.43.1 P4: Memory Authority Observation Logger
+from lib.brain.memory_authority_logger import (
+    MemoryAuthorityLogger,
+    SoftConflictLog,
+    get_memory_authority_logger,
+    create_memory_authority_logger,
+)
+
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
 from lib.brain.chain_of_thought import (
     ChainOfThought,
@@ -642,6 +650,11 @@ __all__ = [
     "HARD_CONFLICT_PATTERNS",
     "SOFT_CONFLICT_PATTERNS",
     "ALIGNMENT_PATTERNS",
+    # v10.43.1 P4: Memory Authority Observation Logger
+    "MemoryAuthorityLogger",
+    "SoftConflictLog",
+    "get_memory_authority_logger",
+    "create_memory_authority_logger",
     # Phase 2E: Learning Foundation（v10.33.0）
     # 統合クラス
     "BrainLearning",

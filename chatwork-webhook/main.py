@@ -7,6 +7,7 @@ import time
 import os  # v10.22.4: 環境変数による機能制御用
 import asyncio  # v10.21.0: Memory Framework統合用
 from datetime import datetime, timedelta, timezone
+from typing import Dict, Any, List, Optional  # v10.40.9: 型アノテーション用
 import pg8000
 import sqlalchemy
 from sqlalchemy import bindparam  # v6.8.3: expanding IN対応

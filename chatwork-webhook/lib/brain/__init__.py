@@ -73,6 +73,13 @@
     print(f"brain_metadata coverage: {coverage['percentage']:.1f}%")
 """
 
+# =============================================================================
+# バージョン定義（単一ソース）
+# =============================================================================
+# このバージョンはCloud Loggingの出力で使用される
+# デプロイ時に手動更新すること
+BRAIN_VERSION = "10.43.4"
+
 from lib.brain.models import (
     BrainContext,
     BrainResponse,
@@ -537,6 +544,8 @@ from lib.brain.deep_understanding import (
 )
 
 __all__ = [
+    # バージョン
+    "BRAIN_VERSION",
     # メインクラス
     "SoulkunBrain",
     # 状態管理層
@@ -913,4 +922,4 @@ __all__ = [
     "FEATURE_FLAG_VOCABULARY_LEARNING",
 ]
 
-__version__ = "2.8.0"  # v10.40.0: Phase 2I - Deep Understanding
+__version__ = BRAIN_VERSION  # 単一ソースから取得

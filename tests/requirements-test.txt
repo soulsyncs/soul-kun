@@ -12,6 +12,7 @@ httpx==0.26.0
 
 # モック
 responses==0.24.1
+freezegun==1.4.0
 
 # カバレッジ
 coverage==7.4.0

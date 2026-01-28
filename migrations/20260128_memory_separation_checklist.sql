@@ -12,6 +12,11 @@
 --   - インデックスは CONCURRENTLY で作成
 --   - 実行中も通常クエリはブロックされない
 --   - Phase分離: DDL → データ移行 → インデックス
+--   - scope埋め戻しはバッチ(10000件)で実行
+--
+-- バッチ運用:
+--   scope NULL埋め戻しは1回10000件まで。大規模テーブルでは複数回実行が必要。
+--   Step 3 (NOT NULL制約) の前に NULL = 0 を確認すること。
 -- =====================================================
 
 \echo '============================================='
@@ -50,7 +55,15 @@ WHERE table_name = 'user_long_term_memory'
 AND column_name = 'scope';
 
 \echo ''
-\echo '===== PRE-4: bot_persona_memory テーブル存在確認 ====='
+\echo '===== PRE-4: user_long_term_memory 件数確認（バッチ見積もり用） ====='
+-- 10000件/回 なので、この件数÷10000 = 必要なバッチ実行回数
+SELECT
+    COUNT(*) as total_rows,
+    'バッチ10000件/回で ' || CEIL(COUNT(*)::decimal / 10000) || ' 回必要' as batch_estimate
+FROM user_long_term_memory;
+
+\echo ''
+\echo '===== PRE-5: bot_persona_memory テーブル存在確認 ====='
 SELECT
     table_name,
     'EXISTS' as status
@@ -109,6 +122,20 @@ SELECT
 FROM user_long_term_memory
 GROUP BY scope
 ORDER BY scope;
+
+\echo ''
+\echo '===== POST-4b: scope NULL 残件確認（Step 3前に必須） ====='
+-- ★重要: この値が 0 になるまでバッチUPDATEを繰り返すこと
+-- 0 でないと Step 3 (SET NOT NULL) が失敗する
+SELECT
+    'scope NULL check' as check_name,
+    CASE
+        WHEN COUNT(*) = 0 THEN 'OK: Ready for Step 3 (SET NOT NULL)'
+        ELSE 'PENDING: ' || COUNT(*) || ' rows still NULL - run batch UPDATE again'
+    END as result,
+    COUNT(*) as null_count
+FROM user_long_term_memory
+WHERE scope IS NULL;
 
 \echo ''
 \echo '===== POST-5: インデックス確認 ====='

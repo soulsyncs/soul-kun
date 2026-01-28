@@ -65,10 +65,25 @@ COMMENT ON COLUMN bot_persona_memory.category IS 'カテゴリ: character(キャ
 ALTER TABLE user_long_term_memory
 ADD COLUMN IF NOT EXISTS scope VARCHAR(20);
 
--- Step 2: 既存データに値を埋める（バッチ更新）
-UPDATE user_long_term_memory
+-- Step 2: 既存データに値を埋める（バッチ更新で負荷制御）
+-- 1回の実行で全件終わらなくてもOK。NULLが残る場合は同じSQLを繰り返す運用。
+WITH target AS (
+    SELECT id
+    FROM user_long_term_memory
+    WHERE scope IS NULL
+    ORDER BY id
+    LIMIT 10000
+)
+UPDATE user_long_term_memory u
 SET scope = 'PRIVATE'
-WHERE scope IS NULL;
+FROM target
+WHERE u.id = target.id;
+
+-- （任意）進捗確認
+-- SELECT COUNT(*) FROM user_long_term_memory WHERE scope IS NULL;
+
+-- ★重要: Step 3 を実行する前に NULL = 0 を確認すること
+-- 巨大テーブルの場合、上記バッチUPDATEを NULL が 0 になるまで繰り返す
 
 -- Step 3: デフォルト値とNOT NULL制約を追加
 ALTER TABLE user_long_term_memory

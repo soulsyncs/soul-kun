@@ -148,6 +148,20 @@ except ImportError as e:
     USE_BOT_PERSONA_MEMORY = False
 
 # =====================================================
+# v10.43.0: 人格レイヤー（Company Persona + Add-on）
+# =====================================================
+try:
+    from lib.persona import build_persona_prompt
+    USE_PERSONA_LAYER = True
+    # 安全制限: Personaプロンプトの最大文字数（トークン肥大化防止）
+    MAX_PERSONA_CHARS = 1200
+    print("✅ lib/persona loaded for Company Persona + Add-on")
+except ImportError as e:
+    print(f"⚠️ lib/persona not available: {e}")
+    USE_PERSONA_LAYER = False
+    MAX_PERSONA_CHARS = 0
+
+# =====================================================
 # v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
 # =====================================================
 try:
@@ -2903,6 +2917,8 @@ def _get_brain_integration():
 
                 # sender_nameをコンテキストから取得
                 sender_name = context_dict.get("sender_name", "") if context_dict else ""
+                # v10.43.0: account_idをコンテキストから取得（Persona用）
+                account_id = context_dict.get("account_id") if context_dict else None
 
                 # historyを準備（会話履歴形式に変換）
                 history = []
@@ -2912,7 +2928,7 @@ def _get_brain_integration():
                     elif hasattr(msg, "to_dict"):
                         history.append(msg.to_dict())
 
-                return get_ai_response(message, history, sender_name, context_dict)
+                return get_ai_response(message, history, sender_name, context_dict, "ja", account_id)
             except Exception as e:
                 print(f"⚠️ _brain_ai_response_wrapper error: {e}")
                 return "申し訳ないウル、応答生成中にエラーが発生したウル🐺"
@@ -3936,7 +3952,7 @@ async def _brain_handle_general_conversation(params, room_id, account_id, sender
             if persons_str:
                 context_parts.append(f"【覚えている人物】\n{persons_str}")
         context_str = "\n\n".join(context_parts) if context_parts else None
-        ai_response = get_ai_response(params.get("message", ""), history, sender_name, context_str, "ja")
+        ai_response = get_ai_response(params.get("message", ""), history, sender_name, context_str, "ja", account_id)
         return HandlerResult(success=True, message=ai_response)
     except Exception as e:
         return HandlerResult(success=False, message=f"ごめんウル...もう一度試してほしいウル🐺")
@@ -6510,9 +6526,33 @@ def execute_action(command, sender_name, room_id=None, account_id=None, context=
 
 # ===== 多言語対応のAI応答生成（NEW） =====
 
-def get_ai_response(message, history, sender_name, context=None, response_language="ja"):
-    """通常会話用のAI応答生成（多言語対応 + 組織論的行動指針）"""
+def get_ai_response(message, history, sender_name, context=None, response_language="ja", account_id=None):
+    """通常会話用のAI応答生成（多言語対応 + 組織論的行動指針 + 人格レイヤー）
+
+    v10.43.0: account_id パラメータ追加（Persona Add-on取得用）
+    """
     api_key = get_secret("openrouter-api-key")
+
+    # v10.43.0: 人格レイヤー（Company Persona + Add-on）の構築
+    persona_prompt = ""
+    if USE_PERSONA_LAYER and response_language == "ja":
+        try:
+            org_id = MEMORY_DEFAULT_ORG_ID
+            persona_prompt = build_persona_prompt(
+                pool=get_db_pool(),
+                org_id=org_id,
+                user_id=account_id if account_id else None,  # Noneの場合Add-onスキップ
+                user_name=sender_name,
+            )
+            # 安全制限: 長さ制限（トークン肥大化防止）
+            if persona_prompt and len(persona_prompt) > MAX_PERSONA_CHARS:
+                logging.warning(f"Persona prompt truncated: {len(persona_prompt)} -> {MAX_PERSONA_CHARS}")
+                persona_prompt = persona_prompt[:MAX_PERSONA_CHARS]
+            if persona_prompt:
+                logging.info(f"Persona injected | addon={'yes' if account_id else 'no'}")
+        except Exception as e:
+            logging.warning(f"Persona build failed (continuing without): {e}")
+            persona_prompt = ""
 
     # v10.22.0: 組織論的行動指針コンテキストの生成
     org_theory_context = ""
@@ -6706,7 +6746,11 @@ Person, die mit dir spricht: {sender_name}""",
     
     # 指定された言語のプロンプトを使用（デフォルトは日本語）
     system_prompt = language_prompts.get(response_language, language_prompts["ja"])
-    
+
+    # v10.43.0: 人格レイヤーを先頭に連結（日本語のみ）
+    if persona_prompt:
+        system_prompt = f"{persona_prompt}\n\n{system_prompt}"
+
     messages = [{"role": "system", "content": system_prompt}]
     
     # 会話履歴を追加（最大6メッセージ）
@@ -6924,7 +6968,7 @@ def chatwork_webhook(request):
                                 return result
                             else:
                                 # 通常会話
-                                return get_ai_response(msg, fb_conversation_history, s_name, fb_context)
+                                return get_ai_response(msg, fb_conversation_history, s_name, fb_context, "ja", a_id)
                         except Exception as fb_e:
                             print(f"⚠️ フォールバック処理でエラー: {fb_e}")
                             return "申し訳ないウル、処理中にエラーが発生したウル🐺"
@@ -7113,8 +7157,8 @@ def chatwork_webhook(request):
         context = "\n\n".join(context_parts) if context_parts else None
         
         # 言語を指定してAI応答生成（NEW）
-        ai_response = get_ai_response(clean_message, history, sender_name, context, response_language)
-        
+        ai_response = get_ai_response(clean_message, history, sender_name, context, response_language, sender_account_id)
+
         # 分析ログ記録（一般会話）
         log_analytics_event(
             event_type="general_chat",
@@ -8548,9 +8592,9 @@ def check_reply_messages(request):
                                             context_parts.append(f"【覚えている人物】\n{persons_str}")
                                     
                                     context = "\n\n".join(context_parts) if context_parts else None
-                                    
-                                    ai_response = get_ai_response(clean_message, history, sender_name, context, response_language)
-                                    
+
+                                    ai_response = get_ai_response(clean_message, history, sender_name, context, response_language, account_id)
+
                                     if history is None:
                                         history = []
                                     history.append({"role": "user", "content": clean_message})

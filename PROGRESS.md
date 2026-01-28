@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 09:35 JST**
+**最終更新: 2026-01-28 13:10 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -382,23 +382,22 @@
 > - **ファイル**: `chatwork-webhook/lib/goal_setting.py`
 > - **revision**: chatwork-webhook versionId: 3
 
-**実装中（神経接続修理 - Phase 1最優先）:** 🔧 2026-01-28 調査完了・質問待ち
-> ソウルくんを「社長の分身」にするための前提条件として、脳の一貫した状態管理と全入力の脳経由処理を保証する構造修正。
-> - **調査完了**: org_id使用箇所（103ファイル）、bypass経路、二重管理箇所を特定
-> - **方針確定**:
->   1. USE_BRAIN_ARCHITECTURE フラグ → 完全削除、従来フロー削除
->   2. goal_setting_sessions → 統合後にDROP
->   3. chatwork_tasks.organization_id → UUID型に変更
->   4. デプロイ → 一括マイグレーション
-> - **未回答の質問（5点）**:
->   1. user_id識別子: ChatWork account_id vs users.id UUID？
->   2. goal_setting_logs: 削除 vs 形式変更して残す？
->   3. GoalSettingDialogue: 書き換え vs 廃止して脳に統合？
->   4. chatwork_tasks変換: "org_soulsyncs" → 特定UUID？
->   5. 他の対話フロー: brain_conversation_statesに統一？
+**完了したこと（神経接続修理 v10.40.1）:** ✅ 2026-01-28 13:05 JST 本番デプロイ完了
+> 状態管理を brain_conversation_states に一本化し、「全入力が脳を通る」アーキテクチャを完成。
+> - **コミット**: `0a9e0b4` fix(brain): 神経接続修理
+> - **PR**: #286
+> - **本番リビジョン**: chatwork-webhook-00243-mas
+> - **変更内容**:
+>   - SoulkunBrain._check_goal_setting_session() を削除（約80行）
+>   - GoalHandler._check_dialogue_completed() を brain_conversation_states 参照に変更
+>   - brain_dialogue_logs テーブル作成（対話ログ統一管理）
+>   - 本番環境で USE_BRAIN_ARCHITECTURE=true 強制
+>   - 回帰テスト12件追加
+> - **マイグレーション**: brain_dialogue_logs テーブル作成完了（データ移行は対象データなしでスキップ）
+> - **注意**: goal_setting_sessions / goal_setting_logs は本番DBに存在しない（別経路で状態管理済み）
 
 **次にやること:**
-> 1. **神経接続修理の5質問に回答** - 「神経接続修理の続き」で再開
+> 1. **神経接続修理の動作確認** - ChatWorkで目標設定テスト → DB確認
 > 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
 > 3. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
 

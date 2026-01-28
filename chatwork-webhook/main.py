@@ -2838,7 +2838,7 @@ def _get_brain_integration():
             "interrupt_goal_setting": _brain_interrupt_goal_setting,
             "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
             "resume_goal_setting": _brain_resume_goal_setting,
-            # v10.39.3: 脳がgoal_setting_sessionsをチェックするためのpool
+            # v10.40.1: goal_setting.pyがbrain_conversation_statesを使用するためのpool
             "_pool": get_pool(),
         }
 
@@ -2946,7 +2946,7 @@ def _get_brain():
             "interrupt_goal_setting": _brain_interrupt_goal_setting,
             "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
             "resume_goal_setting": _brain_resume_goal_setting,
-            # v10.39.3: 脳がgoal_setting_sessionsをチェックするためのpool
+            # v10.40.1: goal_setting.pyがbrain_conversation_statesを使用するためのpool
             "_pool": get_pool(),
         }
 

@@ -24,12 +24,15 @@ Phase C: 15+個のFeature Flagを1つのファイルに集約
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import Dict, List, Optional, Callable, Any, Tuple
 from functools import cached_property
 import json
+
+logger = logging.getLogger(__name__)
 
 
 # =====================================================
@@ -69,7 +72,7 @@ FLAG_DEFINITIONS: Dict[str, Tuple[str, FlagCategory, str]] = {
 
     # 機能系
     "USE_ANNOUNCEMENT_FEATURE": ("true", FlagCategory.FEATURE, "アナウンス機能"),
-    "USE_BRAIN_ARCHITECTURE": ("false", FlagCategory.FEATURE, "脳アーキテクチャ"),
+    "USE_BRAIN_ARCHITECTURE": ("true", FlagCategory.FEATURE, "脳アーキテクチャ（v10.40.1: 本番強制）"),
     "DISABLE_MVV_CONTEXT": ("false", FlagCategory.FEATURE, "MVV無効化フラグ"),
     "ENABLE_PHASE3_KNOWLEDGE": ("true", FlagCategory.FEATURE, "Phase 3 ナレッジ検索"),
     "USE_MODEL_ORCHESTRATOR": ("false", FlagCategory.FEATURE, "Model Orchestrator（全AI呼び出し統括）"),
@@ -277,7 +280,15 @@ class FeatureFlags:
         )
 
         # 脳アーキテクチャ（特殊: モード対応）
+        # v10.40.1: 神経接続修理 - 本番環境ではtrue強制
         brain_mode_str = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower()
+        environment = os.environ.get("ENVIRONMENT", "development").lower()
+
+        # 本番環境では脳アーキテクチャを強制有効化
+        if environment == "production" and brain_mode_str == "false":
+            brain_mode_str = "true"
+            logger.info("🧠 本番環境: USE_BRAIN_ARCHITECTURE を強制的に true に設定")
+
         self.brain_mode = brain_mode_str
         self.use_brain_architecture = brain_mode_str in ("true", "shadow", "gradual")
 

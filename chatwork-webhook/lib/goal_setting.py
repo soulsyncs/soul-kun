@@ -1,8 +1,14 @@
 """
-目標設定対話フロー管理モジュール（Phase 2.5 v1.7）
+目標設定対話フロー管理モジュール（Phase 2.5 v1.8 - 神経接続修理版）
 
 アチーブメント社・選択理論に基づく目標設定対話を管理。
 WHY → WHAT → HOW の順で一問一答形式で目標を設定する。
+
+v1.8 変更点（神経接続修理）:
+- 状態管理を brain_conversation_states に一本化
+- 対話ログを brain_dialogue_logs に一本化
+- goal_setting_sessions / goal_setting_logs への依存を削除
+- user_id として ChatWork account_id を使用（脳の設計に準拠）
 
 v1.7 変更点:
 - 臨機応変な対応（Adaptive Response Enhancement）
@@ -52,6 +58,105 @@ CONFIRMATION_PATTERNS = [
     "うん", "はい", "いいよ", "大丈夫", "問題ない",
     "それで", "それでいい", "いいです", "オーケー"
 ]
+
+# v10.40.1: 否定接続パターン（「合ってるけど」等を検出）
+# これらが含まれる場合、肯定語があっても confirmed=False にする
+BUT_CONNECTOR_PATTERNS = [
+    "けど", "だけど", "けれど", "だけれど",
+    "が、", "が，", "ただ、", "ただ，",
+    "でも", "しかし", "一方で", "ただし",
+    "んだけど", "んですけど", "のですが", "んですが",
+]
+
+# v10.40.1: フィードバック要求パターン（「評価して」等を検出）
+# これらが含まれる場合、登録せずに導きの対話に入る
+FEEDBACK_REQUEST_PATTERNS = [
+    # 評価・フィードバック要求
+    "フィードバック", "評価", "見て", "どう思う", "どうかな",
+    "正しい", "合ってるか", "間違ってない", "これでいい？",
+    # 改善・アドバイス要求
+    "改善", "アドバイス", "教えて", "どうすれば", "どうしたら",
+    "足りない", "不足", "抜けて", "漏れて",
+    # 分解・具体化要求
+    "分解", "細かく", "具体的", "ブレイクダウン",
+    "目先", "短期", "今月", "今週", "今日",
+    # 確認・質問要求
+    "わかる？", "わかります？", "伝わって", "理解して",
+    "聞いて", "聞きたい", "質問", "相談",
+]
+
+
+def _has_but_connector(text: str) -> bool:
+    """
+    v10.40.1: 否定接続（「けど」「だけど」等）を検出
+
+    「合ってるけど」のような場合、confirmed=False にするためのガード。
+    これは応急処置であり、将来的には brain/understanding.py に移行予定。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: 否定接続が含まれる（確認として扱わない）
+        False: 否定接続がない
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in BUT_CONNECTOR_PATTERNS)
+
+
+def _has_feedback_request(text: str) -> bool:
+    """
+    v10.40.1: フィードバック要求を検出
+
+    「フィードバックして」「正しい？」等の場合、登録せずに導きの対話に入る。
+    これは応急処置であり、将来的には brain/understanding.py に移行予定。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: フィードバック要求が含まれる（登録しない）
+        False: フィードバック要求がない
+    """
+    text_lower = text.lower()
+    return any(pattern in text_lower for pattern in FEEDBACK_REQUEST_PATTERNS)
+
+
+def _is_pure_confirmation(text: str) -> bool:
+    """
+    v10.40.1: 純粋な確認かどうかを判定
+
+    confirmed = 肯定語あり AND 否定接続なし AND FB要求なし
+
+    これにより「合ってるけど〜」「OKだけど教えて」等での誤登録を防止。
+
+    Args:
+        text: ユーザーメッセージ
+
+    Returns:
+        True: 純粋な確認（登録OK）
+        False: 追加要求あり（登録しない）
+    """
+    text_lower = text.lower().strip()
+
+    # 1. 肯定語チェック
+    has_confirmation = any(
+        pattern in text_lower for pattern in CONFIRMATION_PATTERNS
+    )
+    if not has_confirmation:
+        return False
+
+    # 2. 否定接続チェック（「けど」等があればNG）
+    if _has_but_connector(text):
+        print(f"   ⚠️ 否定接続検出: 確認として扱わない")
+        return False
+
+    # 3. フィードバック要求チェック
+    if _has_feedback_request(text):
+        print(f"   ⚠️ フィードバック要求検出: 確認として扱わない")
+        return False
+
+    return True
 
 
 # =====================================================
@@ -602,25 +707,25 @@ class GoalSettingDialogue:
 
     def _get_active_session(self, conn) -> Optional[Dict[str, Any]]:
         """
-        アクティブなセッションを取得
+        アクティブなセッションを取得（v1.8: brain_conversation_states使用）
 
-        24時間以内の未完了セッションを検索。
+        brain_conversation_states から state_type='goal_setting' のセッションを検索。
+        user_id は ChatWork account_id を使用。
         """
         result = conn.execute(
             text("""
-                SELECT id, current_step, why_answer, what_answer, how_answer,
-                       started_at, expires_at
-                FROM goal_setting_sessions
-                WHERE user_id = :user_id
+                SELECT id, state_step, state_data, created_at, expires_at
+                FROM brain_conversation_states
+                WHERE user_id = :account_id
                   AND organization_id = :org_id
-                  AND chatwork_room_id = :room_id
-                  AND status = 'in_progress'
+                  AND room_id = :room_id
+                  AND state_type = 'goal_setting'
                   AND expires_at > CURRENT_TIMESTAMP
-                ORDER BY started_at DESC
+                ORDER BY created_at DESC
                 LIMIT 1
             """),
             {
-                "user_id": self.user_id,
+                "account_id": self.account_id,
                 "org_id": self.org_id,
                 "room_id": self.room_id
             }
@@ -629,44 +734,63 @@ class GoalSettingDialogue:
         if not result:
             return None
 
+        # state_data から WHY/WHAT/HOW 回答を取得
+        state_data = result[2] or {}
+
         return {
             "id": str(result[0]),
-            "current_step": result[1],
-            "why_answer": result[2],
-            "what_answer": result[3],
-            "how_answer": result[4],
-            "started_at": result[5],
-            "expires_at": result[6]
+            "current_step": result[1] or "why",
+            "why_answer": state_data.get("why_answer"),
+            "what_answer": state_data.get("what_answer"),
+            "how_answer": state_data.get("how_answer"),
+            "started_at": result[3],
+            "expires_at": result[4]
         }
 
     def _create_session(self, conn) -> str:
         """
-        新規セッションを作成
+        新規セッションを作成（v1.8: brain_conversation_states使用）
 
         v10.19.4: セッションは最初から 'why' ステップで作成する。
         'intro' は論理的なステップとしては存在せず、イントロメッセージ送信後は
         すぐに WHY ステップに入る。これにより、ユーザーの最初の返信が
         必ず WHY 回答として処理される。
+
+        v1.8: brain_conversation_states に状態を作成。
+        user_id には ChatWork account_id を使用。
         """
-        session_id = str(uuid4())
-        conn.execute(
+        # UPSERT: 既存の状態がある場合は上書き
+        result = conn.execute(
             text("""
-                INSERT INTO goal_setting_sessions (
-                    id, organization_id, user_id, chatwork_room_id,
-                    status, current_step, started_at, expires_at
+                INSERT INTO brain_conversation_states (
+                    organization_id, room_id, user_id,
+                    state_type, state_step, state_data,
+                    expires_at, timeout_minutes,
+                    created_at, updated_at
                 ) VALUES (
-                    :id, :org_id, :user_id, :room_id,
-                    'in_progress', 'why', CURRENT_TIMESTAMP,
-                    CURRENT_TIMESTAMP + INTERVAL '24 hours'
+                    :org_id, :room_id, :account_id,
+                    'goal_setting', 'why', '{}',
+                    CURRENT_TIMESTAMP + INTERVAL '24 hours', 1440,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
+                ON CONFLICT (organization_id, room_id, user_id)
+                DO UPDATE SET
+                    state_type = 'goal_setting',
+                    state_step = 'why',
+                    state_data = '{}',
+                    expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours',
+                    timeout_minutes = 1440,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
             """),
             {
-                "id": session_id,
                 "org_id": self.org_id,
-                "user_id": self.user_id,
-                "room_id": self.room_id
+                "room_id": self.room_id,
+                "account_id": self.account_id
             }
         )
+        row = result.fetchone()
+        session_id = str(row[0]) if row else str(uuid4())
         conn.commit()
         return session_id
 
@@ -677,39 +801,55 @@ class GoalSettingDialogue:
                        how_answer: str = None,
                        status: str = None,
                        goal_id: str = None) -> None:
-        """セッションを更新"""
-        updates = ["updated_at = CURRENT_TIMESTAMP", "last_activity_at = CURRENT_TIMESTAMP"]
-        params = {"session_id": session_id}
+        """
+        セッションを更新（v1.8: brain_conversation_states使用）
 
-        # v10.38.1: current_step をオプショナルに変更（回答のみ更新するケース対応）
+        state_data JSONBに WHY/WHAT/HOW 回答を格納。
+        status='completed' の場合は状態をクリア（DELETEではなくstate_type更新）。
+        """
+        # まず現在のstate_dataを取得
+        current = conn.execute(
+            text("""
+                SELECT state_data FROM brain_conversation_states
+                WHERE id = :session_id
+            """),
+            {"session_id": session_id}
+        ).fetchone()
+
+        current_data = (current[0] if current and current[0] else {}) or {}
+
+        # state_dataを更新
+        if why_answer is not None:
+            current_data["why_answer"] = why_answer
+        if what_answer is not None:
+            current_data["what_answer"] = what_answer
+        if how_answer is not None:
+            current_data["how_answer"] = how_answer
+        if goal_id is not None:
+            current_data["goal_id"] = goal_id
+
+        # 更新クエリを構築
+        updates = ["updated_at = CURRENT_TIMESTAMP"]
+        params = {"session_id": session_id, "state_data": json.dumps(current_data)}
+
         if current_step is not None:
-            updates.append("current_step = :current_step")
+            updates.append("state_step = :current_step")
             params["current_step"] = current_step
 
-        if why_answer is not None:
-            updates.append("why_answer = :why_answer")
-            params["why_answer"] = why_answer
+        updates.append("state_data = CAST(:state_data AS jsonb)")
 
-        if what_answer is not None:
-            updates.append("what_answer = :what_answer")
-            params["what_answer"] = what_answer
+        # タイムアウト延長
+        updates.append("expires_at = CURRENT_TIMESTAMP + INTERVAL '24 hours'")
 
-        if how_answer is not None:
-            updates.append("how_answer = :how_answer")
-            params["how_answer"] = how_answer
-
-        if status is not None:
-            updates.append("status = :status")
-            params["status"] = status
-            if status == "completed":
-                updates.append("completed_at = CURRENT_TIMESTAMP")
-
-        if goal_id is not None:
-            updates.append("goal_id = :goal_id")
-            params["goal_id"] = goal_id
+        # status='completed' の場合は state_type を 'normal' に変更
+        if status == "completed":
+            updates.append("state_type = 'normal'")
+            updates.append("state_step = NULL")
+            current_data["completed_at"] = datetime.utcnow().isoformat()
+            params["state_data"] = json.dumps(current_data)
 
         conn.execute(
-            text(f"UPDATE goal_setting_sessions SET {', '.join(updates)} WHERE id = :session_id"),
+            text(f"UPDATE brain_conversation_states SET {', '.join(updates)} WHERE id = :session_id"),
             params
         )
         conn.commit()
@@ -721,25 +861,32 @@ class GoalSettingDialogue:
                         feedback_given: bool = False,
                         result: str = None,
                         step_attempt: int = 1) -> None:
-        """対話ログを記録"""
+        """
+        対話ログを記録（v1.8: brain_dialogue_logs使用）
+
+        全対話フローのログを統一管理するbrain_dialogue_logsに記録。
+        chatwork_account_id を使用。
+        """
         log_id = str(uuid4())
         conn.execute(
             text("""
-                INSERT INTO goal_setting_logs (
-                    id, organization_id, session_id, user_id,
-                    step, step_attempt, user_message, ai_response,
+                INSERT INTO brain_dialogue_logs (
+                    id, organization_id, chatwork_account_id, room_id,
+                    state_type, state_step, step_attempt,
+                    user_message, ai_response,
                     detected_pattern, evaluation_result, feedback_given, result
                 ) VALUES (
-                    :id, :org_id, :session_id, :user_id,
-                    :step, :step_attempt, :user_message, :ai_response,
+                    :id, :org_id, :account_id, :room_id,
+                    'goal_setting', :step, :step_attempt,
+                    :user_message, :ai_response,
                     :detected_pattern, :evaluation_result, :feedback_given, :result
                 )
             """),
             {
                 "id": log_id,
                 "org_id": self.org_id,
-                "session_id": session_id,
-                "user_id": self.user_id,
+                "account_id": self.account_id,
+                "room_id": self.room_id,
                 "step": step,
                 "step_attempt": step_attempt,
                 "user_message": user_message,
@@ -753,15 +900,27 @@ class GoalSettingDialogue:
         conn.commit()
 
     def _get_step_attempt_count(self, conn, session_id: str, step: str) -> int:
-        """現在のステップの試行回数を取得"""
+        """
+        現在のステップの試行回数を取得（v1.8: brain_dialogue_logs使用）
+
+        chatwork_account_idとroom_idで検索。session_idは使用しない。
+        """
         result = conn.execute(
             text("""
-                SELECT COUNT(*) FROM goal_setting_logs
-                WHERE session_id = :session_id
+                SELECT COUNT(*) FROM brain_dialogue_logs
+                WHERE chatwork_account_id = :account_id
+                  AND room_id = :room_id
                   AND organization_id = :org_id
-                  AND step = :step
+                  AND state_type = 'goal_setting'
+                  AND state_step = :step
+                  AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
             """),
-            {"session_id": session_id, "org_id": self.org_id, "step": step}
+            {
+                "account_id": self.account_id,
+                "room_id": self.room_id,
+                "org_id": self.org_id,
+                "step": step
+            }
         ).fetchone()
         return (result[0] or 0) + 1
 
@@ -1181,9 +1340,9 @@ class GoalSettingDialogue:
         if current_step == "confirm":
             print(f"   📋 確認ステップ: ユーザー応答「{user_message[:30]}...」")
 
-            # OKパターンをチェック
-            message_lower = user_message.lower().strip()
-            is_confirmed = any(pattern in message_lower for pattern in CONFIRMATION_PATTERNS)
+            # OKパターンをチェック（v10.40.1: 純粋な確認のみ受け付ける）
+            # 「合ってるけど、フィードバックして」のような否定接続やFB要求は確認とみなさない
+            is_confirmed = _is_pure_confirmation(user_message)
 
             if is_confirmed:
                 print(f"   ✅ 確認OK - 目標を登録します")
@@ -1853,15 +2012,27 @@ class GoalSettingDialogue:
             print(f"⚠️ セッション統計更新エラー（続行）: {e}")
 
     def _get_total_retry_count(self, conn, session_id: str) -> int:
-        """セッション内の総リトライ回数を取得"""
+        """
+        セッション内の総リトライ回数を取得（v1.8: brain_dialogue_logs使用）
+
+        chatwork_account_idとroom_idで24時間以内のリトライを検索。
+        """
         try:
             result = conn.execute(
                 text("""
-                    SELECT COUNT(*) FROM goal_setting_logs
-                    WHERE session_id = :session_id
+                    SELECT COUNT(*) FROM brain_dialogue_logs
+                    WHERE chatwork_account_id = :account_id
+                      AND room_id = :room_id
+                      AND organization_id = :org_id
+                      AND state_type = 'goal_setting'
                       AND result = 'retry'
+                      AND created_at > CURRENT_TIMESTAMP - INTERVAL '24 hours'
                 """),
-                {"session_id": session_id}
+                {
+                    "account_id": self.account_id,
+                    "room_id": self.room_id,
+                    "org_id": self.org_id
+                }
             ).fetchone()
             return result[0] if result else 0
         except Exception:
@@ -1920,15 +2091,16 @@ class GoalSettingDialogue:
 
 def has_active_goal_session(pool, room_id: str, account_id: str) -> bool:
     """
-    アクティブな目標設定セッションが存在するかチェック
+    アクティブな目標設定セッションが存在するかチェック（v1.8: brain_conversation_states使用）
 
     chatwork-webhook から呼び出して、通常のAI応答をバイパスするかどうか判定する。
+    user_id として chatwork_account_id を直接使用。
     """
     with pool.connect() as conn:
-        # ユーザー情報を取得
+        # ユーザー情報を取得（org_idの取得のみ）
         user_result = conn.execute(
             text("""
-                SELECT id, organization_id FROM users
+                SELECT organization_id FROM users
                 WHERE chatwork_account_id = :account_id
                 LIMIT 1
             """),
@@ -1938,24 +2110,23 @@ def has_active_goal_session(pool, room_id: str, account_id: str) -> bool:
         if not user_result:
             return False
 
-        user_id = str(user_result[0])
-        org_id = str(user_result[1]) if user_result[1] else None
+        org_id = str(user_result[0]) if user_result[0] else None
 
         if not org_id:
             return False
 
-        # アクティブなセッションをチェック
+        # brain_conversation_statesでアクティブなセッションをチェック
         result = conn.execute(
             text("""
-                SELECT COUNT(*) FROM goal_setting_sessions
-                WHERE user_id = :user_id
+                SELECT COUNT(*) FROM brain_conversation_states
+                WHERE user_id = :account_id
                   AND organization_id = :org_id
-                  AND chatwork_room_id = :room_id
-                  AND status = 'in_progress'
+                  AND room_id = :room_id
+                  AND state_type = 'goal_setting'
                   AND expires_at > CURRENT_TIMESTAMP
             """),
             {
-                "user_id": user_id,
+                "account_id": str(account_id),
                 "org_id": org_id,
                 "room_id": str(room_id)
             }

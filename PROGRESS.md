@@ -371,8 +371,34 @@
 >   4. chatwork-webhookへの同期
 >   5. 本番デプロイ
 
+**完了したこと（v10.40.1 確認判定ロジック修正）:** ✅ 2026-01-28 11:16 UTC デプロイ完了
+> 目標設定で「合ってるけど、フィードバックして」と言った際に即座に登録されてしまうバグを修正した。
+> - **問題**: 「合ってる」という肯定語のみで確認OKと判定し、「けど」「フィードバック」を無視
+> - **修正内容**:
+>   - `_is_pure_confirmation()` 関数を追加
+>   - 確認 = 肯定語あり AND 否定接続なし AND FB要求なし
+>   - BUT_CONNECTOR_PATTERNS: 「けど」「だけど」「でも」等
+>   - FEEDBACK_REQUEST_PATTERNS: 「フィードバック」「評価」「教えて」等
+> - **ファイル**: `chatwork-webhook/lib/goal_setting.py`
+> - **revision**: chatwork-webhook versionId: 3
+
+**実装中（神経接続修理 - Phase 1最優先）:** 🔧 2026-01-28 調査完了・質問待ち
+> ソウルくんを「社長の分身」にするための前提条件として、脳の一貫した状態管理と全入力の脳経由処理を保証する構造修正。
+> - **調査完了**: org_id使用箇所（103ファイル）、bypass経路、二重管理箇所を特定
+> - **方針確定**:
+>   1. USE_BRAIN_ARCHITECTURE フラグ → 完全削除、従来フロー削除
+>   2. goal_setting_sessions → 統合後にDROP
+>   3. chatwork_tasks.organization_id → UUID型に変更
+>   4. デプロイ → 一括マイグレーション
+> - **未回答の質問（5点）**:
+>   1. user_id識別子: ChatWork account_id vs users.id UUID？
+>   2. goal_setting_logs: 削除 vs 形式変更して残す？
+>   3. GoalSettingDialogue: 書き換え vs 廃止して脳に統合？
+>   4. chatwork_tasks変換: "org_soulsyncs" → 特定UUID？
+>   5. 他の対話フロー: brain_conversation_statesに統一？
+
 **次にやること:**
-> 1. **Phase 2L完了作業** - 「Phase 2Lの続きやって」で再開
+> 1. **神経接続修理の5質問に回答** - 「神経接続修理の続き」で再開
 > 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
 > 3. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
 

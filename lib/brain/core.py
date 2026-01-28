@@ -686,124 +686,16 @@ class SoulkunBrain:
         user_id: str,
     ) -> Optional[ConversationState]:
         """
-        現在の状態を取得
+        現在の状態を取得（v10.40.1: 神経接続修理 - brain_conversation_statesのみ参照）
 
-        v10.39.3: brain_conversation_states だけでなく goal_setting_sessions も確認
-        - 脳がバイパスなしで全てを処理するため、両方のテーブルをチェック
+        v10.40.1: goal_setting_sessionsへのフォールバックを削除
+        - goal_setting.py が brain_conversation_states を使用するように書き換えられたため
+        - 全ての状態は brain_conversation_states で一元管理
 
         タイムアウトしている場合は自動的にクリアしてNoneを返す。
         """
-        # まずbrain_conversation_statesをチェック
-        state = await self.state_manager.get_current_state(room_id, user_id)
-        if state:
-            return state
-
-        # brain_conversation_statesに状態がない場合、goal_setting_sessionsをチェック
-        goal_session = await self._check_goal_setting_session(room_id, user_id)
-        if goal_session:
-            logger.info(f"🎯 goal_setting_sessionsからセッション検出: {goal_session}")
-            # brain_conversation_statesに同期して返す
-            return ConversationState(
-                state_id=goal_session.get("session_id"),
-                organization_id=goal_session.get("organization_id", ""),
-                room_id=room_id,
-                user_id=user_id,
-                state_type=StateType.GOAL_SETTING,
-                state_step=goal_session.get("current_step", "why"),
-                state_data={
-                    "session_id": goal_session.get("session_id"),
-                    "why_answer": goal_session.get("why_answer"),
-                    "what_answer": goal_session.get("what_answer"),
-                    "how_answer": goal_session.get("how_answer"),
-                },
-                reference_type="goal_session",
-                reference_id=goal_session.get("session_id"),
-                expires_at=goal_session.get("expires_at"),
-            )
-
-        return None
-
-    async def _check_goal_setting_session(
-        self,
-        room_id: str,
-        account_id: str,
-    ) -> Optional[Dict]:
-        """
-        goal_setting_sessionsテーブルからアクティブなセッションを取得
-
-        v10.39.3: 脳がgoal_setting_sessionsを直接確認
-        """
-        try:
-            # handlersからpoolを取得（goal_settingハンドラー経由）
-            from lib.goal_setting import has_active_goal_session
-            pool = self.handlers.get("_pool")
-            if not pool:
-                return None
-
-            # 同期的に実行（goal_setting.pyは同期版）
-            import asyncio
-            loop = asyncio.get_event_loop()
-
-            def _get_session():
-                with pool.connect() as conn:
-                    # ユーザー情報を取得
-                    user_result = conn.execute(
-                        text("""
-                            SELECT u.id, u.organization_id
-                            FROM users u
-                            WHERE u.chatwork_account_id = :account_id
-                            LIMIT 1
-                        """),
-                        {"account_id": str(account_id)}
-                    ).fetchone()
-
-                    if not user_result:
-                        return None
-
-                    user_id = str(user_result[0])
-                    org_id = str(user_result[1]) if user_result[1] else None
-
-                    if not org_id:
-                        return None
-
-                    # アクティブなセッションを取得
-                    result = conn.execute(
-                        text("""
-                            SELECT id, current_step, why_answer, what_answer, how_answer,
-                                   expires_at, organization_id
-                            FROM goal_setting_sessions
-                            WHERE user_id = :user_id
-                              AND organization_id = :org_id
-                              AND chatwork_room_id = :room_id
-                              AND status = 'in_progress'
-                              AND expires_at > CURRENT_TIMESTAMP
-                            ORDER BY created_at DESC
-                            LIMIT 1
-                        """),
-                        {
-                            "user_id": user_id,
-                            "org_id": org_id,
-                            "room_id": str(room_id)
-                        }
-                    ).fetchone()
-
-                    if result:
-                        return {
-                            "session_id": str(result[0]),
-                            "current_step": result[1],
-                            "why_answer": result[2],
-                            "what_answer": result[3],
-                            "how_answer": result[4],
-                            "expires_at": result[5],
-                            "organization_id": str(result[6]) if result[6] else None,
-                        }
-                    return None
-
-            return await loop.run_in_executor(None, _get_session)
-
-        except Exception as e:
-            logger.warning(f"Failed to check goal_setting_sessions: {e}")
-            return None
+        # brain_conversation_statesのみをチェック（goal_setting_sessionsは参照しない）
+        return await self.state_manager.get_current_state(room_id, user_id)
 
     async def _transition_to_state(
         self,

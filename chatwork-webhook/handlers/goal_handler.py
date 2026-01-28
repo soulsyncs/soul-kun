@@ -42,11 +42,10 @@ class GoalHandler:
 
     def _check_dialogue_completed(self, room_id: str, account_id: str) -> bool:
         """
-        v10.40.0: 対話フロー完了確認
+        v10.40.1: 対話フロー完了確認（神経接続修理 - brain_conversation_statesのみ参照）
 
-        goal_setting_sessions で status='completed' かつ
-        current_step='complete' のセッションが存在するかチェック。
-        または、直近5分以内に完了したセッションがあるかチェック。
+        brain_conversation_states で直近5分以内に目標設定対話が完了したかをチェック。
+        完了時には state_data->completed_at が設定されている。
 
         Returns:
             True: 対話フロー完了済み（登録可能）
@@ -55,35 +54,37 @@ class GoalHandler:
         try:
             pool = self.get_pool()
             with pool.connect() as conn:
-                # ユーザーIDを取得
+                # ユーザーの organization_id を取得
                 user_result = conn.execute(
                     text("""
-                        SELECT id FROM users
+                        SELECT organization_id FROM users
                         WHERE chatwork_account_id = :account_id
                         LIMIT 1
                     """),
                     {"account_id": str(account_id)}
                 ).fetchone()
 
-                if not user_result:
+                if not user_result or not user_result[0]:
                     return False
 
-                user_id = str(user_result[0])
+                org_id = str(user_result[0])
 
-                # 直近5分以内に完了したセッションをチェック
+                # brain_conversation_states で直近5分以内に完了したセッションをチェック
+                # 完了時には state_type='normal' に変更され、state_data に completed_at が設定される
                 result = conn.execute(
                     text("""
-                        SELECT id, current_step, status
-                        FROM goal_setting_sessions
-                        WHERE user_id = :user_id
-                          AND chatwork_room_id = :room_id
-                          AND status = 'completed'
-                          AND current_step = 'complete'
+                        SELECT id, state_data
+                        FROM brain_conversation_states
+                        WHERE user_id = :account_id
+                          AND organization_id = :org_id
+                          AND room_id = :room_id
+                          AND state_type = 'normal'
+                          AND state_data->>'completed_at' IS NOT NULL
                           AND updated_at > NOW() - INTERVAL '5 minutes'
                         ORDER BY updated_at DESC
                         LIMIT 1
                     """),
-                    {"user_id": user_id, "room_id": str(room_id)}
+                    {"account_id": str(account_id), "org_id": org_id, "room_id": str(room_id)}
                 ).fetchone()
 
                 return result is not None
@@ -125,7 +126,7 @@ class GoalHandler:
             dialogue_completed = False
             if context:
                 dialogue_completed = context.get("dialogue_completed", False)
-                # goal_setting_sessions から確認ステップ完了をチェック
+                # brain_conversation_states から確認ステップ完了をチェック
                 if not dialogue_completed:
                     dialogue_completed = context.get("from_goal_setting_dialogue", False)
 

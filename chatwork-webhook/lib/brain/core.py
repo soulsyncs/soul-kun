@@ -809,11 +809,39 @@ class SoulkunBrain:
         """
         目標設定セッションを継続
 
+        v10.39.2: 意図理解を追加
+        - まずユーザーの意図を理解する
+        - 目標設定の回答でなければ、セッションを中断して別の意図に対応
+        - 中断されたセッションは記憶し、後でフォローアップ
+
         handlers辞書から'continue_goal_setting'ハンドラーを取得し、
         実際のGoalSettingDialogueと連携します。
-
-        ハンドラーが未登録の場合はフォールバックメッセージを返します。
         """
+        # =====================================================
+        # Step 1: 意図を理解する（脳の本質的な役割）
+        # =====================================================
+        try:
+            understanding = await self._understand(message, context)
+            inferred_action = understanding.inferred_action if understanding else None
+
+            # 別の意図かどうかを判断
+            is_different_intent = self._is_different_intent_from_goal_setting(
+                message, understanding, inferred_action
+            )
+
+            if is_different_intent:
+                logger.info(f"🧠 目標設定中に別の意図を検出: action={inferred_action}")
+                return await self._handle_interrupted_goal_setting(
+                    message, state, context, understanding,
+                    room_id, account_id, sender_name, start_time
+                )
+        except Exception as e:
+            logger.warning(f"Goal setting intent understanding failed: {e}")
+            # 意図理解に失敗した場合は従来通り継続
+
+        # =====================================================
+        # Step 2: 目標設定の回答として処理
+        # =====================================================
         handler = self.handlers.get("continue_goal_setting")
 
         if handler:
@@ -880,6 +908,245 @@ class SoulkunBrain:
             action_taken="continue_goal_setting",
             total_time_ms=self._elapsed_ms(start_time),
         )
+
+    def _is_different_intent_from_goal_setting(
+        self,
+        message: str,
+        understanding,
+        inferred_action: str,
+    ) -> bool:
+        """
+        目標設定の回答ではなく、別の意図かどうかを判断
+
+        v10.39.2: 脳が意図を汲み取る
+
+        判断基準:
+        - 質問形式（「?」「？」で終わる、疑問詞を含む）
+        - 明確に別のアクションを示唆（タスク、ナレッジ検索など）
+        - 目標設定と無関係なキーワード
+
+        Returns:
+            True: 別の意図（セッションを中断すべき）
+            False: 目標設定の回答として処理すべき
+        """
+        message_lower = message.lower().strip()
+
+        # 1. 質問形式の検出
+        question_endings = ["?", "？"]
+        question_words = [
+            "何", "なに", "どう", "どこ", "いつ", "誰", "だれ",
+            "どれ", "どの", "なぜ", "どうして", "どうやって",
+            "ある？", "ありますか", "できる？", "できますか",
+            "知ってる", "教えて", "について",
+        ]
+
+        is_question = (
+            any(message.endswith(q) for q in question_endings) or
+            any(qw in message for qw in question_words)
+        )
+
+        # 2. 別のアクションを示唆するキーワード
+        other_action_keywords = [
+            # タスク関連
+            "タスク", "task", "やること", "宿題", "締め切り", "期限",
+            # ナレッジ・記憶関連
+            "覚えて", "記憶", "メモ", "ナレッジ",
+            # 検索・確認関連
+            "検索", "探して", "確認", "チェック",
+            # 雑談・質問
+            "今日", "明日", "昨日", "天気", "ニュース",
+            "気になる", "どう思う", "意見", "アドバイス",
+        ]
+
+        has_other_action = any(kw in message for kw in other_action_keywords)
+
+        # 3. 目標設定の回答っぽいキーワード（これがあれば継続）
+        goal_response_keywords = [
+            # WHY関連
+            "なりたい", "成長", "目指", "達成", "実現",
+            # WHAT関連
+            "目標", "ゴール", "成果", "結果",
+            # HOW関連
+            "毎日", "毎週", "週に", "行動", "やる", "する",
+            # 短い肯定的回答
+            "はい", "うん", "そう", "OK", "わかった",
+        ]
+
+        is_goal_response = any(kw in message for kw in goal_response_keywords)
+
+        # 4. inferred_actionによる判断
+        goal_actions = [
+            "goal_registration", "continue_goal_setting",
+            "goal_progress_report", "goal_status_check",
+        ]
+        is_goal_action = inferred_action in goal_actions if inferred_action else False
+
+        # 5. 判定ロジック
+        # 明確に質問 + 目標設定の回答っぽくない → 別の意図
+        if is_question and not is_goal_response:
+            return True
+
+        # 別のアクションキーワード + 目標設定アクションでない → 別の意図
+        if has_other_action and not is_goal_action and not is_goal_response:
+            return True
+
+        # inferred_actionが明確に別のアクション
+        if inferred_action and not is_goal_action:
+            non_goal_actions = [
+                "chatwork_task_search", "chatwork_task_create",
+                "query_knowledge", "save_memory", "query_memory",
+                "announcement_create", "daily_reflection",
+            ]
+            if inferred_action in non_goal_actions:
+                return True
+
+        return False
+
+    async def _handle_interrupted_goal_setting(
+        self,
+        message: str,
+        state: ConversationState,
+        context: BrainContext,
+        understanding,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        start_time: float,
+    ) -> BrainResponse:
+        """
+        目標設定セッションを中断し、別の意図に対応
+
+        v10.39.2: 中断されたセッションを記憶し、後でフォローアップ
+
+        処理:
+        1. 現在のセッション進捗を記憶に保存
+        2. セッションを「中断」状態に更新
+        3. 別の意図を処理
+        4. 処理結果にフォローアップメッセージを追加
+        """
+        try:
+            # 1. セッション進捗を取得
+            current_step = state.state_step if state else "unknown"
+            session_data = state.state_data if state else {}
+            why_answer = session_data.get("why_answer", "")
+            what_answer = session_data.get("what_answer", "")
+            how_answer = session_data.get("how_answer", "")
+
+            logger.info(
+                f"🧠 目標設定を中断: step={current_step}, "
+                f"why={bool(why_answer)}, what={bool(what_answer)}, how={bool(how_answer)}"
+            )
+
+            # 2. 中断情報をstate_dataに保存
+            interrupted_session = {
+                "interrupted": True,
+                "interrupted_at": datetime.now().isoformat(),
+                "current_step": current_step,
+                "why_answer": why_answer,
+                "what_answer": what_answer,
+                "how_answer": how_answer,
+                "reference_id": state.reference_id if state else None,
+            }
+
+            # 3. セッションを中断状態で保存（handlersを通じて）
+            interrupt_handler = self.handlers.get("interrupt_goal_setting")
+            if interrupt_handler:
+                try:
+                    interrupt_handler(room_id, account_id, interrupted_session)
+                except Exception as e:
+                    logger.warning(f"Failed to save interrupted session: {e}")
+
+            # 4. 状態をクリア（通常処理に戻すため）
+            await self._clear_state(room_id, account_id, "goal_setting_interrupted")
+
+            # 5. 別の意図を処理
+            # 新しいコンテキストで通常のprocess_messageフローを実行
+            new_context = BrainContext(
+                organization_id=context.organization_id,
+                room_id=room_id,
+                sender_name=sender_name,
+                sender_account_id=account_id,
+                recent_conversation=context.recent_conversation,
+                user_preferences=context.user_preferences,
+                person_info=context.person_info,
+                recent_tasks=context.recent_tasks,
+            )
+
+            # 決定を実行
+            inferred_action = understanding.inferred_action if understanding else "general_conversation"
+            params = understanding.extracted_params if understanding else {}
+
+            decision = await self._decide(understanding, new_context)
+            if decision:
+                result = await self._execute(decision, new_context, room_id, account_id, sender_name)
+            else:
+                # フォールバック: 通常会話として処理
+                result = await self._execute_general_conversation(
+                    message, new_context, room_id, account_id, sender_name
+                )
+
+            # 6. フォローアップメッセージを追加
+            original_message = result.message if result else ""
+            step_name = {"why": "WHY", "what": "WHAT", "how": "HOW"}.get(current_step, "")
+            progress_info = ""
+            if why_answer:
+                progress_info = "WHYまで"
+            if what_answer:
+                progress_info = "WHATまで"
+
+            followup = (
+                f"\n\n💡 ちなみに、さっきの目標設定は{progress_info}進んでいたウル。"
+                f"続きをやりたいときは「目標設定の続き」と言ってくれれば再開できるウル🐺"
+            ) if progress_info else (
+                "\n\n💡 さっき始めた目標設定、また続きからやりたいときは「目標設定の続き」と言ってねウル🐺"
+            )
+
+            return BrainResponse(
+                message=original_message + followup,
+                action_taken=f"interrupted_goal_setting_then_{inferred_action}",
+                success=True,
+                state_changed=True,
+                new_state="normal",
+                total_time_ms=self._elapsed_ms(start_time),
+                metadata={
+                    "interrupted_session": interrupted_session,
+                    "original_action": inferred_action,
+                },
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to handle interrupted goal setting: {e}")
+            # エラー時は単純にセッションをクリアして通常処理
+            await self._clear_state(room_id, account_id, "goal_setting_interrupt_error")
+            return BrainResponse(
+                message="分かったウル！他に何かあれば聞いてねウル🐺",
+                action_taken="goal_setting_interrupted",
+                success=True,
+                state_changed=True,
+                new_state="normal",
+                total_time_ms=self._elapsed_ms(start_time),
+            )
+
+    async def _execute_general_conversation(
+        self,
+        message: str,
+        context: BrainContext,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+    ):
+        """通常会話を実行（ヘルパーメソッド）"""
+        handler = self.handlers.get("general_conversation")
+        if handler:
+            try:
+                from lib.brain.models import HandlerResult
+                result = await handler({}, room_id, account_id, sender_name, context)
+                if isinstance(result, HandlerResult):
+                    return result
+                return HandlerResult(success=True, message=str(result) if result else "")
+            except Exception as e:
+                logger.warning(f"General conversation handler error: {e}")
+        return None
 
     async def _continue_announcement(
         self,

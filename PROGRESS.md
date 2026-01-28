@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 09:05 JST**
+**最終更新: 2026-01-28 09:35 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -504,6 +504,30 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **09:35 JST**: chatwork-webhook v10.39.2 本番デプロイ ✅ **revision 00227-fdg**
+  - **概要**: 目標設定セッション中でも脳がユーザーの意図を汲み取るように改善
+  - **背景**: ユーザーが目標設定中に別の話題を振っても、以前は機械的に目標設定を続行していた
+  - **変更内容**:
+    - `lib/brain/core.py`:
+      - `_continue_goal_setting()`: 意図理解ステップを追加
+      - `_is_different_intent_from_goal_setting()`: 目標設定の回答か別の意図かを判定
+      - `_handle_interrupted_goal_setting()`: 中断処理とフォローアップメッセージ
+    - `chatwork-webhook/main.py`:
+      - `_brain_interrupt_goal_setting()`: 中断セッションの保存
+      - `_brain_get_interrupted_goal_setting()`: 中断セッションの取得
+      - `_brain_resume_goal_setting()`: 中断セッションの再開
+      - handlers辞書に3つのハンドラーを登録
+    - `Procfile`: functions-frameworkを使用するよう追加（Cloud Runデプロイ対応）
+  - **効果**:
+    - 脳の7原則「脳が意図を理解する」に完全準拠
+    - ユーザーが途中で話題を変えても自然に対応
+    - 中断されたセッションは記憶され「目標設定の続き」で再開可能
+    - フォローアップメッセージ（例: 「さっきの目標設定はWHATまで進んでたウル。続きやる？」）
+  - **テスト**: 構文チェックパス、25ハンドラー関数全て定義確認
+  - **デプロイ**: Cloud Run（Procfile + functions-framework）
+  - **旧リビジョン**: chatwork-webhook-00233-hit
+  - **新リビジョン**: chatwork-webhook-00227-fdg
 
 - **09:05 JST**: chatwork-webhook v10.39.1 本番デプロイ ✅ **revision 00233-hit** **PR #282**
   - **概要**: 3つのTODOセッション継続メソッドを完全実装

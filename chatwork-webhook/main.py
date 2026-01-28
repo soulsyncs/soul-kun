@@ -2834,6 +2834,10 @@ def _get_brain_integration():
             "continue_goal_setting": _brain_continue_goal_setting,
             "continue_announcement": _brain_continue_announcement,
             "continue_task_pending": _brain_continue_task_pending,
+            # v10.39.2: 目標設定中断・再開ハンドラー（意図理解による中断対応）
+            "interrupt_goal_setting": _brain_interrupt_goal_setting,
+            "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
+            "resume_goal_setting": _brain_resume_goal_setting,
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加
@@ -2936,6 +2940,10 @@ def _get_brain():
             "continue_goal_setting": _brain_continue_goal_setting,
             "continue_announcement": _brain_continue_announcement,
             "continue_task_pending": _brain_continue_task_pending,
+            # v10.39.2: 目標設定中断・再開ハンドラー（意図理解による中断対応）
+            "interrupt_goal_setting": _brain_interrupt_goal_setting,
+            "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
+            "resume_goal_setting": _brain_resume_goal_setting,
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加（フォールバック用）
@@ -3343,6 +3351,101 @@ def _brain_continue_task_pending(message, room_id, account_id, sender_name, stat
             "success": False,
             "task_created": False,
             "new_state": "normal",
+        }
+
+
+# =====================================================
+# v10.39.2: 目標設定中断・再開ハンドラー
+# 脳が意図を汲み取り、別の話題に対応するための仕組み
+# =====================================================
+
+# グローバル変数: 中断されたセッションを一時保存
+_interrupted_goal_sessions = {}
+
+
+def _brain_interrupt_goal_setting(room_id, account_id, interrupted_session):
+    """
+    目標設定セッションを中断状態で保存
+
+    脳が「別の意図」を検出した場合に呼ばれる。
+    途中経過を記憶し、後で再開できるようにする。
+    """
+    try:
+        key = f"{room_id}:{account_id}"
+        _interrupted_goal_sessions[key] = interrupted_session
+        print(f"📝 目標設定セッションを中断保存: {key}, step={interrupted_session.get('current_step')}")
+        return True
+    except Exception as e:
+        print(f"❌ _brain_interrupt_goal_setting error: {e}")
+        return False
+
+
+def _brain_get_interrupted_goal_setting(room_id, account_id):
+    """中断されたセッションを取得"""
+    key = f"{room_id}:{account_id}"
+    return _interrupted_goal_sessions.get(key)
+
+
+def _brain_resume_goal_setting(message, room_id, account_id, sender_name, state_data):
+    """
+    中断されたセッションを再開
+
+    「目標設定の続き」などのキーワードで呼ばれる。
+    """
+    try:
+        key = f"{room_id}:{account_id}"
+        interrupted = _interrupted_goal_sessions.get(key)
+
+        if not interrupted:
+            return {
+                "message": "中断された目標設定は見つからなかったウル🐺\n新しく目標設定を始める？「目標設定したい」と言ってくれればスタートするウル！",
+                "success": True,
+                "session_completed": False,
+            }
+
+        # 中断されたセッションの情報を取得
+        current_step = interrupted.get("current_step", "why")
+        why_answer = interrupted.get("why_answer", "")
+        what_answer = interrupted.get("what_answer", "")
+        how_answer = interrupted.get("how_answer", "")
+
+        # セッションを再開
+        if USE_GOAL_SETTING_LIB:
+            pool = get_pool()
+            # 既存のセッションを再開するか、新しいセッションを開始
+            result = process_goal_setting_message(pool, room_id, account_id, "目標設定を再開したい")
+            if result:
+                # 中断されたセッションをクリア
+                del _interrupted_goal_sessions[key]
+
+                # 進捗を表示
+                progress_summary = "📝 前回の進捗:\n"
+                if why_answer:
+                    progress_summary += f"・WHY: {why_answer[:50]}...\n" if len(why_answer) > 50 else f"・WHY: {why_answer}\n"
+                if what_answer:
+                    progress_summary += f"・WHAT: {what_answer[:50]}...\n" if len(what_answer) > 50 else f"・WHAT: {what_answer}\n"
+                if how_answer:
+                    progress_summary += f"・HOW: {how_answer[:50]}...\n" if len(how_answer) > 50 else f"・HOW: {how_answer}\n"
+
+                response = result.get("message", "")
+                if progress_summary != "📝 前回の進捗:\n":
+                    response = f"{progress_summary}\n{response}"
+
+                return {
+                    "message": response,
+                    "success": True,
+                    "session_completed": result.get("session_completed", False),
+                }
+
+        return {
+            "message": "目標設定を再開するウル🐺",
+            "success": True,
+        }
+    except Exception as e:
+        print(f"❌ _brain_resume_goal_setting error: {e}")
+        return {
+            "message": "目標設定の再開中にエラーが発生したウル🐺",
+            "success": False,
         }
 
 

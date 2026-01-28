@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 19:20 JST**
+**最終更新: 2026-01-29 08:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -787,6 +787,30 @@ else:
 ---
 
 ## 直近の主な成果
+
+### 2026-01-29
+
+- **08:30 JST**: v10.46.0 脳中心のObservability Layer ✅ **PR #324, #326 デプロイ完了**
+  - **概要**: 鉄則3「脳が判断し、機能は実行するだけ」に基づき、全観測ログを脳が統一管理
+  - **新規ファイル**:
+    - `lib/brain/observability.py`: 観測機能の中核モジュール（441行）
+    - `tests/test_brain_observability.py`: 24テストケース
+  - **変更ファイル**:
+    - `lib/brain/core.py`: SoulkunBrainにobservability統合
+    - `chatwork-webhook/lib/persona/__init__.py`: 統一フォーマット対応
+  - **機能**:
+    - `ContextType` enum: persona, mvv, ceo_teaching, ng_pattern, basic_need, intent, route
+    - `BrainObservability` class: log_context, log_intent, log_execution
+    - 将来のDB永続化対応（バッファサイズ1000件制限付き）
+  - **ログフォーマット**:
+    ```
+    🧠 ctx=intent path=goal_handler applied=yes account=12345 ({'intent': 'goal_registration', 'confidence': 0.95})
+    🔀 ctx=route path=goal_handler applied=yes account=12345 ({'success': True, 'time_ms': 150})
+    🎭 ctx=persona path=get_ai_response applied=yes account=12345 ({'addon': True})
+    ```
+  - **コードレビュー対応**: print() → logger.info()、バッファサイズ制限追加
+  - **ダブルチェック**: lib/brain/ 同期漏れ発見・修正（PR #326）
+  - **Revision**: `chatwork-webhook-00280-daf`
 
 ### 2026-01-28
 

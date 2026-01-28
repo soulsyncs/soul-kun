@@ -2838,6 +2838,8 @@ def _get_brain_integration():
             "interrupt_goal_setting": _brain_interrupt_goal_setting,
             "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
             "resume_goal_setting": _brain_resume_goal_setting,
+            # v10.39.3: 脳がgoal_setting_sessionsをチェックするためのpool
+            "_pool": get_pool(),
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加
@@ -2944,6 +2946,8 @@ def _get_brain():
             "interrupt_goal_setting": _brain_interrupt_goal_setting,
             "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
             "resume_goal_setting": _brain_resume_goal_setting,
+            # v10.39.3: 脳がgoal_setting_sessionsをチェックするためのpool
+            "_pool": get_pool(),
         }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加（フォールバック用）
@@ -3110,11 +3114,16 @@ def _build_bypass_handlers():
     """
     バイパスハンドラーのマッピングを構築
 
+    v10.39.3: goal_sessionバイパスを削除
+    - 脳の意図理解を通すため、バイパスを使わない
+    - 脳のcore.py _continue_goal_setting() で意図を理解してから処理
+
     Returns:
         dict: バイパスタイプ -> ハンドラー関数のマッピング
     """
     return {
-        "goal_session": _bypass_handle_goal_session,
+        # v10.39.3: goal_session バイパスを削除（脳が意図理解してからハンドラーを呼ぶ）
+        # "goal_session": _bypass_handle_goal_session,
         "announcement_pending": _bypass_handle_announcement,
         # "task_pending" と "local_command" は既存の脳内処理で対応可能
     }

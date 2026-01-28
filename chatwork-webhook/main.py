@@ -7435,6 +7435,50 @@ def chatwork_webhook(request):
             except Exception as e:
                 print(f"❌ [router_guard] エラー（続行）: {e}")
 
+        # =====================================================
+        # v10.40.18: ルーティング前ガード（長期記憶取得を強制）
+        # 「軸を確認して」等のパターンはAI司令塔をスキップ
+        # =====================================================
+        if USE_LONG_TERM_MEMORY:
+            import re
+            long_term_query_patterns = [
+                r"軸を(確認|教えて|見せて)",
+                r"(俺|私|自分)の軸",
+                r"人生の軸",
+                r"価値観を(確認|教えて)",
+            ]
+            is_long_term_query = False
+            for pattern in long_term_query_patterns:
+                if re.search(pattern, clean_message, re.IGNORECASE):
+                    is_long_term_query = True
+                    break
+
+            if is_long_term_query:
+                print(f"🔍 [router_guard] long_term_query=True msg={clean_message[:50]}...")
+                try:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        result = loop.run_until_complete(
+                            _handle_query_long_term_memory(
+                                account_id=sender_account_id,
+                                sender_name=sender_name
+                            )
+                        )
+                    finally:
+                        loop.close()
+
+                    if result.get("success") and result.get("message"):
+                        show_guide = should_show_guide(room_id, sender_account_id)
+                        send_chatwork_message(room_id, result["message"], sender_account_id, show_guide)
+                        update_conversation_timestamp(room_id, sender_account_id)
+                        return jsonify({"status": "ok"})
+                except Exception as e:
+                    print(f"❌ [router_guard] long_term_query エラー（続行）: {e}")
+                    import traceback
+                    traceback.print_exc()
+
         # AI司令塔に判断を委ねる（AIの判断力を最大活用）
         command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
         

@@ -193,6 +193,12 @@ CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "secondary": ["こんにちは", "ありがとう", "どう思う"],
         "negative": [],
     },
+    # v10.44.0: Connection Query（DM可能な相手一覧）
+    "connection_query": {
+        "primary": ["DM", "1on1", "繋がってる", "直接チャット", "個別"],
+        "secondary": ["話せる", "チャットできる", "コネクション"],
+        "negative": ["タスク", "目標", "記憶"],
+    },
 }
 
 # NOTE: RISK_LEVELS と SPLIT_PATTERNS は lib/brain/constants.py からインポート

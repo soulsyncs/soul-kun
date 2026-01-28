@@ -186,6 +186,16 @@ from lib.brain.decision import (
     MVVCheckResult,
 )
 
+# v10.42.0 P3: Value Authority Layer
+from lib.brain.value_authority import (
+    ValueAuthority,
+    ValueAuthorityResult,
+    ValueDecision,
+    create_value_authority,
+    LIFE_AXIS_VIOLATION_PATTERNS,
+    GOAL_CONTRADICTION_PATTERNS,
+)
+
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
 from lib.brain.chain_of_thought import (
     ChainOfThought,
@@ -596,6 +606,13 @@ __all__ = [
     # v10.42.0 P1: Decision Layer Enforcement
     "EnforcementAction",
     "MVVCheckResult",
+    # v10.42.0 P3: Value Authority Layer
+    "ValueAuthority",
+    "ValueAuthorityResult",
+    "ValueDecision",
+    "create_value_authority",
+    "LIFE_AXIS_VIOLATION_PATTERNS",
+    "GOAL_CONTRADICTION_PATTERNS",
     # Phase 2E: Learning Foundation（v10.33.0）
     # 統合クラス
     "BrainLearning",

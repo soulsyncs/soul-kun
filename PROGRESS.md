@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 14:30 JST**
+**最終更新: 2026-01-28 17:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -395,6 +395,25 @@
 >   - 回帰テスト12件追加
 > - **マイグレーション**: brain_dialogue_logs テーブル作成完了（データ移行は対象データなしでスキップ）
 > - **注意**: goal_setting_sessions / goal_setting_logs は本番DBに存在しない（別経路で状態管理済み）
+
+**完了したこと（メモリ分離 v10.40.9）:** ✅ 2026-01-28 17:00 JST 本番マイグレーション完了
+> ボットペルソナ（ソウルくんの設定）とユーザー個人メモリを分離し、メモリ漏洩を防止。
+> - **PR**: #293
+> - **コミット履歴**:
+>   - `90ae781` feat(memory): メモリ分離とアクセス制御を実装
+>   - `9602122` perf(migration): 3-phase structure with CONCURRENTLY indexes
+>   - `518edaf` perf(migration): 3-step scope column addition to avoid table rewrite
+>   - `06436ee` perf(migration): batch backfill scope to reduce lock risk
+> - **新規テーブル**: `bot_persona_memory`（ソウルくんのキャラ設定専用）
+> - **カラム追加**: `user_long_term_memory.scope`（PRIVATE/ORG_SHARED）
+> - **セキュリティ**: `get_all_for_requester()` でアクセス制御（PRIVATEは本人のみ）
+> - **マイグレーション設計**:
+>   - Phase 1: DDL（テーブル作成、カラム追加）
+>   - Phase 2: データ移行（トランザクション分離）
+>   - Phase 3: インデックス作成（CONCURRENTLY）
+>   - scope埋め戻し: バッチ10000件/回、テーブルリライト回避
+> - **本番結果**: user_long_term_memory 0件、bot_persona_memory 作成完了
+> - **テスト**: 67件全パス
 
 ---
 

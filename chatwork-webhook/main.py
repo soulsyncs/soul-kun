@@ -6546,12 +6546,12 @@ def get_ai_response(message, history, sender_name, context=None, response_langua
             )
             # 安全制限: 長さ制限（トークン肥大化防止）
             if persona_prompt and len(persona_prompt) > MAX_PERSONA_CHARS:
-                logging.warning(f"Persona prompt truncated: {len(persona_prompt)} -> {MAX_PERSONA_CHARS}")
+                print(f"⚠️ Persona prompt truncated: {len(persona_prompt)} -> {MAX_PERSONA_CHARS}")
                 persona_prompt = persona_prompt[:MAX_PERSONA_CHARS]
             if persona_prompt:
-                logging.info(f"Persona injected | addon={'yes' if account_id else 'no'}")
+                print(f"🎭 Persona injected | addon={'yes' if account_id else 'no'}")
         except Exception as e:
-            logging.warning(f"Persona build failed (continuing without): {e}")
+            print(f"⚠️ Persona build failed (continuing without): {e}")
             persona_prompt = ""
 
     # v10.22.0: 組織論的行動指針コンテキストの生成

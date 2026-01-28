@@ -364,6 +364,10 @@ class SoulkunBrain:
             # 4. 判断層: アクションを決定
             decision = await self._decide(understanding, context)
 
+            # v10.45.0: Intent判定ログ（Cloud Loggingで追跡可能に）
+            text_preview = message[:40].replace('\n', ' ') if message else ""
+            print(f"🧠 intent={understanding.intent} route={decision.action} user={account_id} text={text_preview}")
+
             # 4.1 確認が必要？
             if decision.needs_confirmation:
                 # 確認状態に遷移
@@ -966,11 +970,16 @@ class SoulkunBrain:
 
         # =====================================================
         # 1. STOP_WORDSチェック（明示的中断のみ許可）
+        # v10.45.0: 「一覧」「違う」「登録じゃない」などを追加
         # =====================================================
         STOP_WORDS = [
             "やめる", "やめたい", "中断", "キャンセル",
             "終了", "一旦止めて", "別の話", "ストップ",
             "目標設定やめ", "目標やめ",
+            # v10.45.0: 意図変更を示すキーワード
+            "一覧", "表示して", "出して", "見せて",
+            "違う", "そうじゃない", "登録じゃない", "新規じゃない",
+            "整理", "削除", "修正", "相談",
         ]
         if any(word in message_lower for word in STOP_WORDS):
             logger.info(f"🛑 Stop word detected, allowing interruption: {message[:30]}")

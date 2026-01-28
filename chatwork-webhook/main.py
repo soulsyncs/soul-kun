@@ -3585,12 +3585,48 @@ def _brain_continue_goal_setting(message, room_id, account_id, sender_name, stat
     目標設定セッションを継続
 
     GoalSettingDialogueを使用してセッションを継続します。
+
+    v10.41.0: 長期記憶要求検出時のリダイレクト対応
     """
     try:
         if USE_GOAL_SETTING_LIB:
             pool = get_pool()
             result = process_goal_setting_message(pool, room_id, account_id, message)
             if result:
+                # v10.41.0: 長期記憶へのリダイレクトをチェック
+                if result.get("redirect_to") == "save_long_term_memory":
+                    print(f"🔥 長期記憶へリダイレクト: {message[:50]}...")
+                    original_message = result.get("original_message", message)
+
+                    # 長期記憶保存を実行
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    ltm_result = loop.run_until_complete(
+                        _handle_save_long_term_memory(original_message, room_id, account_id, sender_name)
+                    )
+
+                    if ltm_result.get("success"):
+                        # 保存成功：目標設定セッションは中断状態のまま
+                        # ユーザーに保存完了を通知し、目標設定を続けるか確認
+                        followup_message = (
+                            f"\n\n💡 目標設定の途中だったウル！続ける場合は「続ける」、"
+                            f"やめる場合は「やめる」と言ってウル🐺"
+                        )
+                        return {
+                            "message": ltm_result.get("message", "") + followup_message,
+                            "success": True,
+                            "session_completed": False,
+                            "new_state": None,
+                            "state_changed": False,
+                        }
+                    else:
+                        # 保存失敗：エラーメッセージを返す
+                        return {
+                            "message": ltm_result.get("message", "長期記憶の保存に失敗したウル..."),
+                            "success": False,
+                            "session_completed": False,
+                        }
+
                 response_message = result.get("message", "")
                 session_completed = result.get("session_completed", False)
                 return {
@@ -3607,6 +3643,8 @@ def _brain_continue_goal_setting(message, room_id, account_id, sender_name, stat
         }
     except Exception as e:
         print(f"❌ _brain_continue_goal_setting error: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             "message": "目標設定の処理中にエラーが発生したウル🐺",
             "success": False,

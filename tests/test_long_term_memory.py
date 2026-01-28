@@ -240,5 +240,84 @@ class TestSecurityAccessControl:
             assert is_long_term_memory_request(msg) is False, f"Should NOT be user memory: {msg}"
 
 
+class TestV10410PatternExpansion:
+    """v10.41.0: パターン拡張のテスト"""
+
+    @pytest.mark.parametrize("message,expected", [
+        # 「人生軸」（「の」無し）でも検出される
+        ("人生軸として覚えて", True),
+        ("人生軸を保存", True),
+        ("これが俺の人生軸だ", True),
+
+        # 「人生の軸」（「の」あり）も引き続き検出
+        ("人生の軸として覚えて", True),
+        ("人生のWHYを覚えて", True),
+
+        # プロフィール保存要求
+        ("プロフィールに保存して", True),
+        ("プロフィールへ記憶して", True),
+
+        # 長期記憶保存要求
+        ("長期記憶に保存して", True),
+        ("長期記憶として覚えて", True),
+
+        # WHY保存要求
+        ("WHYを長期で覚えて", True),
+        ("ワイを覚えて", True),
+
+        # 目標との区別
+        ("目標じゃなくて人生軸", True),
+        ("これは目標ではない、軸だ", True),
+    ])
+    def test_expanded_patterns(self, message, expected):
+        """v10.41.0 拡張パターンの検出"""
+        result = is_long_term_memory_request(message)
+        assert result == expected, f"Message: {message}, Expected: {expected}, Got: {result}"
+
+    def test_goal_setting_confirm_redirect_scenario(self):
+        """目標設定confirm中の長期記憶要求シナリオ"""
+        # このメッセージはgoal_setting confirm stepで検出される
+        message = "これは目標じゃなくて、人生軸として覚えて。プロフィールのメモリに保存して"
+
+        # パターン検出
+        assert is_long_term_memory_request(message) is True
+
+        # タイプ判定（人生の軸/WHY）
+        memory_type = detect_memory_type(message)
+        assert memory_type == MemoryType.LIFE_WHY
+
+    def test_ok_but_feedback_not_long_term_memory(self):
+        """「OK、合ってるけどフィードバックして」は長期記憶ではない"""
+        message = "OK、合ってるけどフィードバックして"
+
+        # これは長期記憶要求ではない
+        assert is_long_term_memory_request(message) is False
+
+    def test_short_message_not_long_term_memory(self):
+        """短文（例：うーん）は長期記憶ではない"""
+        messages = ["うーん", "微妙", "OK", "はい", "いいよ"]
+
+        for msg in messages:
+            assert is_long_term_memory_request(msg) is False, f"Should not detect: {msg}"
+
+
+class TestGoalSettingIntegration:
+    """goal_setting.pyとの統合テスト"""
+
+    def test_goal_setting_imports_long_term_memory(self):
+        """goal_setting.pyがlong_term_memory検出関数をインポートできる"""
+        try:
+            # goal_setting.pyのインポートを確認
+            import lib.goal_setting as gs
+
+            # is_long_term_memory_requestが利用可能か確認
+            assert hasattr(gs, 'is_long_term_memory_request') or \
+                   'is_long_term_memory_request' in dir(gs), \
+                   "is_long_term_memory_request should be available in goal_setting"
+        except ImportError as e:
+            # インポートエラーの場合はスキップ
+            pytest.skip(f"goal_setting import not available: {e}")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

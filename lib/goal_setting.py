@@ -36,6 +36,18 @@ import re
 import os
 import httpx
 
+# v10.41.0: 長期記憶検出のインポート（confirm stepで最優先チェック用）
+try:
+    from lib.long_term_memory import is_long_term_memory_request
+except ImportError:
+    # chatwork-webhook環境でのフォールバック
+    try:
+        from .long_term_memory import is_long_term_memory_request
+    except ImportError:
+        # 利用不可の場合はダミー関数
+        def is_long_term_memory_request(message: str) -> bool:
+            return False
+
 # LLM API設定
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 LLM_MODEL = "google/gemini-2.0-flash-001"
@@ -1752,6 +1764,41 @@ class GoalSettingDialogue:
         # =====================================================
         if current_step == "confirm":
             print(f"   📋 確認ステップ: ユーザー応答「{user_message[:30]}...」")
+
+            # =====================================================
+            # v10.41.0: 長期記憶要求を最優先でチェック
+            # 「これは目標じゃなくて人生軸として覚えて」等の場合、
+            # 目標登録ではなく長期記憶保存へリダイレクト
+            # =====================================================
+            if is_long_term_memory_request(user_message):
+                print(f"   🔥 長期記憶要求検出: {user_message[:50]}...")
+
+                self._log_interaction(
+                    conn, session_id, "confirm",
+                    user_message, "[redirect_to_long_term_memory]",
+                    detected_pattern="long_term_memory_request",
+                    result="redirect",
+                    step_attempt=step_attempt
+                )
+
+                # セッションを中断状態に更新（後で復帰可能）
+                self._update_session(
+                    conn, session_id,
+                    status="interrupted",
+                    interrupted_reason="long_term_memory_request"
+                )
+
+                return {
+                    "success": True,
+                    "message": None,  # メッセージは呼び出し元で生成
+                    "session_id": session_id,
+                    "step": "confirm",
+                    "pattern": "long_term_memory_request",
+                    "redirect_to": "save_long_term_memory",
+                    "original_message": user_message,
+                    "session_interrupted": True,
+                    "can_resume": True,
+                }
 
             # OKパターンをチェック（v10.40.1: 純粋な確認のみ受け付ける）
             # 「合ってるけど、フィードバックして」のような否定接続やFB要求は確認とみなさない

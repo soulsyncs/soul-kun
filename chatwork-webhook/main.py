@@ -115,6 +115,22 @@ except ImportError as e:
     USE_GOAL_SETTING_LIB = False
 
 # =====================================================
+# v10.40.8: ユーザー長期記憶（プロフィール）
+# =====================================================
+try:
+    from lib.long_term_memory import (
+        is_long_term_memory_request,
+        save_long_term_memory,
+        get_user_life_why,
+        LongTermMemoryManager,
+    )
+    USE_LONG_TERM_MEMORY = True
+    print("✅ lib/long_term_memory.py loaded for user profile memory")
+except ImportError as e:
+    print(f"⚠️ lib/long_term_memory.py not available: {e}")
+    USE_LONG_TERM_MEMORY = False
+
+# =====================================================
 # v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
 # =====================================================
 try:
@@ -3173,12 +3189,93 @@ async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name
 
 
 async def _brain_handle_save_memory(params, room_id, account_id, sender_name, context):
+    """
+    記憶保存ハンドラー
+
+    v10.40.8: 長期記憶（人生軸・価値観）パターンを検出して分岐
+    - 長期記憶パターン → user_long_term_memoryに保存
+    - それ以外 → 従来の人物情報記憶
+    """
     from lib.brain.models import HandlerResult
     try:
+        # v10.40.8: 長期記憶パターンの検出
+        original_message = ""
+        if context:
+            original_message = getattr(context, 'original_message', '') or ''
+            if not original_message and hasattr(context, 'to_dict'):
+                ctx_dict = context.to_dict()
+                original_message = ctx_dict.get('original_message', '')
+
+        # 長期記憶パターンを検出
+        if USE_LONG_TERM_MEMORY and original_message and is_long_term_memory_request(original_message):
+            print(f"🔥 長期記憶パターン検出: {original_message[:50]}...")
+            result = await _handle_save_long_term_memory(
+                original_message, room_id, account_id, sender_name
+            )
+            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
+
+        # 通常の人物情報記憶
         result = handle_save_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "覚えたウル🐺")
     except Exception as e:
+        print(f"❌ 記憶保存エラー: {e}")
         return HandlerResult(success=False, message=f"記憶保存でエラーが発生したウル🐺")
+
+
+async def _handle_save_long_term_memory(message: str, room_id: str, account_id: str, sender_name: str):
+    """
+    長期記憶（人生軸・価値観）を保存
+
+    v10.40.8: 新規追加
+    """
+    try:
+        pool = get_pool()
+
+        # ユーザー情報を取得
+        with pool.connect() as conn:
+            user_result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT id, organization_id FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not user_result:
+                return {
+                    "success": False,
+                    "message": "ユーザー情報が見つからなかったウル...🐺"
+                }
+
+            user_id = str(user_result[0])
+            org_id = str(user_result[1]) if user_result[1] else None
+
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "組織情報が見つからなかったウル...🐺"
+                }
+
+        # 長期記憶を保存
+        result = save_long_term_memory(
+            pool=pool,
+            org_id=org_id,
+            user_id=user_id,
+            user_name=sender_name,
+            message=message
+        )
+
+        return result
+
+    except Exception as e:
+        print(f"❌ 長期記憶保存エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"長期記憶の保存中にエラーが発生したウル...🐺\n（エラー: {str(e)}）"
+        }
 
 
 async def _brain_handle_query_memory(params, room_id, account_id, sender_name, context):

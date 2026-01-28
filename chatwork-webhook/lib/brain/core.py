@@ -828,7 +828,7 @@ class SoulkunBrain:
         # =====================================================
         try:
             understanding = await self._understand(message, context)
-            inferred_action = understanding.inferred_action if understanding else None
+            inferred_action = understanding.intent if understanding else None
 
             # 別の意図かどうかを判断
             is_different_intent = self._is_different_intent_from_goal_setting(
@@ -924,12 +924,11 @@ class SoulkunBrain:
         """
         目標設定の回答ではなく、別の意図かどうかを判断
 
-        v10.39.2: 脳が意図を汲み取る
-
-        判断基準:
-        - 質問形式（「?」「？」で終わる、疑問詞を含む）
-        - 明確に別のアクションを示唆（タスク、ナレッジ検索など）
-        - 目標設定と無関係なキーワード
+        v10.40.5: 判定順序を整理
+        1. STOP_WORDSチェック（明示的中断のみ許可）
+        2. goal_continuation_intentsチェック（継続）
+        3. 短文継続ルール（20文字以下）
+        4. 既存の意図判定ロジック
 
         Returns:
             True: 別の意図（セッションを中断すべき）
@@ -937,36 +936,74 @@ class SoulkunBrain:
         """
         message_lower = message.lower().strip()
 
-        # 1. 質問形式の検出
+        # =====================================================
+        # 1. STOP_WORDSチェック（明示的中断のみ許可）
+        # =====================================================
+        STOP_WORDS = [
+            "やめる", "やめたい", "中断", "キャンセル",
+            "終了", "一旦止めて", "別の話", "ストップ",
+            "目標設定やめ", "目標やめ",
+        ]
+        if any(word in message_lower for word in STOP_WORDS):
+            logger.info(f"🛑 Stop word detected, allowing interruption: {message[:30]}")
+            return True
+
+        # =====================================================
+        # 2. goal_continuation_intentsチェック（継続）
+        # =====================================================
+        # v10.40.5: general_conversationを除外（雑談吸い込み事故防止）
+        goal_continuation_intents = [
+            "feedback_request",      # フィードバック依頼
+            "doubt_or_anxiety",      # 不安・迷い
+            "reflection",            # 振り返り
+            "clarification",         # 確認・明確化
+            "question",              # 質問（目標設定についての）
+            "confirm",               # 確認
+        ]
+        if inferred_action in goal_continuation_intents:
+            logger.debug(f"🔄 Goal continuation intent detected: {inferred_action}")
+            return False  # セッション継続
+
+        # =====================================================
+        # 3. 短文継続ルール（20文字以下）
+        # =====================================================
+        # 相槌や短い確認は中断すべきでない
+        if len(message.strip()) <= 20:
+            logger.debug(f"🔄 Short message, continuing session: {message}")
+            return False
+
+        # =====================================================
+        # 4. 既存の意図判定ロジック
+        # =====================================================
+
+        # 4.1 質問形式の検出
         question_endings = ["?", "？"]
         question_words = [
-            "何", "なに", "どう", "どこ", "いつ", "誰", "だれ",
+            "何", "なに", "どこ", "いつ", "誰", "だれ",
             "どれ", "どの", "なぜ", "どうして", "どうやって",
             "ある？", "ありますか", "できる？", "できますか",
-            "知ってる", "教えて", "について",
+            "知ってる", "について",
         ]
-
         is_question = (
             any(message.endswith(q) for q in question_endings) or
             any(qw in message for qw in question_words)
         )
 
-        # 2. 別のアクションを示唆するキーワード
+        # 4.2 別のアクションを示唆するキーワード
+        # v10.40.5: 「どう思う」「アドバイス」「教えて」は除外（FB要求のため）
         other_action_keywords = [
             # タスク関連
             "タスク", "task", "やること", "宿題", "締め切り", "期限",
             # ナレッジ・記憶関連
             "覚えて", "記憶", "メモ", "ナレッジ",
-            # 検索・確認関連
-            "検索", "探して", "確認", "チェック",
-            # 雑談・質問
-            "今日", "明日", "昨日", "天気", "ニュース",
-            "気になる", "どう思う", "意見", "アドバイス",
+            # 検索関連
+            "検索", "探して",
+            # 雑談
+            "天気", "ニュース",
         ]
-
         has_other_action = any(kw in message for kw in other_action_keywords)
 
-        # 3. 目標設定の回答っぽいキーワード（これがあれば継続）
+        # 4.3 目標設定の回答っぽいキーワード
         goal_response_keywords = [
             # WHY関連
             "なりたい", "成長", "目指", "達成", "実現",
@@ -974,22 +1011,26 @@ class SoulkunBrain:
             "目標", "ゴール", "成果", "結果",
             # HOW関連
             "毎日", "毎週", "週に", "行動", "やる", "する",
-            # 短い肯定的回答
+            # 肯定的回答
             "はい", "うん", "そう", "OK", "わかった",
+            # フィードバック系（継続扱い）
+            "どう思う", "アドバイス", "教えて", "確認",
         ]
-
         is_goal_response = any(kw in message for kw in goal_response_keywords)
 
-        # 4. inferred_actionによる判断
+        # 4.4 goal関連アクション
         goal_actions = [
             "goal_registration", "continue_goal_setting",
             "goal_progress_report", "goal_status_check",
+            "goal_setting_start",
         ]
         is_goal_action = inferred_action in goal_actions if inferred_action else False
+        if inferred_action and "goal" in inferred_action.lower():
+            is_goal_action = True
 
-        # 5. 判定ロジック
-        # 明確に質問 + 目標設定の回答っぽくない → 別の意図
-        if is_question and not is_goal_response:
+        # 4.5 判定ロジック
+        # 明確に質問 + 目標設定の回答っぽくない + 長文 → 別の意図
+        if is_question and not is_goal_response and len(message) > 30:
             return True
 
         # 別のアクションキーワード + 目標設定アクションでない → 別の意図
@@ -1079,8 +1120,8 @@ class SoulkunBrain:
             )
 
             # 決定を実行
-            inferred_action = understanding.inferred_action if understanding else "general_conversation"
-            params = understanding.extracted_params if understanding else {}
+            inferred_action = understanding.intent if understanding else "general_conversation"
+            params = understanding.entities if understanding else {}
 
             decision = await self._decide(understanding, new_context)
             if decision:

@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-28 13:10 JST**
+**最終更新: 2026-01-28 14:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -396,8 +396,205 @@
 > - **マイグレーション**: brain_dialogue_logs テーブル作成完了（データ移行は対象データなしでスキップ）
 > - **注意**: goal_setting_sessions / goal_setting_logs は本番DBに存在しない（別経路で状態管理済み）
 
+---
+
+## 🔧 障害報告書: v10.40.1〜v10.40.2（2026-01-28）
+
+### 【他のAI向け】この報告書について
+将来このプロジェクトに関わるAI（Claude等）向けに、今回発生した問題と解決方法を詳細に記録する。同様の問題が発生した場合の参考にすること。
+
+---
+
+### 障害①: brain_dialogue_logs テーブル未作成
+
+**発生日時:** 2026-01-28 13:16 JST
+
+**現象:**
+```
+relation "brain_dialogue_logs" does not exist
+```
+- 目標設定で「目標設定したい」と送ると上記エラーが発生
+- ソウルくんが「エラーが発生したウル」と応答
+
+**原因:**
+- v10.40.1のコードは `brain_dialogue_logs` テーブルを参照する設計
+- しかし、マイグレーション（`migrations/neural_connection_repair.sql`）が本番DBで未実行だった
+- PROGRESS.mdには「マイグレーション完了」と記載されていたが、実際は未完了
+
+**解決方法:**
+```python
+# 本番DBに接続してマイグレーション実行
+CREATE TABLE IF NOT EXISTS brain_dialogue_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES organizations(id),
+    chatwork_account_id VARCHAR(50) NOT NULL,
+    room_id VARCHAR(50) NOT NULL,
+    state_type VARCHAR(50) NOT NULL,
+    state_step VARCHAR(50) NOT NULL,
+    step_attempt INTEGER NOT NULL DEFAULT 1,
+    user_message TEXT,
+    ai_response TEXT,
+    detected_pattern VARCHAR(100),
+    evaluation_result JSONB,
+    feedback_given BOOLEAN DEFAULT FALSE,
+    result VARCHAR(50),
+    classification VARCHAR(20) NOT NULL DEFAULT 'internal',
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+);
+-- + インデックス3つ
+-- + goal_setting_logs から 30件のデータ移行
+```
+
+**教訓:**
+- マイグレーションは必ず本番DBで実行されたことを `SELECT COUNT(*) FROM table_name` 等で確認する
+- PROGRESS.mdに「完了」と書く前に、実際にテーブルが存在するか確認する
+
+---
+
+### 障害②: UnderstandingResult.inferred_action 属性エラー
+
+**発生日時:** 2026-01-28 13:19 JST
+
+**現象:**
+```
+'UnderstandingResult' object has no attribute 'inferred_action'
+```
+- 目標設定中に意図理解が常に失敗
+- ログに `Goal setting intent understanding failed` が出続ける
+
+**原因:**
+- `lib/brain/core.py` で `understanding.inferred_action` を参照
+- しかし `UnderstandingResult` クラス（`lib/brain/models.py`）には `inferred_action` 属性が存在しない
+- 正しくは `intent` 属性を使うべきだった
+
+**該当コード（修正前）:**
+```python
+# lib/brain/core.py:831
+inferred_action = understanding.inferred_action if understanding else None
+
+# lib/brain/core.py:1082
+inferred_action = understanding.inferred_action if understanding else "general_conversation"
+params = understanding.extracted_params if understanding else {}
+```
+
+**解決方法:**
+```python
+# lib/brain/core.py:831
+inferred_action = understanding.intent if understanding else None
+
+# lib/brain/core.py:1082
+inferred_action = understanding.intent if understanding else "general_conversation"
+params = understanding.entities if understanding else {}
+```
+
+**修正ファイル:**
+- `lib/brain/core.py`
+- `chatwork-webhook/lib/brain/core.py`
+
+**教訓:**
+- 新しいクラスを使う際は、そのクラスの属性を必ず確認する
+- IDEの補完や型チェックを活用してこのようなミスを防ぐ
+
+---
+
+### 障害③: confirm stepで同じ要約が無限ループ
+
+**発生日時:** 2026-01-28 13:20 JST
+
+**現象:**
+- confirm stepでユーザーが「これでいい？正しい？」と聞くと、同じ要約&OK確認を繰り返す
+- 「もう一度目標設定したい」と言っても同じ応答が返る
+
+**原因:**
+- `_is_pure_confirmation()` がフィードバック要求を検出して False を返す → 正常
+- しかし、False の場合の処理が「修正リクエスト」として LLM 解析 → 同じ要約を再表示
+- フィードバック要求と修正リクエストが区別されていなかった
+
+**該当コード（修正前）:**
+```python
+# lib/goal_setting.py confirm step
+if is_confirmed:
+    # 登録処理
+else:
+    # 修正リクエストの可能性（すべてここに来る）
+    extracted = self._analyze_long_response_with_llm(user_message, session)
+    response = self._generate_understanding_response(...)  # 同じ要約
+```
+
+**解決方法:**
+```python
+# lib/goal_setting.py confirm step
+if is_confirmed:
+    # 登録処理
+else:
+    # v10.40.2: フィードバック要求/迷い・不安の場合は「導きの対話」へ
+    is_feedback_request = _has_feedback_request(user_message)
+    is_doubt_anxiety = _has_doubt_or_anxiety(user_message)
+
+    if is_feedback_request or is_doubt_anxiety:
+        # 導きの対話（目標の質チェック）
+        response = self._generate_quality_check_response(
+            session, user_message, pattern_type
+        )
+        return {..., "pattern": pattern_type}
+
+    # それ以外は修正リクエストとして処理
+    extracted = self._analyze_long_response_with_llm(user_message, session)
+    response = self._generate_understanding_response(...)
+```
+
+**追加した機能:**
+1. `DOUBT_ANXIETY_PATTERNS`: 迷い・不安パターン定義
+2. `_has_doubt_or_anxiety()`: 迷い・不安検出関数
+3. `_generate_quality_check_response()`: 導きの対話（目標の質チェック）応答生成
+4. `TEMPLATES["quality_check"]`: 導きの対話用テンプレート
+
+**設計思想（重要）:**
+- フィードバック要求/迷い・不安時は「導きの対話」に分岐
+- 心理的安全性を確保（「正解はない」「完璧じゃなくていい」）
+- 目標の質を上げる質問を最大2つ提示
+- 最後に選択を促す（「登録する？調整する？」）
+- 詰問・ジャッジ禁止（設計書 docs/11_organizational_theory_guidelines.md 参照）
+
+**修正ファイル:**
+- `lib/goal_setting.py`
+- `chatwork-webhook/lib/goal_setting.py`
+- `tests/test_goal_setting.py`（テスト8件追加）
+
+**テスト要件:**
+- confirm stepで「これでいい？」→ 導きの対話へ（同じconfirmを繰り返さない）
+- 「OK」「はい」→ 目標登録へ進む
+
+---
+
+### 本番デプロイ履歴
+
+| 日時 | リビジョン | 内容 |
+|------|-----------|------|
+| 13:05 | chatwork-webhook-00243-mas | v10.40.1 神経接続修理（brain_conversation_states一本化） |
+| 13:34 | chatwork-webhook-00244-ted | UnderstandingResult属性修正 |
+| 13:48 | chatwork-webhook-00245-tix | v10.40.2 導きの対話（目標の質チェック） |
+
+---
+
+### 関連ファイル一覧
+
+将来このコードを修正する際は、以下のファイルを確認すること：
+
+| ファイル | 役割 |
+|---------|------|
+| `lib/goal_setting.py` | 目標設定対話フロー実装（マスター） |
+| `chatwork-webhook/lib/goal_setting.py` | 本番用コピー（lib/と同期必須） |
+| `lib/brain/core.py` | 脳アーキテクチャ（意図理解・判断） |
+| `lib/brain/models.py` | UnderstandingResult等のモデル定義 |
+| `docs/05_phase2-5_goal_achievement.md` | 目標達成支援の設計書 |
+| `docs/11_organizational_theory_guidelines.md` | 組織論ガイドライン（NG行動一覧） |
+| `tests/test_goal_setting.py` | 目標設定テスト（121件） |
+
+---
+
 **次にやること:**
-> 1. **神経接続修理の動作確認** - ChatWorkで目標設定テスト → DB確認
+> 1. **v10.40.2の動作確認** - ChatWorkで「目標設定したい」→「これでいい？」のフローをテスト
 > 2. **Phase 2Kドライラン監視** - 問題なければ`PROACTIVE_DRY_RUN=false`に変更
 > 3. **生成機能テスト** - 「資料作成して」「画像作成して」の動作確認
 
@@ -529,6 +726,26 @@
 ## 直近の主な成果
 
 ### 2026-01-28
+
+- **14:30 JST**: goal_setting v10.40.3 - リスタートバグ修正 & フェーズ自動判定 ✅
+  - **概要**: 2つのバグ修正と1つの機能改善
+  - **修正1: セッション継続ガード**
+    - 問題: goal_settingセッション中に「目標」を含む回答をすると、intent=goal_setting_startと推論されてセッションがリスタートしていた
+    - 原因: `_is_different_intent_from_goal_setting()`で`goal_setting_start`が`goal_actions`に含まれていなかった
+    - 修正: `goal_actions`リストに`goal_setting_start`を追加し、`"goal" in inferred_action.lower()`で全goal関連intentを保護
+  - **修正2: 明示的リスタート検出**
+    - 問題: 明示的なリスタート要求（「もう一度」「やり直したい」等）と通常回答の区別がなかった
+    - 修正: `RESTART_PATTERNS`と`_wants_restart()`関数を追加し、明示的リスタート時のみセッションをクリア
+  - **機能追加: フェーズ自動判定**
+    - ユーザー発話からWHY/WHAT/HOWの充足度を自動判定
+    - 既に情報が含まれているフェーズはスキップ
+    - テーマが検出された場合、具体化に絞った質問を生成
+    - 例: 「SNS発信とAI開発と組織化に力を入れる」→「この3テーマのうち、まず今月達成したい成果を教えて」
+  - **修正ファイル**:
+    - `lib/brain/core.py`: `goal_actions`リスト修正
+    - `lib/goal_setting.py`: `RESTART_PATTERNS`, `_wants_restart()`, `_infer_fulfilled_phases()`, `_get_next_unfulfilled_step()`, `_extract_themes_from_message()`, `_accept_and_proceed()`修正
+    - `chatwork-webhook/lib/`: 同期
+  - **テスト**: 133件全パス（+9件追加: リスタート検出、フェーズ判定、テーマ抽出）
 
 - **09:35 JST**: chatwork-webhook v10.39.2 本番デプロイ ✅ **revision 00227-fdg**
   - **概要**: 目標設定セッション中でも脳がユーザーの意図を汲み取るように改善

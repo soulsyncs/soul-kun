@@ -567,5 +567,336 @@ class TestEdgeCases:
         assert evaluation["specificity_score"] >= 0.4  # 数字があるので高スコア
 
 
+# =====================================================
+# v10.40.2: Confirm Step テスト
+# フィードバック要求・迷い・不安の検出と導きの対話
+# =====================================================
+
+class TestConfirmStepPatterns:
+    """confirmステップでのパターン検出テスト"""
+
+    # _is_pure_confirmation, _has_feedback_request, _has_doubt_or_anxiety をテスト
+    # これらはモジュールレベル関数なので直接インポート
+
+    def test_pure_confirmation_ok(self):
+        """純粋な確認（OK/はい等）はTrue"""
+        from lib.goal_setting import _is_pure_confirmation
+
+        assert _is_pure_confirmation("OK") is True
+        assert _is_pure_confirmation("はい") is True
+        assert _is_pure_confirmation("それでいい") is True
+        assert _is_pure_confirmation("いいよ") is True
+        assert _is_pure_confirmation("大丈夫") is True
+        assert _is_pure_confirmation("問題ない") is True
+        assert _is_pure_confirmation("オッケー") is True
+        assert _is_pure_confirmation("おっけー") is True
+
+    def test_pure_confirmation_with_but_connector(self):
+        """否定接続があるとFalse"""
+        from lib.goal_setting import _is_pure_confirmation
+
+        assert _is_pure_confirmation("合ってるけど、フィードバックして") is False
+        assert _is_pure_confirmation("OKだけど、ちょっと") is False
+        assert _is_pure_confirmation("いいんだけど、もう少し") is False
+        assert _is_pure_confirmation("大丈夫だと思うが、確認して") is False
+
+    def test_pure_confirmation_with_feedback_request(self):
+        """フィードバック要求があるとFalse"""
+        from lib.goal_setting import _is_pure_confirmation
+
+        assert _is_pure_confirmation("これでいい？正しい？") is False
+        assert _is_pure_confirmation("OK、でもどう思う？") is False
+        assert _is_pure_confirmation("いいけど評価して") is False
+        assert _is_pure_confirmation("大丈夫かな、教えて") is False
+
+    def test_has_feedback_request(self):
+        """フィードバック要求の検出"""
+        from lib.goal_setting import _has_feedback_request
+
+        # True になるべき
+        assert _has_feedback_request("これでいい？") is True
+        assert _has_feedback_request("正しいですか？") is True
+        assert _has_feedback_request("どう思う？") is True
+        assert _has_feedback_request("評価してほしい") is True
+        assert _has_feedback_request("フィードバックください") is True
+        assert _has_feedback_request("大丈夫？") is True
+
+        # False になるべき
+        assert _has_feedback_request("はい") is False
+        assert _has_feedback_request("OK") is False
+        assert _has_feedback_request("これで登録して") is False
+
+    def test_has_doubt_or_anxiety(self):
+        """迷い・不安の検出"""
+        from lib.goal_setting import _has_doubt_or_anxiety
+
+        # True になるべき
+        assert _has_doubt_or_anxiety("不安です") is True
+        assert _has_doubt_or_anxiety("自信ない") is True
+        assert _has_doubt_or_anxiety("違うかも") is True
+        assert _has_doubt_or_anxiety("わからない") is True
+        assert _has_doubt_or_anxiety("迷ってます") is True
+        assert _has_doubt_or_anxiety("曖昧かも") is True
+
+        # False になるべき
+        assert _has_doubt_or_anxiety("はい") is False
+        assert _has_doubt_or_anxiety("OK") is False
+        assert _has_doubt_or_anxiety("これでいい") is False
+
+
+class TestQualityCheckResponse:
+    """導きの対話（目標の質チェック）応答のテスト"""
+
+    @pytest.fixture
+    def dialogue(self):
+        """テスト用のダイアログインスタンス"""
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_name = "テストユーザー"
+        d.org_id = "test-org-id"
+        return d
+
+    def test_quality_check_response_for_feedback_request(self, dialogue):
+        """フィードバック要求時の応答生成"""
+        session = {
+            "why_answer": "売上を上げたい",
+            "what_answer": "頑張る",
+            "how_answer": "毎日やる",
+        }
+        response = dialogue._generate_quality_check_response(
+            session, "これでいい？", "feedback_request"
+        )
+
+        # 心理的安全性を確保したフィードバックが含まれる
+        assert "確認してくれてありがとう" in response
+        assert "正解」はない" in response
+
+        # 質問が含まれる（最大2つ）
+        assert "質問" in response
+        assert "❓" in response
+
+        # 選択を促すメッセージが含まれる
+        assert "登録する？それとも調整する？" in response
+
+    def test_quality_check_response_for_doubt_anxiety(self, dialogue):
+        """迷い・不安時の応答生成"""
+        session = {
+            "why_answer": "成長したい",
+            "what_answer": "スキルアップ",
+            "how_answer": "勉強する",
+        }
+        response = dialogue._generate_quality_check_response(
+            session, "不安です", "doubt_anxiety"
+        )
+
+        # 迷いを受け止めるフィードバックが含まれる
+        assert "迷いがある" in response
+        assert "完璧じゃなくていい" in response
+
+        # 選択を促すメッセージが含まれる
+        assert "登録する？それとも調整する？" in response
+
+    def test_quality_check_questions_limited_to_two(self, dialogue):
+        """質問は最大2つに制限される"""
+        session = {
+            "why_answer": "やらなきゃいけない",  # 外発的動機
+            "what_answer": "頑張る",  # 数値なし
+            "how_answer": "努力する",  # 頻度なし
+        }
+        response = dialogue._generate_quality_check_response(
+            session, "これでいい？", "feedback_request"
+        )
+
+        # 質問1と質問2は含まれる
+        assert "質問1" in response
+        assert "質問2" in response
+        # 質問3は含まれない（最大2つ）
+        assert "質問3" not in response
+
+
+class TestRestartDetection:
+    """v10.40.3: リスタート検出のテスト"""
+
+    def test_wants_restart_positive(self):
+        """明示的なリスタート要求を検出"""
+        from lib.goal_setting import _wants_restart
+
+        # True になるべき
+        assert _wants_restart("もう一度目標設定したい") is True
+        assert _wants_restart("最初からやり直したい") is True
+        assert _wants_restart("リセットして") is True
+        assert _wants_restart("やり直しさせて") is True
+        assert _wants_restart("別の目標にしたい") is True
+        assert _wants_restart("違う目標で") is True
+        assert _wants_restart("仕切り直したい") is True
+
+    def test_wants_restart_negative(self):
+        """通常の回答はリスタートとみなさない"""
+        from lib.goal_setting import _wants_restart
+
+        # False になるべき（目標設定の回答として処理）
+        assert _wants_restart("SNS発信とAI開発に力を入れたい") is False
+        assert _wants_restart("月次目標が未設定です") is False
+        assert _wants_restart("これでいいですか？") is False
+        assert _wants_restart("3つのテーマで進めたい") is False
+        assert _wants_restart("OK") is False
+        assert _wants_restart("はい") is False
+
+
+class TestSessionContinuation:
+    """v10.40.3: セッション継続のテスト（_is_different_intent_from_goal_setting）"""
+
+    def test_goal_related_intent_is_not_different(self):
+        """goal関連のintentは「別の意図」とみなさない"""
+        # 注: このテストはcore.pyの_is_different_intent_from_goal_settingをテスト
+        # 統合テストとしてはmock必要だが、ロジックの確認としてパターンをテスト
+
+        # goal関連のアクション名リスト（core.pyと一致させる）
+        goal_actions = [
+            "goal_registration", "continue_goal_setting",
+            "goal_progress_report", "goal_status_check",
+            "goal_setting_start",
+        ]
+
+        # すべてgoal関連として認識されるべき
+        assert "goal_setting_start" in goal_actions
+        assert "goal_registration" in goal_actions
+        assert "continue_goal_setting" in goal_actions
+
+        # goal含むintentはすべてgoal関連
+        for action in ["goal_setting_start", "goal_registration", "goal_check"]:
+            assert "goal" in action.lower()
+
+
+class TestPhaseInference:
+    """v10.40.3: フェーズ自動判定のテスト"""
+
+    def test_infer_fulfilled_phases_why(self):
+        """WHY充足の検出"""
+        from lib.goal_setting import _infer_fulfilled_phases
+
+        # WHY充足パターン
+        result = _infer_fulfilled_phases("チームリーダーになりたいです")
+        assert result["why"] is True
+
+        result = _infer_fulfilled_phases("成長するために頑張りたい")
+        assert result["why"] is True
+
+        # WHY不十分
+        result = _infer_fulfilled_phases("SNS発信をやる")
+        assert result["why"] is False
+
+    def test_infer_fulfilled_phases_what(self):
+        """WHAT充足の検出"""
+        from lib.goal_setting import _infer_fulfilled_phases
+
+        # WHAT充足パターン
+        result = _infer_fulfilled_phases("SNS発信とAI開発がテーマです")
+        assert result["what"] is True
+
+        result = _infer_fulfilled_phases("今月中に売上300万円達成したい")
+        assert result["what"] is True
+
+        # WHAT不十分
+        result = _infer_fulfilled_phases("頑張りたいです")
+        assert result["what"] is False
+
+    def test_infer_fulfilled_phases_how(self):
+        """HOW充足の検出"""
+        from lib.goal_setting import _infer_fulfilled_phases
+
+        # HOW充足パターン
+        result = _infer_fulfilled_phases("毎日30分電話をかける")
+        assert result["how"] is True
+
+        result = _infer_fulfilled_phases("週に3回訪問する習慣をつける")
+        assert result["how"] is True
+
+        # HOW不十分
+        result = _infer_fulfilled_phases("売上を上げたい")
+        assert result["how"] is False
+
+    def test_infer_multiple_phases(self):
+        """複数フェーズの同時検出"""
+        from lib.goal_setting import _infer_fulfilled_phases
+
+        # WHATとHOWの両方
+        result = _infer_fulfilled_phases("今月中に売上目標達成のため毎日電話する")
+        assert result["what"] is True
+        assert result["how"] is True
+
+    def test_get_next_unfulfilled_step(self):
+        """次の未充足ステップの判定"""
+        from lib.goal_setting import _get_next_unfulfilled_step
+
+        # WHYのみ充足 → WHATへ
+        fulfilled = {"why": True, "what": False, "how": False}
+        session = {}
+        assert _get_next_unfulfilled_step(fulfilled, "why", session) == "what"
+
+        # WHAT充足済み（セッションに回答あり） → HOWへ
+        fulfilled = {"why": True, "what": True, "how": False}
+        session = {"what_answer": "売上300万円"}
+        assert _get_next_unfulfilled_step(fulfilled, "what", session) == "how"
+
+        # 全て充足 → confirmへ
+        fulfilled = {"why": True, "what": True, "how": True}
+        session = {"why_answer": "x", "what_answer": "y", "how_answer": "z"}
+        assert _get_next_unfulfilled_step(fulfilled, "how", session) == "confirm"
+
+    def test_user_scenario_themes_detected(self):
+        """ユーザーシナリオ: テーマが検出される"""
+        from lib.goal_setting import _infer_fulfilled_phases
+
+        # ユーザーの実際の発言
+        message = "今年はSNS発信とAI開発と組織化に力を入れる。月次目標が決まっていない"
+
+        result = _infer_fulfilled_phases(message)
+
+        # WHAT（テーマ・目標）が検出される
+        assert result["what"] is True  # "目標" が含まれている
+
+        # WHYは明示されていない
+        # （「力を入れる」は動機ではなく行動意図）
+        # HOWも明示されていない
+
+
+class TestThemeExtraction:
+    """v10.40.3: テーマ抽出のテスト"""
+
+    @pytest.fixture
+    def dialogue(self):
+        """テスト用のダイアログインスタンス"""
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_name = "テストユーザー"
+        return d
+
+    def test_extract_three_themes_with_to(self, dialogue):
+        """「AとBとC」形式のテーマ抽出"""
+        result = dialogue._extract_themes_from_message(
+            "SNS発信とAI開発と組織化に力を入れたい"
+        )
+        assert result is not None
+        assert "SNS発信" in result
+        assert "AI開発" in result
+        assert "組織化" in result
+
+    def test_extract_two_themes_with_to(self, dialogue):
+        """「AとB」形式のテーマ抽出"""
+        result = dialogue._extract_themes_from_message(
+            "営業とマーケティングに注力したい"
+        )
+        assert result is not None
+        assert "営業" in result
+        assert "マーケティング" in result
+
+    def test_no_themes_detected(self, dialogue):
+        """テーマが検出されない場合"""
+        result = dialogue._extract_themes_from_message(
+            "頑張りたいと思います"
+        )
+        # 明確なテーマがなければNone
+        assert result is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

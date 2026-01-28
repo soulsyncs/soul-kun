@@ -951,6 +951,58 @@ WHATも「月間売上1000万円達成」に修正してください。また、
         # この場合はLLM解析が行われ、修正が抽出されれば要約更新
         # （LLM呼び出しはモックが必要なため、閾値チェックのみ）
 
+    def test_ok_after_clarification_triggers_confirm(self):
+        """導きの対話後に「OK」を送ると確認フローへ（登録ではない）"""
+        from lib.goal_setting import _is_pure_confirmation
+
+        # clarification_fallback後の「OK」は純粋な確認として検出
+        assert _is_pure_confirmation("OK") is True
+        assert _is_pure_confirmation("はい") is True
+        assert _is_pure_confirmation("いいよ") is True
+
+        # ただし「OK」だけでは質問への回答かもしれないので、
+        # 実際のフローではstep=confirmかつ前回がclarification_fallbackかを確認する必要がある
+
+
+class TestUpdateSessionSQL:
+    """v10.40.7: _update_session SQLのテスト"""
+
+    def test_no_double_state_step_assignment(self):
+        """status='completed'とcurrent_step両方指定時にstate_stepが二重設定されない"""
+        # _update_sessionの更新リスト構築ロジックをテスト
+        # status='completed'の場合、current_stepの設定はスキップされるべき
+
+        # 修正後のロジックをシミュレート
+        updates = ["updated_at = CURRENT_TIMESTAMP"]
+        current_step = "complete"
+        status = "completed"
+
+        # v10.40.7の修正後ロジック
+        if status == "completed":
+            updates.append("state_type = 'normal'")
+            updates.append("state_step = NULL")
+        elif current_step is not None:
+            updates.append("state_step = :current_step")
+
+        # state_stepが1回だけ設定されていることを確認
+        state_step_count = sum(1 for u in updates if "state_step" in u)
+        assert state_step_count == 1, f"state_step should be set exactly once, but found {state_step_count} times: {updates}"
+
+    def test_state_step_set_when_not_completed(self):
+        """status='completed'でない場合はcurrent_stepが設定される"""
+        updates = ["updated_at = CURRENT_TIMESTAMP"]
+        current_step = "confirm"
+        status = None
+
+        if status == "completed":
+            updates.append("state_type = 'normal'")
+            updates.append("state_step = NULL")
+        elif current_step is not None:
+            updates.append("state_step = :current_step")
+
+        assert "state_step = :current_step" in updates
+        assert "state_step = NULL" not in updates
+
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -1457,16 +1457,15 @@ SYSTEM_CAPABILITIES = {
 
     "goal_registration": {
         "name": "目標登録",
-        "description": "今月の目標や個人目標を登録する。「〇〇を達成したい」「今月の目標は△△」「目標を設定したい」などの要望に対応。数値目標（粗利300万円）、期限目標（月末までに完了）、行動目標（毎日〇〇）のいずれも登録可能。",
+        "description": "【新規】目標を新しく登録する。「新しく目標を作りたい」「目標を登録したい」「目標設定したい」などの【新規作成】意図が明確な場合のみ。既存目標の確認・整理は goal_review、相談は goal_consult へ。",
         "category": "goal",
         "enabled": True,
         "trigger_examples": [
-            "今月の目標を設定して",
-            "粗利300万円を目標にする",
-            "今月は10件獲得を目指す",
+            "新しく目標を作りたい",
             "目標を登録したい",
-            "月末までにプロジェクトを完了する",
-            "毎日日報を書くことを目標にする",
+            "目標設定したい",
+            "粗利300万円を目標に登録して",
+            "新しい目標を設定して",
         ],
         "params_schema": {
             "goal_title": {
@@ -1510,18 +1509,18 @@ SYSTEM_CAPABILITIES = {
         "handler": "handle_goal_registration",
         "requires_confirmation": False,
         "required_data": ["sender_account_id", "sender_name"],
-        # v10.30.0: 脳アーキテクチャ用メタデータ
+        # v10.45.0: intent_keywords精緻化 - 「目標」単語だけでマッチしないように
         "brain_metadata": {
             "decision_keywords": {
-                "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい"],
-                "secondary": ["目標", "ゴール"],
-                "negative": ["進捗", "報告", "確認"],
+                "primary": ["目標登録", "目標を登録", "新しく目標", "目標を新規", "目標作成", "目標設定したい", "目標を立てたい"],
+                "secondary": ["登録したい", "作りたい", "新規", "設定したい"],
+                "negative": ["一覧", "表示", "確認", "整理", "削除", "修正", "どっち", "優先", "相談", "迷う"],
             },
             "intent_keywords": {
-                "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい", "目標を設定したい"],
-                "secondary": ["目標", "ゴール"],
-                "modifiers": ["設定", "立てたい", "決めたい", "作りたい"],
-                "negative": ["進捗", "報告", "状況", "確認", "どれくらい"],
+                "primary": ["目標登録", "目標を登録", "新しく目標", "目標を新規", "目標作成", "目標設定したい", "目標を立てたい", "ゴールを決めたい"],
+                "secondary": ["登録したい", "作りたい", "新規作成", "設定したい", "立てたい", "決めたい"],
+                "modifiers": ["登録", "新規", "新しく", "作成", "設定", "立て"],
+                "negative": ["一覧", "表示", "出して", "確認", "整理", "削除", "修正", "過去", "登録済み", "もともと", "多すぎ", "ぐちゃぐちゃ", "どっち優先", "理由", "数字で", "どう決める", "迷う", "方針", "進捗", "報告", "状況", "どうなった"],
                 "confidence_boost": 0.85,
             },
             "risk_level": "low",
@@ -1586,36 +1585,117 @@ SYSTEM_CAPABILITIES = {
     },
 
     "goal_status_check": {
-        "name": "目標確認",
-        "description": "現在の目標と進捗状況を確認する。「目標を確認」「今の進捗は？」「達成率は？」などの質問に対応。",
+        "name": "目標進捗確認",
+        "description": "現在の目標の【進捗状況・達成率】を確認する。「達成率は？」「今の進捗は？」など。一覧表示・整理は goal_review へ。",
         "category": "goal",
         "enabled": True,
         "trigger_examples": [
-            "目標を確認して",
-            "今の進捗を教えて",
             "達成率は？",
-            "今月の目標は何だっけ",
+            "今の進捗を教えて",
+            "どれくらい達成した？",
         ],
         "params_schema": {},
         "handler": "handle_goal_status_check",
         "requires_confirmation": False,
         "required_data": ["sender_account_id", "sender_name"],
-        # v10.30.0: 脳アーキテクチャ用メタデータ
+        # v10.45.0: goal_reviewとの競合を防ぐため精緻化
         "brain_metadata": {
             "decision_keywords": {
-                "primary": ["目標確認", "目標状況", "達成率"],
-                "secondary": ["目標", "どうなった"],
-                "negative": ["設定", "立てたい", "進捗報告"],
+                "primary": ["達成率", "進捗確認", "どれくらい達成"],
+                "secondary": ["進捗", "状況"],
+                "negative": ["一覧", "表示", "整理", "削除", "修正", "設定", "登録"],
             },
             "intent_keywords": {
-                "primary": ["目標状況", "目標確認"],
-                "secondary": ["目標", "ゴール"],
-                "modifiers": ["状況", "どうなった", "確認"],
-                "negative": ["設定", "報告"],
+                "primary": ["達成率", "進捗確認", "どれくらい達成", "目標の進捗"],
+                "secondary": ["進捗", "状況"],
+                "modifiers": ["確認", "教えて"],
+                "negative": ["一覧", "表示", "整理", "削除", "修正", "設定", "登録", "新規"],
                 "confidence_boost": 0.8,
             },
             "risk_level": "low",
             "priority": 4,
+        },
+    },
+
+    # v10.45.0: 目標一覧・整理（既存目標の確認・整理・削除・修正）
+    "goal_review": {
+        "name": "目標一覧・整理",
+        "description": "既存の目標一覧を表示する、または整理・削除・修正する。「目標を見せて」「一覧」「整理したい」「多すぎ」「削除」「修正」などに対応。新規作成は goal_registration へ。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "目標一覧を出して",
+            "登録済みの目標を表示して",
+            "過去に登録した目標を見せて",
+            "目標を整理したい",
+            "目標が多すぎる",
+        ],
+        "params_schema": {
+            "action": {
+                "type": "string",
+                "description": "アクション: list（一覧表示）、organize（整理）、delete（削除）、edit（修正）",
+                "required": False,
+                "default": "list",
+            }
+        },
+        "handler": "handle_goal_review",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "sender_name"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標一覧", "目標を見", "目標を表示", "目標を出", "目標整理", "登録済み"],
+                "secondary": ["一覧", "表示", "整理", "削除", "修正", "過去", "もともと"],
+                "negative": ["登録したい", "新規", "新しく", "作りたい"],
+            },
+            "intent_keywords": {
+                "primary": ["目標一覧", "目標を見せて", "目標を表示", "目標を出して", "登録済みの目標", "過去の目標", "目標整理", "目標多すぎ"],
+                "secondary": ["目標", "ゴール"],
+                "modifiers": ["一覧", "表示", "整理", "削除", "修正", "過去", "登録済み", "最新", "多すぎ", "ぐちゃぐちゃ"],
+                "negative": ["登録したい", "新規", "新しく", "作りたい", "設定したい", "立てたい", "決めたい", "タスク", "組織"],
+                "confidence_boost": 0.90,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    # v10.45.0: 目標相談（目標の決め方・優先順位の相談）
+    "goal_consult": {
+        "name": "目標相談",
+        "description": "目標の決め方や優先順位について相談する。「売上と利益どっち優先？」「目標をどう決めたらいい？」「迷っている」などに対応。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "今月の目標、売上と利益どっち優先？",
+            "目標をどう決めたらいい？",
+            "目標設定で迷ってる",
+            "目標の優先順位を相談したい",
+        ],
+        "params_schema": {
+            "consultation_topic": {
+                "type": "string",
+                "description": "相談内容",
+                "required": False,
+            }
+        },
+        "handler": "handle_goal_consult",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "sender_name"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["どっち優先", "どう決め", "目標相談", "目標について相談", "目標の決め方"],
+                "secondary": ["迷う", "迷って", "優先順位", "方針", "アドバイス"],
+                "negative": ["登録したい", "一覧", "表示"],
+            },
+            "intent_keywords": {
+                "primary": ["どっち優先", "どう決めたらいい", "目標相談", "目標の決め方", "優先順位"],
+                "secondary": ["迷う", "迷って", "方針", "アドバイス", "理由", "数字で", "どっちがいい"],
+                "modifiers": ["相談", "教えて", "アドバイス"],
+                "negative": ["登録したい", "一覧", "表示", "整理"],
+                "confidence_boost": 0.90,
+            },
+            "risk_level": "low",
+            "priority": 5,
         },
     },
 
@@ -2873,6 +2953,8 @@ def _get_brain_integration():
             "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
             "goal_progress_report": _brain_handle_goal_progress_report,
             "goal_status_check": _brain_handle_goal_status_check,
+            "goal_review": _brain_handle_goal_review,  # v10.45.0: 既存目標の一覧・整理
+            "goal_consult": _brain_handle_goal_consult,  # v10.45.0: 目標の決め方相談
             "announcement_create": _brain_handle_announcement_create,
             "query_org_chart": _brain_handle_query_org_chart,
             "daily_reflection": _brain_handle_daily_reflection,
@@ -2983,6 +3065,8 @@ def _get_brain():
             "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
             "goal_progress_report": _brain_handle_goal_progress_report,
             "goal_status_check": _brain_handle_goal_status_check,
+            "goal_review": _brain_handle_goal_review,  # v10.45.0: 既存目標の一覧・整理
+            "goal_consult": _brain_handle_goal_consult,  # v10.45.0: 目標の決め方相談
             "announcement_create": _brain_handle_announcement_create,
             "query_org_chart": _brain_handle_query_org_chart,
             "daily_reflection": _brain_handle_daily_reflection,
@@ -3891,6 +3975,28 @@ async def _brain_handle_goal_status_check(params, room_id, account_id, sender_na
         return HandlerResult(success=True, message=result if result else "目標状況を確認したウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"目標状況確認でエラーが発生したウル🐺")
+
+
+# v10.45.0: goal_review ハンドラー（既存目標の一覧・整理・削除・修正）
+async def _brain_handle_goal_review(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_goal_review(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "目標一覧を表示したウル🐺")
+    except Exception as e:
+        print(f"goal_review error: {e}")
+        return HandlerResult(success=False, message=f"目標一覧でエラーが発生したウル🐺")
+
+
+# v10.45.0: goal_consult ハンドラー（目標の決め方・優先順位の相談）
+async def _brain_handle_goal_consult(params, room_id, account_id, sender_name, context):
+    from lib.brain.models import HandlerResult
+    try:
+        result = handle_goal_consult(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        return HandlerResult(success=True, message=result if result else "目標について相談を受けたウル🐺")
+    except Exception as e:
+        print(f"goal_consult error: {e}")
+        return HandlerResult(success=False, message=f"目標相談でエラーが発生したウル🐺")
 
 
 async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):

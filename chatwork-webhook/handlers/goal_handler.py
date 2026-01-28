@@ -618,3 +618,171 @@ class GoalHandler:
                 "success": False,
                 "message": "❌ 目標の確認に失敗したウル...もう一度試してほしいウル🐺"
             }
+
+    # v10.45.0: goal_review ハンドラー（既存目標の一覧・整理・削除・修正）
+    def handle_goal_review(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        目標一覧・整理ハンドラー（v10.45.0）
+
+        既存の目標一覧を表示する、または整理・削除・修正する。
+        """
+        print(f"📋 handle_goal_review 開始: room_id={room_id}, account_id={account_id}")
+
+        action = params.get("action", "list")
+
+        try:
+            pool = self.get_pool()
+            with pool.connect() as conn:
+                # ユーザー情報を取得
+                user_result = conn.execute(
+                    text("""
+                        SELECT id, organization_id, name FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if not user_result:
+                    return {
+                        "success": False,
+                        "message": "🤔 まだ目標を登録していないみたいウル！\n「新しく目標を作りたい」と言ってくれたら登録できるウル🐺"
+                    }
+
+                user_id = str(user_result[0])
+                org_id = user_result[1]
+                user_name = user_result[2] or sender_name or "ユーザー"
+
+                if not org_id:
+                    return {
+                        "success": False,
+                        "message": "🤔 組織情報が設定されていないみたいウル！\n\n管理者に連絡して、組織設定をお願いしてウル🐺"
+                    }
+                org_id = str(org_id)
+
+                # 全目標を取得（active + completed + paused）
+                goals_result = conn.execute(
+                    text("""
+                        SELECT id, title, goal_type, target_value, current_value, unit,
+                               period_start, period_end, status, created_at
+                        FROM goals
+                        WHERE user_id = :user_id AND organization_id = :organization_id
+                        ORDER BY created_at DESC
+                        LIMIT 50
+                    """),
+                    {"user_id": user_id, "organization_id": org_id}
+                ).fetchall()
+
+                if not goals_result:
+                    return {
+                        "success": False,
+                        "message": "🤔 まだ目標を登録していないみたいウル！\n「新しく目標を作りたい」と言ってくれたら一緒に考えるウル🐺"
+                    }
+
+                # 応答メッセージを組み立て
+                active_count = sum(1 for g in goals_result if g[8] == 'active')
+                completed_count = sum(1 for g in goals_result if g[8] == 'completed')
+                paused_count = sum(1 for g in goals_result if g[8] == 'paused')
+
+                response = f"📋 {user_name}さんの目標一覧ウル！\n\n"
+
+                # 状態ごとに分類して表示
+                if active_count > 0:
+                    response += f"【アクティブ ({active_count}件)】\n"
+                    for i, goal in enumerate([g for g in goals_result if g[8] == 'active'], 1):
+                        goal_title = goal[1][:40]  # 長すぎる場合は省略
+                        target_value = goal[3]
+                        unit = goal[5] or ""
+                        period_end = goal[7]
+
+                        if target_value:
+                            response += f"  {i}. {goal_title} ({target_value:,.0f}{unit})\n"
+                        else:
+                            response += f"  {i}. {goal_title}\n"
+
+                        if period_end:
+                            response += f"     📅 〜{period_end.strftime('%m/%d')}\n"
+                    response += "\n"
+
+                if completed_count > 0:
+                    response += f"【完了済み ({completed_count}件)】\n"
+                    for goal in [g for g in goals_result if g[8] == 'completed'][:5]:
+                        response += f"  ✅ {goal[1][:30]}\n"
+                    if completed_count > 5:
+                        response += f"  ...他{completed_count - 5}件\n"
+                    response += "\n"
+
+                if paused_count > 0:
+                    response += f"【一時停止 ({paused_count}件)】\n"
+                    for goal in [g for g in goals_result if g[8] == 'paused'][:3]:
+                        response += f"  ⏸️ {goal[1][:30]}\n"
+                    response += "\n"
+
+                # 整理のアドバイス
+                total = len(goals_result)
+                if total > 10:
+                    response += f"💡 目標が{total}個あるウル！整理した方がいいかもウル🐺\n"
+                    response += "「目標を削除したい」「目標を整理したい」と言ってくれたら手伝うウル！\n"
+                elif active_count > 5:
+                    response += f"💡 アクティブな目標が{active_count}個あるウル。優先順位をつけた方がいいかもウル🐺\n"
+
+            return {"success": True, "message": response}
+
+        except Exception as e:
+            print(f"❌ handle_goal_review エラー: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": "❌ 目標一覧の取得に失敗したウル...もう一度試してほしいウル🐺"
+            }
+
+    # v10.45.0: goal_consult ハンドラー（目標の決め方・優先順位の相談）
+    def handle_goal_consult(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        目標相談ハンドラー（v10.45.0）
+
+        目標の決め方や優先順位について相談する。
+        このハンドラーはgeneral_conversationにフォールバックし、LLMを使って相談に回答する。
+        """
+        print(f"💬 handle_goal_consult 開始: room_id={room_id}, account_id={account_id}")
+
+        consultation_topic = params.get("consultation_topic", "")
+
+        # goal_consultはgeneral_conversationと同様にLLMで回答するが、
+        # 目標設定に関するコンテキストを追加する
+        consult_context = f"""
+【相談テーマ】目標設定・優先順位について
+
+ユーザーが目標の決め方や優先順位について相談しています。
+以下のポイントを踏まえて、アドバイスしてください：
+
+1. 数字で判断できる場合は数字を使う（売上と利益の比較など）
+2. 短期と長期のバランスを考慮する
+3. 具体的なアクションを1つ提案する
+4. 押し付けず、ユーザーの判断を尊重する
+
+相談内容: {consultation_topic}
+"""
+
+        # このハンドラーはLLMベースの回答を行うため、
+        # general_conversationハンドラーにフォールバックする
+        return {
+            "success": True,
+            "message": None,  # Noneを返すと、general_conversationにフォールバック
+            "fallback_to_general": True,
+            "additional_context": consult_context
+        }

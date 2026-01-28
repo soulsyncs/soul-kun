@@ -1095,6 +1095,21 @@ class BrainDecision:
         question = None
         options = ["はい", "いいえ"]
 
+        # v10.45.0: goal関連で曖昧な場合は3択確認（「目標登録でいい？」は禁止）
+        goal_actions = ["goal_registration", "goal_review", "goal_consult", "goal_status_check", "goal_progress_report"]
+        if action in goal_actions and confidence < 0.7:
+            # 「目標」というキーワードが含まれているが、どの意図か曖昧
+            raw_msg = understanding.raw_message.lower() if understanding.raw_message else ""
+            if "目標" in raw_msg or "ゴール" in raw_msg:
+                question = "目標のことだね🐺 どれがやりたいウル？"
+                options = [
+                    "1️⃣ 新しく目標を作る",
+                    "2️⃣ 登録済みの目標を見る/整理する",
+                    "3️⃣ 目標の決め方を相談する"
+                ]
+                print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
+                return (True, question, options)
+
         # 確信度が低い場合
         if confidence < CONFIRMATION_THRESHOLD:
             question = f"「{understanding.raw_message}」は「{self._get_capability_name(action)}」でいいウル？"

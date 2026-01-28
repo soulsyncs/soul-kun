@@ -4,9 +4,27 @@
 ソウルくんのキャラ設定・好み・性格などを管理。
 全ユーザー共通で参照される設定（例：好物=10円パン、モチーフ動物=狼）
 
+# =====================================================
+# ⚠️ 重要: bot_persona_memory の用途制限
+# =====================================================
+# bot_persona_memory は「会社の公式人格」のみ保存可
+# 個人の思想・記憶は絶対に保存してはいけない
+#
+# 保存可能な例:
+#   - ソウルくんの好物 = 10円パン
+#   - ソウルくんの口調 = ウル
+#   - ソウルくんのモチーフ動物 = 狼
+#
+# 保存禁止（user_long_term_memory へ振り分け）:
+#   - 「社長は〜と言っていた」などの個人発言
+#   - 特定の個人の人生軸・価値観
+#   - 家族情報
+#   - 個人の過去体験・信念
+# =====================================================
+
 Author: Claude Code
 Created: 2026-01-28
-Version: 1.0.0
+Version: 1.1.0 (v10.40.10: 個人情報ガード追加)
 """
 
 import json
@@ -61,8 +79,115 @@ PERSONA_CATEGORY_LABELS = {
 
 
 # =====================================================
+# v10.40.10: 個人情報ガード用パターン
+# =====================================================
+# ⚠️ 以下のパターンに該当する内容はbot_persona_memoryに保存禁止
+# user_long_term_memory(scope='PRIVATE')へ自動振り分け
+
+# 個人発言パターン（「〜さんは〜と言っていた」「社長が〜」など）
+PERSONAL_STATEMENT_PATTERNS = [
+    r"(社長|部長|課長|マネージャー|リーダー)(は|が|の)",  # 役職者の発言
+    r"[ぁ-んァ-ン一-龥]{2,}(さん|様|くん|君|氏)(は|が|の)",  # 人名の発言
+    r"(あの人|この人|その人|彼|彼女)(は|が|の)",  # 代名詞での個人参照
+    r"(と言っていた|って言ってた|が言うには|曰く)",  # 引用表現
+    r"(の発言|の言葉|が話した|に聞いた)",  # 発言参照
+]
+
+# 家族情報パターン
+FAMILY_PATTERNS = [
+    r"(父|母|両親|妻|夫|嫁|旦那|子供|息子|娘|兄|姉|弟|妹|祖父|祖母|おじいちゃん|おばあちゃん)(は|が|の|を)",
+    r"(家族|親戚|身内)(は|が|の|を)",
+    r"(パパ|ママ|お父さん|お母さん)(は|が|の|を)",
+]
+
+# 個人の人生軸・思想パターン
+PERSONAL_THOUGHT_PATTERNS = [
+    r"(私|俺|僕|自分|わたし|おれ|ぼく)の(人生|軸|価値観|信念|夢|目標)",
+    r"(田中|山田|佐藤|鈴木|高橋|伊藤|渡辺|中村|小林|加藤|吉田|山本)[ぁ-んァ-ン一-龥]*(さん|様|くん|君|氏)?(の|は)(人生|軸|価値観|信念)",
+    r"[ぁ-んァ-ン一-龥]{2,}(さん|様|くん|君)の(人生|軸|価値観|信念|夢)",
+    r"(人生軸|ライフビジョン|生き方)",  # ソウルくんの設定としては不適切
+]
+
+# 個人の過去体験パターン
+PERSONAL_EXPERIENCE_PATTERNS = [
+    r"(昔|過去に|若い頃|学生時代|子供の頃)(は|に|の|、)",
+    r"以前(は|に|の|、)",  # 「以前」を単独でマッチ
+    r"(経験した|体験した|思い出|トラウマ)",
+    r"(私|俺|僕|自分)が(経験|体験|遭遇)した",
+    r"(の経験|の体験)",  # 「以前の経験」などにマッチ
+]
+
+# 全ての個人情報パターンを統合
+ALL_PERSONAL_INFO_PATTERNS = (
+    PERSONAL_STATEMENT_PATTERNS +
+    FAMILY_PATTERNS +
+    PERSONAL_THOUGHT_PATTERNS +
+    PERSONAL_EXPERIENCE_PATTERNS
+)
+
+# 個人情報検出時のリダイレクト先メッセージ
+REDIRECT_MESSAGE = """⚠️ これは個人的な情報なので、あなた専用の長期記憶として保存したウル！
+
+【保存先】あなたの長期記憶（プライベート）
+【理由】{reason}
+
+ソウルくんのキャラ設定ではなく、{user_name}さん個人の大切な情報として覚えておくウル🐺"""
+
+
+# =====================================================
 # 判定関数
 # =====================================================
+
+def is_personal_information(message: str, value: str = "") -> tuple:
+    """
+    v10.40.10: メッセージまたは値が個人情報かどうかを判定
+
+    bot_persona_memory への保存を拒否すべき内容かを判定する。
+    該当した場合は user_long_term_memory へ振り分ける。
+
+    Args:
+        message: ユーザーメッセージ全体
+        value: 抽出された値（オプション）
+
+    Returns:
+        tuple: (is_personal: bool, reason: str)
+            - is_personal: True なら個人情報、保存拒否
+            - reason: 拒否理由（リダイレクト時に表示）
+    """
+    check_text = f"{message} {value}"
+
+    # =====================================================
+    # 例外: ソウルくん関連は常に許可（ボット設定として正当）
+    # =====================================================
+    if re.search(r"(ソウルくん|そうるくん|soul.?kun)", check_text, re.IGNORECASE):
+        return (False, "")
+
+    # =====================================================
+    # 個人情報パターンチェック（順序重要）
+    # =====================================================
+
+    # 1. 家族情報パターンチェック（優先度高い）
+    for pattern in FAMILY_PATTERNS:
+        if re.search(pattern, check_text, re.IGNORECASE):
+            return (True, "家族に関する情報")
+
+    # 2. 個人の人生軸・思想パターンチェック
+    for pattern in PERSONAL_THOUGHT_PATTERNS:
+        if re.search(pattern, check_text, re.IGNORECASE):
+            return (True, "個人の人生軸・価値観")
+
+    # 3. 個人の過去体験パターンチェック
+    for pattern in PERSONAL_EXPERIENCE_PATTERNS:
+        if re.search(pattern, check_text, re.IGNORECASE):
+            return (True, "個人の過去体験・思い出")
+
+    # 4. 個人発言パターンチェック（最後：広範囲にマッチするため）
+    for pattern in PERSONAL_STATEMENT_PATTERNS:
+        if re.search(pattern, check_text, re.IGNORECASE):
+            return (True, "特定の個人の発言・意見")
+
+    return (False, "")
+
 
 def is_bot_persona_setting(message: str) -> bool:
     """
@@ -409,10 +534,14 @@ def save_bot_persona(
     org_id: str,
     message: str,
     account_id: str = None,
-    sender_name: str = None
+    sender_name: str = None,
+    user_id: int = None
 ) -> Dict[str, Any]:
     """
     メッセージからボットペルソナ設定を保存
+
+    v10.40.10: 個人情報ガード追加
+    - 個人情報に該当する場合は user_long_term_memory へ自動振り分け
 
     Args:
         pool: DB接続プール
@@ -420,6 +549,7 @@ def save_bot_persona(
         message: ユーザーメッセージ
         account_id: 作成者アカウントID
         sender_name: 作成者名
+        user_id: ユーザーID（個人情報振り分け時に必要）
 
     Returns:
         保存結果
@@ -431,6 +561,67 @@ def save_bot_persona(
             "success": False,
             "message": "設定内容を理解できなかったウル...「好物は〇〇」のように教えてほしいウル！",
         }
+
+    # v10.40.10: 個人情報ガード
+    is_personal, reason = is_personal_information(message, kv["value"])
+    if is_personal:
+        logger.warning(
+            f"🚫 個人情報検出 - bot_persona_memory保存拒否: "
+            f"key={kv['key']}, reason={reason}, sender={sender_name}"
+        )
+
+        # user_long_term_memory へリダイレクト
+        if user_id is not None:
+            try:
+                # long_term_memory モジュールをインポート
+                try:
+                    from lib.long_term_memory import save_long_term_memory, MemoryScope
+                except ImportError:
+                    from long_term_memory import save_long_term_memory, MemoryScope
+
+                # 個人情報として保存
+                result = save_long_term_memory(
+                    pool=pool,
+                    org_id=org_id,
+                    user_id=user_id,
+                    user_name=sender_name or "あなた",
+                    message=f"{kv['key']}は{kv['value']}",
+                    scope=MemoryScope.PRIVATE
+                )
+
+                if result["success"]:
+                    return {
+                        "success": True,
+                        "message": REDIRECT_MESSAGE.format(
+                            reason=reason,
+                            user_name=sender_name or "あなた"
+                        ),
+                        "redirected_to": "user_long_term_memory",
+                        "reason": reason,
+                    }
+                else:
+                    return result
+
+            except Exception as e:
+                logger.error(f"❌ 個人情報リダイレクト失敗: {e}")
+                return {
+                    "success": False,
+                    "message": f"保存中にエラーが発生したウル: {str(e)}",
+                    "error": str(e),
+                }
+        else:
+            # user_id がない場合は保存拒否のみ
+            return {
+                "success": False,
+                "message": (
+                    f"⚠️ この内容は個人情報に該当するため、ソウルくんの設定には保存できないウル。\n"
+                    f"【理由】{reason}\n\n"
+                    "個人的な情報は「人生軸として覚えて」と伝えてくれたら、"
+                    "あなた専用の長期記憶に保存するウル！"
+                ),
+                "blocked": True,
+                "reason": reason,
+            }
 
     # カテゴリを推定
     category = detect_persona_category(message)
@@ -460,3 +651,117 @@ def get_bot_persona(pool, org_id: str, key: str) -> Optional[str]:
     """
     manager = BotPersonaMemoryManager(pool, org_id)
     return manager.get(key)
+
+
+# =====================================================
+# v10.40.10: 起動時安全確認
+# =====================================================
+
+def scan_bot_persona_for_personal_info(pool, org_id: str) -> List[Dict[str, Any]]:
+    """
+    v10.40.10: bot_persona_memory 内の個人情報をスキャン
+
+    起動時に呼び出し、個人情報を含む可能性があるレコードを
+    WARNING ログで報告する。削除は行わない（手動確認用）。
+
+    Args:
+        pool: DB接続プール
+        org_id: 組織ID
+
+    Returns:
+        警告対象のレコードリスト
+    """
+    warnings = []
+
+    try:
+        manager = BotPersonaMemoryManager(pool, org_id)
+        all_records = manager.get_all()
+
+        for record in all_records:
+            key = record.get("key", "")
+            value = record.get("value", "")
+
+            # 個人情報チェック
+            is_personal, reason = is_personal_information(key, value)
+
+            if is_personal:
+                warning_record = {
+                    "key": key,
+                    "value": value,
+                    "category": record.get("category"),
+                    "reason": reason,
+                    "created_at": record.get("created_at"),
+                }
+                warnings.append(warning_record)
+
+                logger.warning(
+                    f"⚠️ [bot_persona_memory安全確認] 個人情報の可能性あり:\n"
+                    f"   key: {key}\n"
+                    f"   value: {value[:50]}{'...' if len(value) > 50 else ''}\n"
+                    f"   reason: {reason}\n"
+                    f"   ※手動確認してください（自動削除はしません）"
+                )
+
+        if warnings:
+            logger.warning(
+                f"⚠️ [bot_persona_memory安全確認] "
+                f"org_id={org_id} で {len(warnings)} 件の警告があります"
+            )
+        else:
+            logger.info(
+                f"✅ [bot_persona_memory安全確認] "
+                f"org_id={org_id} は問題なし"
+            )
+
+        return warnings
+
+    except Exception as e:
+        logger.error(f"❌ bot_persona_memory スキャンエラー: {e}")
+        return []
+
+
+def scan_all_organizations_bot_persona(pool) -> Dict[str, List[Dict[str, Any]]]:
+    """
+    v10.40.10: 全組織の bot_persona_memory をスキャン
+
+    起動時に全組織の bot_persona_memory をスキャンし、
+    個人情報を含む可能性があるレコードを報告する。
+
+    Args:
+        pool: DB接続プール
+
+    Returns:
+        組織IDをキーとした警告レコードの辞書
+    """
+    all_warnings = {}
+
+    try:
+        with pool.connect() as conn:
+            # 全組織IDを取得
+            result = conn.execute(
+                text("SELECT DISTINCT organization_id FROM bot_persona_memory")
+            ).fetchall()
+
+            org_ids = [str(row[0]) for row in result]
+
+        logger.info(f"🔍 [bot_persona_memory安全確認] {len(org_ids)} 組織をスキャン開始")
+
+        for org_id in org_ids:
+            warnings = scan_bot_persona_for_personal_info(pool, org_id)
+            if warnings:
+                all_warnings[org_id] = warnings
+
+        total_warnings = sum(len(w) for w in all_warnings.values())
+        if total_warnings > 0:
+            logger.warning(
+                f"⚠️ [bot_persona_memory安全確認] "
+                f"合計 {total_warnings} 件の警告（{len(all_warnings)} 組織）"
+            )
+        else:
+            logger.info("✅ [bot_persona_memory安全確認] 全組織で問題なし")
+
+        return all_warnings
+
+    except Exception as e:
+        logger.error(f"❌ 全組織スキャンエラー: {e}")
+        return {}

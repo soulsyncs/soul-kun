@@ -5,10 +5,13 @@ Company Persona (B) + Add-on (C) を組み合わせた人格レイヤー
 v10.46.0: Persona観測ログ追加
 - log_persona_path: 全経路でPersonaの状態をログ出力
 """
+import logging
 from typing import Optional
 
 from .company_base import get_company_persona
 from .addon_manager import get_user_addon
+
+logger = logging.getLogger(__name__)
 
 
 def log_persona_path(
@@ -24,6 +27,9 @@ def log_persona_path(
     全主要経路でPersonaの状態を統一フォーマットでログ出力し、
     経路ごとの挙動を追えるようにする。
 
+    NOTE: このフォーマットは lib/brain/observability.py と統一されています。
+          将来的に脳のObservability層に統合される予定。
+
     Args:
         path: コードパス名（例: "get_ai_response", "goal_registration"）
         injected: Personaプロンプトが注入されたかどうか
@@ -32,15 +38,18 @@ def log_persona_path(
         extra: 追加情報（任意）
 
     出力例:
-        🎭 persona_path=get_ai_response injected=yes addon=yes account=12345
-        🎭 persona_path=goal_registration injected=no addon=no account=12345 (direct_response)
+        🎭 ctx=persona path=get_ai_response applied=yes account=12345 ({'addon': True})
+        🎭 ctx=persona path=goal_registration applied=no account=12345 ({'addon': False, 'extra': 'direct_response'})
     """
-    injected_str = "yes" if injected else "no"
-    addon_str = "yes" if addon else "no"
+    applied_str = "yes" if injected else "no"
     account_str = account_id or "unknown"
-    extra_str = f" ({extra})" if extra else ""
 
-    print(f"🎭 persona_path={path} injected={injected_str} addon={addon_str} account={account_str}{extra_str}")
+    # 統一フォーマット: ctx=persona を明示（脳のobservabilityと同じ形式）
+    details = {"addon": addon}
+    if extra:
+        details["extra"] = extra
+
+    logger.info(f"🎭 ctx=persona path={path} applied={applied_str} account={account_str} ({details})")
 
 
 def build_persona_prompt(

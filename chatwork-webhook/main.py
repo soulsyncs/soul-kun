@@ -374,7 +374,7 @@ PHASE3_KNOWLEDGE_CONFIG = {
     "enabled": os.getenv("ENABLE_PHASE3_KNOWLEDGE", "true").lower() == "true",
     "timeout": float(os.getenv("PHASE3_TIMEOUT", "30")),  # v10.13.3: 30秒に延長
     "similarity_threshold": float(os.getenv("PHASE3_SIMILARITY_THRESHOLD", "0.5")),  # v10.13.3: 0.5に下げる
-    "organization_id": os.getenv("PHASE3_ORGANIZATION_ID", "org_soulsyncs"),
+    "organization_id": os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df"),
     # v10.13.3: ハイブリッド検索の重み設定
     "keyword_weight": float(os.getenv("PHASE3_KEYWORD_WEIGHT", "0.4")),
     "vector_weight": float(os.getenv("PHASE3_VECTOR_WEIGHT", "0.6")),
@@ -2742,7 +2742,7 @@ def _get_announcement_handler():
             authorized_rooms = {405315911}
             admin_acct_id = ADMIN_ACCOUNT_ID
             admin_dm_room = None
-            org_id = "org_soulsyncs"
+            org_id = ADMIN_CONFIG_DEFAULT_ORG_ID if USE_ADMIN_CONFIG else "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
         _announcement_handler = _NewAnnouncementHandler(
             get_pool=get_pool,
@@ -2778,7 +2778,7 @@ def _get_capability_bridge():
         try:
             _capability_bridge = create_capability_bridge(
                 pool=get_pool(),
-                org_id="org_soulsyncs",
+                org_id=ADMIN_CONFIG_DEFAULT_ORG_ID if USE_ADMIN_CONFIG else "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
                 feature_flags={
                     "ENABLE_DOCUMENT_GENERATION": True,
                     "ENABLE_IMAGE_GENERATION": True,
@@ -2888,7 +2888,7 @@ def _get_brain_integration():
             # v10.29.7: SYSTEM_CAPABILITIESは必ずモジュールレベルで定義されている
             _brain_integration = create_integration(
                 pool=get_pool(),
-                org_id="org_soulsyncs",
+                org_id=ADMIN_CONFIG_DEFAULT_ORG_ID if USE_ADMIN_CONFIG else "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
                 handlers=handlers,
                 capabilities=SYSTEM_CAPABILITIES,  # 直接参照（in dir()は機能しない）
                 get_ai_response_func=_brain_ai_response_wrapper,
@@ -2961,7 +2961,7 @@ def _get_brain():
 
         _brain_instance = SoulkunBrain(
             pool=get_pool(),
-            org_id="org_soulsyncs",
+            org_id=ADMIN_CONFIG_DEFAULT_ORG_ID if USE_ADMIN_CONFIG else "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             handlers=handlers,
             capabilities=SYSTEM_CAPABILITIES,  # v10.29.7: 直接参照（in dir()は機能しない）
             get_ai_response_func=get_ai_response,
@@ -4174,7 +4174,7 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS notification_logs (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                    organization_id UUID DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     notification_type VARCHAR(50) NOT NULL,
                     target_type VARCHAR(50) NOT NULL,
                     target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
@@ -4208,7 +4208,7 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
                         channel_target,
                         metadata
                     ) VALUES (
-                        'org_soulsyncs',
+                        '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         'deadline_alert',
                         'task',
                         :task_id,

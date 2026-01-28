@@ -9,7 +9,7 @@
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional, List, Dict, Any
 from uuid import UUID
@@ -214,8 +214,12 @@ class ConversationState:
         """アクティブな状態かどうか"""
         if self.state_type == StateType.NORMAL:
             return False
-        if self.expires_at and datetime.now() > self.expires_at:
-            return False
+        if self.expires_at:
+            # v10.39.4: タイムゾーン対応（DBはUTC、比較もUTCで）
+            now = datetime.now(timezone.utc)
+            expires = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
+            if now > expires:
+                return False
         return True
 
     @property
@@ -223,7 +227,10 @@ class ConversationState:
         """期限切れかどうか"""
         if self.expires_at is None:
             return False
-        return datetime.now() > self.expires_at
+        # v10.39.4: タイムゾーン対応
+        now = datetime.now(timezone.utc)
+        expires = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
+        return now > expires
 
 
 # =============================================================================

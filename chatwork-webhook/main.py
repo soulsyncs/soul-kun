@@ -3334,7 +3334,8 @@ async def _handle_save_long_term_memory(message: str, room_id: str, account_id: 
                     "message": "ユーザー情報が見つからなかったウル...🐺"
                 }
 
-            user_id = int(user_result[0])  # v10.40.8: integerとして保持
+            # v10.40.15: users.id は UUID なので int 化しない
+            user_id = str(user_result[0])
             org_id = str(user_result[1]) if user_result[1] else None
 
             if not org_id:
@@ -3406,7 +3407,8 @@ async def _handle_save_bot_persona(
             ).fetchone()
 
             if user_result:
-                user_id = int(user_result[0])
+                # v10.40.15: users.id は UUID なので int 化しない
+                user_id = str(user_result[0])
                 org_id = str(user_result[1]) if user_result[1] else None
             else:
                 # 組織が見つからない場合はデフォルト組織を使用
@@ -3496,7 +3498,8 @@ async def _handle_query_long_term_memory(
                     "message": "ユーザー情報が見つからなかったウル...🐺"
                 }
 
-            requester_user_id = int(requester_result[0])
+            # v10.40.15: users.id は UUID なので int 化しない
+            requester_user_id = str(requester_result[0])
             org_id = str(requester_result[1]) if requester_result[1] else None
 
             if not org_id:
@@ -5259,7 +5262,8 @@ def handle_save_memory(params, room_id, account_id, sender_name, context=None):
                     print(f"🔍 [save_memory DEBUG] user not found")
                     return "🤔 ユーザー情報が見つからなかったウル...登録状況を確認してほしいウル🐺"
 
-                user_id = int(user_result[0])
+                # v10.40.15: users.id は UUID なので int 化しない
+                user_id = str(user_result[0])
                 org_id = str(user_result[1]) if user_result[1] else None
 
                 if not org_id:
@@ -6178,6 +6182,42 @@ def handle_goal_status_check(params, room_id, account_id, sender_name, context=N
     }
 
 
+# v10.44.0: 目標一覧・整理ハンドラー
+def handle_goal_review(params, room_id, account_id, sender_name, context=None):
+    """
+    目標一覧・整理ハンドラー（v10.44.0）
+
+    既存の目標一覧を表示する、または整理・削除・修正する。
+    """
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_review(params, room_id, account_id, sender_name, context)
+
+    print("❌ GoalHandler not available - cannot review goals")
+    return {
+        "success": False,
+        "message": "ごめんウル...今は目標一覧を表示できないウル🐺 もう一度試してほしいウル！"
+    }
+
+
+# v10.44.0: 目標相談ハンドラー
+def handle_goal_consult(params, room_id, account_id, sender_name, context=None):
+    """
+    目標相談ハンドラー（v10.44.0）
+
+    目標の決め方や優先順位について相談する。
+    """
+    handler = _get_goal_handler()
+    if handler:
+        return handler.handle_goal_consult(params, room_id, account_id, sender_name, context)
+
+    print("❌ GoalHandler not available - cannot consult goals")
+    return {
+        "success": False,
+        "message": "ごめんウル...今は目標相談に答えられないウル🐺 もう一度試してほしいウル！"
+    }
+
+
 HANDLERS = {
     "handle_chatwork_task_create": handle_chatwork_task_create,
     "handle_chatwork_task_complete": handle_chatwork_task_complete,
@@ -6201,6 +6241,8 @@ HANDLERS = {
     "handle_goal_registration": handle_goal_registration,
     "handle_goal_progress_report": handle_goal_progress_report,
     "handle_goal_status_check": handle_goal_status_check,
+    "handle_goal_review": handle_goal_review,  # v10.44.0: 目標一覧・整理
+    "handle_goal_consult": handle_goal_consult,  # v10.44.0: 目標相談
     # v10.26.0: アナウンス機能
     "handle_announcement_request": lambda params, room_id, account_id, sender_name, context=None: (
         _get_announcement_handler().handle_announcement_request(

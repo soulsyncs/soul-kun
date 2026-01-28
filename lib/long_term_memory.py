@@ -26,8 +26,59 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
+import sqlalchemy
 
 logger = logging.getLogger(__name__)
+
+# =====================================================
+# v10.40.15: テーブル自動作成（cold start対応）
+# =====================================================
+_LONG_TERM_TABLE_READY = False
+
+
+def _ensure_long_term_table(pool):
+    """
+    user_long_term_memory テーブルが存在しない環境でも動くように、
+    cold start 時に1回だけ CREATE TABLE IF NOT EXISTS を実行する。
+    """
+    global _LONG_TERM_TABLE_READY
+    if _LONG_TERM_TABLE_READY:
+        return
+
+    ddl_statements = [
+        """
+        CREATE TABLE IF NOT EXISTS user_long_term_memory (
+            id UUID PRIMARY KEY,
+            organization_id UUID NOT NULL,
+            user_id UUID NOT NULL,
+            memory_type TEXT NOT NULL,
+            content TEXT NOT NULL,
+            scope TEXT NOT NULL DEFAULT 'PRIVATE',
+            metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ
+        )
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_user_long_term_memory_org_user
+            ON user_long_term_memory (organization_id, user_id)
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS idx_user_long_term_memory_type
+            ON user_long_term_memory (memory_type)
+        """,
+    ]
+
+    try:
+        with pool.connect() as conn:
+            for stmt in ddl_statements:
+                conn.execute(sqlalchemy.text(stmt.strip()))
+            conn.commit()
+        _LONG_TERM_TABLE_READY = True
+        logger.info("✅ user_long_term_memory テーブル確認/作成完了")
+    except Exception as e:
+        logger.warning(f"⚠️ テーブル作成スキップ（既存の可能性）: {e}")
+        _LONG_TERM_TABLE_READY = True  # エラーでも続行
 
 
 # =====================================================
@@ -212,19 +263,21 @@ class LongTermMemoryManager:
     """
 
     def __init__(self, pool, org_id: str, user_id, user_name: str = ""):
-        # user_id: int or str (DBはintegerだが文字列でも動作)
         """
         初期化
 
+        v10.40.15: user_id/org_id を UUID文字列として統一（int化事故を防止）
+
         Args:
             pool: DB接続プール
-            org_id: 組織ID
-            user_id: ユーザーID（users.id）
+            org_id: 組織ID (UUID string)
+            user_id: ユーザーID（users.id, UUID）
             user_name: ユーザー名（表示用）
         """
         self.pool = pool
-        self.org_id = org_id
-        self.user_id = user_id
+        # UUIDが int 化されて巨大整数になる事故を防ぐ（常に文字列で統一）
+        self.org_id = str(org_id) if org_id is not None else None
+        self.user_id = str(user_id) if user_id is not None else None
         self.user_name = user_name or "あなた"
 
     def save(
@@ -248,6 +301,9 @@ class LongTermMemoryManager:
         Returns:
             保存結果 {"success": bool, "message": str, "memory_id": str}
         """
+        # v10.40.15: テーブルが無い環境でも落ちないように事前に用意
+        _ensure_long_term_table(self.pool)
+
         try:
             memory_id = str(uuid4())
             metadata = metadata or {}

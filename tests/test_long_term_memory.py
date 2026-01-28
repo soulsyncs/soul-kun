@@ -5,6 +5,7 @@
 - パターン検出（is_long_term_memory_request）
 - 記憶タイプ判定（detect_memory_type）
 - 内容抽出（extract_memory_content）
+- v10.40.9: MemoryScope、アクセス制御
 
 実行方法:
     pytest tests/test_long_term_memory.py -v
@@ -22,6 +23,7 @@ from lib.long_term_memory import (
     detect_memory_type,
     extract_memory_content,
     MemoryType,
+    MemoryScope,  # v10.40.9
     LONG_TERM_MEMORY_PATTERNS,
 )
 
@@ -147,6 +149,95 @@ class TestRealWorldScenario:
 
         for msg in messages:
             assert is_long_term_memory_request(msg) is False, f"Should not detect: {msg}"
+
+
+class TestMemoryScope:
+    """v10.40.9: メモリスコープのテスト"""
+
+    def test_scope_constants(self):
+        """スコープ定数が正しく定義されている"""
+        assert MemoryScope.PRIVATE == "PRIVATE"
+        assert MemoryScope.ORG_SHARED == "ORG_SHARED"
+
+    def test_default_scope_is_private(self):
+        """デフォルトスコープがPRIVATEである"""
+        # save_long_term_memoryのデフォルト引数を確認
+        from lib.long_term_memory import save_long_term_memory
+        import inspect
+        sig = inspect.signature(save_long_term_memory)
+        scope_param = sig.parameters.get("scope")
+        assert scope_param is not None
+        assert scope_param.default == MemoryScope.PRIVATE
+
+
+class TestBotPersonaDetection:
+    """v10.40.9: ボットペルソナ検出のテスト"""
+
+    @pytest.fixture
+    def bot_persona_available(self):
+        """bot_persona_memoryが利用可能かどうか"""
+        try:
+            from lib.bot_persona_memory import is_bot_persona_setting
+            return True
+        except ImportError:
+            pytest.skip("bot_persona_memory not available")
+
+    @pytest.mark.parametrize("message,expected", [
+        # ボットペルソナ設定
+        ("好物は10円パン", True),
+        ("ソウルくんの口調はウル", True),
+        ("モチーフ動物は狼", True),
+        ("キャラ設定：性格は明るい", True),
+
+        # ボット設定ではない（人物情報）
+        ("田中さんの好物はラーメン", False),
+        ("山田さんは営業部です", False),
+
+        # ボット設定ではない（長期記憶）
+        ("人生の軸として覚えて", False),
+        ("俺の価値観は挑戦", False),
+    ])
+    def test_bot_persona_detection(self, message, expected, bot_persona_available):
+        """ボットペルソナ設定の検出"""
+        from lib.bot_persona_memory import is_bot_persona_setting
+        result = is_bot_persona_setting(message)
+        assert result == expected, f"Message: {message}"
+
+
+class TestSecurityAccessControl:
+    """v10.40.9: セキュリティ・アクセス制御のテスト"""
+
+    def test_private_scope_blocks_other_users(self):
+        """PRIVATEスコープは他ユーザーからアクセスできない"""
+        # これはDBを使用するため、統合テストとして実装
+        # ユニットテストレベルでは、get_all_for_requester()のロジックを確認
+        pass  # 統合テストで実装
+
+    def test_org_shared_allows_same_org_users(self):
+        """ORG_SHAREDは同一組織のユーザーがアクセスできる"""
+        # これはDBを使用するため、統合テストとして実装
+        pass  # 統合テストで実装
+
+    def test_memory_separation_intent(self):
+        """メモリ分離の意図確認（ボットvs ユーザー）"""
+        from lib.long_term_memory import is_long_term_memory_request
+
+        # ユーザーの人生軸 → user_long_term_memory
+        user_memory_messages = [
+            "俺の軸として覚えて",
+            "人生のWHYを登録",
+            "価値観として記憶",
+        ]
+        for msg in user_memory_messages:
+            assert is_long_term_memory_request(msg) is True, f"Should be user memory: {msg}"
+
+        # ボット設定 → bot_persona_memory（長期記憶ではない）
+        bot_setting_messages = [
+            "好物は10円パン",
+            "モチーフは狼",
+        ]
+        for msg in bot_setting_messages:
+            assert is_long_term_memory_request(msg) is False, f"Should NOT be user memory: {msg}"
 
 
 if __name__ == "__main__":

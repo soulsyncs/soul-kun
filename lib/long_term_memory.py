@@ -4,9 +4,13 @@
 人生軸・価値観・長期WHYなど、目標設定とは別の
 ユーザーの根本的な信念や価値観を保存・取得する。
 
+v10.40.9: メモリ分離・アクセス制御
+- MemoryScope追加（PRIVATE/ORG_SHARED）
+- requester_user_idによるアクセス制御
+
 Author: Claude Code
 Created: 2026-01-28
-Version: 1.0.0
+Version: 1.1.0
 """
 
 import json
@@ -32,6 +36,12 @@ class MemoryType:
     IDENTITY = "identity"          # アイデンティティ・自己認識
     PRINCIPLES = "principles"      # 行動原則・信条
     LONG_TERM_GOAL = "long_term_goal"  # 長期目標（5年以上）
+
+
+# v10.40.9: メモリスコープ
+class MemoryScope:
+    PRIVATE = "PRIVATE"          # 本人のみアクセス可能（デフォルト）
+    ORG_SHARED = "ORG_SHARED"    # 組織内で共有可能
 
 
 # 長期記憶を示すパターン
@@ -209,14 +219,18 @@ class LongTermMemoryManager:
         self,
         content: str,
         memory_type: str = MemoryType.LIFE_WHY,
+        scope: str = MemoryScope.PRIVATE,
         metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         長期記憶を保存
 
+        v10.40.9: scopeパラメータ追加
+
         Args:
             content: 記憶内容
             memory_type: 記憶タイプ
+            scope: アクセススコープ（PRIVATE/ORG_SHARED）
             metadata: 追加メタデータ
 
         Returns:
@@ -234,10 +248,10 @@ class LongTermMemoryManager:
                     text("""
                         INSERT INTO user_long_term_memory (
                             id, organization_id, user_id,
-                            memory_type, content, metadata
+                            memory_type, content, scope, metadata
                         ) VALUES (
                             :id, :org_id, :user_id,
-                            :memory_type, :content, CAST(:metadata AS jsonb)
+                            :memory_type, :content, :scope, CAST(:metadata AS jsonb)
                         )
                     """),
                     {
@@ -246,12 +260,13 @@ class LongTermMemoryManager:
                         "user_id": self.user_id,
                         "memory_type": memory_type,
                         "content": content,
+                        "scope": scope,
                         "metadata": json.dumps(metadata),
                     }
                 )
                 conn.commit()
 
-            logger.info(f"✅ 長期記憶保存成功: {memory_id} ({memory_type})")
+            logger.info(f"✅ 長期記憶保存成功: {memory_id} ({memory_type}, scope={scope})")
 
             # 成功メッセージを生成
             type_label = MEMORY_TYPE_LABELS.get(memory_type, "人生の軸")
@@ -266,6 +281,7 @@ class LongTermMemoryManager:
                 "message": response_message,
                 "memory_id": memory_id,
                 "memory_type": memory_type,
+                "scope": scope,
             }
 
         except Exception as e:
@@ -278,7 +294,10 @@ class LongTermMemoryManager:
 
     def get_all(self, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """
-        ユーザーの長期記憶を取得
+        ユーザーの長期記憶を取得（本人のみ、アクセス制御なし）
+
+        注意: このメソッドはself.user_idの記憶のみを取得する。
+              他ユーザーの記憶にアクセスする場合はget_all_for_requester()を使用。
 
         Args:
             memory_type: 絞り込む記憶タイプ（省略時は全て）
@@ -291,7 +310,7 @@ class LongTermMemoryManager:
                 if memory_type:
                     result = conn.execute(
                         text("""
-                            SELECT id, memory_type, content, metadata, created_at, updated_at
+                            SELECT id, memory_type, content, metadata, created_at, updated_at, scope
                             FROM user_long_term_memory
                             WHERE organization_id = :org_id
                               AND user_id = :user_id
@@ -307,7 +326,7 @@ class LongTermMemoryManager:
                 else:
                     result = conn.execute(
                         text("""
-                            SELECT id, memory_type, content, metadata, created_at, updated_at
+                            SELECT id, memory_type, content, metadata, created_at, updated_at, scope
                             FROM user_long_term_memory
                             WHERE organization_id = :org_id
                               AND user_id = :user_id
@@ -328,12 +347,125 @@ class LongTermMemoryManager:
                         "metadata": row[3] or {},
                         "created_at": row[4].isoformat() if row[4] else None,
                         "updated_at": row[5].isoformat() if row[5] else None,
+                        "scope": row[6] if len(row) > 6 else MemoryScope.PRIVATE,
                     })
 
                 return memories
 
         except Exception as e:
             logger.error(f"❌ 長期記憶取得失敗: {e}")
+            return []
+
+    def get_all_for_requester(
+        self,
+        requester_user_id: int,
+        memory_type: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        v10.40.9: アクセス制御付きで長期記憶を取得
+
+        セキュリティルール:
+        - requester_user_id == self.user_id: 全ての記憶を取得可能
+        - requester_user_id != self.user_id: ORG_SHARED のみ取得可能
+        - PRIVATEスコープの記憶は本人以外には絶対に返さない
+
+        Args:
+            requester_user_id: リクエストしているユーザーのID
+            memory_type: 絞り込む記憶タイプ（省略時は全て）
+
+        Returns:
+            アクセス可能な記憶リスト
+        """
+        try:
+            is_owner = (requester_user_id == self.user_id)
+
+            with self.pool.connect() as conn:
+                if is_owner:
+                    # 本人なら全ての記憶を取得
+                    if memory_type:
+                        result = conn.execute(
+                            text("""
+                                SELECT id, memory_type, content, metadata, created_at, updated_at, scope
+                                FROM user_long_term_memory
+                                WHERE organization_id = :org_id
+                                  AND user_id = :user_id
+                                  AND memory_type = :memory_type
+                                ORDER BY created_at DESC
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "user_id": self.user_id,
+                                "memory_type": memory_type,
+                            }
+                        ).fetchall()
+                    else:
+                        result = conn.execute(
+                            text("""
+                                SELECT id, memory_type, content, metadata, created_at, updated_at, scope
+                                FROM user_long_term_memory
+                                WHERE organization_id = :org_id
+                                  AND user_id = :user_id
+                                ORDER BY created_at DESC
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "user_id": self.user_id,
+                            }
+                        ).fetchall()
+                else:
+                    # 他ユーザーからのリクエストはORG_SHAREDのみ
+                    logger.warning(
+                        f"Non-owner access attempt: requester={requester_user_id}, owner={self.user_id}"
+                    )
+                    if memory_type:
+                        result = conn.execute(
+                            text("""
+                                SELECT id, memory_type, content, metadata, created_at, updated_at, scope
+                                FROM user_long_term_memory
+                                WHERE organization_id = :org_id
+                                  AND user_id = :user_id
+                                  AND memory_type = :memory_type
+                                  AND scope = 'ORG_SHARED'
+                                ORDER BY created_at DESC
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "user_id": self.user_id,
+                                "memory_type": memory_type,
+                            }
+                        ).fetchall()
+                    else:
+                        result = conn.execute(
+                            text("""
+                                SELECT id, memory_type, content, metadata, created_at, updated_at, scope
+                                FROM user_long_term_memory
+                                WHERE organization_id = :org_id
+                                  AND user_id = :user_id
+                                  AND scope = 'ORG_SHARED'
+                                ORDER BY created_at DESC
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "user_id": self.user_id,
+                            }
+                        ).fetchall()
+
+                memories = []
+                for row in result:
+                    memories.append({
+                        "id": str(row[0]),
+                        "memory_type": row[1],
+                        "content": row[2],
+                        "metadata": row[3] or {},
+                        "created_at": row[4].isoformat() if row[4] else None,
+                        "updated_at": row[5].isoformat() if row[5] else None,
+                        "scope": row[6] if len(row) > 6 else MemoryScope.PRIVATE,
+                    })
+
+                return memories
+
+        except Exception as e:
+            logger.error(f"❌ 長期記憶取得失敗（アクセス制御）: {e}")
             return []
 
     def get_life_why(self) -> Optional[str]:
@@ -348,9 +480,14 @@ class LongTermMemoryManager:
             return memories[0]["content"]
         return None
 
-    def format_for_display(self) -> str:
+    def format_for_display(self, show_scope: bool = False) -> str:
         """
         全長期記憶を表示用にフォーマット
+
+        v10.40.9: show_scopeオプション追加
+
+        Args:
+            show_scope: スコープを表示するか
 
         Returns:
             表示用テキスト
@@ -363,7 +500,13 @@ class LongTermMemoryManager:
 
         for memory in memories:
             type_label = MEMORY_TYPE_LABELS.get(memory["memory_type"], "記憶")
-            lines.append(f"【{type_label}】")
+            scope = memory.get("scope", MemoryScope.PRIVATE)
+            scope_indicator = "" if scope == MemoryScope.PRIVATE else " [共有]"
+
+            if show_scope:
+                lines.append(f"【{type_label}】{scope_indicator}")
+            else:
+                lines.append(f"【{type_label}】")
             lines.append(memory["content"])
             lines.append("")
 
@@ -379,10 +522,13 @@ def save_long_term_memory(
     org_id: str,
     user_id,  # int or str
     user_name: str,
-    message: str
+    message: str,
+    scope: str = MemoryScope.PRIVATE
 ) -> Dict[str, Any]:
     """
     メッセージから長期記憶を保存するヘルパー関数
+
+    v10.40.9: scopeパラメータ追加
 
     Args:
         pool: DB接続プール
@@ -390,6 +536,7 @@ def save_long_term_memory(
         user_id: ユーザーID (integer, users.user_id)
         user_name: ユーザー名
         message: ユーザーメッセージ
+        scope: アクセススコープ（デフォルト: PRIVATE）
 
     Returns:
         保存結果
@@ -402,7 +549,7 @@ def save_long_term_memory(
 
     # 保存
     manager = LongTermMemoryManager(pool, org_id, user_id, user_name)
-    return manager.save(content, memory_type)
+    return manager.save(content, memory_type, scope=scope)
 
 
 def get_user_life_why(pool, org_id: str, user_id: str) -> Optional[str]:

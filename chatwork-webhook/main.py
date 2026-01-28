@@ -123,12 +123,28 @@ try:
         save_long_term_memory,
         get_user_life_why,
         LongTermMemoryManager,
+        MemoryScope,  # v10.40.9: アクセススコープ
     )
     USE_LONG_TERM_MEMORY = True
     print("✅ lib/long_term_memory.py loaded for user profile memory")
 except ImportError as e:
     print(f"⚠️ lib/long_term_memory.py not available: {e}")
     USE_LONG_TERM_MEMORY = False
+
+# =====================================================
+# v10.40.9: ボットペルソナ記憶
+# =====================================================
+try:
+    from lib.bot_persona_memory import (
+        is_bot_persona_setting,
+        save_bot_persona,
+        BotPersonaMemoryManager,
+    )
+    USE_BOT_PERSONA_MEMORY = True
+    print("✅ lib/bot_persona_memory.py loaded for bot persona settings")
+except ImportError as e:
+    print(f"⚠️ lib/bot_persona_memory.py not available: {e}")
+    USE_BOT_PERSONA_MEMORY = False
 
 # =====================================================
 # v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
@@ -3192,13 +3208,14 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
     """
     記憶保存ハンドラー
 
-    v10.40.8: 長期記憶（人生軸・価値観）パターンを検出して分岐
+    v10.40.9: メモリ分離対応
+    - ボットペルソナ設定 → bot_persona_memoryに保存
     - 長期記憶パターン → user_long_term_memoryに保存
-    - それ以外 → 従来の人物情報記憶
+    - それ以外 → 従来の人物情報記憶（persons/person_attributes）
     """
     from lib.brain.models import HandlerResult
     try:
-        # v10.40.8: 長期記憶パターンの検出
+        # オリジナルメッセージを取得
         original_message = ""
         if context:
             original_message = getattr(context, 'original_message', '') or ''
@@ -3206,7 +3223,15 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
                 ctx_dict = context.to_dict()
                 original_message = ctx_dict.get('original_message', '')
 
-        # 長期記憶パターンを検出
+        # v10.40.9: ボットペルソナ設定を先に検出
+        if USE_BOT_PERSONA_MEMORY and original_message and is_bot_persona_setting(original_message):
+            print(f"🐺 ボットペルソナ設定検出: {original_message[:50]}...")
+            result = await _handle_save_bot_persona(
+                original_message, room_id, account_id, sender_name
+            )
+            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
+
+        # v10.40.8: 長期記憶パターンを検出
         if USE_LONG_TERM_MEMORY and original_message and is_long_term_memory_request(original_message):
             print(f"🔥 長期記憶パターン検出: {original_message[:50]}...")
             result = await _handle_save_long_term_memory(
@@ -3278,12 +3303,221 @@ async def _handle_save_long_term_memory(message: str, room_id: str, account_id: 
         }
 
 
-async def _brain_handle_query_memory(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
+async def _handle_save_bot_persona(
+    message: str,
+    room_id: str,
+    account_id: str,
+    sender_name: str
+) -> Dict[str, Any]:
+    """
+    v10.40.9: ボットペルソナ設定を保存
+
+    ソウルくんのキャラ設定（好物、口調など）を保存。
+    管理者のみ設定可能。
+    """
     try:
+        # 管理者チェック
+        if not is_admin(account_id):
+            return {
+                "success": False,
+                "message": "ソウルくんの設定は管理者のみ変更できるウル🐺\n菊地さんにお願いしてほしいウル！"
+            }
+
+        pool = get_pool()
+
+        # 組織IDを取得
+        with pool.connect() as conn:
+            user_result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT organization_id FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not user_result:
+                # 組織が見つからない場合はデフォルト組織を使用
+                org_result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id FROM organizations LIMIT 1
+                    """)
+                ).fetchone()
+                if org_result:
+                    org_id = str(org_result[0])
+                else:
+                    return {
+                        "success": False,
+                        "message": "組織情報が見つからなかったウル...🐺"
+                    }
+            else:
+                org_id = str(user_result[0]) if user_result[0] else None
+
+        if not org_id:
+            return {
+                "success": False,
+                "message": "組織情報が見つからなかったウル...🐺"
+            }
+
+        # ボットペルソナを保存
+        result = save_bot_persona(
+            pool=pool,
+            org_id=org_id,
+            message=message,
+            account_id=str(account_id),
+            sender_name=sender_name
+        )
+
+        return result
+
+    except Exception as e:
+        print(f"❌ ボットペルソナ保存エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"ボット設定の保存中にエラーが発生したウル...🐺"
+        }
+
+
+async def _handle_query_long_term_memory(
+    account_id: str,
+    sender_name: str,
+    target_user_id: int = None
+) -> Dict[str, Any]:
+    """
+    v10.40.9: 長期記憶（人生軸・価値観）を取得
+
+    アクセス制御:
+    - 本人の記憶: 全て取得可能
+    - 他ユーザーの記憶: ORG_SHARED のみ取得可能
+    - PRIVATEスコープの記憶は本人以外には絶対に返さない
+    """
+    try:
+        pool = get_pool()
+
+        # リクエスターのユーザー情報を取得
+        with pool.connect() as conn:
+            requester_result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT user_id, organization_id FROM users
+                    WHERE chatwork_account_id = :account_id
+                    LIMIT 1
+                """),
+                {"account_id": str(account_id)}
+            ).fetchone()
+
+            if not requester_result:
+                return {
+                    "success": False,
+                    "message": "ユーザー情報が見つからなかったウル...🐺"
+                }
+
+            requester_user_id = int(requester_result[0])
+            org_id = str(requester_result[1]) if requester_result[1] else None
+
+            if not org_id:
+                return {
+                    "success": False,
+                    "message": "組織情報が見つからなかったウル...🐺"
+                }
+
+        # ターゲットユーザーを決定（指定がなければリクエスター自身）
+        target_id = target_user_id if target_user_id else requester_user_id
+        is_self_query = (target_id == requester_user_id)
+
+        # 長期記憶を取得（アクセス制御付き）
+        manager = LongTermMemoryManager(pool, org_id, target_id, sender_name)
+
+        if is_self_query:
+            # 本人の記憶は全て取得
+            memories = manager.get_all()
+            if not memories:
+                return {
+                    "success": True,
+                    "message": f"🐺 {sender_name}さんの人生の軸はまだ登録されていないウル！\n\n「人生の軸として覚えて」と言ってくれたら覚えるウル！"
+                }
+            display = manager.format_for_display(show_scope=False)
+            return {
+                "success": True,
+                "message": display
+            }
+        else:
+            # 他ユーザーの記憶はORG_SHAREDのみ
+            memories = manager.get_all_for_requester(requester_user_id)
+            if not memories:
+                return {
+                    "success": True,
+                    "message": "共有されている情報は見つからなかったウル🐺"
+                }
+            # 注意: 他ユーザーの記憶を表示する際は個人情報を匿名化
+            display = f"🐺 共有されている情報ウル！\n\n"
+            for m in memories:
+                type_label = m.get("memory_type", "記憶")
+                display += f"【{type_label}】\n{m['content']}\n\n"
+            return {
+                "success": True,
+                "message": display
+            }
+
+    except Exception as e:
+        print(f"❌ 長期記憶取得エラー: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "message": f"長期記憶の取得中にエラーが発生したウル...🐺"
+        }
+
+
+async def _brain_handle_query_memory(params, room_id, account_id, sender_name, context):
+    """
+    記憶検索ハンドラー
+
+    v10.40.9: 長期記憶（人生軸）クエリを検出して分岐
+    - 「軸を確認」「人生の軸」→ user_long_term_memoryから取得
+    - それ以外 → 従来のpersons/person_attributesから取得
+    """
+    from lib.brain.models import HandlerResult
+    import re
+    try:
+        # v10.40.9: 長期記憶クエリパターンの検出
+        original_message = ""
+        if context:
+            original_message = getattr(context, 'original_message', '') or ''
+            if not original_message and hasattr(context, 'to_dict'):
+                ctx_dict = context.to_dict()
+                original_message = ctx_dict.get('original_message', '')
+
+        # 長期記憶クエリパターン
+        long_term_memory_query_patterns = [
+            r"軸を(確認|教えて|見せて)",
+            r"(俺|私|自分)の軸",
+            r"人生の軸",
+            r"価値観を(確認|教えて)",
+            r"(何を)?覚えてる.*軸",
+        ]
+
+        is_long_term_query = False
+        if USE_LONG_TERM_MEMORY and original_message:
+            for pattern in long_term_memory_query_patterns:
+                if re.search(pattern, original_message, re.IGNORECASE):
+                    is_long_term_query = True
+                    break
+
+        if is_long_term_query:
+            print(f"🔥 長期記憶クエリ検出: {original_message[:50]}...")
+            result = await _handle_query_long_term_memory(
+                account_id=account_id,
+                sender_name=sender_name
+            )
+            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
+
+        # 通常の人物情報検索
         result = handle_query_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "記憶が見つからなかったウル🐺")
     except Exception as e:
+        print(f"❌ 記憶検索エラー: {e}")
         return HandlerResult(success=False, message=f"記憶検索でエラーが発生したウル🐺")
 
 
@@ -5160,13 +5394,82 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
 
     v10.24.7: handlers/knowledge_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.40.9: メモリ分離対応（ボットペルソナと業務知識を分離表示）
     """
+    lines = ["**覚えていること**ウル！🐺✨\n"]
+    total_count = 0
+
+    # v10.40.9: ボットペルソナ設定を先に表示
+    if USE_BOT_PERSONA_MEMORY:
+        try:
+            pool = get_pool()
+            # 組織IDを取得
+            with pool.connect() as conn:
+                user_result = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT organization_id FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if user_result and user_result[0]:
+                    org_id = str(user_result[0])
+                else:
+                    # デフォルト組織を取得
+                    org_result = conn.execute(
+                        sqlalchemy.text("SELECT id FROM organizations LIMIT 1")
+                    ).fetchone()
+                    org_id = str(org_result[0]) if org_result else None
+
+            if org_id:
+                manager = BotPersonaMemoryManager(pool, org_id)
+                persona_settings = manager.get_all()
+
+                if persona_settings:
+                    lines.append("\n**🐺 ソウルくんの設定**")
+                    for s in persona_settings:
+                        lines.append(f"・{s['key']}: {s['value']}")
+                    total_count += len(persona_settings)
+        except Exception as e:
+            print(f"⚠️ ボットペルソナ取得エラー: {e}")
+
+    # 業務知識（soulkun_knowledge）を表示
     handler = _get_knowledge_handler()
     if handler:
-        return handler.handle_list_knowledge(params, room_id, account_id, sender_name, context)
+        knowledge_list = handler.get_all_knowledge()
 
-    print("❌ KnowledgeHandler not available - cannot list knowledge")
-    return "ごめんウル...今は知識一覧を見れないウル🐺 もう一度試してほしいウル！"
+        if knowledge_list:
+            # カテゴリごとにグループ化（characterは除外 - bot_persona_memoryに移行済み）
+            by_category = {}
+            for k in knowledge_list:
+                cat = k["category"]
+                # v10.40.9: characterカテゴリは除外（bot_persona_memoryに移行）
+                if cat == "character":
+                    continue
+                if cat not in by_category:
+                    by_category[cat] = []
+                by_category[cat].append(f"・{k['key']}: {k['value']}")
+
+            # 整形
+            category_names = {
+                "rules": "📋 業務ルール",
+                "members": "👥 社員情報",
+                "other": "📝 その他"
+            }
+
+            for cat, items in by_category.items():
+                cat_name = category_names.get(cat, f"📁 {cat}")
+                lines.append(f"\n**{cat_name}**")
+                lines.extend(items)
+                total_count += len(items)
+
+    if total_count == 0:
+        return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
+
+    lines.append(f"\n\n合計 {total_count} 件覚えてるウル！")
+    return "\n".join(lines)
 
 
 def handle_proposal_decision(params, room_id, account_id, sender_name, context=None):

@@ -692,6 +692,9 @@ class SoulkunBrain:
         - goal_setting.py が brain_conversation_states を使用するように書き換えられたため
         - 全ての状態は brain_conversation_states で一元管理
 
+        v10.39.3: brain_conversation_states だけでなく goal_setting_sessions も確認
+        - 脳がバイパスなしで全てを処理するため、両方のテーブルをチェック
+
         タイムアウトしている場合は自動的にクリアしてNoneを返す。
         """
         # brain_conversation_statesのみをチェック（goal_setting_sessionsは参照しない）

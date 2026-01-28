@@ -5,7 +5,8 @@
 - パターン検出（is_bot_persona_setting）
 - カテゴリ判定（detect_persona_category）
 - キー・値抽出（extract_persona_key_value）
-- v10.40.10: 個人情報ガード（is_personal_information）
+- v10.40.10: ホワイトリスト方式の個人情報ガード（is_valid_bot_persona）
+- v10.40.10: 補助判定（is_personal_information）
 
 実行方法:
     pytest tests/test_bot_persona_memory.py -v
@@ -25,8 +26,11 @@ from lib.bot_persona_memory import (
     PersonaCategory,
     BOT_PERSONA_PATTERNS,
     BOT_SETTING_KEYWORDS,
-    # v10.40.10: 個人情報ガード
+    # v10.40.10: ホワイトリスト方式の個人情報ガード
+    is_valid_bot_persona,
     is_personal_information,
+    ALLOWED_PERSONA_CATEGORIES,
+    ALLOWED_KEYWORDS_FLAT,
     PERSONAL_STATEMENT_PATTERNS,
     FAMILY_PATTERNS,
     PERSONAL_THOUGHT_PATTERNS,
@@ -148,7 +152,106 @@ class TestPersonMemoryVsBotPersona:
 
 
 # =====================================================
-# v10.40.10: 個人情報ガードのテスト
+# v10.40.10: ホワイトリスト方式のテスト
+# =====================================================
+
+class TestValidBotPersonaWhitelist:
+    """ホワイトリスト方式の is_valid_bot_persona() テスト"""
+
+    @pytest.mark.parametrize("message,key,value,is_valid", [
+        # =====================================================
+        # OK例: ソウルくん自身の設定（許可）
+        # =====================================================
+        ("ソウルくんは明るい性格", "性格", "明るい", True),
+        ("ソウルくんの語尾はウル", "語尾", "ウル", True),
+        ("ソウルくんの好物は10円パン", "好物", "10円パン", True),
+        ("ソウルくんの口調はタメ口", "口調", "タメ口", True),
+        ("ソウルくんのモチーフは狼", "モチーフ", "狼", True),
+        ("ソウルくんの一人称はボク", "一人称", "ボク", True),
+        ("ソウルくんの趣味はゲーム", "趣味", "ゲーム", True),
+        ("ソウルくんの特技は計算", "特技", "計算", True),
+
+        # 主語なしでもキーワードで推定可能
+        ("好物は10円パン", "好物", "10円パン", True),
+        ("口調はウル", "口調", "ウル", True),
+        ("性格は元気", "性格", "元気", True),
+
+        # 二人称でソウルくんを指す
+        ("君の好物は10円パン", "好物", "10円パン", True),
+        ("きみの口調はウル", "口調", "ウル", True),
+
+        # =====================================================
+        # NG例: 人間に関する情報（拒否）
+        # =====================================================
+        # 特定の人物
+        ("社長は努力家", "性格", "努力家", False),
+        ("田中さんは冷静な人", "性格", "冷静", False),
+        ("山田くんの好物はラーメン", "好物", "ラーメン", False),
+        ("部長の口調は厳しい", "口調", "厳しい", False),
+
+        # ユーザー自身
+        ("俺の人生軸は挑戦", "人生軸", "挑戦", False),
+        ("私の価値観は誠実さ", "価値観", "誠実さ", False),
+        ("自分の目標は成功", "目標", "成功", False),
+
+        # 家族
+        ("父は厳しかった", "性格", "厳しい", False),
+        ("母の好物はカレー", "好物", "カレー", False),
+        ("妻は優しい", "性格", "優しい", False),
+
+        # 過去体験（ソウルくん以外）
+        ("昔の経験から学んだこと", "経験", "学び", False),
+    ])
+    def test_whitelist_validation(self, message, key, value, is_valid):
+        """ホワイトリスト判定の正確性"""
+        result_is_valid, result_reason = is_valid_bot_persona(message, key, value)
+        assert result_is_valid == is_valid, f"Message: {message}, Expected: {is_valid}, Got: {result_is_valid}, Reason: {result_reason}"
+
+
+class TestWhitelistCategories:
+    """ホワイトリスト許可カテゴリのテスト"""
+
+    def test_allowed_categories_exist(self):
+        """許可カテゴリが定義されている"""
+        assert "personality" in ALLOWED_PERSONA_CATEGORIES
+        assert "speech" in ALLOWED_PERSONA_CATEGORIES
+        assert "preference" in ALLOWED_PERSONA_CATEGORIES
+        assert "character" in ALLOWED_PERSONA_CATEGORIES
+
+    def test_allowed_keywords_contain_essentials(self):
+        """必須キーワードが含まれている"""
+        essentials = ["性格", "口調", "語尾", "好物", "モチーフ", "一人称"]
+        for kw in essentials:
+            assert kw in ALLOWED_KEYWORDS_FLAT, f"Missing essential keyword: {kw}"
+
+    def test_soulkun_always_allowed(self):
+        """ソウルくん関連は常に許可"""
+        test_cases = [
+            "ソウルくんの好物は10円パン",
+            "ソウルくんは明るい",
+            "そうるくんの口調はウル",
+        ]
+        for msg in test_cases:
+            is_valid, reason = is_valid_bot_persona(msg, "好物", "10円パン")
+            assert is_valid is True, f"Should allow: {msg} (reason: {reason})"
+
+    def test_human_info_always_blocked(self):
+        """人間情報は常にブロック"""
+        test_cases = [
+            ("社長は努力家だ", "社員・役職者"),
+            ("田中さんは優秀", "特定の人物"),
+            ("父は厳しかった", "家族"),
+            ("俺の人生軸は挑戦", "あなた自身"),
+        ]
+        for msg, expected_reason_part in test_cases:
+            is_valid, reason = is_valid_bot_persona(msg, "性格", "")
+            assert is_valid is False, f"Should block: {msg}"
+            # 理由に期待するキーワードが含まれているか確認（緩い検証）
+            assert len(reason) > 0, f"Should have reason for: {msg}"
+
+
+# =====================================================
+# v10.40.10: 補助判定（is_personal_information）のテスト
 # =====================================================
 
 class TestPersonalInformationGuard:

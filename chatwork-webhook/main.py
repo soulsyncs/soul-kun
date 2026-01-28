@@ -3724,11 +3724,49 @@ async def _brain_handle_forget_knowledge(params, room_id, account_id, sender_nam
 
 
 async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name, context):
+    """
+    知識一覧ハンドラー
+
+    v10.40.17: 「軸を確認」等の長期記憶クエリは long_term_memory から取得
+    """
     from lib.brain.models import HandlerResult
+    import re
     try:
+        # v10.40.17: 長期記憶クエリパターンを検出
+        original_message = ""
+        if context:
+            original_message = getattr(context, 'original_message', '') or ''
+            if not original_message and hasattr(context, 'to_dict'):
+                ctx_dict = context.to_dict()
+                original_message = ctx_dict.get('original_message', '')
+
+        long_term_query_patterns = [
+            r"軸を(確認|教えて|見せて)",
+            r"(俺|私|自分)の軸",
+            r"人生の軸",
+            r"価値観を(確認|教えて)",
+        ]
+
+        is_long_term_query = False
+        for pattern in long_term_query_patterns:
+            if re.search(pattern, original_message, re.IGNORECASE):
+                is_long_term_query = True
+                break
+
+        if is_long_term_query:
+            print(f"🔍 [list_knowledge] long_term_query detected, redirecting to long_term_memory")
+            result = await _handle_query_long_term_memory(
+                account_id=account_id,
+                sender_name=sender_name
+            )
+            if result.get("success"):
+                return HandlerResult(success=True, message=result.get("message", ""))
+            # 長期記憶がなければ従来処理にフォールバック
+
         result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "知識一覧を取得したウル🐺")
     except Exception as e:
+        print(f"❌ list_knowledge error: {e}")
         return HandlerResult(success=False, message=f"知識一覧でエラーが発生したウル🐺")
 
 

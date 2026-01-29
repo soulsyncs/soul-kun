@@ -647,11 +647,7 @@ DEADLINE_ALERT_DAYS = {
 # =====================================================
 
 
-# ChatWork API ヘッダー取得関数
-def get_chatwork_headers():
-    return {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
-
-HEADERS = None  # 遅延初期化用
+# v10.33.1: get_chatwork_headers(), HEADERS を削除（未使用）
 
 def get_connector():
     """グローバルConnectorを取得（接続リーク防止）"""
@@ -4509,11 +4505,9 @@ HANDLERS = {
     "handle_goal_status_check": handle_goal_status_check,
     "handle_goal_review": handle_goal_review,  # v10.44.0: 目標一覧・整理
     "handle_goal_consult": handle_goal_consult,  # v10.44.0: 目標相談
-    # v10.26.0: アナウンス機能
+    # v10.26.0: アナウンス機能（v10.33.1: ハンドラー必須化）
     "handle_announcement_request": lambda params, room_id, account_id, sender_name, context=None: (
-        _get_announcement_handler().handle_announcement_request(
-            params, room_id, account_id, sender_name, context
-        ) if _get_announcement_handler() else "🚫 アナウンス機能は現在利用できませんウル"
+        _get_announcement_handler().handle_announcement_request(params, room_id, account_id, sender_name, context)
     ),
 }
 
@@ -6395,28 +6389,7 @@ def get_direct_room(account_id):
         return None
 
 
-def notify_dm_not_available(person_name, account_id, tasks, action_type):
-    """
-    DMが送れない場合にバッファに追加（まとめ送信用）
-    
-    ★★★ v6.8.3: バッファ方式に変更（per-room制限回避）★★★
-    実際の送信はflush_dm_unavailable_notifications()で行う
-    
-    Args:
-        person_name: 対象者の名前
-        account_id: 対象者のaccount_id
-        tasks: 関連タスクのリスト
-        action_type: "督促" or "エスカレーション" or "期限変更質問"
-    """
-    global _dm_unavailable_buffer
-    
-    _dm_unavailable_buffer.append({
-        "person_name": person_name,
-        "account_id": account_id,
-        "tasks": tasks,
-        "action_type": action_type
-    })
-    print(f"📝 DM不可通知をバッファに追加: {person_name}さん（{action_type}）")
+# v10.33.1: notify_dm_not_available() を削除（未使用）
 
 
 def flush_dm_unavailable_notifications():

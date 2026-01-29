@@ -13,8 +13,14 @@ Cloud Schedulerから定期実行される。
 5. 目標達成: お祝いメッセージ
 6. 長期不在: 14日以上
 
+【CLAUDE.md鉄則1b準拠】
+v1.1.0: 脳経由でメッセージ生成するように改修
+- ProactiveMonitorは脳にメッセージ生成を依頼
+- 脳が記憶を参照し、状況を理解し、適切なメッセージを生成
+
 Author: Claude Opus 4.5
 Created: 2026-01-27
+Updated: 2026-01-29 (脳統合)
 """
 
 import asyncio
@@ -30,6 +36,7 @@ logger = logging.getLogger(__name__)
 # 環境変数
 USE_PROACTIVE_MONITOR = os.environ.get("USE_PROACTIVE_MONITOR", "false").lower() == "true"
 PROACTIVE_DRY_RUN = os.environ.get("PROACTIVE_DRY_RUN", "true").lower() == "true"
+USE_BRAIN_FOR_PROACTIVE = os.environ.get("USE_BRAIN_FOR_PROACTIVE", "true").lower() == "true"
 
 
 async def get_async_pool():
@@ -53,6 +60,51 @@ async def send_chatwork_message(room_id: str, message: str) -> bool:
         return False
 
 
+async def create_brain_for_proactive(pool):
+    """
+    Proactive Monitor用の脳を作成
+
+    CLAUDE.md鉄則1b準拠: 能動的出力も脳が生成
+    脳はメッセージ生成に必要な最小限の機能を持つ
+    """
+    if not USE_BRAIN_FOR_PROACTIVE:
+        logger.warning(
+            "[ProactiveMonitor] USE_BRAIN_FOR_PROACTIVE is disabled. "
+            "Using fallback templates (CLAUDE.md violation)."
+        )
+        return None
+
+    try:
+        from lib.brain.core import SoulkunBrain
+        from lib.brain.memory_access import BrainMemoryAccess
+
+        # 記憶層を作成
+        memory_access = BrainMemoryAccess(pool=pool)
+
+        # 脳を作成（最小限の設定）
+        brain = SoulkunBrain(
+            pool=pool,
+            org_id=None,  # 全組織対象
+            handlers={},  # Proactiveではハンドラー不要
+            capabilities={},  # Proactiveではcapabilities不要
+            get_ai_response_func=None,  # メッセージ生成にはLLM不要（テンプレートベース）
+            firestore_db=None,
+        )
+
+        # 記憶層を設定
+        brain.memory_access = memory_access
+
+        logger.info("[ProactiveMonitor] Brain created for proactive message generation")
+        return brain
+
+    except Exception as e:
+        logger.warning(
+            f"[ProactiveMonitor] Failed to create brain: {e}. "
+            "Using fallback templates."
+        )
+        return None
+
+
 async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
@@ -62,11 +114,15 @@ async def run_proactive_monitor():
         logger.error("[ProactiveMonitor] No database pool available")
         return {"status": "error", "message": "No database pool"}
 
-    # モニター作成
+    # CLAUDE.md鉄則1b: 脳を作成してメッセージ生成に使用
+    brain = await create_brain_for_proactive(pool)
+
+    # モニター作成（脳経由でメッセージ生成）
     monitor = create_proactive_monitor(
         pool=pool,
         send_message_func=send_chatwork_message,
         dry_run=PROACTIVE_DRY_RUN,
+        brain=brain,  # CLAUDE.md鉄則1b準拠
     )
 
     # 実行
@@ -86,6 +142,7 @@ async def run_proactive_monitor():
         "status": "success",
         "timestamp": datetime.now().isoformat(),
         "dry_run": PROACTIVE_DRY_RUN,
+        "brain_used": brain is not None,  # CLAUDE.md鉄則1b準拠状況
         "users_checked": total_users,
         "triggers_found": total_triggers,
         "actions_taken": total_actions,

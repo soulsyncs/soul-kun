@@ -252,6 +252,7 @@ class ProactiveMonitor:
         pool=None,
         send_message_func: Optional[Callable[..., Awaitable[bool]]] = None,
         dry_run: bool = False,
+        brain=None,  # CLAUDE.md鉄則1b: 脳経由でメッセージ生成
     ):
         """
         初期化
@@ -260,10 +261,12 @@ class ProactiveMonitor:
             pool: データベース接続プール
             send_message_func: メッセージ送信関数（ChatWork API）
             dry_run: Trueの場合、メッセージを送信せずログのみ
+            brain: SoulkunBrain インスタンス（脳経由でメッセージ生成）
         """
         self._pool = pool
         self._send_message_func = send_message_func
         self._dry_run = dry_run
+        self._brain = brain  # CLAUDE.md鉄則1b準拠
 
         # トリガーチェッカーの登録
         self._trigger_checkers: Dict[TriggerType, Callable] = {
@@ -797,9 +800,63 @@ class ProactiveMonitor:
         trigger: Trigger,
         user_ctx: UserContext,
     ) -> ProactiveAction:
-        """アクションを実行"""
-        # メッセージ生成
-        message = self._generate_message(trigger)
+        """
+        アクションを実行（CLAUDE.md鉄則1b準拠: 脳経由でメッセージ生成）
+
+        【処理フロー】
+        1. 脳が利用可能なら、脳にメッセージ生成を依頼
+        2. 脳が「送らない」と判断したらスキップ
+        3. 脳が生成したメッセージを送信
+        4. 脳が利用不可の場合のみ、フォールバック（テンプレート）を使用
+        """
+        message = None
+        brain_result = None
+
+        # CLAUDE.md鉄則1b: 脳経由でメッセージ生成
+        if self._brain:
+            try:
+                brain_result = await self._brain.generate_proactive_message(
+                    trigger_type=trigger.trigger_type.value,
+                    trigger_details=trigger.details,
+                    user_id=user_ctx.user_id,
+                    organization_id=user_ctx.organization_id,
+                    room_id=user_ctx.dm_room_id,
+                    account_id=user_ctx.chatwork_account_id,
+                )
+
+                # 脳が「送らない」と判断した場合
+                if not brain_result.should_send:
+                    logger.info(
+                        f"[Proactive] Brain decided not to send: {brain_result.reason}"
+                    )
+                    return ProactiveAction(
+                        message=ProactiveMessage(
+                            trigger=trigger,
+                            message_type=self._get_message_type(trigger.trigger_type),
+                            message="",
+                            room_id=user_ctx.dm_room_id,
+                            account_id=user_ctx.chatwork_account_id,
+                        ),
+                        success=True,
+                        error_message=f"Skipped by brain: {brain_result.reason}",
+                    )
+
+                # 脳が生成したメッセージを使用
+                message = brain_result.message
+                logger.info(f"[Proactive] Using brain-generated message")
+
+            except Exception as e:
+                logger.warning(f"[Proactive] Brain message generation failed: {e}")
+                # フォールバック: テンプレートを使用
+                message = None
+
+        # フォールバック: 脳が利用不可または失敗した場合
+        if not message:
+            logger.warning(
+                "[Proactive] Using fallback template (brain not available or failed). "
+                "This is a CLAUDE.md violation - brain should generate messages."
+            )
+            message = self._generate_message(trigger)
 
         proactive_msg = ProactiveMessage(
             trigger=trigger,
@@ -811,7 +868,8 @@ class ProactiveMonitor:
 
         # dry_runモードの場合はログのみ
         if self._dry_run:
-            logger.info(f"[Proactive][DRY_RUN] Would send: {message}")
+            brain_info = "(brain-generated)" if brain_result and brain_result.should_send else "(fallback)"
+            logger.info(f"[Proactive][DRY_RUN] Would send {brain_info}: {message}")
             return ProactiveAction(message=proactive_msg, success=True)
 
         # メッセージ送信
@@ -1006,6 +1064,7 @@ def create_proactive_monitor(
     pool=None,
     send_message_func: Optional[Callable[..., Awaitable[bool]]] = None,
     dry_run: bool = False,
+    brain=None,  # CLAUDE.md鉄則1b: 脳経由でメッセージ生成
 ) -> ProactiveMonitor:
     """
     ProactiveMonitorインスタンスを作成
@@ -1014,12 +1073,24 @@ def create_proactive_monitor(
         pool: データベース接続プール
         send_message_func: メッセージ送信関数
         dry_run: Trueの場合、メッセージを送信せずログのみ
+        brain: SoulkunBrain インスタンス（脳経由でメッセージ生成）
 
     Returns:
         ProactiveMonitorインスタンス
+
+    Note:
+        CLAUDE.md鉄則1b準拠: brainを渡さないとフォールバック（テンプレート）が
+        使用され、警告ログが出力される。本番運用時は必ずbrainを渡すこと。
     """
+    if not brain:
+        logger.warning(
+            "[Proactive] brain not provided. Will use fallback templates. "
+            "This violates CLAUDE.md rule 1b. Consider providing a brain instance."
+        )
+
     return ProactiveMonitor(
         pool=pool,
         send_message_func=send_message_func,
         dry_run=dry_run,
+        brain=brain,
     )

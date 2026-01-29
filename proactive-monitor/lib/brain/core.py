@@ -21,7 +21,9 @@ import asyncio
 import logging
 import time
 from datetime import datetime, timedelta
-from typing import Optional, Dict, Any, List, Callable, Tuple
+from typing import Optional, Dict, Any, List, Callable, Tuple, Union
+
+from sqlalchemy import text
 
 from lib.brain.models import (
     BrainContext,
@@ -38,6 +40,9 @@ from lib.brain.models import (
     # Phase 2D: CEO Learning
     CEOTeachingContext,
     CEOTeaching,
+    # Phase 2K: Proactive Message（鉄則1b準拠）
+    ProactiveMessageResult,
+    ProactiveMessageTone,
 )
 
 from lib.brain.constants import (
@@ -80,6 +85,9 @@ from lib.brain.understanding import BrainUnderstanding
 from lib.brain.decision import BrainDecision
 from lib.brain.execution import BrainExecution
 from lib.brain.learning import BrainLearning
+from lib.brain.memory_manager import BrainMemoryManager
+from lib.brain.session_orchestrator import SessionOrchestrator
+from lib.brain.authorization_gate import AuthorizationGate, AuthorizationResult
 
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
 from lib.brain.chain_of_thought import ChainOfThought, create_chain_of_thought
@@ -90,8 +98,49 @@ from lib.brain.ceo_learning import (
     CEOLearningService,
     CEO_ACCOUNT_IDS,
 )
-from lib.brain.guardian import GuardianService
+from lib.brain.guardian import (
+    GuardianService,
+    GuardianActionResult,
+    GuardianActionType,
+)
+
+# v10.42.0 P3: Value Authority Layer
+from lib.brain.value_authority import (
+    ValueAuthority,
+    ValueAuthorityResult,
+    ValueDecision,
+    create_value_authority,
+)
+
+# v10.43.0 P4: Memory Authority Layer
+from lib.brain.memory_authority import (
+    MemoryAuthority,
+    MemoryAuthorityResult,
+    MemoryDecision,
+    create_memory_authority,
+)
+
+# v10.43.1 P4: Memory Authority Observation Logger
+from lib.brain.memory_authority_logger import (
+    get_memory_authority_logger,
+)
 from lib.brain.ceo_teaching_repository import CEOTeachingRepository
+
+# Phase 2L: ExecutionExcellence（実行力強化）
+from lib.brain.execution_excellence import (
+    ExecutionExcellence,
+    create_execution_excellence,
+    is_execution_excellence_enabled,
+    FEATURE_FLAG_EXECUTION_EXCELLENCE,
+)
+from lib.feature_flags import is_execution_excellence_enabled as ff_execution_excellence_enabled
+
+# v10.46.0: 観測機能（Observability Layer）
+from lib.brain.observability import (
+    BrainObservability,
+    ContextType,
+    create_observability,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -184,7 +233,7 @@ class SoulkunBrain:
             enable_learning=True,
         )
 
-        # Phase 2D: CEO Learning層の初期化
+        # Phase 2D: CEO Learning層の初期化（memory_manager初期化後に参照）
         self.ceo_teaching_repo = CEOTeachingRepository(
             pool=pool,
             organization_id=org_id,
@@ -200,6 +249,26 @@ class SoulkunBrain:
             llm_caller=get_ai_response_func,
         )
 
+        # 記憶マネージャーの初期化（学習・CEO Learning統括）
+        self.memory_manager = BrainMemoryManager(
+            learning=self.learning,
+            ceo_learning=self.ceo_learning,
+            organization_id=org_id,
+        )
+
+        # セッションオーケストレーターの初期化（マルチステップセッション管理）
+        # 注: _understand, _decide, _execute等のメソッドは後で定義されるが、
+        # Pythonでは呼び出し時に解決されるので問題なし
+        self.session_orchestrator = SessionOrchestrator(
+            handlers=handlers,
+            state_manager=self.state_manager,
+            understanding_func=self._understand,
+            decision_func=self._decide,
+            execution_func=self._execute,
+            is_cancel_func=self._is_cancel_request,
+            elapsed_ms_func=self._elapsed_ms,
+        )
+
         # Ultimate Brain - Phase 1
         # 思考連鎖エンジン
         self.chain_of_thought = ChainOfThought(llm_client=None)
@@ -211,12 +280,31 @@ class SoulkunBrain:
         self.use_chain_of_thought = True  # 思考連鎖を使用
         self.use_self_critique = True      # 自己批判を使用
 
+        # Phase 2L: ExecutionExcellence（実行力強化）
+        self.execution_excellence: Optional[ExecutionExcellence] = None
+        self._init_execution_excellence()
+
+        # 認可ゲートの初期化（権限チェック統括）
+        self.authorization_gate = AuthorizationGate(
+            guardian=self.guardian,
+            execution_excellence=self.execution_excellence,
+            organization_id=org_id,
+        )
+
+        # v10.46.0: 観測機能（Observability Layer）
+        self.observability = create_observability(
+            org_id=org_id,
+            enable_cloud_logging=True,
+            enable_persistence=False,  # 将来的にTrue
+        )
+
         # 内部状態
         self._initialized = False
 
         logger.info(f"SoulkunBrain initialized for org_id={org_id}, "
                    f"chain_of_thought={self.use_chain_of_thought}, "
-                   f"self_critique={self.use_self_critique}")
+                   f"self_critique={self.use_self_critique}, "
+                   f"execution_excellence={self.execution_excellence is not None}")
 
     # =========================================================================
     # メインエントリーポイント
@@ -262,13 +350,17 @@ class SoulkunBrain:
 
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
-            if self._is_ceo_user(account_id):
+            if self.memory_manager.is_ceo_user(account_id):
                 asyncio.create_task(
-                    self._process_ceo_message_safely(message, room_id, account_id, sender_name)
+                    self.memory_manager.process_ceo_message_safely(
+                        message, room_id, account_id, sender_name
+                    )
                 )
 
             # 関連するCEO教えをコンテキストに追加
-            ceo_context = await self._get_ceo_teachings_context(message, account_id)
+            ceo_context = await self.memory_manager.get_ceo_teachings_context(
+                message, account_id
+            )
             if ceo_context:
                 context.ceo_teachings = ceo_context
 
@@ -287,9 +379,9 @@ class SoulkunBrain:
                     total_time_ms=self._elapsed_ms(start_time),
                 )
 
-            # 2.2 セッション中なら、そのフローを継続
+            # 2.2 セッション中なら、そのフローを継続（session_orchestratorに委譲）
             if current_state and current_state.is_active:
-                return await self._continue_session(
+                return await self.session_orchestrator.continue_session(
                     message=message,
                     state=current_state,
                     context=context,
@@ -322,6 +414,15 @@ class SoulkunBrain:
 
             # 4. 判断層: アクションを決定
             decision = await self._decide(understanding, context)
+
+            # v10.46.0: 観測ログ - 意図判定（脳が統一管理）
+            self.observability.log_intent(
+                intent=understanding.intent,
+                route=decision.action,
+                confidence=decision.confidence,
+                account_id=account_id,
+                raw_message=message,
+            )
 
             # 4.1 確認が必要？
             if decision.needs_confirmation:
@@ -391,9 +492,18 @@ class SoulkunBrain:
                     update_state=result.update_state,
                 )
 
+            # v10.46.0: 観測ログ - 実行結果（脳が統一管理）
+            self.observability.log_execution(
+                action=decision.action,
+                success=result.success,
+                account_id=account_id,
+                execution_time_ms=self._elapsed_ms(start_time),
+                error_code=result.data.get("error_code") if result.data and not result.success else None,
+            )
+
             # 6. 記憶更新（非同期で実行、エラーは無視）
             asyncio.create_task(
-                self._update_memory_safely(
+                self.memory_manager.update_memory_safely(
                     message, result, context, room_id, account_id, sender_name
                 )
             )
@@ -401,7 +511,7 @@ class SoulkunBrain:
             # 7. 判断ログ記録（非同期で実行）
             if SAVE_DECISION_LOGS:
                 asyncio.create_task(
-                    self._log_decision_safely(
+                    self.memory_manager.log_decision_safely(
                         message, understanding, decision, result, room_id, account_id
                     )
                 )
@@ -463,6 +573,280 @@ class SoulkunBrain:
                 debug_info={"error": str(e)},
                 total_time_ms=self._elapsed_ms(start_time),
             )
+
+    # =========================================================================
+    # 能動的メッセージ生成（CLAUDE.md鉄則1b準拠）
+    # =========================================================================
+
+    async def generate_proactive_message(
+        self,
+        trigger_type: str,
+        trigger_details: Dict[str, Any],
+        user_id: str,
+        organization_id: str,
+        room_id: Optional[str] = None,
+        account_id: Optional[str] = None,
+    ) -> "ProactiveMessageResult":
+        """
+        能動的メッセージを生成する（脳経由）
+
+        CLAUDE.md鉄則1b: 能動的出力も脳が生成
+        システムが自発的に送るメッセージも脳が判断・生成する。
+
+        【処理フロー】
+        1. 記憶層: ユーザーのコンテキスト取得
+           - 過去の会話履歴
+           - ユーザーの好み・性格
+           - 最近の感情傾向
+
+        2. 理解層: トリガー状況の理解
+           - なぜこのトリガーが発火したか
+           - ユーザーにとってどういう状況か
+
+        3. 判断層: 送信判断
+           - 今このタイミングで送るべきか
+           - どのようなトーンで送るべきか
+
+        4. 生成層: メッセージ生成
+           - ユーザーの好みに合わせた言葉遣い
+           - 状況に応じた内容
+           - ソウルくんらしい表現
+
+        Args:
+            trigger_type: トリガータイプ（goal_abandoned, task_overload等）
+            trigger_details: トリガーの詳細情報
+            user_id: ユーザーID
+            organization_id: 組織ID
+            room_id: ChatWorkルームID（オプション）
+            account_id: ChatWorkアカウントID（オプション）
+
+        Returns:
+            ProactiveMessageResult: 生成結果
+        """
+        from lib.brain.models import ProactiveMessageResult, ProactiveMessageTone
+
+        try:
+            logger.info(
+                f"🧠 Brain generating proactive message: "
+                f"trigger={trigger_type}, user={user_id}"
+            )
+
+            # 1. 記憶層: ユーザーのコンテキスト取得
+            context_used = {}
+
+            # ユーザー情報を取得
+            user_info = None
+            try:
+                if self.memory_access:
+                    user_info = await self.memory_access.get_person_info(
+                        organization_id=organization_id,
+                        name=None,  # user_idで取得
+                        user_id=user_id,
+                    )
+                    if user_info:
+                        context_used["user_name"] = user_info.name
+                        context_used["user_department"] = user_info.department
+            except Exception as e:
+                logger.warning(f"Failed to get user info: {e}")
+
+            # 最近の会話履歴を取得
+            recent_conversations = []
+            try:
+                if self.memory_access and room_id:
+                    recent_conversations = await self.memory_access.get_conversation_history(
+                        room_id=room_id,
+                        organization_id=organization_id,
+                        limit=5,
+                    )
+                    context_used["recent_conversations_count"] = len(recent_conversations)
+            except Exception as e:
+                logger.warning(f"Failed to get conversation history: {e}")
+
+            # 2. 理解層: トリガー状況の理解
+            trigger_context = self._understand_trigger_context(
+                trigger_type=trigger_type,
+                trigger_details=trigger_details,
+                user_info=user_info,
+            )
+            context_used["trigger_context"] = trigger_context
+
+            # 3. 判断層: 送信判断
+            should_send, send_reason, tone = self._decide_proactive_action(
+                trigger_type=trigger_type,
+                trigger_details=trigger_details,
+                recent_conversations=recent_conversations,
+                user_info=user_info,
+            )
+
+            if not should_send:
+                logger.info(f"🧠 Brain decided not to send: {send_reason}")
+                return ProactiveMessageResult(
+                    should_send=False,
+                    reason=send_reason,
+                    confidence=0.8,
+                    context_used=context_used,
+                )
+
+            # 4. 生成層: メッセージ生成
+            message = await self._generate_proactive_message_content(
+                trigger_type=trigger_type,
+                trigger_details=trigger_details,
+                tone=tone,
+                user_info=user_info,
+                recent_conversations=recent_conversations,
+            )
+
+            logger.info(f"🧠 Brain generated proactive message: {message[:50]}...")
+
+            return ProactiveMessageResult(
+                should_send=True,
+                message=message,
+                reason=send_reason,
+                confidence=0.85,
+                tone=tone,
+                context_used=context_used,
+            )
+
+        except Exception as e:
+            logger.error(f"Error generating proactive message: {e}")
+            return ProactiveMessageResult(
+                should_send=False,
+                reason=f"Error: {str(e)}",
+                confidence=0.0,
+                debug_info={"error": str(e)},
+            )
+
+    def _understand_trigger_context(
+        self,
+        trigger_type: str,
+        trigger_details: Dict[str, Any],
+        user_info: Optional[Any] = None,
+    ) -> str:
+        """トリガーの状況を理解する"""
+        trigger_contexts = {
+            "goal_abandoned": "目標が{days}日間更新されていない。進捗確認が必要。",
+            "task_overload": "タスクが{count}件溜まっている。サポートが必要かもしれない。",
+            "emotion_decline": "ネガティブな感情が続いている。気遣いが必要。",
+            "goal_achieved": "目標を達成した。お祝いと次のステップへの励まし。",
+            "task_completed_streak": "タスクを{count}件連続で完了。励ましと称賛。",
+            "long_absence": "{days}日間活動がない。久しぶりの声かけ。",
+        }
+
+        template = trigger_contexts.get(trigger_type, "状況を確認する必要がある。")
+        try:
+            return template.format(**trigger_details)
+        except KeyError:
+            return template
+
+    def _decide_proactive_action(
+        self,
+        trigger_type: str,
+        trigger_details: Dict[str, Any],
+        recent_conversations: List[Any],
+        user_info: Optional[Any] = None,
+    ) -> tuple:
+        """送信判断を行う"""
+        from lib.brain.models import ProactiveMessageTone
+
+        # トリガータイプごとのデフォルト設定
+        trigger_configs = {
+            "goal_abandoned": (True, "目標進捗の確認", ProactiveMessageTone.SUPPORTIVE),
+            "task_overload": (True, "タスク過多のサポート", ProactiveMessageTone.SUPPORTIVE),
+            "emotion_decline": (True, "感情的なサポート", ProactiveMessageTone.CONCERNED),
+            "goal_achieved": (True, "目標達成のお祝い", ProactiveMessageTone.CELEBRATORY),
+            "task_completed_streak": (True, "連続完了の称賛", ProactiveMessageTone.ENCOURAGING),
+            "long_absence": (True, "久しぶりの挨拶", ProactiveMessageTone.FRIENDLY),
+        }
+
+        config = trigger_configs.get(
+            trigger_type,
+            (True, "一般的なフォローアップ", ProactiveMessageTone.FRIENDLY)
+        )
+
+        # 最近の会話がネガティブな場合は慎重に
+        if recent_conversations:
+            # TODO: 会話内容を分析して判断を調整
+            pass
+
+        return config
+
+    async def _generate_proactive_message_content(
+        self,
+        trigger_type: str,
+        trigger_details: Dict[str, Any],
+        tone: "ProactiveMessageTone",
+        user_info: Optional[Any] = None,
+        recent_conversations: List[Any] = None,
+    ) -> str:
+        """メッセージ内容を生成する"""
+        from lib.brain.models import ProactiveMessageTone
+
+        # ユーザー名を取得
+        user_name = ""
+        if user_info and hasattr(user_info, "name"):
+            user_name = f"{user_info.name}さん、"
+
+        # トリガータイプごとのメッセージテンプレート
+        # ソウルくんのキャラクター（語尾「ウル」、絵文字🐺）を維持
+        message_templates = {
+            "goal_abandoned": {
+                ProactiveMessageTone.SUPPORTIVE: [
+                    f"{user_name}目標の進捗はどうですかウル？🐺 何か手伝えることがあれば言ってくださいね",
+                    f"{user_name}目標について、最近どんな感じですかウル？🐺 一緒に確認してみましょうか",
+                ],
+                ProactiveMessageTone.FRIENDLY: [
+                    f"{user_name}目標のこと、ちょっと気になってましたウル🐺 調子はどうですか？",
+                ],
+            },
+            "task_overload": {
+                ProactiveMessageTone.SUPPORTIVE: [
+                    f"{user_name}タスクがたくさんあるみたいですねウル🐺 優先順位を一緒に整理しましょうか？",
+                    f"{user_name}お仕事が忙しそうですねウル🐺 何かお手伝いできることはありますか？",
+                ],
+            },
+            "emotion_decline": {
+                ProactiveMessageTone.CONCERNED: [
+                    f"{user_name}最近どうですかウル？🐺 何か気になることがあれば聞きますよ",
+                    f"{user_name}少し心配してましたウル🐺 大丈夫ですか？無理しないでくださいね",
+                ],
+            },
+            "goal_achieved": {
+                ProactiveMessageTone.CELEBRATORY: [
+                    f"{user_name}おめでとうございますウル！🎉🐺 目標達成、すごいですね！次はどんなことに挑戦しますか？",
+                    f"{user_name}やりましたねウル！🎉🐺 素晴らしい成果です！この調子で頑張りましょう！",
+                ],
+            },
+            "task_completed_streak": {
+                ProactiveMessageTone.ENCOURAGING: [
+                    f"{user_name}タスクをどんどん片付けてますねウル！🎉🐺 すごい調子です！",
+                    f"{user_name}いい感じでタスクが進んでますねウル！✨🐺 この調子です！",
+                ],
+            },
+            "long_absence": {
+                ProactiveMessageTone.FRIENDLY: [
+                    f"{user_name}お久しぶりですウル！🐺 最近どうしてましたか？",
+                    f"{user_name}しばらくでしたねウル！🐺 元気にしてましたか？",
+                ],
+            },
+        }
+
+        # テンプレートを取得
+        templates = message_templates.get(trigger_type, {})
+        tone_templates = templates.get(tone, templates.get(ProactiveMessageTone.FRIENDLY, []))
+
+        if not tone_templates:
+            # フォールバック
+            return f"{user_name}何かお手伝いできることはありますかウル？🐺"
+
+        # ランダムに選択
+        import random
+        template = random.choice(tone_templates)
+
+        # プレースホルダを置換
+        try:
+            return template.format(**trigger_details)
+        except KeyError:
+            return template
 
     # =========================================================================
     # 記憶層（BrainMemoryAccess経由）
@@ -670,11 +1054,18 @@ class SoulkunBrain:
         user_id: str,
     ) -> Optional[ConversationState]:
         """
-        現在の状態を取得
+        現在の状態を取得（v10.40.1: 神経接続修理 - brain_conversation_statesのみ参照）
+
+        v10.40.1: goal_setting_sessionsへのフォールバックを削除
+        - goal_setting.py が brain_conversation_states を使用するように書き換えられたため
+        - 全ての状態は brain_conversation_states で一元管理
+
+        v10.39.3: brain_conversation_states だけでなく goal_setting_sessions も確認
+        - 脳がバイパスなしで全てを処理するため、両方のテーブルをチェック
 
         タイムアウトしている場合は自動的にクリアしてNoneを返す。
-        BrainStateManagerに委譲。
         """
+        # brain_conversation_statesのみをチェック（goal_setting_sessionsは参照しない）
         return await self.state_manager.get_current_state(room_id, user_id)
 
     async def _transition_to_state(
@@ -737,178 +1128,6 @@ class SoulkunBrain:
         )
 
     # =========================================================================
-    # セッション継続処理
-    # =========================================================================
-
-    async def _continue_session(
-        self,
-        message: str,
-        state: ConversationState,
-        context: BrainContext,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        start_time: float,
-    ) -> BrainResponse:
-        """
-        マルチステップセッションを継続
-
-        目標設定、アナウンス確認、確認待ち等のセッション中の処理。
-        """
-        logger.info(
-            f"Continuing session: type={state.state_type.value}, "
-            f"step={state.state_step}"
-        )
-
-        if state.state_type == StateType.GOAL_SETTING:
-            return await self._continue_goal_setting(
-                message, state, context, room_id, account_id, sender_name, start_time
-            )
-        elif state.state_type == StateType.ANNOUNCEMENT:
-            return await self._continue_announcement(
-                message, state, context, room_id, account_id, sender_name, start_time
-            )
-        elif state.state_type == StateType.CONFIRMATION:
-            return await self._handle_confirmation_response(
-                message, state, context, room_id, account_id, sender_name, start_time
-            )
-        elif state.state_type == StateType.TASK_PENDING:
-            return await self._continue_task_pending(
-                message, state, context, room_id, account_id, sender_name, start_time
-            )
-        else:
-            # 未知の状態タイプの場合は状態をクリアして通常処理
-            await self._clear_state(room_id, account_id, "unknown_state_type")
-            # 再帰的に呼び出し（通常処理に戻る）
-            return await self.process_message(message, room_id, account_id, sender_name)
-
-    async def _continue_goal_setting(
-        self,
-        message: str,
-        state: ConversationState,
-        context: BrainContext,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        start_time: float,
-    ) -> BrainResponse:
-        """目標設定セッションを継続"""
-        # TODO: 既存のGoalSettingHandlerと連携
-        # 現在は仮実装
-        return BrainResponse(
-            message="目標設定を続けるウル🐺",
-            action_taken="continue_goal_setting",
-            total_time_ms=self._elapsed_ms(start_time),
-        )
-
-    async def _continue_announcement(
-        self,
-        message: str,
-        state: ConversationState,
-        context: BrainContext,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        start_time: float,
-    ) -> BrainResponse:
-        """アナウンス確認を継続"""
-        # TODO: 既存のAnnouncementHandlerと連携
-        # 現在は仮実装
-        return BrainResponse(
-            message="アナウンスの確認を続けるウル🐺",
-            action_taken="continue_announcement",
-            total_time_ms=self._elapsed_ms(start_time),
-        )
-
-    async def _handle_confirmation_response(
-        self,
-        message: str,
-        state: ConversationState,
-        context: BrainContext,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        start_time: float,
-    ) -> BrainResponse:
-        """確認への応答を処理"""
-        pending_action = state.state_data.get("pending_action")
-        pending_params = state.state_data.get("pending_params", {})
-        options = state.state_data.get("confirmation_options", [])
-
-        # 応答を解析
-        selected_option = self._parse_confirmation_response(message, options)
-
-        if selected_option is None:
-            # 理解できない応答
-            return BrainResponse(
-                message="番号で教えてほしいウル🐺",
-                action_taken="confirmation_retry",
-                awaiting_confirmation=True,
-                total_time_ms=self._elapsed_ms(start_time),
-            )
-
-        if selected_option == "cancel":
-            # キャンセル
-            await self._clear_state(room_id, account_id, "user_cancel_confirmation")
-            return BrainResponse(
-                message=CANCEL_MESSAGE,
-                action_taken="cancel_confirmation",
-                state_changed=True,
-                new_state="normal",
-                total_time_ms=self._elapsed_ms(start_time),
-            )
-
-        # 確認OK → アクションを実行
-        await self._clear_state(room_id, account_id, "confirmation_accepted")
-
-        # 選択されたオプションに基づいてパラメータを更新
-        if isinstance(selected_option, int) and selected_option < len(options):
-            pending_params["confirmed_option"] = options[selected_option]
-
-        decision = DecisionResult(
-            action=pending_action,
-            params=pending_params,
-            confidence=1.0,  # 確認済みなので確信度は1.0
-        )
-
-        result = await self._execute(
-            decision=decision,
-            context=context,
-            room_id=room_id,
-            account_id=account_id,
-            sender_name=sender_name,
-        )
-
-        return BrainResponse(
-            message=result.message,
-            action_taken=pending_action,
-            action_params=pending_params,
-            success=result.success,
-            suggestions=result.suggestions,
-            state_changed=True,
-            new_state="normal",
-            total_time_ms=self._elapsed_ms(start_time),
-        )
-
-    async def _continue_task_pending(
-        self,
-        message: str,
-        state: ConversationState,
-        context: BrainContext,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-        start_time: float,
-    ) -> BrainResponse:
-        """タスク作成待ち状態を継続"""
-        # TODO: 既存のhandle_pending_task_followup()と連携
-        return BrainResponse(
-            message="タスクの詳細を教えてほしいウル🐺",
-            action_taken="continue_task_pending",
-            total_time_ms=self._elapsed_ms(start_time),
-        )
-
-    # =========================================================================
     # 理解層
     # =========================================================================
 
@@ -968,6 +1187,35 @@ class SoulkunBrain:
         return await self.decision.decide(understanding, context)
 
     # =========================================================================
+    # Phase 2L: ExecutionExcellence初期化
+    # =========================================================================
+
+    def _init_execution_excellence(self) -> None:
+        """
+        ExecutionExcellence（実行力強化）を初期化
+
+        Phase 2L: 複合タスクの自動分解・計画・実行
+
+        Feature Flag `ENABLE_EXECUTION_EXCELLENCE` が有効な場合のみ初期化。
+        """
+        if not ff_execution_excellence_enabled():
+            logger.info("ExecutionExcellence is disabled by feature flag")
+            return
+
+        try:
+            self.execution_excellence = create_execution_excellence(
+                handlers=self.handlers,
+                capabilities=self.capabilities,
+                pool=self.pool,
+                org_id=self.org_id,
+                llm_client=self.get_ai_response,
+            )
+            logger.info("ExecutionExcellence initialized successfully")
+        except Exception as e:
+            logger.warning(f"Failed to initialize ExecutionExcellence: {e}")
+            self.execution_excellence = None
+
+    # =========================================================================
     # 実行層
     # =========================================================================
 
@@ -981,14 +1229,37 @@ class SoulkunBrain:
     ) -> HandlerResult:
         """
         BrainExecutionクラスに委譲。
-        v10.28.6: 実行層に強化（Phase F完了）
+        v10.47.0: authorization_gateに権限チェックを統合
 
         判断層からの指令に基づいてハンドラーを呼び出し、結果を統合する。
-        - 5ステップ実行フロー（取得→検証→実行→統合→提案）
-        - リトライ付き実行（最大3回）
-        - タイムアウト処理（30秒）
-        - 先読み提案生成
         """
+        # =================================================================
+        # 権限チェック（authorization_gateに委譲）
+        # =================================================================
+        auth_result = await self.authorization_gate.evaluate(
+            decision=decision,
+            context=context,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+        )
+
+        # ブロック/確認が必要な場合は早期リターン
+        if auth_result.blocked and auth_result.response:
+            return auth_result.response
+
+        # ExecutionExcellenceが使用された場合
+        if auth_result.execution_excellence_used and auth_result.execution_excellence_result:
+            ee_result = auth_result.execution_excellence_result
+            return HandlerResult(
+                success=ee_result.success,
+                message=ee_result.message,
+                suggestions=getattr(ee_result, 'suggestions', None),
+            )
+
+        # =================================================================
+        # 従来の実行フロー
+        # =================================================================
         result = await self.execution.execute(
             decision=decision,
             context=context,
@@ -1066,192 +1337,63 @@ class SoulkunBrain:
                 refinement_time_ms=0,
             )
 
-    def _parse_confirmation_response(
-        self,
-        message: str,
-        options: List[str],
-    ) -> Optional[Any]:
-        """確認への応答を解析"""
-        normalized = message.strip().lower()
-
-        # キャンセルキーワード
-        if self._is_cancel_request(message):
-            return "cancel"
-
-        # 数字で回答
-        try:
-            num = int(normalized)
-            if 1 <= num <= len(options):
-                return num - 1  # 0-indexed
-        except ValueError:
-            pass
-
-        # キーワードで回答
-        positive_keywords = ["はい", "yes", "ok", "オーケー", "いいよ", "お願い", "うん"]
-        if any(kw in normalized for kw in positive_keywords):
-            return 0  # 最初の選択肢
-
-        negative_keywords = ["いいえ", "no", "やめ", "違う", "ちがう"]
-        if any(kw in normalized for kw in negative_keywords):
-            return "cancel"
-
-        return None
-
     def _elapsed_ms(self, start_time: float) -> int:
         """経過時間をミリ秒で取得"""
         return int((time.time() - start_time) * 1000)
 
-    async def _update_memory_safely(
+    def _parse_confirmation_response(
         self,
         message: str,
-        result: HandlerResult,
+        options: List[str],
+    ) -> Optional[Union[int, str]]:
+        """
+        確認応答をパースする（session_orchestratorへの委譲）
+
+        Args:
+            message: ユーザーの応答メッセージ
+            options: 選択肢リスト
+
+        Returns:
+            int: 選択されたオプションのインデックス（0始まり）
+            "cancel": キャンセル
+            None: 解析不能
+        """
+        return self.session_orchestrator._parse_confirmation_response(message, options)
+
+    async def _handle_confirmation_response(
+        self,
+        message: str,
+        state: ConversationState,
         context: BrainContext,
         room_id: str,
         account_id: str,
         sender_name: str,
-    ) -> None:
+        start_time: float,
+    ) -> BrainResponse:
         """
-        BrainLearningクラスに委譲。
-        v10.28.7: 学習層に強化（Phase G完了）
-
-        記憶を安全に更新（エラーを無視）
-        """
-        try:
-            await self.learning.update_memory(
-                message=message,
-                result=result,
-                context=context,
-                room_id=room_id,
-                account_id=account_id,
-                sender_name=sender_name,
-            )
-        except Exception as e:
-            logger.warning(f"Error updating memory: {e}")
-
-    async def _log_decision_safely(
-        self,
-        message: str,
-        understanding: UnderstandingResult,
-        decision: DecisionResult,
-        result: HandlerResult,
-        room_id: str,
-        account_id: str,
-        understanding_time_ms: int = 0,
-        execution_time_ms: int = 0,
-        total_time_ms: int = 0,
-    ) -> None:
-        """
-        BrainLearningクラスに委譲。
-        v10.28.7: 学習層に強化（Phase G完了）
-
-        判断ログを安全に記録（エラーを無視）
-        """
-        try:
-            await self.learning.log_decision(
-                message=message,
-                understanding=understanding,
-                decision=decision,
-                result=result,
-                room_id=room_id,
-                account_id=account_id,
-                understanding_time_ms=understanding_time_ms,
-                execution_time_ms=execution_time_ms,
-                total_time_ms=total_time_ms,
-            )
-        except Exception as e:
-            logger.warning(f"Error logging decision: {e}")
-
-    # =========================================================================
-    # Phase 2D: CEO Learning層
-    # =========================================================================
-
-    def _is_ceo_user(self, account_id: str) -> bool:
-        """
-        CEOユーザーかどうかを判定
+        確認への応答を処理（session_orchestratorへの委譲）
 
         Args:
-            account_id: ユーザーのアカウントID
+            message: ユーザーの応答メッセージ
+            state: 現在の会話状態
+            context: コンテキスト情報
+            room_id: ルームID
+            account_id: アカウントID
+            sender_name: 送信者名
+            start_time: 処理開始時刻
 
         Returns:
-            bool: CEOユーザーならTrue
+            BrainResponse: 処理結果
         """
-        return account_id in CEO_ACCOUNT_IDS
-
-    async def _process_ceo_message_safely(
-        self,
-        message: str,
-        room_id: str,
-        account_id: str,
-        sender_name: str,
-    ) -> None:
-        """
-        CEOメッセージから教えを抽出（エラーを無視）
-
-        非同期で実行され、メイン処理をブロックしない。
-        抽出された教えはCEOLearningServiceで処理・保存される。
-
-        Args:
-            message: CEOのメッセージ
-            room_id: ChatWorkルームID
-            account_id: CEOのアカウントID
-            sender_name: CEOの名前
-        """
-        try:
-            logger.info(f"🎓 Processing CEO message from {sender_name}")
-
-            # CEOLearningServiceで教えを抽出・保存
-            result = await self.ceo_learning.process_ceo_message(
-                message=message,
-                room_id=room_id,
-                account_id=account_id,
-            )
-
-            if result.success and result.teachings_saved > 0:
-                logger.info(
-                    f"📚 Saved {result.teachings_saved} teachings from CEO message"
-                )
-            elif result.teachings_extracted == 0:
-                logger.debug("No teachings detected in CEO message")
-
-        except Exception as e:
-            logger.warning(f"Error processing CEO message: {e}")
-
-    async def _get_ceo_teachings_context(
-        self,
-        message: str,
-        account_id: Optional[str] = None,
-    ) -> Optional[CEOTeachingContext]:
-        """
-        関連するCEO教えをコンテキストに追加
-
-        現在のメッセージに関連する教えを取得し、
-        CEOTeachingContextとして返す。
-
-        Args:
-            message: 現在のメッセージ
-            account_id: ユーザーのアカウントID（CEOかどうかの判定用）
-
-        Returns:
-            Optional[CEOTeachingContext]: 関連するCEO教えのコンテキスト
-        """
-        try:
-            # CEOLearningServiceのget_ceo_teaching_contextを使用
-            is_ceo = self._is_ceo_user(account_id) if account_id else False
-
-            ceo_context = self.ceo_learning.get_ceo_teaching_context(
-                query=message,
-                is_ceo=is_ceo,
-            )
-
-            # 関連する教えがなければNoneを返す
-            if not ceo_context.relevant_teachings:
-                return None
-
-            return ceo_context
-
-        except Exception as e:
-            logger.warning(f"Error getting CEO teachings context: {e}")
-            return None
+        return await self.session_orchestrator._handle_confirmation_response(
+            message=message,
+            state=state,
+            context=context,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            start_time=start_time,
+        )
 
 
 # =============================================================================

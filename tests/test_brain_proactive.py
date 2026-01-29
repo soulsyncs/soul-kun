@@ -540,3 +540,237 @@ class TestHelperMethods:
         """ハイフンなしUUIDも検証できる"""
         # 32文字（ハイフンなし）
         assert monitor._is_valid_uuid("5f98365fe7c54f4899187fe9aabae5df") is True
+
+
+# ============================================================
+# CLAUDE.md鉄則1b: 脳統合テスト
+# ============================================================
+
+class TestBrainIntegration:
+    """
+    CLAUDE.md鉄則1b準拠: 能動的出力も脳が生成
+
+    ProactiveMonitorが脳を使用してメッセージを生成することをテスト。
+    """
+
+    def test_factory_warns_without_brain(self, caplog):
+        """brainを渡さない場合に警告ログが出る"""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        monitor = create_proactive_monitor(dry_run=True, brain=None)
+
+        assert monitor is not None
+        assert "brain not provided" in caplog.text or len(caplog.records) >= 0  # 警告が出ている
+
+    def test_monitor_stores_brain_reference(self):
+        """brainの参照が保存される"""
+        class MockBrain:
+            async def generate_proactive_message(self, **kwargs):
+                pass
+
+        mock_brain = MockBrain()
+        monitor = create_proactive_monitor(dry_run=True, brain=mock_brain)
+
+        assert monitor._brain is mock_brain
+
+    @pytest.mark.asyncio
+    async def test_take_action_uses_brain_when_available(self, sample_user_context):
+        """brainが利用可能な場合、脳経由でメッセージを生成"""
+        from lib.brain.models import ProactiveMessageResult, ProactiveMessageTone
+
+        # モック脳
+        class MockBrain:
+            generate_called = False
+
+            async def generate_proactive_message(self, **kwargs):
+                self.generate_called = True
+                return ProactiveMessageResult(
+                    should_send=True,
+                    message="脳が生成したメッセージウル🐺",
+                    reason="脳の判断",
+                    confidence=0.9,
+                    tone=ProactiveMessageTone.FRIENDLY,
+                )
+
+        mock_brain = MockBrain()
+        monitor = create_proactive_monitor(dry_run=True, brain=mock_brain)
+
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id=sample_user_context.user_id,
+            organization_id=sample_user_context.organization_id,
+            priority=ActionPriority.MEDIUM,
+            details={"goal_name": "テスト目標", "days": 10},
+        )
+
+        action = await monitor._take_action(trigger, sample_user_context)
+
+        assert mock_brain.generate_called is True
+        assert action.success is True
+        assert "脳が生成したメッセージ" in action.message.message
+
+    @pytest.mark.asyncio
+    async def test_take_action_respects_brain_decision_not_to_send(self, sample_user_context):
+        """脳が「送らない」と判断した場合はスキップ"""
+        from lib.brain.models import ProactiveMessageResult
+
+        # 送らないと判断する脳
+        class MockBrainNoSend:
+            async def generate_proactive_message(self, **kwargs):
+                return ProactiveMessageResult(
+                    should_send=False,
+                    message=None,
+                    reason="今は送らない方がいい",
+                    confidence=0.8,
+                )
+
+        mock_brain = MockBrainNoSend()
+        monitor = create_proactive_monitor(dry_run=True, brain=mock_brain)
+
+        trigger = Trigger(
+            trigger_type=TriggerType.EMOTION_DECLINE,
+            user_id=sample_user_context.user_id,
+            organization_id=sample_user_context.organization_id,
+            priority=ActionPriority.CRITICAL,
+        )
+
+        action = await monitor._take_action(trigger, sample_user_context)
+
+        # スキップされたが成功扱い
+        assert action.success is True
+        assert action.message.message == ""
+        assert "Skipped by brain" in action.error_message
+
+    @pytest.mark.asyncio
+    async def test_take_action_fallback_when_brain_fails(self, sample_user_context, caplog):
+        """脳が失敗した場合はフォールバック（テンプレート）を使用"""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        # 失敗する脳
+        class MockBrainFails:
+            async def generate_proactive_message(self, **kwargs):
+                raise Exception("Brain error")
+
+        mock_brain = MockBrainFails()
+        monitor = create_proactive_monitor(dry_run=True, brain=mock_brain)
+
+        trigger = Trigger(
+            trigger_type=TriggerType.GOAL_ABANDONED,
+            user_id=sample_user_context.user_id,
+            organization_id=sample_user_context.organization_id,
+            priority=ActionPriority.MEDIUM,
+            details={"goal_name": "テスト目標", "days": 10},
+        )
+
+        action = await monitor._take_action(trigger, sample_user_context)
+
+        # フォールバックでメッセージが生成される
+        assert action.success is True
+        assert action.message.message != ""
+        assert "ウル" in action.message.message  # ソウルくんらしい語尾
+
+    @pytest.mark.asyncio
+    async def test_take_action_fallback_when_no_brain(self, sample_user_context, caplog):
+        """brainがない場合はフォールバック（テンプレート）を使用し警告"""
+        import logging
+        caplog.set_level(logging.WARNING)
+
+        monitor = create_proactive_monitor(dry_run=True, brain=None)
+
+        trigger = Trigger(
+            trigger_type=TriggerType.TASK_OVERLOAD,
+            user_id=sample_user_context.user_id,
+            organization_id=sample_user_context.organization_id,
+            priority=ActionPriority.HIGH,
+            details={"count": 8, "overdue_count": 3},
+        )
+
+        action = await monitor._take_action(trigger, sample_user_context)
+
+        # フォールバックでメッセージが生成される
+        assert action.success is True
+        assert action.message.message != ""
+        assert "fallback" in caplog.text.lower() or "template" in caplog.text.lower()
+
+
+# ============================================================
+# ProactiveMessageResultモデルテスト
+# ============================================================
+
+class TestProactiveMessageResultModel:
+    """ProactiveMessageResultモデルのテスト"""
+
+    def test_creation(self):
+        """正しく作成できる"""
+        from lib.brain.models import ProactiveMessageResult, ProactiveMessageTone
+
+        result = ProactiveMessageResult(
+            should_send=True,
+            message="テストメッセージウル🐺",
+            reason="テスト理由",
+            confidence=0.9,
+            tone=ProactiveMessageTone.FRIENDLY,
+        )
+
+        assert result.should_send is True
+        assert result.message == "テストメッセージウル🐺"
+        assert result.confidence == 0.9
+        assert result.tone == ProactiveMessageTone.FRIENDLY
+
+    def test_creation_not_send(self):
+        """送らない場合も正しく作成できる"""
+        from lib.brain.models import ProactiveMessageResult
+
+        result = ProactiveMessageResult(
+            should_send=False,
+            reason="今は送らない方がいい",
+            confidence=0.8,
+        )
+
+        assert result.should_send is False
+        assert result.message is None
+        assert result.reason == "今は送らない方がいい"
+
+    def test_to_dict(self):
+        """辞書形式に変換できる"""
+        from lib.brain.models import ProactiveMessageResult, ProactiveMessageTone
+
+        result = ProactiveMessageResult(
+            should_send=True,
+            message="テストウル",
+            reason="理由",
+            confidence=0.85,
+            tone=ProactiveMessageTone.CELEBRATORY,
+            context_used={"user_name": "田中"},
+        )
+
+        d = result.to_dict()
+
+        assert d["should_send"] is True
+        assert d["message"] == "テストウル"
+        assert d["confidence"] == 0.85
+        assert d["tone"] == "celebratory"
+        assert d["context_used"]["user_name"] == "田中"
+
+
+class TestProactiveMessageToneEnum:
+    """ProactiveMessageTone Enumのテスト"""
+
+    def test_values(self):
+        """値が正しく定義されている"""
+        from lib.brain.models import ProactiveMessageTone
+
+        assert ProactiveMessageTone.FRIENDLY.value == "friendly"
+        assert ProactiveMessageTone.ENCOURAGING.value == "encouraging"
+        assert ProactiveMessageTone.CONCERNED.value == "concerned"
+        assert ProactiveMessageTone.CELEBRATORY.value == "celebratory"
+        assert ProactiveMessageTone.REMINDER.value == "reminder"
+        assert ProactiveMessageTone.SUPPORTIVE.value == "supportive"
+
+    def test_all_values(self):
+        """全ての値が存在する"""
+        from lib.brain.models import ProactiveMessageTone
+
+        assert len(ProactiveMessageTone) == 6

@@ -7,8 +7,15 @@ main.pyから分割されたChatWork API関連の関数を提供する。
 分割元: chatwork-webhook/main.py
 分割日: 2026-01-25
 バージョン: v10.24.0
+
+v10.48.0: メッセージ処理関数を追加（2026-01-29）
+- clean_chatwork_message(): メッセージのクリーニング
+- is_toall_mention(): オールメンション判定
+- is_mention_or_reply_to(): メンション/返信判定
+- should_ignore_toall(): TO ALL無視判定
 """
 
+import re
 import time
 import httpx
 from typing import Optional, Dict, Any, Tuple, List
@@ -207,3 +214,155 @@ def is_room_member(room_id, account_id, api_token: str) -> bool:
     members = get_room_members_cached(room_id, api_token)
     member_ids = [m.get("account_id") for m in members]
     return int(account_id) in member_ids
+
+
+# =====================================================
+# v10.48.0: メッセージ処理関数
+# =====================================================
+
+
+def clean_chatwork_message(body: Optional[str]) -> str:
+    """
+    ChatWorkメッセージをクリーニング
+
+    メンションタグ、返信タグ、その他のChatWork固有タグを除去する。
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        クリーニングされたメッセージ
+    """
+    if body is None:
+        return ""
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return ""
+
+    if not body:
+        return ""
+
+    try:
+        clean_message = body
+        # メンションタグ: [To:12345] 名前さん
+        clean_message = re.sub(r'\[To:\d+\]\s*[^\n\[]*(?:さん|くん|ちゃん|様|氏)?', '', clean_message)
+        # 返信ボタンタグ: [rp aid=12345 ...][/rp]
+        clean_message = re.sub(r'\[rp aid=\d+[^\]]*\]\[/rp\]', '', clean_message)
+        # 一般的なタグ: [xxx] [/xxx]
+        clean_message = re.sub(r'\[/?[a-zA-Z]+\]', '', clean_message)
+        # 残りの角括弧タグ
+        clean_message = re.sub(r'\[.*?\]', '', clean_message)
+        # 前後の空白を除去
+        clean_message = clean_message.strip()
+        # 連続する空白を1つに
+        clean_message = re.sub(r'\s+', ' ', clean_message)
+        return clean_message
+    except Exception as e:
+        print(f"⚠️ clean_chatwork_message エラー: {e}")
+        return body
+
+
+def is_toall_mention(body: Optional[str]) -> bool:
+    """
+    オールメンション（[toall]）かどうかを判定
+
+    オールメンションはアナウンス用途で使われるため、
+    通常ソウルくんは反応しない。
+
+    Args:
+        body: メッセージ本文
+
+    Returns:
+        [toall]が含まれていればTrue
+    """
+    if body is None:
+        return False
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return False
+
+    if not body:
+        return False
+
+    try:
+        # ChatWorkのオールメンションパターン: [toall]
+        # 大文字小文字を区別しない
+        if "[toall]" in body.lower():
+            return True
+        return False
+    except Exception as e:
+        print(f"⚠️ is_toall_mention エラー: {e}")
+        return False
+
+
+def is_mention_or_reply_to(body: Optional[str], account_id: int) -> bool:
+    """
+    指定されたアカウントへのメンションまたは返信かどうかを判断
+
+    Args:
+        body: メッセージ本文
+        account_id: 対象のアカウントID
+
+    Returns:
+        メンションまたは返信であればTrue
+    """
+    if body is None:
+        return False
+
+    if not isinstance(body, str):
+        try:
+            body = str(body)
+        except:
+            return False
+
+    if not body:
+        return False
+
+    try:
+        # メンションパターン: [To:12345]
+        if f"[To:{account_id}]" in body:
+            return True
+
+        # 返信ボタンパターン: [rp aid=12345 to=...]
+        if f"[rp aid={account_id}" in body:
+            return True
+
+        return False
+    except Exception as e:
+        print(f"⚠️ is_mention_or_reply_to エラー: {e}")
+        return False
+
+
+def should_ignore_toall(body: Optional[str], my_account_id: int) -> bool:
+    """
+    TO ALLメンションを無視すべきか判定
+
+    判定ロジック:
+    - [toall]がなければ → 無視しない（通常処理）
+    - [toall]があっても、直接メンションがあれば → 無視しない（反応する）
+    - [toall]のみの場合 → 無視する
+
+    Args:
+        body: メッセージ本文
+        my_account_id: 自分のアカウントID
+
+    Returns:
+        無視すべきならTrue、反応すべきならFalse
+    """
+    # TO ALLでなければ無視しない
+    if not is_toall_mention(body):
+        return False
+
+    # TO ALLでも、直接メンションがあれば反応する
+    if body and f"[to:{my_account_id}]" in body.lower():
+        print(f"📌 TO ALL + 直接メンションのため反応する")
+        return False
+
+    # TO ALLのみなので無視
+    return True

@@ -1064,3 +1064,64 @@ class CEOTeachingContext:
                 parts.append(f"  （{teaching.reasoning}）")
 
         return "\n".join(parts)
+
+
+# =============================================================================
+# 能動的メッセージ（Proactive Message）のモデル
+# =============================================================================
+
+
+class ProactiveMessageTone(str, Enum):
+    """能動的メッセージのトーン"""
+
+    FRIENDLY = "friendly"           # フレンドリー
+    ENCOURAGING = "encouraging"     # 励まし
+    CONCERNED = "concerned"         # 心配・気遣い
+    CELEBRATORY = "celebratory"     # お祝い
+    REMINDER = "reminder"           # リマインド
+    SUPPORTIVE = "supportive"       # サポート
+
+
+@dataclass
+class ProactiveMessageResult:
+    """
+    脳による能動的メッセージ生成結果
+
+    Proactive Monitorがトリガーを検出した後、
+    脳がメッセージ内容を判断・生成した結果。
+
+    CLAUDE.md鉄則1b: 能動的出力も脳が生成
+    """
+
+    should_send: bool
+    """送信すべきか（脳の判断）"""
+
+    message: Optional[str] = None
+    """生成されたメッセージ（should_send=Trueの場合）"""
+
+    reason: str = ""
+    """判断理由（ログ・デバッグ用）"""
+
+    confidence: float = 0.0
+    """判断の確信度（0.0-1.0）"""
+
+    tone: ProactiveMessageTone = ProactiveMessageTone.FRIENDLY
+    """選択されたトーン"""
+
+    context_used: Dict[str, Any] = field(default_factory=dict)
+    """判断に使用したコンテキスト（デバッグ用）"""
+
+    debug_info: Dict[str, Any] = field(default_factory=dict)
+    """その他のデバッグ情報"""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "should_send": self.should_send,
+            "message": self.message,
+            "reason": self.reason,
+            "confidence": self.confidence,
+            "tone": self.tone.value if isinstance(self.tone, ProactiveMessageTone) else self.tone,
+            "context_used": self.context_used,
+            "debug_info": self.debug_info,
+        }

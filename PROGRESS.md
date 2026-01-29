@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-30 11:00 JST**
+**最終更新: 2026-01-29 21:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -19,7 +19,146 @@
 
 ## 🚨 次回やること
 
-### 🔥 最優先タスク（2026-01-30時点）
+### 🔥 最優先タスク（2026-01-29時点）
+
+**main.py 分割の続き（Phase 3-6）** ← 次はここから
+- 現在: 8,255行（315行削減済み）
+- 目標: 1,500行以下
+
+**脳の改善を本番有効化**
+- Feature Flagsを段階的に有効化
+- モニタリング指標の監視
+
+---
+
+### ✅ 完了したタスク（2026-01-29 夕方）
+
+**脳設計改善: Truth順位実装 & P1意図理解強化** ✅ 全Phase完了
+
+CLAUDE.mdの設計原則（セクション3: データソース優先順位）をコードレベルで強制する仕組みと、
+「これ」「あれ」「田中さん」「いつもの」等の曖昧表現の解決機能を実装。
+
+| Phase | 内容 | テスト数 | 新規ファイル |
+|-------|------|---------|------------|
+| Phase 1 | TruthSource Enum + Feature Flags | 29 | constants.py (拡張) |
+| Phase 2 | TruthResolver クラス | 30 | lib/brain/truth_resolver.py |
+| Phase 3 | EnhancedPronounResolver | 40 | lib/brain/deep_understanding/pronoun_resolver.py |
+| Phase 4 | PersonAliasResolver | 44 | lib/brain/deep_understanding/person_alias.py |
+| Phase 5 | ContextExpressionResolver | 41 | lib/brain/deep_understanding/context_expression.py |
+| Phase 6 | IntentInferenceEngine統合 | 16 | intent_inference.py (拡張) |
+| **合計** | | **200** | |
+
+**主要機能:**
+
+1. **Truth順位（TruthSource）**: データソース優先順位を明示
+   - 1位: リアルタイムAPI（ChatWork API等）
+   - 2位: DB（正規データ）
+   - 3位: 設計書・仕様書
+   - 4位: Memory（会話の文脈）
+   - 5位: 推測 → **禁止（GuessNotAllowedError）**
+
+2. **EnhancedPronounResolver**: 代名詞解決（コ・ソ・ア系）
+   - 「これ」→ 近称（直前の発話、現在のタスク）
+   - 「それ」→ 中称（相手の発話、共有コンテキスト）
+   - 「あれ」→ 遠称（過去の会話、以前のタスク）
+   - 確信度 < 0.7 で確認モード自動発動
+
+3. **PersonAliasResolver**: 人名エイリアス解決
+   - 敬称除去: 「田中さん」→「田中」
+   - エイリアス生成: 「田中」→「田中さん」「田中くん」
+   - 複数候補時は確認モード発動
+
+4. **ContextExpressionResolver**: 文脈依存表現解決
+   - 習慣的表現: 「いつもの」→ ユーザーの習慣
+   - 参照表現: 「あの件」→ 最近の話題
+   - 時間参照: 「この前の」→ 過去のイベント
+
+**Feature Flags（段階的有効化用）:**
+```python
+FEATURE_FLAG_TRUTH_RESOLVER = "truth_resolver_enabled"       # Phase 2
+FEATURE_FLAG_ENHANCED_PRONOUN = "enhanced_pronoun_resolver"  # Phase 3
+FEATURE_FLAG_PERSON_ALIAS = "person_alias_resolver"          # Phase 4
+FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
+```
+
+**次のステップ:**
+1. 開発環境でFeature Flagsを有効化してテスト
+2. 本番環境でshadowモード（ログのみ）で検証
+3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ 設計書参照の整備（2026-01-29 21:00）
+
+**コード品質改善: 設計書参照の正確化**
+
+新規実装ファイルのdocstringに記載されている設計書参照を、より正確で詳細なものに修正。
+これにより、コードを読む開発者が設計意図を正確に把握できるようになった。
+
+| ファイル | 修正内容 |
+|---------|---------|
+| `lib/brain/truth_resolver.py` | CLAUDE.md セクション3との対応を明確化 |
+| `lib/brain/deep_understanding/pronoun_resolver.py` | docs/13 セクション6, docs/17 Phase 2I, CLAUDE.md セクション4 を明記 |
+| `lib/brain/deep_understanding/person_alias.py` | 同上 |
+| `lib/brain/deep_understanding/context_expression.py` | 同上 |
+| `lib/brain/constants.py` | 各定数がどの設計書セクションに基づくか明記 |
+
+**設計書参照の形式（標準化）:**
+```python
+【設計書参照】
+- docs/13_brain_architecture.md セクション6「理解層」
+  - 6.4 曖昧表現の解決パターン
+- docs/17_brain_completion_roadmap.md セクション17.3 Phase 2I「理解力強化」
+  - 暗黙の意図推測
+- CLAUDE.md セクション4「意図の取り違え検知ルール」
+  - 確信度70%未満で確認質問
+```
+
+**テスト結果:** 184件全テスト合格（2.52秒）
+
+---
+
+### ✅ 完了したタスク（2026-01-29）
+
+**1. システムプロンプト v2.1 本番反映** ✅
+- 第11章（機能実行の鉄則）追加
+- 第12章（未実装機能への対応）追加
+- Feature Flag: ENABLE_SYSTEM_PROMPT_V2=true
+- リビジョン: chatwork-webhook-00284-hih
+
+**2. main.py 分割 Phase 1-2** ✅
+- utils/chatwork_utils.py 拡張（メッセージ処理関数追加）
+- lib/person_service.py 新規作成（人物情報・組織図）
+- 8,570行 → 8,255行（315行削減）
+- リビジョン: chatwork-webhook-00285-fim
+
+**3. 脳の学習ループ完成（P0）** ✅
+- brain_decision_logs テーブル自動作成実装
+- 判断ログのDB保存（単一・バッチ）実装
+- 低確信度パターン検出実装
+- アクション成功率分析実装
+- リビジョン: chatwork-webhook-00286-yih
+
+---
+
+**Proactive Monitor 本番有効化** ✅ 完了
+
+| 項目 | 内容 |
+|------|------|
+| 変更 | `PROACTIVE_DRY_RUN=true` → `PROACTIVE_DRY_RUN=false` |
+| リビジョン | proactive-monitor-00021-xev |
+| 検証結果 | 53ユーザーチェック、トリガー0件、エラーなし |
+| 効果 | ソウルくんが自分から声をかける能力が本番で有効に |
+
+**トリガー条件（本番有効）:**
+1. 目標放置: 7日間更新なし → 「目標の進捗、どうですかウル？」
+2. タスク山積み: 5件以上遅延 → 「タスクが溜まってるみたいですねウル」
+3. 感情変化: ネガティブ継続3日 → 「最近調子どうですかウル？」
+4. 目標達成: 直近24時間 → 「おめでとうございますウル！🎉」
+5. タスク連続完了: 24時間で3件以上 → 「すごい調子ですウル！」
+6. 長期不在: 14日以上 → 「お久しぶりですウル！」
+
+---
 
 **脳アーキテクチャ シンプル化 Phase 1 + Phase 2 完了** ✅
 
@@ -61,6 +200,36 @@ chatwork-webhook/
 │   └── ...
 └── main.py (8,517行) - HANDLERS + 処理フロー
 ```
+
+---
+
+### 2026-01-29 12:32の成果
+
+**Proactive Monitor 本番有効化:** ✅ 完了
+> ソウルくんが「自分から声をかける」能力を本番有効化した。
+>
+> **変更内容:**
+> - `PROACTIVE_DRY_RUN=true` → `PROACTIVE_DRY_RUN=false`
+> - Cloud Function: proactive-monitor-00021-xev
+> - Cloud Scheduler: 毎時30分実行（Asia/Tokyo）
+>
+> **検証結果:**
+> - 53ユーザーチェック完了
+> - トリガー検出: 0件（該当条件のユーザーなし）
+> - エラー: なし
+>
+> **安全機構:**
+> - クールダウン: 同じトリガーで連続送信防止（24時間〜7日）
+> - 時間帯制限: LOW優先度は9-18時のみ
+> - 送信先チェック: dm_room_id未設定はスキップ
+>
+> **ロールバック:**
+> ```bash
+> gcloud functions deploy proactive-monitor \
+>   --region=asia-northeast1 \
+>   --source=proactive-monitor \
+>   --update-env-vars PROACTIVE_DRY_RUN=true
+> ```
 
 ---
 

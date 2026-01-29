@@ -242,6 +242,75 @@ class BrainLearning:
             f"phase2e={'enabled' if self._phase2e_learning else 'disabled'}"
         )
 
+        # テーブル存在フラグ
+        self._table_ensured = False
+
+    # =========================================================================
+    # テーブル作成（v10.49.0）
+    # =========================================================================
+
+    def _ensure_table(self) -> bool:
+        """
+        brain_decision_logs テーブルを作成（存在しない場合）
+
+        Returns:
+            成功したか
+        """
+        if self._table_ensured or not self.pool:
+            return self._table_ensured
+
+        try:
+            import sqlalchemy
+            with self.pool.begin() as conn:
+                conn.execute(sqlalchemy.text("""
+                    CREATE TABLE IF NOT EXISTS brain_decision_logs (
+                        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                        organization_id UUID NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
+
+                        room_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        user_message TEXT NOT NULL,
+
+                        understanding_intent TEXT NOT NULL,
+                        understanding_confidence FLOAT NOT NULL,
+                        understanding_entities JSONB,
+
+                        selected_action TEXT NOT NULL,
+                        action_params JSONB,
+                        decision_confidence FLOAT,
+                        required_confirmation BOOLEAN DEFAULT false,
+
+                        execution_success BOOLEAN DEFAULT false,
+                        execution_error TEXT,
+
+                        total_time_ms INT,
+
+                        created_at TIMESTAMPTZ DEFAULT NOW()
+                    )
+                """))
+
+                # インデックス作成
+                conn.execute(sqlalchemy.text("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_logs_org_user
+                        ON brain_decision_logs(organization_id, user_id, created_at DESC)
+                """))
+                conn.execute(sqlalchemy.text("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_logs_org_action
+                        ON brain_decision_logs(organization_id, selected_action)
+                """))
+                conn.execute(sqlalchemy.text("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_logs_org_confidence
+                        ON brain_decision_logs(organization_id, understanding_confidence)
+                """))
+
+            self._table_ensured = True
+            logger.info("✅ brain_decision_logs table ensured")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error creating brain_decision_logs table: {e}")
+            return False
+
     # =========================================================================
     # 判断ログ記録
     # =========================================================================
@@ -335,19 +404,54 @@ class BrainLearning:
             return count
 
         try:
+            # テーブル存在確認
+            self._ensure_table()
+
             logs_to_save = self._decision_logs_buffer.copy()
             self._decision_logs_buffer.clear()
 
-            # TODO: DBへの一括挿入
-            # 現在はログ出力のみ
-            for log in logs_to_save:
-                logger.info(
-                    f"[DECISION_LOG] action={log.selected_action}, "
-                    f"confidence={log.decision_confidence:.2f}, "
-                    f"success={log.execution_success}"
-                )
+            # v10.49.0: DBへの一括挿入
+            import sqlalchemy
+            import json
 
-            return len(logs_to_save)
+            saved_count = 0
+            with self.pool.begin() as conn:
+                for log in logs_to_save:
+                    try:
+                        conn.execute(sqlalchemy.text("""
+                            INSERT INTO brain_decision_logs (
+                                organization_id, room_id, user_id, user_message,
+                                understanding_intent, understanding_confidence, understanding_entities,
+                                selected_action, action_params, decision_confidence, required_confirmation,
+                                execution_success, execution_error, total_time_ms
+                            ) VALUES (
+                                :org_id, :room_id, :user_id, :user_message,
+                                :intent, :confidence, :entities,
+                                :action, :params, :decision_conf, :confirmation,
+                                :success, :error, :time_ms
+                            )
+                        """), {
+                            "org_id": self.org_id or "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+                            "room_id": log.room_id,
+                            "user_id": log.user_id,
+                            "user_message": log.user_message[:500] if log.user_message else "",
+                            "intent": log.understanding_intent,
+                            "confidence": log.understanding_confidence,
+                            "entities": json.dumps(log.understanding_entities) if log.understanding_entities else None,
+                            "action": log.selected_action,
+                            "params": json.dumps(log.action_params) if log.action_params else None,
+                            "decision_conf": log.decision_confidence,
+                            "confirmation": log.required_confirmation,
+                            "success": log.execution_success,
+                            "error": log.execution_error[:500] if log.execution_error else None,
+                            "time_ms": log.total_time_ms,
+                        })
+                        saved_count += 1
+                    except Exception as e:
+                        logger.warning(f"Error inserting log: {e}")
+
+            logger.info(f"🧠 Flushed {saved_count}/{len(logs_to_save)} decision logs to DB")
+            return saved_count
 
         except Exception as e:
             logger.error(f"Error flushing decision logs: {e}")
@@ -358,7 +462,7 @@ class BrainLearning:
         log_entry: DecisionLogEntry,
     ) -> bool:
         """
-        判断ログをDBに保存
+        判断ログをDBに保存（単一レコード）
 
         Args:
             log_entry: ログエントリ
@@ -370,9 +474,44 @@ class BrainLearning:
             return False
 
         try:
-            # TODO: 実際のDB保存ロジック
-            # brain_decision_logsテーブルへのINSERT
+            # テーブル存在確認
+            self._ensure_table()
 
+            # v10.49.0: DB保存ロジック実装
+            import sqlalchemy
+            import json
+
+            with self.pool.begin() as conn:
+                conn.execute(sqlalchemy.text("""
+                    INSERT INTO brain_decision_logs (
+                        organization_id, room_id, user_id, user_message,
+                        understanding_intent, understanding_confidence, understanding_entities,
+                        selected_action, action_params, decision_confidence, required_confirmation,
+                        execution_success, execution_error, total_time_ms
+                    ) VALUES (
+                        :org_id, :room_id, :user_id, :user_message,
+                        :intent, :confidence, :entities,
+                        :action, :params, :decision_conf, :confirmation,
+                        :success, :error, :time_ms
+                    )
+                """), {
+                    "org_id": self.org_id or "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+                    "room_id": log_entry.room_id,
+                    "user_id": log_entry.user_id,
+                    "user_message": log_entry.user_message[:500] if log_entry.user_message else "",
+                    "intent": log_entry.understanding_intent,
+                    "confidence": log_entry.understanding_confidence,
+                    "entities": json.dumps(log_entry.understanding_entities) if log_entry.understanding_entities else None,
+                    "action": log_entry.selected_action,
+                    "params": json.dumps(log_entry.action_params) if log_entry.action_params else None,
+                    "decision_conf": log_entry.decision_confidence,
+                    "confirmation": log_entry.required_confirmation,
+                    "success": log_entry.execution_success,
+                    "error": log_entry.execution_error[:500] if log_entry.execution_error else None,
+                    "time_ms": log_entry.total_time_ms,
+                })
+
+            logger.debug(f"🧠 Saved decision log: action={log_entry.selected_action}")
             return True
 
         except Exception as e:
@@ -703,8 +842,50 @@ class BrainLearning:
         """
         insights: List[LearningInsight] = []
 
-        # TODO: DBから低確信度の判断を取得して分析
-        # brain_decision_logsテーブルのdecision_confidence < LOW_CONFIDENCE_THRESHOLD
+        if not self.pool:
+            return insights
+
+        try:
+            # v10.49.0: DBから低確信度の判断を取得して分析
+            import sqlalchemy
+            from datetime import datetime, timedelta
+
+            cutoff_date = datetime.now() - timedelta(days=days)
+
+            with self.pool.connect() as conn:
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT selected_action, COUNT(*) as count,
+                           AVG(understanding_confidence) as avg_confidence
+                    FROM brain_decision_logs
+                    WHERE organization_id = :org_id
+                      AND understanding_confidence < :threshold
+                      AND created_at >= :cutoff
+                    GROUP BY selected_action
+                    HAVING COUNT(*) >= :min_samples
+                    ORDER BY count DESC
+                    LIMIT 10
+                """), {
+                    "org_id": self.org_id or "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+                    "threshold": LOW_CONFIDENCE_THRESHOLD,
+                    "cutoff": cutoff_date,
+                    "min_samples": MIN_PATTERN_SAMPLES,
+                }).fetchall()
+
+                for row in result:
+                    action, count, avg_conf = row
+                    insights.append(LearningInsight(
+                        insight_type="low_confidence",
+                        description=f"アクション '{action}' で低確信度の判断が {count} 回発生（平均 {avg_conf:.2f}）",
+                        affected_action=action,
+                        severity="medium" if count < 20 else "high",
+                        recommendation=f"'{action}' のトリガーキーワードを見直すことを推奨",
+                        data={"count": count, "avg_confidence": float(avg_conf)},
+                    ))
+
+            logger.info(f"🔍 Low confidence patterns: {len(insights)} found")
+
+        except Exception as e:
+            logger.error(f"Error detecting low confidence patterns: {e}")
 
         return insights
 
@@ -723,8 +904,47 @@ class BrainLearning:
         """
         insights: List[LearningInsight] = []
 
-        # TODO: DBからエラーを取得して分析
-        # brain_decision_logsテーブルのexecution_success = false
+        if not self.pool:
+            return insights
+
+        try:
+            # v10.49.0: DBからエラーを取得して分析
+            import sqlalchemy
+            from datetime import datetime, timedelta
+
+            cutoff_date = datetime.now() - timedelta(days=days)
+
+            with self.pool.connect() as conn:
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT selected_action, execution_error, COUNT(*) as count
+                    FROM brain_decision_logs
+                    WHERE organization_id = :org_id
+                      AND execution_success = false
+                      AND created_at >= :cutoff
+                    GROUP BY selected_action, execution_error
+                    ORDER BY count DESC
+                    LIMIT 10
+                """), {
+                    "org_id": self.org_id or "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+                    "cutoff": cutoff_date,
+                }).fetchall()
+
+                for row in result:
+                    action, error, count = row
+                    if count >= MIN_PATTERN_SAMPLES:
+                        insights.append(LearningInsight(
+                            insight_type="frequent_error",
+                            description=f"アクション '{action}' で同じエラーが {count} 回発生",
+                            affected_action=action,
+                            severity="high",
+                            recommendation=f"エラー原因の調査を推奨: {error[:100] if error else 'unknown'}",
+                            data={"count": count, "error": error},
+                        ))
+
+            logger.info(f"🔍 Frequent errors: {len(insights)} found")
+
+        except Exception as e:
+            logger.error(f"Error detecting frequent errors: {e}")
 
         return insights
 
@@ -743,8 +963,53 @@ class BrainLearning:
         """
         insights: List[LearningInsight] = []
 
-        # TODO: DBからアクション別の成功率を計算
-        # selected_actionでグループ化してexecution_successの割合を計算
+        if not self.pool:
+            return insights
+
+        try:
+            # v10.49.0: DBからアクション別の成功率を計算
+            import sqlalchemy
+            from datetime import datetime, timedelta
+
+            cutoff_date = datetime.now() - timedelta(days=days)
+
+            with self.pool.connect() as conn:
+                result = conn.execute(sqlalchemy.text("""
+                    SELECT selected_action,
+                           COUNT(*) as total,
+                           SUM(CASE WHEN execution_success THEN 1 ELSE 0 END) as success_count
+                    FROM brain_decision_logs
+                    WHERE organization_id = :org_id
+                      AND created_at >= :cutoff
+                    GROUP BY selected_action
+                    HAVING COUNT(*) >= :min_samples
+                    ORDER BY total DESC
+                """), {
+                    "org_id": self.org_id or "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
+                    "cutoff": cutoff_date,
+                    "min_samples": MIN_PATTERN_SAMPLES,
+                }).fetchall()
+
+                for row in result:
+                    action, total, success_count = row
+                    success_rate = success_count / total if total > 0 else 0
+
+                    # 成功率が低い場合のみインサイト生成
+                    if success_rate < 0.8:
+                        severity = "high" if success_rate < 0.5 else "medium"
+                        insights.append(LearningInsight(
+                            insight_type="low_success_rate",
+                            description=f"アクション '{action}' の成功率が {success_rate:.1%}（{success_count}/{total}）",
+                            affected_action=action,
+                            severity=severity,
+                            recommendation=f"'{action}' の実装を見直すことを推奨",
+                            data={"total": total, "success_count": success_count, "success_rate": success_rate},
+                        ))
+
+            logger.info(f"🔍 Action success rates analyzed: {len(insights)} low-rate actions found")
+
+        except Exception as e:
+            logger.error(f"Error analyzing action success rates: {e}")
 
         return insights
 

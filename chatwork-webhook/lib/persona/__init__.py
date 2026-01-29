@@ -4,12 +4,22 @@ Company Persona (B) + Add-on (C) を組み合わせた人格レイヤー
 
 v10.46.0: Persona観測ログ追加
 - log_persona_path: 全経路でPersonaの状態をログ出力
+
+v2.1.0: システムプロンプト v2.1 追加（2026-01-29）
+- get_system_prompt_v2: 完全版システムプロンプト（第1〜12章）
+- get_system_prompt_v2_simple: 簡易版（トークン節約用）
+- docs/24_polished_system_prompt.md に基づいて作成
 """
 import logging
 from typing import Optional
 
 from .company_base import get_company_persona
 from .addon_manager import get_user_addon
+from .system_prompt_v2 import (
+    get_system_prompt_v2,
+    get_system_prompt_v2_simple,
+    SYSTEM_PROMPT_V2_TEMPLATE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,4 +99,13 @@ def build_persona_prompt(
     return "\n".join(lines)
 
 
-__all__ = ["build_persona_prompt", "get_company_persona", "get_user_addon", "log_persona_path"]
+__all__ = [
+    "build_persona_prompt",
+    "get_company_persona",
+    "get_user_addon",
+    "log_persona_path",
+    # v2.1.0: システムプロンプト v2.1
+    "get_system_prompt_v2",
+    "get_system_prompt_v2_simple",
+    "SYSTEM_PROMPT_V2_TEMPLATE",
+]

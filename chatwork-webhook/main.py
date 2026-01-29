@@ -27,11 +27,7 @@ import base64  # v6.8.9: Webhook署名検証用
 try:
     from lib.admin_config import (
         get_admin_config,
-        get_admin_account_id,
-        get_admin_room_id,
         is_admin_account,
-        clear_admin_config_cache,
-        AdminConfig,
         DEFAULT_ORG_ID as ADMIN_CONFIG_DEFAULT_ORG_ID,
     )
     USE_ADMIN_CONFIG = True
@@ -122,9 +118,7 @@ try:
     from lib.long_term_memory import (
         is_long_term_memory_request,
         save_long_term_memory,
-        get_user_life_why,
         LongTermMemoryManager,
-        MemoryScope,  # v10.40.9: アクセススコープ
     )
     USE_LONG_TERM_MEMORY = True
     print("✅ lib/long_term_memory.py loaded for user profile memory")
@@ -203,9 +197,7 @@ else:
 try:
     from lib.memory import (
         ConversationSummary,
-        UserPreference,
         ConversationSearch,
-        MemoryParameters,
     )
     USE_MEMORY_FRAMEWORK = True
     print("✅ lib/memory loaded for Memory Framework integration")
@@ -230,14 +222,10 @@ if _MVV_DISABLED_BY_ENV:
 else:
     try:
         from lib.mvv_context import (
-            MVVContext,
             detect_ng_pattern,
             analyze_basic_needs,
-            get_mvv_context,
-            should_flag_for_review,
             ORGANIZATIONAL_THEORY_PROMPT,
             RiskLevel,
-            AlertType,
             is_mvv_question,
             get_full_mvv_info,
         )
@@ -256,8 +244,6 @@ from utils.date_utils import (
     parse_date_from_text as _new_parse_date_from_text,
     check_deadline_proximity as _new_check_deadline_proximity,
     get_overdue_days,  # v10.33.2: OverdueHandlerで使用
-    JST as _utils_JST,
-    DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
 )
 # v10.33.1: USE_NEW_DATE_UTILS削除（未使用、フォールバックは既に削除済み）
 print("✅ utils/date_utils.py loaded for date processing")

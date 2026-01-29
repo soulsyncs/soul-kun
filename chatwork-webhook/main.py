@@ -1514,14 +1514,12 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
         except Exception as e:
             print(f"⚠️ Goal session check failed: {e}")
 
-    # アナウンス確認待ちチェック（v10.33.0: フラグチェック削除）
+    # アナウンス確認待ちチェック（v10.33.0: フラグチェック削除, v10.33.1: ハンドラー必須化）
     try:
-        handler = _get_announcement_handler()
-        if handler:
-            pending = handler._get_pending_announcement(room_id, account_id)
-            if pending:
-                context["has_pending_announcement"] = True
-                context["announcement_id"] = pending.get("id") if isinstance(pending, dict) else None
+        pending = _get_announcement_handler()._get_pending_announcement(room_id, account_id)
+        if pending:
+            context["has_pending_announcement"] = True
+            context["announcement_id"] = pending.get("id") if isinstance(pending, dict) else None
     except Exception as e:
         print(f"⚠️ Announcement check failed: {e}")
 
@@ -2206,36 +2204,35 @@ def _brain_continue_announcement(message, room_id, account_id, sender_name, stat
     アナウンス確認セッションを継続
 
     AnnouncementHandlerを使用してセッションを継続します。
+    v10.33.1: ハンドラー必須化によりif handler:チェック削除
     """
     try:
-        handler = _get_announcement_handler()
-        if handler:
-            # state_dataからpending_announcement_idを取得
-            pending_id = state_data.get("pending_announcement_id") if state_data else None
-            context = {
-                "awaiting_announcement_response": True,
-                "pending_announcement_id": pending_id,
+        # state_dataからpending_announcement_idを取得
+        pending_id = state_data.get("pending_announcement_id") if state_data else None
+        context = {
+            "awaiting_announcement_response": True,
+            "pending_announcement_id": pending_id,
+        }
+        # パラメータを構築
+        params = {
+            "raw_message": message,
+        }
+        result = _get_announcement_handler().handle_announcement_request(
+            params=params,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            context=context,
+        )
+        if result:
+            # 結果を解析して完了状態を判定
+            is_completed = any(kw in result for kw in ["送信完了", "キャンセル", "スケジュール完了"])
+            return {
+                "message": result,
+                "success": True,
+                "session_completed": is_completed,
+                "new_state": "normal" if is_completed else None,
             }
-            # パラメータを構築
-            params = {
-                "raw_message": message,
-            }
-            result = handler.handle_announcement_request(
-                params=params,
-                room_id=room_id,
-                account_id=account_id,
-                sender_name=sender_name,
-                context=context,
-            )
-            if result:
-                # 結果を解析して完了状態を判定
-                is_completed = any(kw in result for kw in ["送信完了", "キャンセル", "スケジュール完了"])
-                return {
-                    "message": result,
-                    "success": True,
-                    "session_completed": is_completed,
-                    "new_state": "normal" if is_completed else None,
-                }
         return {
             "message": "アナウンスの確認を続けるウル🐺",
             "success": True,
@@ -2417,14 +2414,12 @@ async def _brain_handle_goal_consult(params, room_id, account_id, sender_name, c
 
 
 async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):
-    """v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除"""
+    """v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除, v10.33.1: ハンドラー必須化"""
     from lib.brain.models import HandlerResult
     try:
-        handler = _get_announcement_handler()
-        if handler:
-            result = handler.handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
-            if result:
-                return HandlerResult(success=True, message=result)
+        result = _get_announcement_handler().handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
+        if result:
+            return HandlerResult(success=True, message=result)
         return HandlerResult(success=True, message="アナウンス機能は現在準備中ウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"アナウンスでエラーが発生したウル🐺")
@@ -3952,11 +3947,10 @@ def handle_list_knowledge(params, room_id, account_id, sender_name, context=None
             print(f"⚠️ ボットペルソナ取得エラー: {e}")
 
     # 業務知識（soulkun_knowledge）を表示
-    handler = _get_knowledge_handler()
-    if handler:
-        knowledge_list = handler.get_all_knowledge()
+    # v10.33.1: ハンドラー必須化によりif handler:チェック削除
+    knowledge_list = _get_knowledge_handler().get_all_knowledge()
 
-        if knowledge_list:
+    if knowledge_list:
             # カテゴリごとにグループ化（characterは除外 - bot_persona_memoryに移行済み）
             by_category = {}
             for k in knowledge_list:
@@ -3998,12 +3992,7 @@ def handle_proposal_decision(params, room_id, account_id, sender_name, context=N
     v10.24.2: handlers/proposal_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.handle_proposal_decision(params, room_id, account_id, sender_name, context)
-
-    print("❌ ProposalHandler not available - cannot handle proposal decision")
-    return "ごめんウル...今は提案を処理できないウル🐺 もう一度試してほしいウル！"
+    return _get_proposal_handler().handle_proposal_decision(params, room_id, account_id, sender_name, context)
 
 
 # =====================================================
@@ -4020,12 +4009,7 @@ def handle_proposal_by_id(proposal_id: int, decision: str, account_id: str, send
     v10.24.2: handlers/proposal_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.handle_proposal_by_id(proposal_id, decision, account_id, sender_name, room_id)
-
-    print("❌ ProposalHandler not available - cannot handle proposal by ID")
-    return "ごめんウル...今は提案を処理できないウル🐺 もう一度試してほしいウル！"
+    return _get_proposal_handler().handle_proposal_by_id(proposal_id, decision, account_id, sender_name, room_id)
 
 
 def handle_list_pending_proposals(room_id: str, account_id: str):
@@ -4064,12 +4048,7 @@ def handle_local_learn_knowledge(key: str, value: str, account_id: str, sender_n
     v10.24.7: handlers/knowledge_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    handler = _get_knowledge_handler()
-    if handler:
-        return handler.handle_local_learn_knowledge(key, value, account_id, sender_name, room_id)
-
-    print("❌ KnowledgeHandler not available - cannot learn knowledge locally")
-    return "ごめんウル...今は知識を覚えられないウル🐺 もう一度試してほしいウル！"
+    return _get_knowledge_handler().handle_local_learn_knowledge(key, value, account_id, sender_name, room_id)
 
 
 # =====================================================
@@ -4173,7 +4152,7 @@ def execute_local_command(action: str, groups: tuple, account_id: str, sender_na
         key = groups[0].strip()
         if not is_admin(account_id):
             return f"🙏 知識の削除は菊地さんだけができるウル！"
-        if delete_knowledge(key=key):
+        if _get_knowledge_handler().delete_knowledge(key=key):
             return f"忘れたウル！🐺\n\n🗑️ 「{key}」の設定を削除したウル！"
         else:
             return f"🤔 「{key}」という設定は見つからなかったウル..."
@@ -4193,12 +4172,7 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
     v10.24.2: handlers/proposal_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.report_proposal_to_admin(proposal_id, proposer_name, key, value, category)
-
-    print("❌ ProposalHandler not available - cannot report proposal to admin")
-    return False
+    return _get_proposal_handler().report_proposal_to_admin(proposal_id, proposer_name, key, value, category)
 
 
 # v10.33.0: notify_proposal_result は handlers/proposal_handler.py に移行済み（未使用のため削除）
@@ -4357,12 +4331,7 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
     v10.24.7: handlers/knowledge_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    handler = _get_knowledge_handler()
-    if handler:
-        return handler.handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
-
-    print("❌ KnowledgeHandler not available - cannot query company knowledge")
-    return "ごめんウル...今はナレッジ検索ができないウル🐺 もう一度試してほしいウル！"
+    return _get_knowledge_handler().handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
 
 
 def call_openrouter_api(system_prompt: str, user_message: str, model: str = None):
@@ -4656,7 +4625,7 @@ def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_na
     # ★ v6.9.0: 学習済みの知識を取得
     knowledge_context = ""
     try:
-        knowledge_context = get_knowledge_for_prompt()
+        knowledge_context = _get_knowledge_handler().get_knowledge_for_prompt()
     except Exception as e:
         print(f"⚠️ 知識取得エラー（続行）: {e}")
     
@@ -6122,67 +6091,7 @@ def ensure_overdue_tables():
 # - スタッフからの提案 → 管理者承認後に反映
 # =====================================================
 
-def ensure_knowledge_tables():
-    """管理者学習機能用テーブルが存在しない場合は作成"""
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            # 知識テーブル
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS soulkun_knowledge (
-                    id SERIAL PRIMARY KEY,
-                    category TEXT NOT NULL DEFAULT 'other',
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    created_by TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(category, key)
-                );
-            """))
-            conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_knowledge_category 
-                ON soulkun_knowledge(category);
-            """))
-            
-            # 提案テーブル
-            # v6.9.1: admin_notifiedフラグ追加（通知失敗検知用）
-            conn.execute(sqlalchemy.text("""
-                CREATE TABLE IF NOT EXISTS knowledge_proposals (
-                    id SERIAL PRIMARY KEY,
-                    proposed_by_account_id TEXT NOT NULL,
-                    proposed_by_name TEXT,
-                    proposed_in_room_id TEXT,
-                    category TEXT NOT NULL DEFAULT 'other',
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    message_id TEXT,
-                    admin_message_id TEXT,
-                    admin_notified BOOLEAN DEFAULT FALSE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    reviewed_by TEXT,
-                    reviewed_at TIMESTAMP WITH TIME ZONE
-                );
-            """))
-            # v6.9.1: 既存テーブルにカラム追加（マイグレーション用）
-            try:
-                conn.execute(sqlalchemy.text("""
-                    ALTER TABLE knowledge_proposals 
-                    ADD COLUMN IF NOT EXISTS admin_notified BOOLEAN DEFAULT FALSE;
-                """))
-            except:
-                pass  # カラム既存の場合は無視
-            conn.execute(sqlalchemy.text("""
-                CREATE INDEX IF NOT EXISTS idx_proposals_status 
-                ON knowledge_proposals(status);
-            """))
-            
-            print("✅ 管理者学習機能テーブルの確認/作成完了")
-    except Exception as e:
-        print(f"⚠️ 管理者学習機能テーブル作成エラー: {e}")
-        traceback.print_exc()
-
+# v10.33.1: ensure_knowledge_tables() を削除（handlers/knowledge_handler.py に移動済み）
 
 def is_admin(account_id):
     """
@@ -6196,120 +6105,13 @@ def is_admin(account_id):
     return str(account_id) == str(ADMIN_ACCOUNT_ID)
 
 
-def save_knowledge(category: str, key: str, value: str, created_by: str = None):
-    """知識を保存（既存の場合は更新）"""
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            # UPSERT（存在すれば更新、なければ挿入）
-            conn.execute(sqlalchemy.text("""
-                INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                ON CONFLICT (category, key) 
-                DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
-            """), {
-                "category": category,
-                "key": key,
-                "value": value,
-                "created_by": created_by
-            })
-        print(f"✅ 知識を保存: [{category}] {key} = {value}")
-        return True
-    except Exception as e:
-        print(f"❌ 知識保存エラー: {e}")
-        traceback.print_exc()
-        return False
-
-
-def delete_knowledge(category: str = None, key: str = None):
-    """知識を削除"""
-    try:
-        pool = get_pool()
-        with pool.begin() as conn:
-            if category and key:
-                conn.execute(sqlalchemy.text("""
-                    DELETE FROM soulkun_knowledge WHERE category = :category AND key = :key
-                """), {"category": category, "key": key})
-            elif key:
-                # カテゴリ指定なしの場合はkeyのみで検索
-                conn.execute(sqlalchemy.text("""
-                    DELETE FROM soulkun_knowledge WHERE key = :key
-                """), {"key": key})
-        print(f"✅ 知識を削除: [{category}] {key}")
-        return True
-    except Exception as e:
-        print(f"❌ 知識削除エラー: {e}")
-        traceback.print_exc()
-        return False
-
-
-# v6.9.1: 知識の上限設定（トークン制限対策）
-KNOWLEDGE_LIMIT = 50  # プロンプトに含める知識の最大件数
-KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
-
-
 # =====================================================
-# v10.33.0: Phase 3 ナレッジ検索関連の旧関数を削除
-# search_phase3_knowledge, format_phase3_results,
-# integrated_knowledge_search, search_legacy_knowledge は
-# handlers/knowledge_handler.py に移行済み
+# v10.33.1: ナレッジ関連関数を削除（handlers/knowledge_handler.py に移動済み）
+# - save_knowledge, delete_knowledge, get_all_knowledge, get_knowledge_for_prompt
+# - search_phase3_knowledge, format_phase3_results, integrated_knowledge_search, search_legacy_knowledge
+# - ensure_knowledge_tables
+# - KNOWLEDGE_LIMIT, KNOWLEDGE_VALUE_MAX_LENGTH（定数）
 # =====================================================
-
-def get_all_knowledge(limit: int = None):
-    """全ての知識を取得"""
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            # v6.9.1: LIMITを追加
-            sql = """
-                SELECT category, key, value, created_at 
-                FROM soulkun_knowledge 
-                ORDER BY category, updated_at DESC
-            """
-            if limit:
-                sql += f" LIMIT {limit}"
-            result = conn.execute(sqlalchemy.text(sql))
-            rows = result.fetchall()
-            return [{"category": r[0], "key": r[1], "value": r[2], "created_at": r[3]} for r in rows]
-    except Exception as e:
-        print(f"❌ 知識取得エラー: {e}")
-        traceback.print_exc()
-        return []
-
-
-def get_knowledge_for_prompt():
-    """プロンプト用に知識を整形して取得（上限付き）"""
-    # v6.9.1: 上限を設定
-    knowledge_list = get_all_knowledge(limit=KNOWLEDGE_LIMIT)
-    if not knowledge_list:
-        return ""
-    
-    # カテゴリごとにグループ化
-    by_category = {}
-    for k in knowledge_list:
-        cat = k["category"]
-        if cat not in by_category:
-            by_category[cat] = []
-        # v6.9.1: 値の長さを制限
-        value = k['value']
-        if len(value) > KNOWLEDGE_VALUE_MAX_LENGTH:
-            value = value[:KNOWLEDGE_VALUE_MAX_LENGTH] + "..."
-        by_category[cat].append(f"- {k['key']}: {value}")
-    
-    # 整形
-    lines = ["【学習済みの知識】"]
-    category_names = {
-        "character": "キャラ設定",
-        "rules": "業務ルール", 
-        "members": "社員情報",
-        "other": "その他"
-    }
-    for cat, items in by_category.items():
-        cat_name = category_names.get(cat, cat)
-        lines.append(f"\n▼ {cat_name}")
-        lines.extend(items)
-    
-    return "\n".join(lines)
 
 
 # =====================================================

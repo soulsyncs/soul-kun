@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-30 00:45 JST**
+**最終更新: 2026-01-30 01:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -21,10 +21,14 @@
 
 ### 🔥 最優先タスク（2026-01-29時点）
 
-**main.py 分割の続き（Phase 7以降）** ← 次はここから
-- 現在: 7,545行（710行削減済み、8.6%削減）
-- 目標: 1,500行以下
-- 次の候補: 大きな関数の分割（chatwork_webhook 481行、check_reply_messages 345行等）
+**main.py 分割の続き（Phase 8以降）** ← 次はここから
+- 現在: 7,475行（780行削減済み、9.4%削減）
+- 目標: 1,500行以下（あと5,975行削減が必要）
+- 次の候補: 大きな関数の別モジュール抽出
+  - chatwork_webhook (481行) → lib/webhook_core.py
+  - check_reply_messages (345行) → lib/reply_checker.py
+  - get_ai_response (315行) → lib/ai_response.py
+  - handle_chatwork_task_create (200行) → handlers/task_handler.py へ完全移行
 
 **脳の改善を本番有効化**
 - Feature Flagsを段階的に有効化
@@ -86,6 +90,32 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 7 完了（2026-01-30 01:30）
+
+**未使用コード削除とインポート整理**
+
+徹底的なコード分析により、未使用の関数・変数・インポートを特定し削除。
+
+| 削除した項目 | 行数 | 削除理由 |
+|------------|------|---------|
+| `_get_brain()` 関数 | ~70行 | BrainIntegration経由に完全移行済み |
+| `_brain_instance` 変数 | 1行 | `_get_brain()`と共に不要化 |
+| 重複 `import os` | 1行 | line 7で既にインポート済み |
+| 重複 `import re` | 1行 | line 5で既にインポート済み |
+| `USE_NEW_DATE_UTILS` フラグ | 1行 | フォールバック削除済みで不要 |
+| `USE_NEW_CHATWORK_UTILS` フラグ | 1行 | フォールバック削除済みで不要 |
+| `BOT_ACCOUNT_ID` 定数 | 1行 | MY_ACCOUNT_IDと同一で未使用 |
+
+**分析結果:**
+- 100行以上の大関数: 13個（合計2,742行、36.3%）
+- コード行: 3,334行（44.2%）
+- 非コード行（コメント/docstring/空行）: 4,211行（55.8%）
+
+**行数変化:** 7,545行 → 7,475行 (-70行)
+**総削減:** 8,255行 → 7,475行 (-780行、9.4%削減)
 
 ---
 

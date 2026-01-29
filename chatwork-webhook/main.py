@@ -406,8 +406,7 @@ except ImportError as e:
     create_integration = None
     is_brain_enabled = None
 
-# SoulkunBrainインスタンス（後方互換用）
-_brain_instance = None
+# v10.33.1: _brain_instanceを削除（_get_brain()と共に削除、BrainIntegration経由に移行済み）
 # BrainIntegrationインスタンス（v10.29.0: Phase H統合層）
 _brain_integration = None
 # CapabilityBridgeインスタンス（v10.38.0: Brain-Capability統合）
@@ -1408,76 +1407,7 @@ def _get_brain_integration():
     return _brain_integration
 
 
-# =====================================================
-# v10.28.0: 脳アーキテクチャ - SoulkunBrain初期化（後方互換）
-# =====================================================
-def _get_brain():
-    """
-    SoulkunBrainのシングルトンインスタンスを取得（後方互換用）
-
-    v10.29.0: BrainIntegrationから内部のbrainを取得するように変更
-    """
-    global _brain_instance
-    # BrainIntegrationがある場合はそちらのbrainを使用
-    integration = _get_brain_integration()
-    if integration:
-        return integration.get_brain()
-    # フォールバック: 直接SoulkunBrainを初期化
-    if _brain_instance is None and USE_BRAIN_ARCHITECTURE:
-        handlers = {
-            "chatwork_task_search": _brain_handle_task_search,
-            "chatwork_task_create": _brain_handle_task_create,
-            "chatwork_task_complete": _brain_handle_task_complete,
-            "query_knowledge": _brain_handle_query_knowledge,
-            "save_memory": _brain_handle_save_memory,
-            "query_memory": _brain_handle_query_memory,
-            "delete_memory": _brain_handle_delete_memory,
-            "learn_knowledge": _brain_handle_learn_knowledge,
-            "forget_knowledge": _brain_handle_forget_knowledge,
-            "list_knowledge": _brain_handle_list_knowledge,
-            "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
-            "goal_progress_report": _brain_handle_goal_progress_report,
-            "goal_status_check": _brain_handle_goal_status_check,
-            "goal_review": _brain_handle_goal_review,  # v10.45.0: 既存目標の一覧・整理
-            "goal_consult": _brain_handle_goal_consult,  # v10.45.0: 目標の決め方相談
-            "announcement_create": _brain_handle_announcement_create,
-            "query_org_chart": _brain_handle_query_org_chart,
-            "daily_reflection": _brain_handle_daily_reflection,
-            "proposal_decision": _brain_handle_proposal_decision,
-            "api_limitation": _brain_handle_api_limitation,
-            "general_conversation": _brain_handle_general_conversation,
-            # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
-            # Note: connection_queryはCapabilityBridge経由で登録される（設計原則準拠）
-            "continue_goal_setting": _brain_continue_goal_setting,
-            "continue_announcement": _brain_continue_announcement,
-            "continue_task_pending": _brain_continue_task_pending,
-            # v10.39.2: 目標設定中断・再開ハンドラー（意図理解による中断対応）
-            "interrupt_goal_setting": _brain_interrupt_goal_setting,
-            "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
-            "resume_goal_setting": _brain_resume_goal_setting,
-            # v10.40.1: goal_setting.pyがbrain_conversation_statesを使用するためのpool
-            "_pool": get_pool(),
-        }
-
-        # v10.38.0: CapabilityBridgeのハンドラーを追加（フォールバック用）
-        bridge = _get_capability_bridge()
-        if bridge:
-            try:
-                capability_handlers = bridge.get_capability_handlers()
-                handlers.update(capability_handlers)
-            except Exception as e:
-                print(f"⚠️ CapabilityBridge handlers failed (fallback): {e}")
-
-        _brain_instance = SoulkunBrain(
-            pool=get_pool(),
-            org_id=ADMIN_CONFIG_DEFAULT_ORG_ID if USE_ADMIN_CONFIG else "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
-            handlers=handlers,
-            capabilities=SYSTEM_CAPABILITIES,  # v10.29.7: 直接参照（in dir()は機能しない）
-            get_ai_response_func=get_ai_response,
-            firestore_db=db,
-        )
-        print("✅ SoulkunBrain instance initialized (fallback)")
-    return _brain_instance
+# v10.33.1: _get_brain() を削除（未使用、BrainIntegration経由に移行済み）
 
 
 # =====================================================

@@ -150,6 +150,7 @@ except ImportError as e:
 # =====================================================
 # v10.43.0: 人格レイヤー（Company Persona + Add-on）
 # v10.46.0: Persona観測ログ追加
+# v2.1.0: システムプロンプト v2.1（2026-01-29）
 # =====================================================
 try:
     from lib.persona import build_persona_prompt, log_persona_path
@@ -164,6 +165,37 @@ except ImportError as e:
     # フォールバック用ダミー関数
     def log_persona_path(*args, **kwargs):
         pass
+
+# =====================================================
+# v10.48.0: 人物情報サービス（2026-01-29）
+# main.pyから分割された人物情報関連の関数
+# =====================================================
+try:
+    from lib.person_service import PersonService, OrgChartService, normalize_person_name as _svc_normalize_person_name
+    USE_PERSON_SERVICE = True
+    print("✅ lib/person_service.py loaded for Person management")
+except ImportError as e:
+    print(f"⚠️ lib/person_service.py not available: {e}")
+    USE_PERSON_SERVICE = False
+
+# =====================================================
+# v2.1.0: システムプロンプト v2.1（2026-01-29）
+# 環境変数 ENABLE_SYSTEM_PROMPT_V2=true で有効化
+# docs/24_polished_system_prompt.md に基づく新しいプロンプト
+# =====================================================
+_SYSTEM_PROMPT_V2_ENABLED_BY_ENV = os.environ.get("ENABLE_SYSTEM_PROMPT_V2", "").lower() == "true"
+
+if _SYSTEM_PROMPT_V2_ENABLED_BY_ENV:
+    try:
+        from lib.persona import get_system_prompt_v2, get_system_prompt_v2_simple
+        USE_SYSTEM_PROMPT_V2 = True
+        print("✅ System Prompt v2.1 ENABLED (lib/persona/system_prompt_v2.py)")
+    except ImportError as e:
+        print(f"⚠️ System Prompt v2.1 not available: {e}")
+        USE_SYSTEM_PROMPT_V2 = False
+else:
+    USE_SYSTEM_PROMPT_V2 = False
+    print("ℹ️ System Prompt v2.1 disabled (set ENABLE_SYSTEM_PROMPT_V2=true to enable)")
 
 # =====================================================
 # v10.21.0: Phase 2 B 記憶機能（Memory Framework）統合
@@ -243,6 +275,11 @@ from utils.chatwork_utils import (
     get_room_members as _new_get_room_members,
     get_room_members_cached as _new_get_room_members_cached,
     is_room_member as _new_is_room_member,
+    # v10.48.0: メッセージ処理関数を追加
+    clean_chatwork_message as _utils_clean_chatwork_message,
+    is_toall_mention as _utils_is_toall_mention,
+    is_mention_or_reply_to as _utils_is_mention_or_reply_to,
+    should_ignore_toall as _utils_should_ignore_toall,
 )
 USE_NEW_CHATWORK_UTILS = True
 print("✅ utils/chatwork_utils.py loaded for ChatWork API")
@@ -741,451 +778,120 @@ def get_chatwork_webhook_token():
         return None
 
 
+# =====================================================
+# v10.48.0: メッセージ処理関数（utils/chatwork_utils.py に移動）
+# =====================================================
+# 以下の関数は utils/chatwork_utils.py に実装されており、
+# 後方互換性のためのラッパー関数として残しています。
+# =====================================================
+
 def clean_chatwork_message(body):
-    """ChatWorkメッセージをクリーニング
-    
-    堅牢なエラーハンドリング版
-    """
-    # Noneチェック
-    if body is None:
-        return ""
-    
-    # 型チェック
-    if not isinstance(body, str):
-        try:
-            body = str(body)
-        except:
-            return ""
-    
-    # 空文字チェック
-    if not body:
-        return ""
-    
-    try:
-        clean_message = body
-        clean_message = re.sub(r'\[To:\d+\]\s*[^\n\[]*(?:さん|くん|ちゃん|様|氏)?', '', clean_message)
-        clean_message = re.sub(r'\[rp aid=\d+[^\]]*\]\[/rp\]', '', clean_message)  # より柔軟なパターン
-        clean_message = re.sub(r'\[/?[a-zA-Z]+\]', '', clean_message)
-        clean_message = re.sub(r'\[.*?\]', '', clean_message)
-        clean_message = clean_message.strip()
-        clean_message = re.sub(r'\s+', ' ', clean_message)
-        return clean_message
-    except Exception as e:
-        print(f"⚠️ clean_chatwork_message エラー: {e}")
-        return body  # エラー時は元のメッセージを返す
+    """ChatWorkメッセージをクリーニング（utils/chatwork_utils.py に委譲）"""
+    return _utils_clean_chatwork_message(body)
 
 
 def is_mention_or_reply_to_soulkun(body):
-    """ソウルくんへのメンションまたは返信かどうかを判断
-
-    堅牢なエラーハンドリング版
-    """
-    # Noneチェック
-    if body is None:
-        return False
-
-    # 型チェック
-    if not isinstance(body, str):
-        try:
-            body = str(body)
-        except:
-            return False
-
-    # 空文字チェック
-    if not body:
-        return False
-
-    try:
-        # メンションパターン
-        if f"[To:{MY_ACCOUNT_ID}]" in body:
-            return True
-
-        # 返信ボタンパターン: [rp aid=10909425 to=...]
-        # 修正: [/rp]のチェックを削除（実際のフォーマットには含まれない）
-        if f"[rp aid={MY_ACCOUNT_ID}" in body:
-            return True
-
-        return False
-    except Exception as e:
-        print(f"⚠️ is_mention_or_reply_to_soulkun エラー: {e}")
-        return False
+    """ソウルくんへのメンションまたは返信かどうかを判断"""
+    return _utils_is_mention_or_reply_to(body, MY_ACCOUNT_ID)
 
 
 def is_toall_mention(body):
-    """オールメンション（[toall]）かどうかを判定
-
-    オールメンションはアナウンス用途で使われるため、
-    ソウルくんは反応しない。
-
-    v10.16.0で追加
-
-    Args:
-        body: メッセージ本文
-
-    Returns:
-        bool: [toall]が含まれていればTrue
-    """
-    # Noneチェック
-    if body is None:
-        return False
-
-    # 型チェック
-    if not isinstance(body, str):
-        try:
-            body = str(body)
-        except:
-            return False
-
-    # 空文字チェック
-    if not body:
-        return False
-
-    try:
-        # ChatWorkのオールメンションパターン: [toall]
-        # 大文字小文字を区別しない（念のため）
-        if "[toall]" in body.lower():
-            return True
-
-        return False
-    except Exception as e:
-        print(f"⚠️ is_toall_mention エラー: {e}")
-        return False
+    """オールメンション（[toall]）かどうかを判定（utils/chatwork_utils.py に委譲）"""
+    return _utils_is_toall_mention(body)
 
 
 def should_ignore_toall(body):
-    """TO ALLメンションを無視すべきか判定
-
-    判定ロジック:
-    - [toall]がなければ → 無視しない（通常処理）
-    - [toall]があっても、ソウルくんへの直接メンションがあれば → 無視しない（反応する）
-    - [toall]のみの場合 → 無視する
-
-    v10.16.1で追加（v10.16.0からの改善）
-    - 「TO ALL + ソウルくん直接メンション」の場合は反応するように変更
-
-    Args:
-        body: メッセージ本文
-
-    Returns:
-        bool: 無視すべきならTrue、反応すべきならFalse
-    """
-    # TO ALLでなければ無視しない
-    if not is_toall_mention(body):
-        return False
-
-    # TO ALLでも、ソウルくんへの直接メンションがあれば反応する
-    # 大文字小文字を無視（[To:ID]でも[to:ID]でもマッチ）
-    if body and f"[to:{MY_ACCOUNT_ID}]" in body.lower():
-        print(f"📌 TO ALL + ソウルくん直接メンションのため反応する")
-        return False
-
-    # TO ALLのみなので無視
-    return True
+    """TO ALLメンションを無視すべきか判定（utils/chatwork_utils.py に委譲）"""
+    return _utils_should_ignore_toall(body, MY_ACCOUNT_ID)
 
 
-# ===== データベース操作関数 =====
+# =====================================================
+# v10.48.0: 人物情報関数（lib/person_service.py に移動）
+# =====================================================
+# 以下の関数は lib/person_service.py に実装されており、
+# 後方互換性のためのラッパー関数として残しています。
+# =====================================================
+
+# PersonService / OrgChartService の遅延初期化
+_person_service = None
+_org_chart_service = None
+
+
+def _get_person_service():
+    """PersonServiceのシングルトンインスタンスを取得"""
+    global _person_service
+    if _person_service is None and USE_PERSON_SERVICE:
+        _person_service = PersonService(get_pool=get_pool)
+    return _person_service
+
+
+def _get_org_chart_service():
+    """OrgChartServiceのシングルトンインスタンスを取得"""
+    global _org_chart_service
+    if _org_chart_service is None and USE_PERSON_SERVICE:
+        _org_chart_service = OrgChartService(get_pool=get_pool)
+    return _org_chart_service
+
 
 def get_or_create_person(name):
-    pool = get_pool()
-    with pool.begin() as conn:
-        result = conn.execute(
-            sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-            {"name": name}
-        ).fetchone()
-        if result:
-            return result[0]
-        result = conn.execute(
-            sqlalchemy.text("INSERT INTO persons (name) VALUES (:name) RETURNING id"),
-            {"name": name}
-        )
-        return result.fetchone()[0]
+    """人物を取得/作成（lib/person_service.py に委譲）"""
+    return _get_person_service().get_or_create_person(name)
+
 
 def save_person_attribute(person_name, attribute_type, attribute_value, source="conversation"):
-    person_id = get_or_create_person(person_name)
-    pool = get_pool()
-    with pool.begin() as conn:
-        conn.execute(
-            sqlalchemy.text("""
-                INSERT INTO person_attributes (person_id, attribute_type, attribute_value, source, updated_at)
-                VALUES (:person_id, :attr_type, :attr_value, :source, CURRENT_TIMESTAMP)
-                ON CONFLICT (person_id, attribute_type) 
-                DO UPDATE SET attribute_value = :attr_value, source = :source, updated_at = CURRENT_TIMESTAMP
-            """),
-            {"person_id": person_id, "attr_type": attribute_type, "attr_value": attribute_value, "source": source}
-        )
-    return True
+    """人物属性を保存（lib/person_service.py に委譲）"""
+    return _get_person_service().save_person_attribute(person_name, attribute_type, attribute_value, source)
+
 
 def get_person_info(person_name):
-    pool = get_pool()
-    with pool.connect() as conn:
-        person_result = conn.execute(
-            sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-            {"name": person_name}
-        ).fetchone()
-        if not person_result:
-            return None
-        person_id = person_result[0]
-        attributes = conn.execute(
-            sqlalchemy.text("""
-                SELECT attribute_type, attribute_value FROM person_attributes 
-                WHERE person_id = :person_id ORDER BY updated_at DESC
-            """),
-            {"person_id": person_id}
-        ).fetchall()
-        return {
-            "name": person_name,
-            "attributes": [{"type": a[0], "value": a[1]} for a in attributes]
-        }
+    """人物情報を取得（lib/person_service.py に委譲）"""
+    return _get_person_service().get_person_info(person_name)
+
 
 def normalize_person_name(name):
-    """
-    ★★★ v6.8.6: 人物名を正規化 ★★★
-    
-    ChatWorkのユーザー名形式「高野　義浩 (タカノ ヨシヒロ)」を
-    DBの形式「高野義浩」に変換する
-    """
-    if not name:
-        return name
-    
-    import re
-    
-    # 1. 読み仮名部分 (xxx) を除去
-    normalized = re.sub(r'\s*\([^)]*\)\s*', '', name)
-    
-    # 2. 敬称を除去
-    normalized = re.sub(r'(さん|くん|ちゃん|様|氏)$', '', normalized)
-    
-    # 3. スペース（全角・半角）を除去
-    normalized = normalized.replace(' ', '').replace('　', '')
-    
-    print(f"   📝 名前正規化: '{name}' → '{normalized}'")
-    
-    return normalized.strip()
+    """人物名を正規化（lib/person_service.py に委譲）"""
+    return _svc_normalize_person_name(name)
 
 
 def search_person_by_partial_name(partial_name):
-    """部分一致で人物を検索"""
-    # ★★★ v6.8.6: 検索前に名前を正規化 ★★★
-    normalized = normalize_person_name(partial_name) if partial_name else partial_name
-    
-    pool = get_pool()
-    with pool.connect() as conn:
-        # 正規化した名前と元の名前の両方で検索
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT name FROM persons 
-                WHERE name ILIKE :pattern 
-                   OR name ILIKE :pattern2
-                   OR name ILIKE :normalized_pattern
-                ORDER BY 
-                    CASE WHEN name = :exact THEN 0
-                         WHEN name = :normalized THEN 0
-                         WHEN name ILIKE :starts_with THEN 1
-                         ELSE 2 END,
-                    LENGTH(name)
-                LIMIT 5
-            """),
-            {
-                "pattern": f"%{partial_name}%",
-                "pattern2": f"%{partial_name}%",
-                "normalized_pattern": f"%{normalized}%",
-                "exact": partial_name,
-                "normalized": normalized,
-                "starts_with": f"{partial_name}%"
-            }
-        ).fetchall()
-        print(f"   🔍 search_person_by_partial_name: '{partial_name}' (normalized: '{normalized}') → {len(result)}件")
-        return [r[0] for r in result]
+    """部分一致で人物を検索（lib/person_service.py に委譲）"""
+    return _get_person_service().search_person_by_partial_name(partial_name)
+
 
 def delete_person(person_name):
-    pool = get_pool()
-    with pool.connect() as conn:
-        trans = conn.begin()
-        try:
-            person_result = conn.execute(
-                sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-                {"name": person_name}
-            ).fetchone()
-            if not person_result:
-                trans.rollback()
-                return False
-            person_id = person_result[0]
-            conn.execute(sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id"), {"person_id": person_id})
-            conn.execute(sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id"), {"person_id": person_id})
-            conn.execute(sqlalchemy.text("DELETE FROM persons WHERE id = :person_id"), {"person_id": person_id})
-            trans.commit()
-            return True
-        except Exception as e:
-            trans.rollback()
-            print(f"削除エラー: {e}")
-            return False
+    """人物を削除（lib/person_service.py に委譲）"""
+    return _get_person_service().delete_person(person_name)
+
 
 def get_all_persons_summary():
-    pool = get_pool()
-    with pool.connect() as conn:
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT p.name, STRING_AGG(pa.attribute_type || '=' || pa.attribute_value, ', ') as attributes
-                FROM persons p
-                LEFT JOIN person_attributes pa ON p.id = pa.person_id
-                GROUP BY p.id, p.name ORDER BY p.name
-            """)
-        ).fetchall()
-        return [{"name": r[0], "attributes": r[1]} for r in result]
+    """全人物サマリーを取得（lib/person_service.py に委譲）"""
+    return _get_person_service().get_all_persons_summary()
 
-# ===== 組織図クエリ（Phase 3.5） =====
+
+# ===== 組織図クエリ（Phase 3.5）- lib/person_service.py に移動 =====
 
 def get_org_chart_overview():
-    """組織図の全体構造を取得（兼務を含む）"""
-    pool = get_pool()
-    with pool.connect() as conn:
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT d.id, d.name, d.level, d.parent_id,
-                       (SELECT COUNT(DISTINCT e.id)
-                        FROM employees e
-                        WHERE e.department_id = d.id
-                           OR EXISTS (
-                               SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                               WHERE dept->>'department_id' = d.external_id
-                           )
-                       ) as member_count
-                FROM departments d
-                WHERE d.is_active = true
-                ORDER BY d.level, d.display_order, d.name
-            """)
-        ).fetchall()
+    """組織図の全体構造を取得（lib/person_service.py に委譲）"""
+    svc = _get_org_chart_service()
+    if svc:
+        return svc.get_org_chart_overview()
+    return []
 
-        departments = []
-        for r in result:
-            departments.append({
-                "id": str(r[0]),
-                "name": r[1],
-                "level": r[2],
-                "parent_id": str(r[3]) if r[3] else None,
-                "member_count": r[4] or 0
-            })
-        return departments
 
 def search_department_by_name(partial_name):
-    """部署名で検索（部分一致、兼務を含む）"""
-    pool = get_pool()
-    with pool.connect() as conn:
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT id, name, level,
-                       (SELECT COUNT(DISTINCT e.id)
-                        FROM employees e
-                        WHERE e.department_id = d.id
-                           OR EXISTS (
-                               SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                               WHERE dept->>'department_id' = d.external_id
-                           )
-                       ) as member_count
-                FROM departments d
-                WHERE d.is_active = true AND d.name ILIKE :pattern
-                ORDER BY d.level, d.name
-                LIMIT 10
-            """),
-            {"pattern": f"%{partial_name}%"}
-        ).fetchall()
+    """部署名で検索（lib/person_service.py に委譲）"""
+    svc = _get_org_chart_service()
+    if svc:
+        return svc.search_department_by_name(partial_name)
+    return []
 
-        return [{"id": str(r[0]), "name": r[1], "level": r[2], "member_count": r[3] or 0} for r in result]
 
 def get_department_members(dept_name):
-    """部署のメンバー一覧を取得（兼務者を含む）"""
-    pool = get_pool()
-    with pool.connect() as conn:
-        # まず部署を検索
-        dept_result = conn.execute(
-            sqlalchemy.text("""
-                SELECT id, name, external_id FROM departments
-                WHERE is_active = true AND name ILIKE :pattern
-                LIMIT 1
-            """),
-            {"pattern": f"%{dept_name}%"}
-        ).fetchone()
-
-        if not dept_result:
-            return None, []
-
-        dept_id = dept_result[0]
-        dept_full_name = dept_result[1]
-        dept_external_id = dept_result[2]
-
-        # 部署のメンバーを取得（主所属 + 兼務者）
-        # サブクエリを使用してDISTINCTとORDER BYの問題を回避
-        members_result = conn.execute(
-            sqlalchemy.text("""
-                SELECT name, position, employment_type, is_concurrent, position_order
-                FROM (
-                    SELECT e.name,
-                           COALESCE(
-                               (SELECT dept->>'position'
-                                FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                WHERE dept->>'department_id' = :ext_id
-                                LIMIT 1),
-                               e.position
-                           ) as position,
-                           e.employment_type,
-                           CASE WHEN e.department_id = :dept_id THEN 0 ELSE 1 END as is_concurrent,
-                           CASE
-                               WHEN COALESCE(
-                                   (SELECT dept->>'position'
-                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                    WHERE dept->>'department_id' = :ext_id
-                                    LIMIT 1),
-                                   e.position
-                               ) LIKE '%部長%'
-                               OR COALESCE(
-                                   (SELECT dept->>'position'
-                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                    WHERE dept->>'department_id' = :ext_id
-                                    LIMIT 1),
-                                   e.position
-                               ) LIKE '%マネージャー%'
-                               OR COALESCE(
-                                   (SELECT dept->>'position'
-                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                    WHERE dept->>'department_id' = :ext_id
-                                    LIMIT 1),
-                                   e.position
-                               ) LIKE '%責任者%' THEN 1
-                               WHEN COALESCE(
-                                   (SELECT dept->>'position'
-                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                    WHERE dept->>'department_id' = :ext_id
-                                    LIMIT 1),
-                                   e.position
-                               ) LIKE '%課長%'
-                               OR COALESCE(
-                                   (SELECT dept->>'position'
-                                    FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                                    WHERE dept->>'department_id' = :ext_id
-                                    LIMIT 1),
-                                   e.position
-                               ) LIKE '%リーダー%' THEN 2
-                               ELSE 3
-                           END as position_order
-                    FROM employees e
-                    WHERE e.department_id = :dept_id
-                       OR EXISTS (
-                           SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
-                           WHERE dept->>'department_id' = :ext_id
-                       )
-                ) AS sub
-                ORDER BY is_concurrent, position_order, name
-            """),
-            {"dept_id": dept_id, "ext_id": dept_external_id}
-        ).fetchall()
-
-        members = []
-        for r in members_result:
-            member = {"name": r[0], "position": r[1], "employment_type": r[2]}
-            if r[3] == 1:  # is_concurrent
-                member["is_concurrent"] = True
-            members.append(member)
-        return dept_full_name, members
+    """部署のメンバー一覧を取得（lib/person_service.py に委譲）"""
+    svc = _get_org_chart_service()
+    if svc:
+        return svc.get_department_members(dept_name)
+    return None, []
 
 
 def get_all_chatwork_users(organization_id: str = None):
@@ -5830,13 +5536,45 @@ Du bist ein niedlicher Charakter, der auf einem Wolf basiert, und du beendest de
 
 Person, die mit dir spricht: {sender_name}""",
     }
-    
-    # 指定された言語のプロンプトを使用（デフォルトは日本語）
-    system_prompt = language_prompts.get(response_language, language_prompts["ja"])
 
-    # v10.43.0: 人格レイヤーを先頭に連結（日本語のみ）
-    if persona_prompt:
-        system_prompt = f"{persona_prompt}\n\n{system_prompt}"
+    # v2.1.0: システムプロンプト v2.1 対応（2026-01-29）
+    if USE_SYSTEM_PROMPT_V2 and response_language == "ja":
+        # 新しいプロンプトv2.1を使用
+        # 動的コンテキスト（NGパターン、基本欲求）を context に追加
+        dynamic_context_parts = []
+        if ng_pattern_alert:
+            dynamic_context_parts.append(ng_pattern_alert.strip())
+        if basic_need_hint:
+            dynamic_context_parts.append(basic_need_hint.strip())
+        if context:
+            dynamic_context_parts.append(context)
+
+        combined_context = "\n\n".join(dynamic_context_parts) if dynamic_context_parts else None
+
+        system_prompt = get_system_prompt_v2(
+            sender_name=sender_name,
+            context=combined_context,
+        )
+
+        # v2.1.0: Company Persona + Add-on を先頭に追加（従来の persona_prompt）
+        if persona_prompt:
+            system_prompt = f"{persona_prompt}\n\n{system_prompt}"
+
+        print(f"🧠 Using System Prompt v2.1 for {sender_name}")
+        log_persona_path(
+            path="get_ai_response_v2.1",
+            injected=True,
+            addon=addon_applied,
+            account_id=account_id,
+            extra="system_prompt_v2.1",
+        )
+    else:
+        # 従来のプロンプト（v1）を使用
+        system_prompt = language_prompts.get(response_language, language_prompts["ja"])
+
+        # v10.43.0: 人格レイヤーを先頭に連結（日本語のみ）
+        if persona_prompt:
+            system_prompt = f"{persona_prompt}\n\n{system_prompt}"
 
     messages = [{"role": "system", "content": system_prompt}]
     

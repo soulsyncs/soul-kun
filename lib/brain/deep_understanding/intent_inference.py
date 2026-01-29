@@ -11,15 +11,22 @@ Phase 2I: 理解力強化（Deep Understanding）- 暗黙の意図推測
 - 省略表現の補完（「完了にして」の対象特定）
 - 婉曲表現の解釈（「ちょっと見てもらえます？」→依頼）
 - 文脈依存表現の解決（「いつもの」「例の」の意味特定）
+- 人名エイリアス解決（「田中さん」→「田中太郎」）
+
+【Phase 6統合（2026-01-29）】
+- EnhancedPronounResolver: 距離感に基づく代名詞解決
+- PersonAliasResolver: 人名エイリアス解決
+- ContextExpressionResolver: 文脈依存表現解決
 
 Author: Claude Opus 4.5
 Created: 2026-01-27
+Updated: 2026-01-29 (Phase 6 統合)
 """
 
 import logging
 import re
 import time
-from typing import Optional, List, Dict, Any, Tuple, Callable
+from typing import Optional, List, Dict, Any, Tuple, Callable, TYPE_CHECKING
 
 from .constants import (
     ImplicitIntentType,
@@ -39,6 +46,20 @@ from .models import (
     DeepUnderstandingInput,
 )
 
+# Feature Flags
+from lib.brain.constants import (
+    DEFAULT_FEATURE_FLAGS,
+    FEATURE_FLAG_ENHANCED_PRONOUN,
+    FEATURE_FLAG_PERSON_ALIAS,
+    FEATURE_FLAG_CONTEXT_EXPRESSION,
+)
+
+# 新しいリゾルバー（遅延インポート用の型ヒント）
+if TYPE_CHECKING:
+    from .pronoun_resolver import EnhancedPronounResolver
+    from .person_alias import PersonAliasResolver
+    from .context_expression import ContextExpressionResolver
+
 logger = logging.getLogger(__name__)
 
 
@@ -55,24 +76,64 @@ class IntentInferenceEngine:
             message="あれどうなった？",
             input_context=deep_understanding_input,
         )
+
+    【Phase 6統合】強化版リゾルバーを使用可能:
+        from lib.brain.deep_understanding.pronoun_resolver import create_pronoun_resolver
+        from lib.brain.deep_understanding.person_alias import create_person_alias_resolver
+        from lib.brain.deep_understanding.context_expression import create_context_expression_resolver
+
+        engine = IntentInferenceEngine(
+            pronoun_resolver=create_pronoun_resolver(conversation_history=history),
+            person_alias_resolver=create_person_alias_resolver(known_persons=persons),
+            context_expression_resolver=create_context_expression_resolver(user_habits=habits),
+            feature_flags={
+                FEATURE_FLAG_ENHANCED_PRONOUN: True,
+                FEATURE_FLAG_PERSON_ALIAS: True,
+                FEATURE_FLAG_CONTEXT_EXPRESSION: True,
+            },
+        )
     """
 
     def __init__(
         self,
         get_ai_response_func: Optional[Callable] = None,
         use_llm: bool = True,
+        # Phase 6: 強化版リゾルバー
+        pronoun_resolver: Optional["EnhancedPronounResolver"] = None,
+        person_alias_resolver: Optional["PersonAliasResolver"] = None,
+        context_expression_resolver: Optional["ContextExpressionResolver"] = None,
+        feature_flags: Optional[Dict[str, bool]] = None,
     ):
         """
         Args:
             get_ai_response_func: AI応答生成関数（オプション）
             use_llm: LLMを使用するかどうか
+            pronoun_resolver: 強化版代名詞リゾルバー（オプション）
+            person_alias_resolver: 人名エイリアスリゾルバー（オプション）
+            context_expression_resolver: 文脈依存表現リゾルバー（オプション）
+            feature_flags: Feature Flags（デフォルトは全て無効）
         """
         self.get_ai_response = get_ai_response_func
         self.use_llm = use_llm and get_ai_response_func is not None
 
+        # Phase 6: 強化版リゾルバー
+        self._pronoun_resolver = pronoun_resolver
+        self._person_alias_resolver = person_alias_resolver
+        self._context_expression_resolver = context_expression_resolver
+
+        # Feature Flags（デフォルトは全て無効）
+        self._feature_flags = feature_flags or DEFAULT_FEATURE_FLAGS.copy()
+
         logger.info(
-            f"IntentInferenceEngine initialized: use_llm={self.use_llm}"
+            f"IntentInferenceEngine initialized: use_llm={self.use_llm}, "
+            f"enhanced_pronoun={self._is_feature_enabled(FEATURE_FLAG_ENHANCED_PRONOUN)}, "
+            f"person_alias={self._is_feature_enabled(FEATURE_FLAG_PERSON_ALIAS)}, "
+            f"context_expression={self._is_feature_enabled(FEATURE_FLAG_CONTEXT_EXPRESSION)}"
         )
+
+    def _is_feature_enabled(self, flag_name: str) -> bool:
+        """Feature Flagが有効かどうかを確認"""
+        return self._feature_flags.get(flag_name, False)
 
     # =========================================================================
     # メインエントリーポイント
@@ -100,10 +161,18 @@ class IntentInferenceEngine:
             strategies_used: List[ReferenceResolutionStrategy] = []
 
             # Step 1: 指示代名詞の検出と解決
-            pronoun_intents = await self._resolve_demonstrative_pronouns(
-                message=message,
-                context=input_context,
-            )
+            # Phase 6: 強化版が有効な場合はそちらを使用
+            if (self._is_feature_enabled(FEATURE_FLAG_ENHANCED_PRONOUN)
+                    and self._pronoun_resolver):
+                pronoun_intents = await self._resolve_pronouns_enhanced(
+                    message=message,
+                    context=input_context,
+                )
+            else:
+                pronoun_intents = await self._resolve_demonstrative_pronouns(
+                    message=message,
+                    context=input_context,
+                )
             implicit_intents.extend(pronoun_intents)
             if pronoun_intents:
                 strategies_used.append(ReferenceResolutionStrategy.IMMEDIATE_CONTEXT)
@@ -125,15 +194,34 @@ class IntentInferenceEngine:
             implicit_intents.extend(indirect_intents)
 
             # Step 4: 文脈依存表現の解決
-            context_dependent_intents = await self._resolve_context_dependent(
-                message=message,
-                context=input_context,
-            )
+            # Phase 6: 強化版が有効な場合はそちらを使用
+            if (self._is_feature_enabled(FEATURE_FLAG_CONTEXT_EXPRESSION)
+                    and self._context_expression_resolver):
+                context_dependent_intents = await self._resolve_context_expression_enhanced(
+                    message=message,
+                    context=input_context,
+                )
+            else:
+                context_dependent_intents = await self._resolve_context_dependent(
+                    message=message,
+                    context=input_context,
+                )
             implicit_intents.extend(context_dependent_intents)
             if context_dependent_intents:
                 strategies_used.append(ReferenceResolutionStrategy.ORGANIZATION_VOCABULARY)
 
-            # Step 5: LLMによる高度な推論（必要な場合）
+            # Step 5: 人名エイリアス解決（Phase 6追加）
+            if (self._is_feature_enabled(FEATURE_FLAG_PERSON_ALIAS)
+                    and self._person_alias_resolver):
+                person_alias_intents = await self._resolve_person_aliases(
+                    message=message,
+                    context=input_context,
+                )
+                implicit_intents.extend(person_alias_intents)
+                if person_alias_intents:
+                    strategies_used.append(ReferenceResolutionStrategy.ORGANIZATION_VOCABULARY)
+
+            # Step 6: LLMによる高度な推論（必要な場合）
             if self.use_llm and self._needs_llm_inference(implicit_intents):
                 llm_intents = await self._llm_inference(
                     message=message,
@@ -144,7 +232,7 @@ class IntentInferenceEngine:
                 if llm_intents:
                     strategies_used.append(ReferenceResolutionStrategy.LLM_INFERENCE)
 
-            # Step 6: 結果の統合
+            # Step 7: 結果の統合
             primary_intent = self._select_primary_intent(implicit_intents)
             overall_confidence = self._calculate_overall_confidence(implicit_intents)
             needs_confirmation = overall_confidence < INTENT_CONFIDENCE_THRESHOLDS["medium"]
@@ -603,6 +691,205 @@ class IntentInferenceEngine:
         return intents
 
     # =========================================================================
+    # Phase 6: 強化版リゾルバーを使用した解決
+    # =========================================================================
+
+    async def _resolve_pronouns_enhanced(
+        self,
+        message: str,
+        context: DeepUnderstandingInput,
+    ) -> List[ImplicitIntent]:
+        """
+        強化版代名詞リゾルバーを使用して指示代名詞を解決
+
+        距離感（コ・ソ・ア系）に基づく高精度な解決を行う。
+        """
+        intents: List[ImplicitIntent] = []
+
+        if not self._pronoun_resolver:
+            return intents
+
+        # メッセージから代名詞を検出
+        detected_pronouns = self._detect_pronouns(message)
+
+        for pronoun in detected_pronouns.keys():
+            try:
+                # 強化版リゾルバーで解決
+                result = await self._pronoun_resolver.resolve(pronoun, message)
+
+                if result.needs_confirmation:
+                    # 確認が必要
+                    resolved = ResolvedReference(
+                        original_expression=pronoun,
+                        resolved_value="",
+                        reference_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        resolution_strategy=ReferenceResolutionStrategy.IMMEDIATE_CONTEXT,
+                        confidence=result.confidence,
+                        alternative_candidates=result.get_confirmation_options(),
+                        reasoning=f"「{pronoun}」の参照先を特定できませんでした（確信度: {result.confidence:.2f}）",
+                    )
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        inferred_intent="",
+                        confidence=result.confidence,
+                        resolved_references=[resolved],
+                        original_message=message,
+                        reasoning=resolved.reasoning,
+                        needs_confirmation=True,
+                        confirmation_options=result.get_confirmation_options(),
+                    ))
+                elif result.resolved_to:
+                    # 解決成功
+                    resolved = ResolvedReference(
+                        original_expression=pronoun,
+                        resolved_value=result.resolved_to,
+                        reference_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        resolution_strategy=ReferenceResolutionStrategy.IMMEDIATE_CONTEXT,
+                        confidence=result.confidence,
+                        reasoning=f"「{pronoun}」は「{result.resolved_to}」を指していると推定（距離感: {result.distance.value if result.distance else 'unknown'}）",
+                    )
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        inferred_intent=f"「{pronoun}」→「{result.resolved_to}」",
+                        confidence=result.confidence,
+                        resolved_references=[resolved],
+                        original_message=message,
+                        reasoning=resolved.reasoning,
+                        needs_confirmation=False,
+                    ))
+
+            except Exception as e:
+                logger.warning(f"Enhanced pronoun resolution failed for '{pronoun}': {e}")
+                # フォールバック: 通常の解決を試行
+                continue
+
+        return intents
+
+    async def _resolve_context_expression_enhanced(
+        self,
+        message: str,
+        context: DeepUnderstandingInput,
+    ) -> List[ImplicitIntent]:
+        """
+        強化版文脈依存表現リゾルバーを使用して解決
+
+        「いつもの」「あの件」「例の」などの表現を高精度で解決する。
+        """
+        intents: List[ImplicitIntent] = []
+
+        if not self._context_expression_resolver:
+            return intents
+
+        try:
+            # メッセージ内の文脈依存表現を検出
+            detected = self._context_expression_resolver.detect_expressions(message)
+
+            for expression, expr_type in detected:
+                # 各表現を解決
+                result = await self._context_expression_resolver.resolve(expression, message)
+
+                if result.needs_confirmation:
+                    # 確認が必要
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.CONTEXT_DEPENDENT,
+                        inferred_intent="",
+                        confidence=result.confidence,
+                        original_message=message,
+                        reasoning=f"「{expression}」（{result.expression_type.value}）の参照先を特定できませんでした",
+                        needs_confirmation=True,
+                        confirmation_options=result.get_confirmation_options(),
+                    ))
+                elif result.resolved_to:
+                    # 解決成功
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.CONTEXT_DEPENDENT,
+                        inferred_intent=f"「{expression}」→「{result.resolved_to}」",
+                        confidence=result.confidence,
+                        original_message=message,
+                        reasoning=f"「{expression}」は「{result.resolved_to}」を指していると推定（タイプ: {result.expression_type.value}）",
+                        needs_confirmation=False,
+                    ))
+
+        except Exception as e:
+            logger.warning(f"Enhanced context expression resolution failed: {e}")
+
+        return intents
+
+    async def _resolve_person_aliases(
+        self,
+        message: str,
+        context: DeepUnderstandingInput,
+    ) -> List[ImplicitIntent]:
+        """
+        人名エイリアスリゾルバーを使用して人名を解決
+
+        「田中さん」「山田くん」などの敬称付き人名を正式名に解決する。
+        """
+        intents: List[ImplicitIntent] = []
+
+        if not self._person_alias_resolver:
+            return intents
+
+        # メッセージから人名らしきパターンを抽出
+        # 「〜さん」「〜くん」「〜ちゃん」などのパターン
+        person_patterns = [
+            r"([一-龯ァ-ン]{1,4})さん",
+            r"([一-龯ァ-ン]{1,4})くん",
+            r"([一-龯ァ-ン]{1,4})君",
+            r"([一-龯ァ-ン]{1,4})ちゃん",
+        ]
+
+        extracted_names = set()
+        for pattern in person_patterns:
+            matches = re.findall(pattern, message)
+            for match in matches:
+                # 敬称付きの元の形を保持
+                full_match = re.search(rf"{match}(さん|くん|君|ちゃん)", message)
+                if full_match:
+                    extracted_names.add(full_match.group(0))
+
+        for name_with_honorific in extracted_names:
+            try:
+                result = await self._person_alias_resolver.resolve(name_with_honorific)
+
+                if result.needs_confirmation:
+                    # 確認が必要（複数候補または低確信度）
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.PRONOUN_REFERENCE,  # 人名参照として扱う
+                        inferred_intent="",
+                        confidence=result.confidence,
+                        original_message=message,
+                        reasoning=f"「{name_with_honorific}」の正式名を特定できませんでした（候補: {len(result.candidates)}件）",
+                        needs_confirmation=True,
+                        confirmation_options=result.get_confirmation_options(),
+                    ))
+                elif result.resolved_to:
+                    # 解決成功
+                    resolved = ResolvedReference(
+                        original_expression=name_with_honorific,
+                        resolved_value=result.resolved_to,
+                        reference_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        resolution_strategy=ReferenceResolutionStrategy.ORGANIZATION_VOCABULARY,
+                        confidence=result.confidence,
+                        reasoning=f"「{name_with_honorific}」は「{result.resolved_to}」を指していると推定（マッチタイプ: {result.match_type.value if result.match_type else 'unknown'}）",
+                    )
+                    intents.append(ImplicitIntent(
+                        intent_type=ImplicitIntentType.PRONOUN_REFERENCE,
+                        inferred_intent=f"「{name_with_honorific}」→「{result.resolved_to}」",
+                        confidence=result.confidence,
+                        resolved_references=[resolved],
+                        original_message=message,
+                        reasoning=resolved.reasoning,
+                        needs_confirmation=False,
+                    ))
+
+            except Exception as e:
+                logger.warning(f"Person alias resolution failed for '{name_with_honorific}': {e}")
+                continue
+
+        return intents
+
+    # =========================================================================
     # LLMによる高度な推論
     # =========================================================================
 
@@ -805,6 +1092,11 @@ JSON形式で回答してください：
 def create_intent_inference_engine(
     get_ai_response_func: Optional[Callable] = None,
     use_llm: bool = True,
+    # Phase 6: 強化版リゾルバー
+    pronoun_resolver: Optional["EnhancedPronounResolver"] = None,
+    person_alias_resolver: Optional["PersonAliasResolver"] = None,
+    context_expression_resolver: Optional["ContextExpressionResolver"] = None,
+    feature_flags: Optional[Dict[str, bool]] = None,
 ) -> IntentInferenceEngine:
     """
     IntentInferenceEngineを作成
@@ -812,13 +1104,41 @@ def create_intent_inference_engine(
     Args:
         get_ai_response_func: AI応答生成関数
         use_llm: LLMを使用するかどうか
+        pronoun_resolver: 強化版代名詞リゾルバー（オプション）
+        person_alias_resolver: 人名エイリアスリゾルバー（オプション）
+        context_expression_resolver: 文脈依存表現リゾルバー（オプション）
+        feature_flags: Feature Flags（デフォルトは全て無効）
 
     Returns:
         IntentInferenceEngine: 意図推測エンジン
+
+    Example:
+        # 基本的な使い方
+        engine = create_intent_inference_engine()
+
+        # Phase 6の強化版リゾルバーを使う場合
+        from lib.brain.deep_understanding.pronoun_resolver import create_pronoun_resolver
+        from lib.brain.deep_understanding.person_alias import create_person_alias_resolver
+        from lib.brain.deep_understanding.context_expression import create_context_expression_resolver
+
+        engine = create_intent_inference_engine(
+            pronoun_resolver=create_pronoun_resolver(conversation_history=history),
+            person_alias_resolver=create_person_alias_resolver(known_persons=persons),
+            context_expression_resolver=create_context_expression_resolver(user_habits=habits),
+            feature_flags={
+                FEATURE_FLAG_ENHANCED_PRONOUN: True,
+                FEATURE_FLAG_PERSON_ALIAS: True,
+                FEATURE_FLAG_CONTEXT_EXPRESSION: True,
+            },
+        )
     """
     return IntentInferenceEngine(
         get_ai_response_func=get_ai_response_func,
         use_llm=use_llm,
+        pronoun_resolver=pronoun_resolver,
+        person_alias_resolver=person_alias_resolver,
+        context_expression_resolver=context_expression_resolver,
+        feature_flags=feature_flags,
     )
 
 
@@ -829,4 +1149,8 @@ def create_intent_inference_engine(
 __all__ = [
     "IntentInferenceEngine",
     "create_intent_inference_engine",
+    # Feature Flag名もエクスポート
+    "FEATURE_FLAG_ENHANCED_PRONOUN",
+    "FEATURE_FLAG_PERSON_ALIAS",
+    "FEATURE_FLAG_CONTEXT_EXPRESSION",
 ]

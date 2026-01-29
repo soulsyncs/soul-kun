@@ -21,9 +21,9 @@
 
 ### 🔥 最優先タスク（2026-01-29時点）
 
-**main.py 分割の続き（Phase 9以降）** ← 次はここから
-- 現在: 7,248行（1,007行削減済み、12.2%削減）
-- 目標: 1,500行以下（あと5,748行削減が必要）
+**main.py 分割の続き（Phase 10以降）** ← 次はここから
+- 現在: 7,234行（1,021行削減済み、12.4%削減）
+- 目標: 1,500行以下（あと5,734行削減が必要）
 - 次の候補: 大きな関数の別モジュール抽出
   - chatwork_webhook (481行) → lib/webhook_core.py
   - check_reply_messages (345行) → lib/reply_checker.py
@@ -90,6 +90,25 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 9 完了（2026-01-30 02:30）
+
+**未使用import削除**
+
+徹底的なgrep分析により、importのみで使用されていないシンボルを特定し削除。
+
+| 削除したimport | モジュール |
+|--------------|----------|
+| `UserPreference`, `MemoryParameters` | lib/memory |
+| `AlertType`, `MVVContext`, `should_flag_for_review`, `get_mvv_context` | lib/mvv_context |
+| `MemoryScope`, `get_user_life_why` | lib/long_term_memory |
+| `get_admin_account_id`, `get_admin_room_id`, `AdminConfig`, `clear_admin_config_cache` | lib/admin_config |
+| `_utils_JST`, `_utils_DEADLINE_ALERT_DAYS` | utils/date_utils |
+
+**行数変化:** 7,248行 → 7,234行 (-14行)
+**総削減:** 8,255行 → 7,234行 (-1,021行、12.4%削減)
 
 ---
 

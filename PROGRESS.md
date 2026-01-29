@@ -22,12 +22,14 @@
 ### 🔥 最優先タスク（2026-01-29時点）
 
 **main.py 分割の続き（Phase 10以降）** ← 次はここから
-- 現在: 7,234行（1,021行削減済み、12.4%削減）
-- 目標: 1,500行以下（あと5,734行削減が必要）
-- 次の候補: 大きな関数の別モジュール抽出
+- 現在: 7,232行（1,023行削減済み、12.4%削減）
+- 目標: 1,500行以下（あと5,732行削減が必要）
+- **Phase 5-9完了**: 未使用コード削除は完了
+- **次のPhase 10**: 大きな関数の別モジュール抽出が必要
   - chatwork_webhook (481行) → lib/webhook_core.py
   - check_reply_messages (345行) → lib/reply_checker.py
   - get_ai_response (315行) → lib/ai_response.py
+  - _brain_handle_* ラッパー関数群 (~500行) → lib/brain/handlers_wrapper.py
   - handle_chatwork_task_create (200行) → handlers/task_handler.py へ完全移行
 
 **脳の改善を本番有効化**
@@ -106,9 +108,12 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 | `MemoryScope`, `get_user_life_why` | lib/long_term_memory |
 | `get_admin_account_id`, `get_admin_room_id`, `AdminConfig`, `clear_admin_config_cache` | lib/admin_config |
 | `_utils_JST`, `_utils_DEADLINE_ALERT_DAYS` | utils/date_utils |
+| `GoalSettingDialogue` | lib |
+| `bindparam` | sqlalchemy |
+| `List`, `Optional` | typing |
 
-**行数変化:** 7,248行 → 7,234行 (-14行)
-**総削減:** 8,255行 → 7,234行 (-1,021行、12.4%削減)
+**行数変化:** 7,248行 → 7,232行 (-16行)
+**総削減:** 8,255行 → 7,232行 (-1,023行、12.4%削減)
 
 ---
 

@@ -2494,30 +2494,18 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
     """
     ChatWork APIでタスクを作成（リトライ機構付き）
 
-    v10.24.4: handlers/task_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        return handler.create_chatwork_task(room_id, task_body, assigned_to_account_id, limit)
-
-    print("❌ TaskHandler not available - cannot create task")
-    return None
+    return _get_task_handler().create_chatwork_task(room_id, task_body, assigned_to_account_id, limit)
 
 
 def complete_chatwork_task(room_id, task_id):
     """
     ChatWork APIでタスクを完了にする（リトライ機構付き）
 
-    v10.24.4: handlers/task_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        return handler.complete_chatwork_task(room_id, task_id)
-
-    print("❌ TaskHandler not available - cannot complete task")
-    return None
+    return _get_task_handler().complete_chatwork_task(room_id, task_id)
 
 
 def get_user_id_from_chatwork_account(conn, chatwork_account_id):
@@ -2609,43 +2597,22 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
                           enable_dept_filter=False, organization_id=None, search_all_rooms=False):
     """DBからタスクを検索
 
-    v10.24.4: handlers/task_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
-
-    Args:
-        room_id: チャットルームID（search_all_rooms=Trueの場合は無視）
-        assigned_to_account_id: 担当者のChatWorkアカウントID
-        assigned_by_account_id: 依頼者のChatWorkアカウントID
-        status: タスクステータス（"open", "done", "all"）
-        enable_dept_filter: True=部署フィルタを有効化（Phase 3.5対応）
-        organization_id: 組織ID（部署フィルタ有効時に必要）
-        search_all_rooms: True=全ルームからタスクを検索（v10.22.0 BUG-001修正）
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        return handler.search_tasks_from_db(
-            room_id, assigned_to_account_id, assigned_by_account_id, status,
-            enable_dept_filter, organization_id, search_all_rooms,
-            get_user_id_from_chatwork_account, get_accessible_departments
-        )
-
-    print("❌ TaskHandler not available - cannot search tasks")
-    return []
+    return _get_task_handler().search_tasks_from_db(
+        room_id, assigned_to_account_id, assigned_by_account_id, status,
+        enable_dept_filter, organization_id, search_all_rooms,
+        get_user_id_from_chatwork_account, get_accessible_departments
+    )
 
 
 def update_task_status_in_db(task_id, status):
     """
     DBのタスクステータスを更新
 
-    v10.24.4: handlers/task_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        return handler.update_task_status_in_db(task_id, status)
-
-    print("❌ TaskHandler not available - cannot update task status")
-    return False
+    return _get_task_handler().update_task_status_in_db(task_id, status)
 
 
 def get_user_primary_department(conn, chatwork_account_id):
@@ -2672,22 +2639,13 @@ def get_user_primary_department(conn, chatwork_account_id):
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
     """
-    ChatWorkタスクをデータベースに保存（明示的なパラメータで受け取る）
+    ChatWorkタスクをデータベースに保存
 
-    ★★★ v10.18.1: summary生成機能追加 ★★★
-    タスク作成時にsummaryを自動生成して保存
-
-    v10.24.4: handlers/task_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        return handler.save_chatwork_task_to_db(
-            task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time
-        )
-
-    print("❌ TaskHandler not available - cannot save task to DB")
-    return False
+    return _get_task_handler().save_chatwork_task_to_db(
+        task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time
+    )
 
 
 # ===== 分析イベントログ =====
@@ -2696,36 +2654,18 @@ def log_analytics_event(event_type, actor_account_id, actor_name, room_id, event
     """
     分析用イベントログを記録
 
-    v10.24.4: handlers/task_handler.py に委譲
-    v10.32.0: フォールバック削除（ハンドラー必須化）
-
-    Args:
-        event_type: イベントタイプ（'task_created', 'memory_saved', 'memory_queried', 'general_chat'等）
-        actor_account_id: 実行者のChatWork account_id
-        actor_name: 実行者の名前
-        room_id: ChatWorkルームID
-        event_data: 詳細データ（辞書形式）
-        success: 成功したかどうか
-        error_message: エラーメッセージ（失敗時）
-        event_subtype: 詳細分類（オプション）
-
-    Note:
-        この関数はエラーが発生しても例外を投げない（処理を止めない）
-        ログ記録は「あったら嬉しい」レベルの機能であり、本体処理を妨げない
+    v10.24.4: handlers/task_handler.py に移動済み
     """
-    handler = _get_task_handler()
-    if handler:
-        handler.log_analytics_event(
-            event_type=event_type,
-            actor_account_id=actor_account_id,
-            actor_name=actor_name,
-            room_id=room_id,
-            event_data=event_data,
-            success=success,
-            error_message=error_message,
-            event_subtype=event_subtype
-        )
-        return
+    _get_task_handler().log_analytics_event(
+        event_type=event_type,
+        actor_account_id=actor_account_id,
+        actor_name=actor_name,
+        room_id=room_id,
+        event_data=event_data,
+        success=success,
+        error_message=error_message,
+        event_subtype=event_subtype
+    )
 
     # Handler not available - skip logging (non-critical)
     print(f"⚠️ TaskHandler not available - skipping analytics log for {event_type}")
@@ -3949,33 +3889,19 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
     知識を学習するハンドラー
     - 管理者（カズさん）からは即時反映
     - 他のスタッフからは提案として受け付け、管理部に報告
-    v6.9.1: 通知失敗時のメッセージを事実ベースに改善
 
-    v10.24.7: handlers/knowledge_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.7: handlers/knowledge_handler.py に移動済み
     """
-    handler = _get_knowledge_handler()
-    if handler:
-        return handler.handle_learn_knowledge(params, room_id, account_id, sender_name, context)
-
-    print("❌ KnowledgeHandler not available - cannot learn knowledge")
-    return "ごめんウル...今は知識を覚えられないウル🐺 もう一度試してほしいウル！"
+    return _get_knowledge_handler().handle_learn_knowledge(params, room_id, account_id, sender_name, context)
 
 
 def handle_forget_knowledge(params, room_id, account_id, sender_name, context=None):
     """
-    知識を削除するハンドラー
-    - 管理者のみ実行可能
+    知識を削除するハンドラー（管理者のみ）
 
-    v10.24.7: handlers/knowledge_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.7: handlers/knowledge_handler.py に移動済み
     """
-    handler = _get_knowledge_handler()
-    if handler:
-        return handler.handle_forget_knowledge(params, room_id, account_id, sender_name, context)
-
-    print("❌ KnowledgeHandler not available - cannot forget knowledge")
-    return "ごめんウル...今は知識を消せないウル🐺 もう一度試してほしいウル！"
+    return _get_knowledge_handler().handle_forget_knowledge(params, room_id, account_id, sender_name, context)
 
 
 def handle_list_knowledge(params, room_id, account_id, sender_name, context=None):
@@ -4546,101 +4472,47 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
 
 def handle_goal_registration(params, room_id, account_id, sender_name, context=None):
     """
-    目標登録ハンドラー（Phase 2.5 v1.6）
+    目標登録ハンドラー（WHY→WHAT→HOWの対話形式）
 
-    v10.19.0: WHY→WHAT→HOW の一問一答形式の目標設定対話を開始。
-    具体的なgoal_titleがある場合は直接登録（後方互換性維持）。
-
-    アチーブメント社・選択理論に基づく目標設定支援。
-
-    v10.24.6: handlers/goal_handler.py に分割
+    v10.24.6: handlers/goal_handler.py に移動済み
     """
-    # v10.32.0: ハンドラー必須化（フォールバック削除）
-    handler = _get_goal_handler()
-    if handler:
-        return handler.handle_goal_registration(params, room_id, account_id, sender_name, context)
-
-    print("❌ GoalHandler not available - cannot register goal")
-    return {
-        "success": False,
-        "message": "ごめんウル...今は目標を登録できないウル🐺 もう一度試してほしいウル！"
-    }
+    return _get_goal_handler().handle_goal_registration(params, room_id, account_id, sender_name, context)
 
 
 def handle_goal_progress_report(params, room_id, account_id, sender_name, context=None):
     """
-    目標進捗報告ハンドラー（Phase 2.5）
+    目標進捗報告ハンドラー
 
-    goal_progress テーブルに進捗を記録する。
-
-    v10.24.6: handlers/goal_handler.py に分割
+    v10.24.6: handlers/goal_handler.py に移動済み
     """
-    # v10.32.0: ハンドラー必須化（フォールバック削除）
-    handler = _get_goal_handler()
-    if handler:
-        return handler.handle_goal_progress_report(params, room_id, account_id, sender_name, context)
-
-    print("❌ GoalHandler not available - cannot report progress")
-    return {
-        "success": False,
-        "message": "ごめんウル...今は進捗を記録できないウル🐺 もう一度試してほしいウル！"
-    }
+    return _get_goal_handler().handle_goal_progress_report(params, room_id, account_id, sender_name, context)
 
 
 def handle_goal_status_check(params, room_id, account_id, sender_name, context=None):
     """
-    目標確認ハンドラー（Phase 2.5）
+    目標確認ハンドラー
 
-    現在の目標と進捗状況を返す。
-
-    v10.24.6: handlers/goal_handler.py に分割
+    v10.24.6: handlers/goal_handler.py に移動済み
     """
-    # v10.32.0: ハンドラー必須化（フォールバック削除）
-    handler = _get_goal_handler()
-    if handler:
-        return handler.handle_goal_status_check(params, room_id, account_id, sender_name, context)
-
-    print("❌ GoalHandler not available - cannot check status")
-    return {
-        "success": False,
-        "message": "ごめんウル...今は目標を確認できないウル🐺 もう一度試してほしいウル！"
-    }
+    return _get_goal_handler().handle_goal_status_check(params, room_id, account_id, sender_name, context)
 
 
-# v10.44.0: 目標一覧・整理ハンドラー
 def handle_goal_review(params, room_id, account_id, sender_name, context=None):
     """
-    目標一覧・整理ハンドラー（v10.44.0）
+    目標一覧・整理ハンドラー
 
-    既存の目標一覧を表示する、または整理・削除・修正する。
+    v10.44.0: handlers/goal_handler.py に移動済み
     """
-    handler = _get_goal_handler()
-    if handler:
-        return handler.handle_goal_review(params, room_id, account_id, sender_name, context)
-
-    print("❌ GoalHandler not available - cannot review goals")
-    return {
-        "success": False,
-        "message": "ごめんウル...今は目標一覧を表示できないウル🐺 もう一度試してほしいウル！"
-    }
+    return _get_goal_handler().handle_goal_review(params, room_id, account_id, sender_name, context)
 
 
-# v10.44.0: 目標相談ハンドラー
 def handle_goal_consult(params, room_id, account_id, sender_name, context=None):
     """
-    目標相談ハンドラー（v10.44.0）
+    目標相談ハンドラー
 
-    目標の決め方や優先順位について相談する。
+    v10.44.0: handlers/goal_handler.py に移動済み
     """
-    handler = _get_goal_handler()
-    if handler:
-        return handler.handle_goal_consult(params, room_id, account_id, sender_name, context)
-
-    print("❌ GoalHandler not available - cannot consult goals")
-    return {
-        "success": False,
-        "message": "ごめんウル...今は目標相談に答えられないウル🐺 もう一度試してほしいウル！"
-    }
+    return _get_goal_handler().handle_goal_consult(params, room_id, account_id, sender_name, context)
 
 
 HANDLERS = {
@@ -4712,28 +4584,18 @@ def get_conversation_history(room_id, account_id):
     """
     会話履歴を取得
 
-    v10.24.3: handlers/memory_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.3: handlers/memory_handler.py に移動済み
     """
-    handler = _get_memory_handler()
-    if handler:
-        return handler.get_conversation_history(room_id, account_id)
+    return _get_memory_handler().get_conversation_history(room_id, account_id)
 
-    print("❌ MemoryHandler not available - cannot get conversation history")
-    return []
 
 def save_conversation_history(room_id, account_id, history):
     """
     会話履歴を保存
 
-    v10.24.3: handlers/memory_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.3: handlers/memory_handler.py に移動済み
     """
-    handler = _get_memory_handler()
-    if handler:
-        return handler.save_conversation_history(room_id, account_id, history)
-
-    print("❌ MemoryHandler not available - cannot save conversation history")
+    return _get_memory_handler().save_conversation_history(room_id, account_id, history)
 
 
 # =====================================================
@@ -4751,32 +4613,11 @@ def process_memory_after_conversation(
     """
     会話完了後にMemory Framework処理を実行
 
-    B1: 会話サマリー - 会話が10件以上溜まったらサマリーを生成
-    B2: ユーザー嗜好 - 会話パターンからユーザーの好みを学習
-    B4: 会話検索 - 会話をインデックス化（検索可能に）
-
-    v10.24.3: handlers/memory_handler.py に分割
-
-    Args:
-        room_id: ChatWorkルームID
-        account_id: ユーザーのChatWorkアカウントID
-        sender_name: 送信者名
-        user_message: ユーザーのメッセージ
-        ai_response: AIの応答
-        history: 会話履歴
-
-    Note:
-        - エラーが発生しても会話処理には影響を与えない
-        - 会話数が閾値未満の場合は何もしない（負荷軽減）
+    v10.24.3: handlers/memory_handler.py に移動済み
     """
-    # v10.32.0: ハンドラー必須化（フォールバック削除）
-    handler = _get_memory_handler()
-    if handler:
-        return handler.process_memory_after_conversation(
-            room_id, account_id, sender_name, user_message, ai_response, history
-        )
-
-    print("❌ MemoryHandler not available - cannot process memory")
+    return _get_memory_handler().process_memory_after_conversation(
+        room_id, account_id, sender_name, user_message, ai_response, history
+    )
 
 
 # ===== AI司令塔（AIの判断力を最大活用する設計） =====
@@ -6267,15 +6108,9 @@ def ensure_overdue_tables():
     """
     遅延管理用テーブルが存在しない場合は作成
 
-    v10.24.5: handlers/overdue_handler.py に委譲
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.5: handlers/overdue_handler.py に移動済み
     """
-    handler = _get_overdue_handler()
-    if handler:
-        handler.ensure_overdue_tables()
-        return
-
-    print("❌ OverdueHandler not available - cannot ensure tables")
+    _get_overdue_handler().ensure_overdue_tables()
 
 
 # =====================================================
@@ -6502,79 +6337,48 @@ def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
     """
     知識の提案を作成
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.create_proposal(
-            proposed_by_account_id, proposed_by_name, proposed_in_room_id,
-            category, key, value, message_id
-        )
-
-    print("❌ ProposalHandler not available - cannot create proposal")
-    return None
+    return _get_proposal_handler().create_proposal(
+        proposed_by_account_id, proposed_by_name, proposed_in_room_id,
+        category, key, value, message_id
+    )
 
 
 def get_pending_proposals():
     """
-    承認待ちの提案を取得
-    v6.9.1: 古い順（FIFO）に変更 - 待たせている人から処理
+    承認待ちの提案を取得（古い順FIFO）
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.get_pending_proposals()
-
-    print("❌ ProposalHandler not available - cannot get pending proposals")
-    return []
+    return _get_proposal_handler().get_pending_proposals()
 
 
 def get_oldest_pending_proposal():
     """
-    最も古い承認待ち提案を取得（v6.9.1: FIFO）
+    最も古い承認待ち提案を取得（FIFO）
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.get_oldest_pending_proposal()
-
-    print("❌ ProposalHandler not available - cannot get oldest pending proposal")
-    return None
+    return _get_proposal_handler().get_oldest_pending_proposal()
 
 
 def get_proposal_by_id(proposal_id: int):
     """
-    ID指定で提案を取得（v6.9.1追加）
+    ID指定で提案を取得
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.get_proposal_by_id(proposal_id)
-
-    print("❌ ProposalHandler not available - cannot get proposal by ID")
-    return None
+    return _get_proposal_handler().get_proposal_by_id(proposal_id)
 
 
 def get_latest_pending_proposal():
     """
-    最新の承認待ち提案を取得（後方互換性のため残す）
+    最新の承認待ち提案を取得
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.get_latest_pending_proposal()
-
-    print("❌ ProposalHandler not available - cannot get latest pending proposal")
-    return None
+    return _get_proposal_handler().get_latest_pending_proposal()
 
 
 # =====================================================
@@ -6583,65 +6387,38 @@ def get_latest_pending_proposal():
 
 def get_unnotified_proposals():
     """
-    通知失敗した提案を取得（admin_notified=FALSE）
-    v6.9.2追加
+    通知失敗した提案を取得
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.get_unnotified_proposals()
-
-    print("❌ ProposalHandler not available - cannot get unnotified proposals")
-    return []
+    return _get_proposal_handler().get_unnotified_proposals()
 
 
 def retry_proposal_notification(proposal_id: int):
     """
-    提案の通知を再送（v6.9.2追加）
+    提案の通知を再送
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.25.0: category対応
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.retry_proposal_notification(proposal_id)
-
-    print("❌ ProposalHandler not available - cannot retry proposal notification")
-    return False, "ハンドラーが利用できません"
+    return _get_proposal_handler().retry_proposal_notification(proposal_id)
 
 
 def approve_proposal(proposal_id: int, reviewed_by: str):
     """
     提案を承認して知識または人物情報に反映
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.25.0: category='memory'の場合は人物情報として保存
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.approve_proposal(proposal_id, reviewed_by)
-
-    print("❌ ProposalHandler not available - cannot approve proposal")
-    return False
+    return _get_proposal_handler().approve_proposal(proposal_id, reviewed_by)
 
 
 def reject_proposal(proposal_id: int, reviewed_by: str):
     """
     提案を却下
 
-    v10.24.2: handlers/proposal_handler.py に分割
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.2: handlers/proposal_handler.py に移動済み
     """
-    handler = _get_proposal_handler()
-    if handler:
-        return handler.reject_proposal(proposal_id, reviewed_by)
-
-    print("❌ ProposalHandler not available - cannot reject proposal")
-    return False
+    return _get_proposal_handler().reject_proposal(proposal_id, reviewed_by)
 
 
 def get_all_contacts():
@@ -6917,22 +6694,16 @@ def process_overdue_tasks():
     遅延タスクを処理：督促送信 + エスカレーション
     毎日8:30に実行（remind_tasksから呼び出し）
 
-    v10.24.5: handlers/overdue_handler.py に委譲
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.5: handlers/overdue_handler.py に移動済み
     """
-    handler = _get_overdue_handler()
-    if handler:
-        # キャッシュリセット（ハンドラー呼び出し前）
-        global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok
-        _runtime_dm_cache = {}
-        _runtime_direct_rooms = None
-        _runtime_contacts_cache = None
-        _runtime_contacts_fetched_ok = None
-        print("✅ メモリキャッシュをリセット")
-        handler.process_overdue_tasks()
-        return
-
-    print("❌ OverdueHandler not available - cannot process overdue tasks")
+    # キャッシュリセット（ハンドラー呼び出し前）
+    global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok
+    _runtime_dm_cache = {}
+    _runtime_direct_rooms = None
+    _runtime_contacts_cache = None
+    _runtime_contacts_fetched_ok = None
+    print("✅ メモリキャッシュをリセット")
+    _get_overdue_handler().process_overdue_tasks()
 
 
 # =====================================================
@@ -6942,17 +6713,10 @@ def process_overdue_tasks():
 def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_info):
     """
     タスクの期限変更を検知して報告
-    sync_chatwork_tasks内から呼び出される
 
-    v10.24.5: handlers/overdue_handler.py に委譲
-    v10.32.0: フォールバック削除（ハンドラー必須化）
+    v10.24.5: handlers/overdue_handler.py に移動済み
     """
-    handler = _get_overdue_handler()
-    if handler:
-        handler.detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
-        return
-
-    print("❌ OverdueHandler not available - cannot report limit changes")
+    _get_overdue_handler().detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
 
 
 @functions_framework.http

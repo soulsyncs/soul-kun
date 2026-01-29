@@ -74,6 +74,30 @@ def test_capabilities():
             "trigger_examples": ["完了にして", "終わった"],
             "params_schema": {},
         },
+        "goal_registration": {
+            "name": "目標登録",
+            "description": "新しく目標を登録する",
+            "category": "goal",
+            "enabled": True,
+            "trigger_examples": ["目標を設定したい", "目標を登録したい", "新しく目標を作りたい"],
+            "params_schema": {},
+        },
+        "goal_progress_report": {
+            "name": "目標進捗報告",
+            "description": "目標の進捗を報告する",
+            "category": "goal",
+            "enabled": True,
+            "trigger_examples": ["今日は25万売り上げた", "進捗を報告", "今日の売上は50万円"],
+            "params_schema": {},
+        },
+        "general_conversation": {
+            "name": "一般会話",
+            "description": "雑談や挨拶",
+            "category": "chat",
+            "enabled": True,
+            "trigger_examples": ["こんにちは", "お疲れ様"],
+            "params_schema": {},
+        },
     }
 
 

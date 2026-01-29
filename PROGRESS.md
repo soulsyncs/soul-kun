@@ -22,8 +22,8 @@
 ### 🔥 最優先タスク（2026-01-29時点）
 
 **main.py 分割の続き（Phase 9以降）** ← 次はここから
-- 現在: 7,355行（900行削減済み、10.9%削減）
-- 目標: 1,500行以下（あと5,855行削減が必要）
+- 現在: 7,248行（1,007行削減済み、12.2%削減）
+- 目標: 1,500行以下（あと5,748行削減が必要）
 - 次の候補: 大きな関数の別モジュール抽出
   - chatwork_webhook (481行) → lib/webhook_core.py
   - check_reply_messages (345行) → lib/reply_checker.py
@@ -111,9 +111,12 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 | `_new_get_overdue_days` import | 1行 | 上記削除に伴い不要化 |
 | `call_openrouter_api()` | 54行 | 未使用API関数（他のOpenRouter呼び出しは別経路） |
 | `handle_general_chat()` | 6行 | 未使用ハンドラー（Noneを返すだけ） |
+| `get_user_id_from_chatwork_account()` | 18行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
+| `get_accessible_departments()` | 65行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
+| `get_user_primary_department()` | 22行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
 
-**行数変化:** 7,475行 → 7,355行 (-120行)
-**総削減:** 8,255行 → 7,355行 (-900行、10.9%削減)
+**行数変化:** 7,475行 → 7,248行 (-227行)
+**総削減:** 8,255行 → 7,248行 (-1,007行、12.2%削減）
 
 ---
 

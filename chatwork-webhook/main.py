@@ -255,6 +255,7 @@ else:
 from utils.date_utils import (
     parse_date_from_text as _new_parse_date_from_text,
     check_deadline_proximity as _new_check_deadline_proximity,
+    get_overdue_days,  # v10.33.2: OverdueHandlerで使用
     JST as _utils_JST,
     DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
 )
@@ -2423,91 +2424,6 @@ def complete_chatwork_task(room_id, task_id):
     return _get_task_handler().complete_chatwork_task(room_id, task_id)
 
 
-def get_user_id_from_chatwork_account(conn, chatwork_account_id):
-    """ChatWorkアカウントIDからユーザーIDを取得（Phase 3.5対応）"""
-    try:
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT id FROM users
-                WHERE chatwork_account_id = :chatwork_account_id
-                  AND is_active = TRUE
-                LIMIT 1
-            """),
-            {"chatwork_account_id": str(chatwork_account_id)}
-        )
-        row = result.fetchone()
-        return row[0] if row else None
-    except Exception as e:
-        print(f"ユーザーID取得エラー: {e}")
-        return None
-
-
-def get_accessible_departments(conn, user_id, organization_id):
-    """ユーザーがアクセス可能な部署IDリストを取得（Phase 3.5対応）"""
-    try:
-        # ユーザーの権限レベルを取得
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT COALESCE(MAX(r.level), 2) as max_level
-                FROM user_departments ud
-                JOIN roles r ON ud.role_id = r.id
-                WHERE ud.user_id = :user_id AND ud.ended_at IS NULL
-            """),
-            {"user_id": user_id}
-        )
-        row = result.fetchone()
-        role_level = row[0] if row and row[0] else 2
-
-        # Level 5-6: 全組織アクセス（フィルタなし）
-        if role_level >= 5:
-            return None  # Noneは「フィルタなし」を意味
-
-        # ユーザーの所属部署を取得
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT department_id FROM user_departments
-                WHERE user_id = :user_id AND ended_at IS NULL
-            """),
-            {"user_id": user_id}
-        )
-        user_depts = [row[0] for row in result.fetchall()]
-
-        if not user_depts:
-            return []
-
-        accessible_depts = set(user_depts)
-
-        for dept_id in user_depts:
-            if role_level >= 4:
-                # 配下全部署
-                result = conn.execute(
-                    sqlalchemy.text("""
-                        WITH dept_path AS (
-                            SELECT path FROM departments WHERE id = :dept_id
-                        )
-                        SELECT d.id FROM departments d, dept_path dp
-                        WHERE d.path <@ dp.path AND d.id != :dept_id AND d.is_active = TRUE
-                    """),
-                    {"dept_id": dept_id}
-                )
-                accessible_depts.update([row[0] for row in result.fetchall()])
-            elif role_level >= 3:
-                # 直下部署のみ
-                result = conn.execute(
-                    sqlalchemy.text("""
-                        SELECT id FROM departments
-                        WHERE parent_id = :dept_id AND is_active = TRUE
-                    """),
-                    {"dept_id": dept_id}
-                )
-                accessible_depts.update([row[0] for row in result.fetchall()])
-
-        return list(accessible_depts)
-    except Exception as e:
-        print(f"アクセス可能部署取得エラー: {e}")
-        return None  # エラー時はフィルタなし（後方互換性）
-
-
 def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_account_id=None, status="open",
                           enable_dept_filter=False, organization_id=None, search_all_rooms=False):
     """DBからタスクを検索
@@ -2528,28 +2444,6 @@ def update_task_status_in_db(task_id, status):
     v10.24.4: handlers/task_handler.py に移動済み
     """
     return _get_task_handler().update_task_status_in_db(task_id, status)
-
-
-def get_user_primary_department(conn, chatwork_account_id):
-    """担当者のメイン部署IDを取得（Phase 3.5対応）"""
-    try:
-        result = conn.execute(
-            sqlalchemy.text("""
-                SELECT ud.department_id
-                FROM user_departments ud
-                JOIN users u ON ud.user_id = u.id
-                WHERE u.chatwork_account_id = :chatwork_account_id
-                  AND ud.is_primary = TRUE
-                  AND ud.ended_at IS NULL
-                LIMIT 1
-            """),
-            {"chatwork_account_id": str(chatwork_account_id)}
-        )
-        row = result.fetchone()
-        return row[0] if row else None
-    except Exception as e:
-        print(f"部署取得エラー: {e}")
-        return None
 
 
 def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time):
@@ -4352,7 +4246,6 @@ HANDLERS = {
     "handle_save_memory": handle_save_memory,
     "handle_query_memory": handle_query_memory,
     "handle_delete_memory": handle_delete_memory,
-    "handle_general_chat": handle_general_chat,
     "handle_api_limitation": handle_api_limitation,
     # v6.8.x: 組織図クエリ（Phase 3.5）
     "handle_query_org_chart": handle_query_org_chart,

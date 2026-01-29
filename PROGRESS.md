@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-29 23:30 JST**
+**最終更新: 2026-01-30 00:15 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -21,8 +21,8 @@
 
 ### 🔥 最優先タスク（2026-01-29時点）
 
-**main.py 分割の続き（Phase 5-6）** ← 次はここから
-- 現在: 7,770行（800行削減済み、9.3%削減）
+**main.py 分割の続き（Phase 6）** ← 次はここから
+- 現在: 7,572行（683行削減済み、8.3%削減）
 - 目標: 1,500行以下
 
 **脳の改善を本番有効化**
@@ -85,6 +85,38 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 5 完了（2026-01-30 00:15）
+
+**ストレージ層の重複コード削除**
+
+handlers/knowledge_handler.py と main.py の重複コードを削除し、
+ハンドラー委譲に統一。v10.33.1でハンドラー必須化を完了。
+
+| 削除した関数/定数 | 削除理由 |
+|-----------------|---------|
+| `ensure_knowledge_tables()` | handlers/knowledge_handler.py に移行済み |
+| `save_knowledge()` | 未使用（handler.handle_learn_knowledge使用） |
+| `delete_knowledge()` | ハンドラー委譲に変更 |
+| `get_all_knowledge()` | ハンドラー委譲に変更 |
+| `get_knowledge_for_prompt()` | ハンドラー委譲に変更 |
+| `KNOWLEDGE_LIMIT`, `KNOWLEDGE_VALUE_MAX_LENGTH` | ハンドラーに定義済み |
+
+**追加で簡略化した`if handler:`チェック:**
+- `handle_proposal_decision` - 4行削除
+- `handle_proposal_by_id` - 4行削除
+- `handle_local_learn_knowledge` - 4行削除
+- `report_proposal_to_admin` - 4行削除
+- `handle_query_company_knowledge` - 4行削除
+- `handle_list_knowledge`内 - 3行削減
+- `_brain_continue_announcement`内 - 5行削減
+- `_brain_handle_announcement_create`内 - 3行削減
+- `get_context`内アナウンスチェック - 2行削減
+
+**行数変化:** 7,770行 → 7,572行 (-198行)
+**総削減:** 8,255行 → 7,572行 (-683行、8.3%削減)
 
 ---
 

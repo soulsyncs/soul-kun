@@ -252,16 +252,13 @@ print("✅ utils/date_utils.py loaded for date processing")
 # =====================================================
 from utils.chatwork_utils import (
     APICallCounter as _new_APICallCounter,
-    get_api_call_counter as _new_get_api_call_counter,
-    reset_api_call_counter as _new_reset_api_call_counter,
-    clear_room_members_cache as _new_clear_room_members_cache,
+    # v10.40.3: 未使用インポート削除
+    # - get_api_call_counter, reset_api_call_counter, clear_room_members_cache
+    # - get_room_members, get_room_members_cached, is_toall_mention
     call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
-    get_room_members as _new_get_room_members,
-    get_room_members_cached as _new_get_room_members_cached,
     is_room_member as _new_is_room_member,
-    # v10.48.0: メッセージ処理関数を追加
+    # v10.48.0: メッセージ処理関数
     clean_chatwork_message as _utils_clean_chatwork_message,
-    is_toall_mention as _utils_is_toall_mention,
     is_mention_or_reply_to as _utils_is_mention_or_reply_to,
     should_ignore_toall as _utils_should_ignore_toall,
 )
@@ -416,6 +413,68 @@ except ImportError as e:
     create_capability_bridge = None
     GENERATION_CAPABILITIES = {}
     CAPABILITY_FEATURE_FLAGS = {}
+
+# =====================================================
+# v10.40.2: ハンドラーラッパー（main.py軽量化）
+# 脳用ハンドラーをlib/brain/handler_wrappers.pyに移動
+# =====================================================
+try:
+    from lib.brain.handler_wrappers import (
+        # ビルダー関数
+        build_bypass_handlers,
+        build_brain_handlers,
+        build_session_handlers,
+        get_session_management_functions,
+        # 個別ハンドラー（直接参照用）
+        _brain_handle_task_search,
+        _brain_handle_task_create,
+        _brain_handle_task_complete,
+        _brain_handle_query_knowledge,
+        _brain_handle_save_memory,
+        _brain_handle_query_memory,
+        _brain_handle_delete_memory,
+        _brain_handle_learn_knowledge,
+        _brain_handle_forget_knowledge,
+        _brain_handle_list_knowledge,
+        _brain_handle_goal_setting_start,
+        _brain_handle_goal_progress_report,
+        _brain_handle_goal_status_check,
+        _brain_handle_goal_review,
+        _brain_handle_goal_consult,
+        _brain_handle_announcement_create,
+        _brain_handle_query_org_chart,
+        _brain_handle_daily_reflection,
+        _brain_handle_proposal_decision,
+        _brain_handle_api_limitation,
+        _brain_handle_general_conversation,
+        # セッション継続ハンドラー
+        _brain_continue_goal_setting,
+        _brain_continue_announcement,
+        _brain_continue_task_pending,
+        # セッション管理
+        _brain_interrupt_goal_setting,
+        _brain_get_interrupted_goal_setting,
+        _brain_resume_goal_setting,
+        # v10.40.3: ポーリング処理
+        validate_polling_message,
+        should_skip_polling_message,
+        process_polling_message,
+        process_polling_room,
+    )
+    USE_HANDLER_WRAPPERS = True
+    print("✅ lib/brain/handler_wrappers.py loaded for brain handlers")
+except ImportError as e:
+    print(f"⚠️ lib/brain/handler_wrappers.py not available: {e}")
+    USE_HANDLER_WRAPPERS = False
+    build_bypass_handlers = None
+    build_brain_handlers = None
+    build_session_handlers = None
+    get_session_management_functions = None
+    # v10.40.3: ポーリング処理
+    validate_polling_message = None
+    should_skip_polling_message = None
+    process_polling_message = None
+    process_polling_room = None
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -774,9 +833,7 @@ def is_mention_or_reply_to_soulkun(body):
     return _utils_is_mention_or_reply_to(body, MY_ACCOUNT_ID)
 
 
-def is_toall_mention(body):
-    """オールメンション（[toall]）かどうかを判定（utils/chatwork_utils.py に委譲）"""
-    return _utils_is_toall_mention(body)
+# v10.40.3: is_toall_mention削除（未使用、utils/chatwork_utils.pyに直接定義あり）
 
 
 def should_ignore_toall(body):
@@ -1021,32 +1078,10 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
 # クラスをエクスポート（互換性維持）
 APICallCounter = _new_APICallCounter
 
-
-def get_api_call_counter():
-    """
-    APIカウンターを取得
-
-    v10.24.0: utils/chatwork_utils.py に移動済み
-    """
-    return _new_get_api_call_counter()
-
-
-def reset_api_call_counter():
-    """
-    APIカウンターをリセット
-
-    v10.24.0: utils/chatwork_utils.py に移動済み
-    """
-    return _new_reset_api_call_counter()
-
-
-def clear_room_members_cache():
-    """
-    ルームメンバーキャッシュをクリア
-
-    v10.24.0: utils/chatwork_utils.py に移動済み
-    """
-    return _new_clear_room_members_cache()
+# v10.40.3: 以下の未使用ラッパー関数を削除
+# - get_api_call_counter (utils/chatwork_utils.pyに直接定義あり)
+# - reset_api_call_counter (utils/chatwork_utils.pyに直接定義あり)
+# - clear_room_members_cache (utils/chatwork_utils.pyに直接定義あり)
 
 
 def call_chatwork_api_with_retry(
@@ -1082,25 +1117,9 @@ def call_chatwork_api_with_retry(
     )
 
 
-def get_room_members_cached(room_id):
-    """
-    ルームメンバーを取得（キャッシュあり）
-    同一リクエスト内で同じルームを複数回参照する場合に効率的
-
-    v10.24.0: utils/chatwork_utils.py に移動済み
-    """
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    return _new_get_room_members_cached(room_id, api_token)
-
-
-def get_room_members(room_id):
-    """
-    ルームのメンバー一覧を取得（リトライ機構付き）
-
-    v10.24.0: utils/chatwork_utils.py に移動済み
-    """
-    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-    return _new_get_room_members(room_id, api_token)
+# v10.40.3: 以下の未使用ラッパー関数を削除
+# - get_room_members_cached (utils/chatwork_utils.pyに直接定義あり)
+# - get_room_members (utils/chatwork_utils.pyに直接定義あり)
 
 
 def is_room_member(room_id, account_id):
@@ -1274,6 +1293,7 @@ def _get_capability_bridge():
 # =====================================================
 # v10.29.0: 脳アーキテクチャ - BrainIntegration初期化
 # v10.38.0: CapabilityBridgeハンドラー統合
+# v10.40.2: handler_wrappers.pyに移行
 # =====================================================
 def _get_brain_integration():
     """
@@ -1285,44 +1305,62 @@ def _get_brain_integration():
 
     v10.38.0: CapabilityBridgeのハンドラーを統合
     - 生成ハンドラー（generate_document, generate_image, generate_video）
+
+    v10.40.2: handler_wrappers.pyからハンドラーを構築
+    - build_brain_handlers(): 基本ハンドラー
+    - build_session_handlers(): セッション継続ハンドラー
+    - get_session_management_functions(): 中断・再開管理
     """
     global _brain_integration
     if _brain_integration is None and USE_BRAIN_ARCHITECTURE and create_integration:
-        # 基本ハンドラー
-        handlers = {
-            "chatwork_task_search": _brain_handle_task_search,
-            "chatwork_task_create": _brain_handle_task_create,
-            "chatwork_task_complete": _brain_handle_task_complete,
-            "query_knowledge": _brain_handle_query_knowledge,
-            "save_memory": _brain_handle_save_memory,
-            "query_memory": _brain_handle_query_memory,
-            "delete_memory": _brain_handle_delete_memory,
-            "learn_knowledge": _brain_handle_learn_knowledge,
-            "forget_knowledge": _brain_handle_forget_knowledge,
-            "list_knowledge": _brain_handle_list_knowledge,
-            "goal_registration": _brain_handle_goal_setting_start,  # v10.29.6: SYSTEM_CAPABILITIESと名前を一致
-            "goal_progress_report": _brain_handle_goal_progress_report,
-            "goal_status_check": _brain_handle_goal_status_check,
-            "goal_review": _brain_handle_goal_review,  # v10.45.0: 既存目標の一覧・整理
-            "goal_consult": _brain_handle_goal_consult,  # v10.45.0: 目標の決め方相談
-            "announcement_create": _brain_handle_announcement_create,
-            "query_org_chart": _brain_handle_query_org_chart,
-            "daily_reflection": _brain_handle_daily_reflection,
-            "proposal_decision": _brain_handle_proposal_decision,
-            "api_limitation": _brain_handle_api_limitation,
-            "general_conversation": _brain_handle_general_conversation,
-            # v10.39.1: セッション継続ハンドラー（脳のcore.pyから呼び出される）
-            # Note: connection_queryはCapabilityBridge経由で登録される（設計原則準拠）
-            "continue_goal_setting": _brain_continue_goal_setting,
-            "continue_announcement": _brain_continue_announcement,
-            "continue_task_pending": _brain_continue_task_pending,
-            # v10.39.2: 目標設定中断・再開ハンドラー（意図理解による中断対応）
-            "interrupt_goal_setting": _brain_interrupt_goal_setting,
-            "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
-            "resume_goal_setting": _brain_resume_goal_setting,
-            # v10.40.1: goal_setting.pyがbrain_conversation_statesを使用するためのpool
-            "_pool": get_pool(),
-        }
+        # v10.40.2: handler_wrappers.pyからハンドラーを構築
+        if USE_HANDLER_WRAPPERS and build_brain_handlers:
+            # ビルダー関数を使用（推奨）
+            handlers = build_brain_handlers()
+            # セッション継続ハンドラーを追加
+            session_handlers = build_session_handlers()
+            handlers.update({
+                "continue_goal_setting": session_handlers.get("goal_setting"),
+                "continue_announcement": session_handlers.get("announcement"),
+                "continue_task_pending": session_handlers.get("task_pending"),
+            })
+            # セッション管理関数を追加
+            session_mgmt = get_session_management_functions()
+            handlers.update(session_mgmt)
+            # main.py固有の設定
+            handlers["_pool"] = get_pool()
+        else:
+            # フォールバック: 直接参照（handler_wrappers.pyが使えない場合）
+            handlers = {
+                "chatwork_task_search": _brain_handle_task_search,
+                "chatwork_task_create": _brain_handle_task_create,
+                "chatwork_task_complete": _brain_handle_task_complete,
+                "query_knowledge": _brain_handle_query_knowledge,
+                "save_memory": _brain_handle_save_memory,
+                "query_memory": _brain_handle_query_memory,
+                "delete_memory": _brain_handle_delete_memory,
+                "learn_knowledge": _brain_handle_learn_knowledge,
+                "forget_knowledge": _brain_handle_forget_knowledge,
+                "list_knowledge": _brain_handle_list_knowledge,
+                "goal_registration": _brain_handle_goal_setting_start,
+                "goal_progress_report": _brain_handle_goal_progress_report,
+                "goal_status_check": _brain_handle_goal_status_check,
+                "goal_review": _brain_handle_goal_review,
+                "goal_consult": _brain_handle_goal_consult,
+                "announcement_create": _brain_handle_announcement_create,
+                "query_org_chart": _brain_handle_query_org_chart,
+                "daily_reflection": _brain_handle_daily_reflection,
+                "proposal_decision": _brain_handle_proposal_decision,
+                "api_limitation": _brain_handle_api_limitation,
+                "general_conversation": _brain_handle_general_conversation,
+                "continue_goal_setting": _brain_continue_goal_setting,
+                "continue_announcement": _brain_continue_announcement,
+                "continue_task_pending": _brain_continue_task_pending,
+                "interrupt_goal_setting": _brain_interrupt_goal_setting,
+                "get_interrupted_goal_setting": _brain_get_interrupted_goal_setting,
+                "resume_goal_setting": _brain_resume_goal_setting,
+                "_pool": get_pool(),
+            }
 
         # v10.38.0: CapabilityBridgeのハンドラーを追加
         bridge = _get_capability_bridge()
@@ -1431,963 +1469,7 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
     return context
 
 
-# =====================================================
-# v10.38.1: バイパスハンドラー（脳の中から呼び出される）
-# 脳の7原則「全ての入力は脳を通る」を守りつつ、既存の安定した
-# ハンドラーを活用するためのラッパー関数
-# =====================================================
-
-def _bypass_handle_goal_session(message, room_id, account_id, sender_name, bypass_context):
-    """
-    目標設定セッション用のバイパスハンドラー
-
-    アクティブな目標設定セッションがある場合、または目標設定を
-    開始したいキーワードが含まれている場合に呼び出される。
-
-    Returns:
-        str: 応答メッセージ、Noneの場合は通常処理へ
-    """
-    if not USE_GOAL_SETTING_LIB:
-        return None
-
-    try:
-        pool = get_pool()
-        has_session = has_active_goal_session(pool, room_id, account_id)
-
-        # 目標設定開始キーワードの検出
-        goal_start_keywords = [
-            "目標設定したい", "目標を設定したい", "目標を立てたい", "目標を決めたい",
-            "目標設定を始め", "目標登録したい", "目標を登録したい",
-            "今月の目標を設定", "個人目標を設定", "目標設定して"
-        ]
-        is_question = message.endswith("？") or any(q in message for q in ["繋がってる", "どう思う", "ちゃんと", "について"])
-        wants_goal_setting = any(kw in message for kw in goal_start_keywords) and not is_question
-
-        print(f"🎯 [バイパス] 目標設定: has_session={has_session}, wants_goal_setting={wants_goal_setting}")
-
-        if has_session or wants_goal_setting:
-            result = process_goal_setting_message(pool, room_id, account_id, message)
-            if result and result.get("success"):
-                return result.get("message", "")
-            else:
-                error_msg = result.get("message") if result else None
-                if not error_msg:
-                    error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
-                return error_msg
-
-        return None  # セッションなし、開始キーワードなしの場合は通常処理へ
-
-    except Exception as e:
-        print(f"❌ [バイパス] 目標設定エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        # エラーでもセッションがある場合はエラーメッセージを返す
-        if bypass_context.get("has_active_goal_session"):
-            return "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
-        return None
-
-
-def _bypass_handle_announcement(message, room_id, account_id, sender_name, bypass_context):
-    """
-    アナウンス確認待ち用のバイパスハンドラー
-
-    pending announcementがある場合に呼び出される。
-
-    Returns:
-        str: 応答メッセージ、Noneの場合は通常処理へ
-    """
-    try:
-        announcement_handler = _get_announcement_handler()
-        if not announcement_handler:
-            return None
-
-        pending = announcement_handler._get_pending_announcement(room_id, account_id)
-        if not pending:
-            return None
-
-        print(f"📢 [バイパス] pending announcement検出: {pending.get('id')}")
-
-        response = announcement_handler.handle_announcement_request(
-            params={"raw_message": message},
-            room_id=room_id,
-            account_id=account_id,
-            sender_name=sender_name,
-        )
-
-        # Noneが返った場合はフォローアップではないので通常処理へ
-        if response is None:
-            print(f"📢 [バイパス] フォローアップではない判定 → 通常処理へ")
-            return None
-
-        return response
-
-    except Exception as e:
-        print(f"❌ [バイパス] announcement エラー: {e}")
-        return None
-
-
-def _build_bypass_handlers():
-    """
-    バイパスハンドラーのマッピングを構築
-
-    v10.39.3: goal_sessionバイパスを削除
-    - 脳の意図理解を通すため、バイパスを使わない
-    - 脳のcore.py _continue_goal_setting() で意図を理解してから処理
-
-    Returns:
-        dict: バイパスタイプ -> ハンドラー関数のマッピング
-    """
-    return {
-        # v10.39.3: goal_session バイパスを削除（脳が意図理解してからハンドラーを呼ぶ）
-        # "goal_session": _bypass_handle_goal_session,
-        "announcement_pending": _bypass_handle_announcement,
-        # "task_pending" と "local_command" は既存の脳内処理で対応可能
-    }
-
-
-# =====================================================
-# v10.28.0: 脳用ハンドラーラッパー関数
-# =====================================================
-
-async def _brain_handle_task_search(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_chatwork_task_search(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "タスクが見つからなかったウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"タスク検索でエラーが発生したウル🐺")
-
-
-async def _brain_handle_task_create(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_chatwork_task_create(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "タスクを作成したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"タスク作成でエラーが発生したウル🐺")
-
-
-async def _brain_handle_task_complete(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        handler_context = {}
-        if context and hasattr(context, 'recent_tasks') and context.recent_tasks:
-            handler_context["recent_tasks_context"] = context.recent_tasks
-        result = handle_chatwork_task_complete(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=handler_context)
-        return HandlerResult(success=True, message=result if result else "タスクを完了にしたウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"タスク完了でエラーが発生したウル🐺")
-
-
-async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_query_company_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "ナレッジが見つからなかったウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"ナレッジ検索でエラーが発生したウル🐺")
-
-
-async def _brain_handle_save_memory(params, room_id, account_id, sender_name, context):
-    """
-    記憶保存ハンドラー
-
-    v10.40.9: メモリ分離対応
-    - ボットペルソナ設定 → bot_persona_memoryに保存
-    - 長期記憶パターン → user_long_term_memoryに保存
-    - それ以外 → 従来の人物情報記憶（persons/person_attributes）
-
-    v10.40.11: 保存結果に基づく返信修正
-    - success=True の場合のみ「覚えた」と返す
-    - 保存先を明確にログ出力
-    """
-    from lib.brain.models import HandlerResult
-    try:
-        # オリジナルメッセージを取得
-        original_message = ""
-        if context:
-            original_message = getattr(context, 'original_message', '') or ''
-            if not original_message and hasattr(context, 'to_dict'):
-                ctx_dict = context.to_dict()
-                original_message = ctx_dict.get('original_message', '')
-
-        # v10.40.11: デバッグログ
-        print(f"🔍 [save_memory DEBUG] message: {original_message[:80]}..." if len(original_message) > 80 else f"🔍 [save_memory DEBUG] message: {original_message}")
-
-        # v10.40.11: is_bot_persona_setting() の判定結果をログ
-        is_persona = is_bot_persona_setting(original_message) if USE_BOT_PERSONA_MEMORY and original_message else False
-        print(f"🔍 [save_memory DEBUG] is_bot_persona_setting() = {is_persona}")
-
-        # v10.40.9: ボットペルソナ設定を先に検出
-        if is_persona:
-            print(f"🐺 ボットペルソナ設定検出: {original_message[:50]}...")
-            result = await _handle_save_bot_persona(
-                original_message, room_id, account_id, sender_name
-            )
-            print(f"🔍 [save_memory DEBUG] 保存先: bot_persona_memory, success={result.get('success', False)}")
-            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
-
-        # v10.40.8: 長期記憶パターンを検出
-        is_long_term = is_long_term_memory_request(original_message) if USE_LONG_TERM_MEMORY and original_message else False
-        print(f"🔍 [save_memory DEBUG] is_long_term_memory_request() = {is_long_term}")
-
-        if is_long_term:
-            print(f"🔥 長期記憶パターン検出: {original_message[:50]}...")
-            result = await _handle_save_long_term_memory(
-                original_message, room_id, account_id, sender_name
-            )
-            print(f"🔍 [save_memory DEBUG] 保存先: user_long_term_memory, success={result.get('success', False)}")
-            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
-
-        # v10.40.11: ボットペルソナでも長期記憶でもない場合
-        # 人物情報として適切かどうか確認
-        attributes = params.get("attributes", [])
-        print(f"🔍 [save_memory DEBUG] attributes: {attributes}")
-
-        if not attributes:
-            # 属性が抽出できなかった場合 → 保存しない
-            print(f"🔍 [save_memory DEBUG] 保存先: none (属性なし)")
-            return HandlerResult(
-                success=False,
-                message="🤔 何を覚えればいいかわからなかったウル...もう少し詳しく教えてほしいウル！"
-            )
-
-        # 通常の人物情報記憶
-        result = handle_save_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-
-        # v10.40.11: 結果に基づいて返信（handle_save_memoryは文字列を返す）
-        if result:
-            print(f"🔍 [save_memory DEBUG] 保存先: person_attributes")
-            # 保存成功（メッセージが返ってきた）
-            return HandlerResult(success=True, message=result)
-        else:
-            print(f"🔍 [save_memory DEBUG] 保存先: none (保存失敗)")
-            return HandlerResult(
-                success=False,
-                message="🤔 保存できなかったウル...もう一度試してほしいウル！"
-            )
-    except Exception as e:
-        print(f"❌ 記憶保存エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return HandlerResult(success=False, message=f"記憶保存でエラーが発生したウル🐺")
-
-
-async def _handle_save_long_term_memory(message: str, room_id: str, account_id: str, sender_name: str):
-    """
-    長期記憶（人生軸・価値観）を保存
-
-    v10.40.8: 新規追加
-    """
-    try:
-        pool = get_pool()
-
-        # ユーザー情報を取得
-        with pool.connect() as conn:
-            user_result = conn.execute(
-                sqlalchemy.text("""
-                    SELECT id, organization_id FROM users
-                    WHERE chatwork_account_id = :account_id
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not user_result:
-                return {
-                    "success": False,
-                    "message": "ユーザー情報が見つからなかったウル...🐺"
-                }
-
-            # v10.40.15: users.id は UUID なので int 化しない
-            user_id = str(user_result[0])
-            org_id = str(user_result[1]) if user_result[1] else None
-
-            if not org_id:
-                return {
-                    "success": False,
-                    "message": "組織情報が見つからなかったウル...🐺"
-                }
-
-        # 長期記憶を保存
-        result = save_long_term_memory(
-            pool=pool,
-            org_id=org_id,
-            user_id=user_id,
-            user_name=sender_name,
-            message=message
-        )
-
-        return result
-
-    except Exception as e:
-        print(f"❌ 長期記憶保存エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": f"長期記憶の保存中にエラーが発生したウル...🐺\n（エラー: {str(e)}）"
-        }
-
-
-async def _handle_save_bot_persona(
-    message: str,
-    room_id: str,
-    account_id: str,
-    sender_name: str
-) -> Dict[str, Any]:
-    """
-    v10.40.9: ボットペルソナ設定を保存
-
-    ソウルくんのキャラ設定（好物、口調など）を保存。
-    管理者のみ設定可能。
-
-    v10.40.11: ホワイトリスト拒否時のリダイレクト対応
-    - user_idを渡して、拒否時はuser_long_term_memoryへリダイレクト
-    - デバッグログ追加
-    """
-    from lib.bot_persona_memory import extract_persona_key_value, is_valid_bot_persona
-
-    try:
-        # 管理者チェック
-        if not is_admin(account_id):
-            return {
-                "success": False,
-                "message": "ソウルくんの設定は管理者のみ変更できるウル🐺\n菊地さんにお願いしてほしいウル！"
-            }
-
-        pool = get_pool()
-
-        # v10.40.11: ユーザー情報を取得（user_idも含む）
-        user_id = None
-        org_id = None
-        with pool.connect() as conn:
-            user_result = conn.execute(
-                sqlalchemy.text("""
-                    SELECT id, organization_id FROM users
-                    WHERE chatwork_account_id = :account_id
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if user_result:
-                # v10.40.15: users.id は UUID なので int 化しない
-                user_id = str(user_result[0])
-                org_id = str(user_result[1]) if user_result[1] else None
-            else:
-                # 組織が見つからない場合はデフォルト組織を使用
-                org_result = conn.execute(
-                    sqlalchemy.text("""
-                        SELECT id FROM organizations LIMIT 1
-                    """)
-                ).fetchone()
-                if org_result:
-                    org_id = str(org_result[0])
-
-        if not org_id:
-            return {
-                "success": False,
-                "message": "組織情報が見つからなかったウル...🐺"
-            }
-
-        # v10.40.11: デバッグログ - キー/値の抽出
-        kv = extract_persona_key_value(message)
-        print(f"🔍 [bot_persona DEBUG] extracted key={kv.get('key')}, value={kv.get('value')}")
-
-        # v10.40.11: デバッグログ - ホワイトリスト判定
-        is_valid, reason = is_valid_bot_persona(message, kv.get("key", ""), kv.get("value", ""))
-        print(f"🔍 [bot_persona DEBUG] is_valid_bot_persona() = {is_valid}, reason={reason}")
-
-        # ボットペルソナを保存（user_idを渡してリダイレクト機能を有効化）
-        result = save_bot_persona(
-            pool=pool,
-            org_id=org_id,
-            message=message,
-            account_id=str(account_id),
-            sender_name=sender_name,
-            user_id=user_id  # v10.40.11: リダイレクト用にuser_idを追加
-        )
-
-        # v10.40.11: 保存先をログ出力
-        redirected_to = result.get("redirected_to", "")
-        if redirected_to:
-            print(f"🔍 [bot_persona DEBUG] 実際の保存先: {redirected_to}")
-        elif result.get("success"):
-            print(f"🔍 [bot_persona DEBUG] 実際の保存先: bot_persona_memory")
-        else:
-            print(f"🔍 [bot_persona DEBUG] 実際の保存先: none (保存失敗)")
-
-        return result
-
-    except Exception as e:
-        print(f"❌ ボットペルソナ保存エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": f"ボット設定の保存中にエラーが発生したウル...🐺"
-        }
-
-
-async def _handle_query_long_term_memory(
-    account_id: str,
-    sender_name: str,
-    target_user_id: int = None
-) -> Dict[str, Any]:
-    """
-    v10.40.9: 長期記憶（人生軸・価値観）を取得
-
-    アクセス制御:
-    - 本人の記憶: 全て取得可能
-    - 他ユーザーの記憶: ORG_SHARED のみ取得可能
-    - PRIVATEスコープの記憶は本人以外には絶対に返さない
-    """
-    try:
-        pool = get_pool()
-
-        # リクエスターのユーザー情報を取得
-        # v10.40.16: users.id が正しいカラム名（user_id ではない）
-        with pool.connect() as conn:
-            requester_result = conn.execute(
-                sqlalchemy.text("""
-                    SELECT id, organization_id FROM users
-                    WHERE chatwork_account_id = :account_id
-                    LIMIT 1
-                """),
-                {"account_id": str(account_id)}
-            ).fetchone()
-
-            if not requester_result:
-                return {
-                    "success": False,
-                    "message": "ユーザー情報が見つからなかったウル...🐺"
-                }
-
-            # v10.40.15: users.id は UUID なので int 化しない
-            requester_user_id = str(requester_result[0])
-            org_id = str(requester_result[1]) if requester_result[1] else None
-
-            if not org_id:
-                return {
-                    "success": False,
-                    "message": "組織情報が見つからなかったウル...🐺"
-                }
-
-        # ターゲットユーザーを決定（指定がなければリクエスター自身）
-        target_id = target_user_id if target_user_id else requester_user_id
-        is_self_query = (target_id == requester_user_id)
-
-        # 長期記憶を取得（アクセス制御付き）
-        manager = LongTermMemoryManager(pool, org_id, target_id, sender_name)
-
-        if is_self_query:
-            # 本人の記憶は全て取得
-            memories = manager.get_all()
-            if not memories:
-                return {
-                    "success": True,
-                    "message": f"🐺 {sender_name}さんの人生の軸はまだ登録されていないウル！\n\n「人生の軸として覚えて」と言ってくれたら覚えるウル！"
-                }
-            display = manager.format_for_display(show_scope=False)
-            return {
-                "success": True,
-                "message": display
-            }
-        else:
-            # 他ユーザーの記憶はORG_SHAREDのみ
-            memories = manager.get_all_for_requester(requester_user_id)
-            if not memories:
-                return {
-                    "success": True,
-                    "message": "共有されている情報は見つからなかったウル🐺"
-                }
-            # 注意: 他ユーザーの記憶を表示する際は個人情報を匿名化
-            display = f"🐺 共有されている情報ウル！\n\n"
-            for m in memories:
-                type_label = m.get("memory_type", "記憶")
-                display += f"【{type_label}】\n{m['content']}\n\n"
-            return {
-                "success": True,
-                "message": display
-            }
-
-    except Exception as e:
-        print(f"❌ 長期記憶取得エラー: {e}")
-        import traceback
-        traceback.print_exc()
-        return {
-            "success": False,
-            "message": f"長期記憶の取得中にエラーが発生したウル...🐺"
-        }
-
-
-async def _brain_handle_query_memory(params, room_id, account_id, sender_name, context):
-    """
-    記憶検索ハンドラー
-
-    v10.40.9: 長期記憶（人生軸）クエリを検出して分岐
-    - 「軸を確認」「人生の軸」→ user_long_term_memoryから取得
-    - それ以外 → 従来のpersons/person_attributesから取得
-    """
-    from lib.brain.models import HandlerResult
-    import re
-    try:
-        # v10.40.9: 長期記憶クエリパターンの検出
-        original_message = ""
-        if context:
-            original_message = getattr(context, 'original_message', '') or ''
-            if not original_message and hasattr(context, 'to_dict'):
-                ctx_dict = context.to_dict()
-                original_message = ctx_dict.get('original_message', '')
-
-        # 長期記憶クエリパターン
-        long_term_memory_query_patterns = [
-            r"軸を(確認|教えて|見せて)",
-            r"(俺|私|自分)の軸",
-            r"人生の軸",
-            r"価値観を(確認|教えて)",
-            r"(何を)?覚えてる.*軸",
-        ]
-
-        is_long_term_query = False
-        if USE_LONG_TERM_MEMORY and original_message:
-            for pattern in long_term_memory_query_patterns:
-                if re.search(pattern, original_message, re.IGNORECASE):
-                    is_long_term_query = True
-                    break
-
-        if is_long_term_query:
-            print(f"🔥 長期記憶クエリ検出: {original_message[:50]}...")
-            result = await _handle_query_long_term_memory(
-                account_id=account_id,
-                sender_name=sender_name
-            )
-            return HandlerResult(success=result.get("success", False), message=result.get("message", ""))
-
-        # 通常の人物情報検索
-        result = handle_query_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "記憶が見つからなかったウル🐺")
-    except Exception as e:
-        print(f"❌ 記憶検索エラー: {e}")
-        return HandlerResult(success=False, message=f"記憶検索でエラーが発生したウル🐺")
-
-
-async def _brain_handle_delete_memory(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_delete_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "忘れたウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"記憶削除でエラーが発生したウル🐺")
-
-
-async def _brain_handle_learn_knowledge(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_learn_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "覚えたウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"知識学習でエラーが発生したウル🐺")
-
-
-async def _brain_handle_forget_knowledge(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_forget_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "忘れたウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"知識削除でエラーが発生したウル🐺")
-
-
-async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name, context):
-    """
-    知識一覧ハンドラー
-
-    v10.40.17: 「軸を確認」等の長期記憶クエリは long_term_memory から取得
-    """
-    from lib.brain.models import HandlerResult
-    import re
-    try:
-        # v10.40.17: 長期記憶クエリパターンを検出
-        original_message = ""
-        if context:
-            original_message = getattr(context, 'original_message', '') or ''
-            if not original_message and hasattr(context, 'to_dict'):
-                ctx_dict = context.to_dict()
-                original_message = ctx_dict.get('original_message', '')
-
-        long_term_query_patterns = [
-            r"軸を(確認|教えて|見せて)",
-            r"(俺|私|自分)の軸",
-            r"人生の軸",
-            r"価値観を(確認|教えて)",
-        ]
-
-        is_long_term_query = False
-        for pattern in long_term_query_patterns:
-            if re.search(pattern, original_message, re.IGNORECASE):
-                is_long_term_query = True
-                break
-
-        if is_long_term_query:
-            print(f"🔍 [list_knowledge] long_term_query detected, redirecting to long_term_memory")
-            result = await _handle_query_long_term_memory(
-                account_id=account_id,
-                sender_name=sender_name
-            )
-            if result.get("success"):
-                return HandlerResult(success=True, message=result.get("message", ""))
-            # 長期記憶がなければ従来処理にフォールバック
-
-        result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "知識一覧を取得したウル🐺")
-    except Exception as e:
-        print(f"❌ list_knowledge error: {e}")
-        return HandlerResult(success=False, message=f"知識一覧でエラーが発生したウル🐺")
-
-
-async def _brain_handle_goal_setting_start(params, room_id, account_id, sender_name, context):
-    """目標設定開始ハンドラー（v10.29.8）"""
-    from lib.brain.models import HandlerResult
-    try:
-        if USE_GOAL_SETTING_LIB:
-            pool = get_pool()
-            result = process_goal_setting_message(pool, room_id, account_id, "目標を設定したい")
-            if result:
-                message = result.get("message", "")
-                if message:
-                    return HandlerResult(success=result.get("success", False), message=message)
-        return HandlerResult(success=True, message="目標設定を始めるウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message="目標設定でエラーが発生したウル🐺")
-
-
-# =====================================================
-# v10.39.1: セッション継続ハンドラー
-# 脳のcore.pyの_continue_*メソッドから呼び出される
-# シグネチャ: (message, room_id, account_id, sender_name, state_data) -> dict or str or None
-# =====================================================
-
-def _brain_continue_goal_setting(message, room_id, account_id, sender_name, state_data):
-    """
-    目標設定セッションを継続
-
-    GoalSettingDialogueを使用してセッションを継続します。
-    """
-    try:
-        if USE_GOAL_SETTING_LIB:
-            pool = get_pool()
-            result = process_goal_setting_message(pool, room_id, account_id, message)
-            if result:
-                response_message = result.get("message", "")
-                session_completed = result.get("session_completed", False)
-                return {
-                    "message": response_message,
-                    "success": result.get("success", True),
-                    "session_completed": session_completed,
-                    "new_state": "normal" if session_completed else None,
-                    "state_changed": session_completed,
-                }
-        # フォールバック
-        return {
-            "message": "目標設定を続けるウル🐺 もう少し詳しく教えてほしいウル！",
-            "success": True,
-        }
-    except Exception as e:
-        print(f"❌ _brain_continue_goal_setting error: {e}")
-        return {
-            "message": "目標設定の処理中にエラーが発生したウル🐺",
-            "success": False,
-            "session_completed": True,
-            "new_state": "normal",
-        }
-
-
-def _brain_continue_announcement(message, room_id, account_id, sender_name, state_data):
-    """
-    アナウンス確認セッションを継続
-
-    AnnouncementHandlerを使用してセッションを継続します。
-    v10.33.1: ハンドラー必須化によりif handler:チェック削除
-    """
-    try:
-        # state_dataからpending_announcement_idを取得
-        pending_id = state_data.get("pending_announcement_id") if state_data else None
-        context = {
-            "awaiting_announcement_response": True,
-            "pending_announcement_id": pending_id,
-        }
-        # パラメータを構築
-        params = {
-            "raw_message": message,
-        }
-        result = _get_announcement_handler().handle_announcement_request(
-            params=params,
-            room_id=room_id,
-            account_id=account_id,
-            sender_name=sender_name,
-            context=context,
-        )
-        if result:
-            # 結果を解析して完了状態を判定
-            is_completed = any(kw in result for kw in ["送信完了", "キャンセル", "スケジュール完了"])
-            return {
-                "message": result,
-                "success": True,
-                "session_completed": is_completed,
-                "new_state": "normal" if is_completed else None,
-            }
-        return {
-            "message": "アナウンスの確認を続けるウル🐺",
-            "success": True,
-        }
-    except Exception as e:
-        print(f"❌ _brain_continue_announcement error: {e}")
-        return {
-            "message": "アナウンス処理中にエラーが発生したウル🐺",
-            "success": False,
-            "session_completed": True,
-            "new_state": "normal",
-        }
-
-
-def _brain_continue_task_pending(message, room_id, account_id, sender_name, state_data):
-    """
-    タスク作成待ち状態を継続
-
-    handle_pending_task_followupを使用して不足情報を補完します。
-    """
-    try:
-        # handle_pending_task_followupを呼び出し
-        result = handle_pending_task_followup(message, room_id, account_id, sender_name)
-
-        if result:
-            # タスク作成成功
-            return {
-                "message": result,
-                "success": True,
-                "task_created": True,
-                "new_state": "normal",
-            }
-        else:
-            # 補完できなかった場合
-            return None
-    except Exception as e:
-        print(f"❌ _brain_continue_task_pending error: {e}")
-        return {
-            "message": "タスク作成中にエラーが発生したウル🐺",
-            "success": False,
-            "task_created": False,
-            "new_state": "normal",
-        }
-
-
-# =====================================================
-# v10.39.2: 目標設定中断・再開ハンドラー
-# 脳が意図を汲み取り、別の話題に対応するための仕組み
-# =====================================================
-
-# グローバル変数: 中断されたセッションを一時保存
-_interrupted_goal_sessions = {}
-
-
-def _brain_interrupt_goal_setting(room_id, account_id, interrupted_session):
-    """
-    目標設定セッションを中断状態で保存
-
-    脳が「別の意図」を検出した場合に呼ばれる。
-    途中経過を記憶し、後で再開できるようにする。
-    """
-    try:
-        key = f"{room_id}:{account_id}"
-        _interrupted_goal_sessions[key] = interrupted_session
-        print(f"📝 目標設定セッションを中断保存: {key}, step={interrupted_session.get('current_step')}")
-        return True
-    except Exception as e:
-        print(f"❌ _brain_interrupt_goal_setting error: {e}")
-        return False
-
-
-def _brain_get_interrupted_goal_setting(room_id, account_id):
-    """中断されたセッションを取得"""
-    key = f"{room_id}:{account_id}"
-    return _interrupted_goal_sessions.get(key)
-
-
-def _brain_resume_goal_setting(message, room_id, account_id, sender_name, state_data):
-    """
-    中断されたセッションを再開
-
-    「目標設定の続き」などのキーワードで呼ばれる。
-    """
-    try:
-        key = f"{room_id}:{account_id}"
-        interrupted = _interrupted_goal_sessions.get(key)
-
-        if not interrupted:
-            return {
-                "message": "中断された目標設定は見つからなかったウル🐺\n新しく目標設定を始める？「目標設定したい」と言ってくれればスタートするウル！",
-                "success": True,
-                "session_completed": False,
-            }
-
-        # 中断されたセッションの情報を取得
-        current_step = interrupted.get("current_step", "why")
-        why_answer = interrupted.get("why_answer", "")
-        what_answer = interrupted.get("what_answer", "")
-        how_answer = interrupted.get("how_answer", "")
-
-        # セッションを再開
-        if USE_GOAL_SETTING_LIB:
-            pool = get_pool()
-            # 既存のセッションを再開するか、新しいセッションを開始
-            result = process_goal_setting_message(pool, room_id, account_id, "目標設定を再開したい")
-            if result:
-                # 中断されたセッションをクリア
-                del _interrupted_goal_sessions[key]
-
-                # 進捗を表示
-                progress_summary = "📝 前回の進捗:\n"
-                if why_answer:
-                    progress_summary += f"・WHY: {why_answer[:50]}...\n" if len(why_answer) > 50 else f"・WHY: {why_answer}\n"
-                if what_answer:
-                    progress_summary += f"・WHAT: {what_answer[:50]}...\n" if len(what_answer) > 50 else f"・WHAT: {what_answer}\n"
-                if how_answer:
-                    progress_summary += f"・HOW: {how_answer[:50]}...\n" if len(how_answer) > 50 else f"・HOW: {how_answer}\n"
-
-                response = result.get("message", "")
-                if progress_summary != "📝 前回の進捗:\n":
-                    response = f"{progress_summary}\n{response}"
-
-                return {
-                    "message": response,
-                    "success": True,
-                    "session_completed": result.get("session_completed", False),
-                }
-
-        return {
-            "message": "目標設定を再開するウル🐺",
-            "success": True,
-        }
-    except Exception as e:
-        print(f"❌ _brain_resume_goal_setting error: {e}")
-        return {
-            "message": "目標設定の再開中にエラーが発生したウル🐺",
-            "success": False,
-        }
-
-
-async def _brain_handle_goal_progress_report(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_goal_progress_report(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "進捗を報告したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"進捗報告でエラーが発生したウル🐺")
-
-
-async def _brain_handle_goal_status_check(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_goal_status_check(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "目標状況を確認したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"目標状況確認でエラーが発生したウル🐺")
-
-
-# v10.45.0: goal_review ハンドラー（既存目標の一覧・整理・削除・修正）
-async def _brain_handle_goal_review(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_goal_review(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "目標一覧を表示したウル🐺")
-    except Exception as e:
-        print(f"goal_review error: {e}")
-        return HandlerResult(success=False, message=f"目標一覧でエラーが発生したウル🐺")
-
-
-# v10.45.0: goal_consult ハンドラー（目標の決め方・優先順位の相談）
-async def _brain_handle_goal_consult(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_goal_consult(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "目標について相談を受けたウル🐺")
-    except Exception as e:
-        print(f"goal_consult error: {e}")
-        return HandlerResult(success=False, message=f"目標相談でエラーが発生したウル🐺")
-
-
-async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):
-    """v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除, v10.33.1: ハンドラー必須化"""
-    from lib.brain.models import HandlerResult
-    try:
-        result = _get_announcement_handler().handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
-        if result:
-            return HandlerResult(success=True, message=result)
-        return HandlerResult(success=True, message="アナウンス機能は現在準備中ウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"アナウンスでエラーが発生したウル🐺")
-
-
-async def _brain_handle_query_org_chart(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_query_org_chart(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "組織情報を取得したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"組織図クエリでエラーが発生したウル🐺")
-
-
-async def _brain_handle_daily_reflection(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_daily_reflection(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "振り返りを記録したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"振り返りでエラーが発生したウル🐺")
-
-
-async def _brain_handle_proposal_decision(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_proposal_decision(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "提案を処理したウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"提案処理でエラーが発生したウル🐺")
-
-
-async def _brain_handle_api_limitation(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        result = handle_api_limitation(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "API制限の説明ウル🐺")
-    except Exception as e:
-        return HandlerResult(success=False, message=f"API制限説明でエラーが発生したウル🐺")
-
-
-# Note: connection_queryのハンドラーはCapabilityBridge経由で登録される
-# （設計原則「機能拡張しても脳の構造は変わらない。カタログへの追加のみ」に準拠）
-
-
-async def _brain_handle_general_conversation(params, room_id, account_id, sender_name, context):
-    from lib.brain.models import HandlerResult
-    try:
-        history = get_conversation_history(room_id, account_id)
-        room_context = get_room_context(room_id, limit=30)
-        all_persons = get_all_persons_summary()
-        context_parts = []
-        if room_context:
-            context_parts.append(f"【このルームの最近の会話】\n{room_context}")
-        if all_persons:
-            persons_str = "\n".join([f"・{p['name']}: {p['attributes']}" for p in all_persons[:5] if p['attributes']])
-            if persons_str:
-                context_parts.append(f"【覚えている人物】\n{persons_str}")
-        context_str = "\n\n".join(context_parts) if context_parts else None
-        ai_response = get_ai_response(params.get("message", ""), history, sender_name, context_str, "ja", account_id)
-        return HandlerResult(success=True, message=ai_response)
-    except Exception as e:
-        return HandlerResult(success=False, message=f"ごめんウル...もう一度試してほしいウル🐺")
+# v10.40.2: 脳用ハンドラーは lib/brain/handler_wrappers.py に移行済み
 
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):
@@ -4324,303 +3406,12 @@ def process_memory_after_conversation(
     )
 
 
-# ===== AI司令塔（AIの判断力を最大活用する設計） =====
-
-def ai_commander(message, all_persons, all_tasks, chatwork_users=None, sender_name=None):
-    """
-    ユーザーのメッセージを解析し、適切なアクションを判断
-    
-    【設計思想】
-    - 機能カタログ(SYSTEM_CAPABILITIES)からプロンプトを動的生成
-    - AIにシステムの全情報を渡し、AIが自分で判断する
-    - 新機能追加時はカタログに追加するだけでAIが認識
-    """
-    api_key = get_secret("openrouter-api-key")
-    
-    # ChatWorkユーザー一覧（なければ取得）
-    if chatwork_users is None:
-        chatwork_users = get_all_chatwork_users()
-    
-    # 各コンテキストを文字列化
-    users_context = ""
-    if chatwork_users:
-        users_list = [f"- {u['name']}" for u in chatwork_users]
-        users_context = "\n".join(users_list)
-    
-    persons_context = ""
-    if all_persons:
-        persons_list = [f"- {p['name']}: {p['attributes']}" for p in all_persons[:20]]
-        persons_context = "\n".join(persons_list)
-    
-    tasks_context = ""
-    if all_tasks:
-        tasks_list = [f"- ID:{t[0]} {t[1]} [{t[2]}]" for t in all_tasks[:10]]
-        tasks_context = "\n".join(tasks_list)
-    
-    # ★ v6.9.0: 学習済みの知識を取得
-    knowledge_context = ""
-    try:
-        knowledge_context = _get_knowledge_handler().get_knowledge_for_prompt()
-    except Exception as e:
-        print(f"⚠️ 知識取得エラー（続行）: {e}")
-    
-    # ★ 機能カタログからアクション一覧を動的生成
-    capabilities_prompt = generate_capabilities_prompt(SYSTEM_CAPABILITIES, chatwork_users, sender_name)
-    
-    # 有効なアクション名の一覧
-    enabled_actions = list(get_enabled_capabilities().keys())
-    
-    system_prompt = f"""あなたは「ソウルくん」のAI司令塔です。
-
-【あなたの役割】
-ユーザーのメッセージを理解し、以下のシステム情報と機能一覧を考慮して、
-システムが正しく実行できるアクションとパラメータを出力すること。
-
-★ 重要: あなたはAIとしての判断力を最大限に発揮してください。
-ユーザーは様々な言い方をします（敬称あり/なし、フルネーム/名前だけ、ニックネームなど）。
-あなたの仕事は、ユーザーの意図を汲み取り、システムが動く形式に変換することです。
-
-=======================================================
-【システム情報】
-=======================================================
-
-【1. ChatWorkユーザー一覧】（タスク担当者として指定可能な人）
-{users_context if users_context else "（ユーザー情報なし）"}
-
-【2. 記憶している人物情報】
-{persons_context if persons_context else "（まだ誰も記憶していません）"}
-
-【2.5. ソウルくんが学習した知識】
-{knowledge_context if knowledge_context else "（まだ学習した知識はありません）"}
-
-【3. 現在のタスク】
-{tasks_context if tasks_context else "（タスクはありません）"}
-
-【4. 今話しかけてきた人】
-{sender_name if sender_name else "（不明）"}
-
-【5. 今日の日付】
-{datetime.now(JST).strftime("%Y-%m-%d")}（{datetime.now(JST).strftime("%A")}）
-
-=======================================================
-【最重要：担当者名の解決ルール】
-=======================================================
-
-ユーザーがタスクの担当者を指定する際、様々な言い方をします。
-あなたは【ChatWorkユーザー一覧】から該当する人を見つけて、
-【正確な名前をコピー】して出力してください。
-
-例：
-- 「崇樹」「崇樹くん」「崇樹さん」「上野」「上野さん」
-  → 一覧から「上野 崇樹」を見つけて「上野 崇樹」と出力
-  
-- 「黒沼」「黒沼さん」「黒沼くん」「賢人」
-  → 一覧から「黒沼 賢人」を見つけて「黒沼 賢人」と出力
-  
-- 「俺」「自分」「私」「僕」
-  → 「依頼者自身」と出力（システムが送信者の名前に変換します）
-
-★ assigned_to には【必ず】ChatWorkユーザー一覧の名前を正確にコピーして出力すること
-★ リストにない名前を勝手に作成しないこと
-★ 敬称は除去してリストの正式名で出力すること
-
-=======================================================
-【使用可能な機能一覧】
-=======================================================
-{capabilities_prompt}
-
-=======================================================
-【言語検出】
-=======================================================
-ユーザーのメッセージの言語を検出し、response_language に記録してください。
-対応: ja(日本語), en(英語), zh(中国語), ko(韓国語), es(スペイン語), fr(フランス語), de(ドイツ語), other
-
-=======================================================
-【出力形式】
-=======================================================
-必ず以下のJSON形式で出力してください：
-
-{{
-  "action": "アクション名（{', '.join(enabled_actions)} のいずれか）",
-  "confidence": 0.0-1.0,
-  "reasoning": "この判断をした理由（日本語で簡潔に）",
-  "response_language": "言語コード",
-  "params": {{
-    // アクションに応じたパラメータ
-  }}
-}}
-
-=======================================================
-【判断の優先順位】
-=======================================================
-★★★ 重要：「タスク」という言葉があれば、まずタスク系の機能を検討 ★★★
-
-1. タスク完了のキーワード（完了/終わった/done/済み/クリア）があれば → chatwork_task_complete
-2. タスク検索のキーワード（〇〇のタスク/タスク教えて/タスク一覧/抱えているタスク）があれば → chatwork_task_search
-3. タスク作成のキーワード（追加/作成/依頼/お願い/振って）があれば → chatwork_task_create
-4. 人物情報を教えてくれていれば（〇〇さんは△△です）→ save_memory
-5. 人物について質問していれば（〇〇さんについて/〇〇さんのこと）→ query_memory
-   ★ ただし「〇〇のタスク」の場合は2の chatwork_task_search を優先
-6. 忘れてほしいと言われていれば → delete_memory
-7. ★★★ 会社のルール・規則・制度に関する質問 → query_company_knowledge ★★★
-   - 有給休暇、年休、休暇に関する質問
-   - 就業規則、社内ルールに関する質問
-   - 経費精算、各種手続きに関する質問
-   - 会社の制度、福利厚生に関する質問
-   - 「何日？」「どうやって？」「ルールは？」のような制度への質問
-8. ★★★ 目標に関する発言 → goal系アクション ★★★
-   - 「今日は〇〇した」「今日〇〇円売り上げた」「今日〇〇件達成」など進捗報告 → goal_progress_report
-   - 「目標を設定したい」「目標を登録したい」「KPIを設定」など目標設定 → goal_registration
-   - 「目標の進捗は？」「達成率を教えて」など目標確認 → goal_status_check
-   ★★★ 特に数値＋売上/件数/達成などの組み合わせは goal_progress_report を優先 ★★★
-9. それ以外 → general_chat
-
-【具体例】
-- 「崇樹のタスク教えて」→ chatwork_task_search（タスク検索）
-- 「崇樹について教えて」→ query_memory（人物情報検索）
-- 「1のタスク完了にして」→ chatwork_task_complete（タスク完了）
-- 「崇樹にタスク追加して」→ chatwork_task_create（タスク作成）
-- 「有給休暇は何日？」→ query_company_knowledge（会社知識検索）
-- 「経費精算のルールは？」→ query_company_knowledge（会社知識検索）
-- 「就業規則を教えて」→ query_company_knowledge（会社知識検索）
-- 「今日は25万売り上げた」→ goal_progress_report（目標進捗報告）★★★
-- 「今日10件成約した」→ goal_progress_report（目標進捗報告）★★★
-- 「今日の売上は50万円」→ goal_progress_report（目標進捗報告）★★★
-- 「目標を設定したい」→ goal_registration（目標登録）
-- 「目標の進捗を教えて」→ goal_status_check（目標確認）"""
-
-    try:
-        response = httpx.post(
-            OPENROUTER_API_URL,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": MODELS["commander"],
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"以下のメッセージを解析してください：\n\n「{message}」"}
-                ],
-                "max_tokens": 800,
-                "temperature": 0.1,
-            },
-            timeout=20.0
-        )
-        
-        if response.status_code == 200:
-            content = response.json()["choices"][0]["message"]["content"]
-            json_match = re.search(r'\{[\s\S]*\}', content)
-            if json_match:
-                result = json.loads(json_match.group())
-                # AI司令塔の判断結果を詳細にログ出力
-                print("=" * 50)
-                print(f"🤖 AI司令塔の判断結果:")
-                print(f"   アクション: {result.get('action')}")
-                print(f"   信頼度: {result.get('confidence')}")
-                print(f"   理由: {result.get('reasoning')}")
-                print(f"   パラメータ: {json.dumps(result.get('params', {}), ensure_ascii=False)}")
-                print("=" * 50)
-                return result
-    except Exception as e:
-        print(f"AI司令塔エラー: {e}")
-    
-    return {"action": "general_chat", "confidence": 0.5, "reasoning": "解析失敗", "response_language": "ja", "params": {}}
-
-def execute_action(command, sender_name, room_id=None, account_id=None, context=None):
-    """
-    AI司令塔の判断に基づいてアクションを動的に実行
-    
-    【設計思想】
-    - SYSTEM_CAPABILITIESからアクション情報を取得
-    - HANDLERSから対応するハンドラー関数を取得して実行
-    - カタログにないアクションはフォールバック処理
-    """
-    action = command.get("action", "general_chat")
-    params = command.get("params", {})
-    reasoning = command.get("reasoning", "")
-    
-    print(f"⚙️ execute_action 開始:")
-    print(f"   アクション: {action}")
-    print(f"   送信者: {sender_name}")
-    print(f"   パラメータ: {json.dumps(params, ensure_ascii=False)}")
-    
-    # =====================================================
-    # カタログベースの動的実行
-    # =====================================================
-    
-    # カタログから機能情報を取得
-    capability = SYSTEM_CAPABILITIES.get(action)
-    
-    if capability:
-        # 機能が無効化されていないかチェック
-        if not capability.get("enabled", True):
-            print(f"⚠️ 機能 '{action}' は現在無効です")
-            return "🤔 その機能は現在利用できないウル..."
-        
-        # ハンドラー名を取得
-        handler_name = capability.get("handler")
-        
-        # HANDLERSからハンドラー関数を取得
-        handler = HANDLERS.get(handler_name)
-        
-        if handler:
-            print(f"✅ ハンドラー '{handler_name}' を実行")
-            try:
-                # contextにactionを追加（API制約ハンドラー用）
-                if context is None:
-                    context = {}
-                context["action"] = action
-                result = handler(params, room_id, account_id, sender_name, context)
-                # dictが返された場合はmessageキーを取り出す（goal系ハンドラー対応）
-                if isinstance(result, dict):
-                    return result.get("message", "🤔 応答の生成に失敗したウル...")
-                return result
-            except Exception as e:
-                print(f"❌ ハンドラー実行エラー: {e}")
-                return "🤔 処理中にエラーが発生したウル...もう一度試してほしいウル！"
-        else:
-            print(f"⚠️ ハンドラー '{handler_name}' が見つかりません")
-    
-    # =====================================================
-    # フォールバック処理（レガシーアクション用）
-    # =====================================================
-    
-    if action == "add_task":
-        task_title = params.get("task_title", "")
-        if task_title:
-            task_id = add_task(task_title)
-            return f"✅ タスクを追加したウル！📝\nID: {task_id}\nタイトル: {task_title}"
-        return "🤔 何をタスクにすればいいかわからなかったウル..."
-    
-    elif action == "list_tasks":
-        tasks = get_tasks()
-        if tasks:
-            response = "📋 **タスク一覧**ウル！\n\n"
-            for task in tasks:
-                status_emoji = "✅" if task[2] == "completed" else "📝"
-                response += f"{status_emoji} ID:{task[0]} - {task[1]} [{task[2]}]\n"
-            return response
-        return "📋 タスクはまだないウル！"
-    
-    elif action == "complete_task":
-        task_id = params.get("task_id")
-        if task_id:
-            try:
-                update_task_status(int(task_id), "completed")
-                return f"✅ タスク ID:{task_id} を完了にしたウル！🎉"
-            except:
-                pass
-        return "🤔 どのタスクを完了にすればいいかわからなかったウル..."
-    
-    elif action == "delete_task":
-        task_id = params.get("task_id")
-        if task_id:
-            try:
-                delete_task(int(task_id))
-                return f"🗑️ タスク ID:{task_id} を削除したウル！"
-            except:
-                pass
-        return "🤔 どのタスクを削除すればいいかわからなかったウル..."
-    
-    return None
+# =====================================================
+# v10.40: ai_commander と execute_action を削除
+# 設計原則「全入力は脳を通る」に準拠
+# すべての入力はBrainIntegration経由で処理される
+# 旧AI司令塔コード: 約300行削除
+# =====================================================
 
 # ===== 多言語対応のAI応答生成（NEW） =====
 
@@ -5075,344 +3866,79 @@ def chatwork_webhook(request):
 
         # =====================================================
         # v10.29.0: 脳アーキテクチャ（BrainIntegration経由）
-        # USE_BRAIN_ARCHITECTURE で制御:
-        #   - false: 無効（従来フロー）
-        #   - true/enabled: 有効（脳で処理、エラー時フォールバック）
-        #   - shadow: シャドウモード（新旧並列実行、旧結果を返却）
-        #   - gradual: 段階的ロールアウト（一部ユーザーのみ脳）
         # =====================================================
-        if USE_BRAIN_ARCHITECTURE:
-            try:
-                integration = _get_brain_integration()
-                if integration and integration.is_brain_enabled():
-                    mode = integration.get_mode().value
-                    print(f"🧠 脳アーキテクチャで処理開始: mode={mode}")
-
-                    # バイパスコンテキストとハンドラーを構築
-                    bypass_context = _build_bypass_context(room_id, sender_account_id)
-                    bypass_handlers = _build_bypass_handlers()
-
-                    # フォールバック関数（従来のai_commander + execute_action + get_ai_response）
-                    async def fallback_ai_commander(msg, r_id, a_id, s_name):
-                        """従来のAI司令塔フロー"""
-                        try:
-                            # コンテキスト準備（フォールバック用に簡易版）
-                            # Note: get_all_persons_summary()は要約版を返す
-                            fb_all_persons = get_all_persons_summary()
-                            # BUG-017修正: account_id → assigned_to_account_id, limit引数削除
-                            fb_all_tasks = search_tasks_from_db(room_id=r_id, assigned_to_account_id=a_id)
-                            fb_chatwork_users = get_all_chatwork_users()
-                            fb_conversation_history = get_conversation_history(r_id, a_id)
-                            fb_context = {}
-
-                            # AI司令塔
-                            command = ai_commander(msg, fb_all_persons, fb_all_tasks, fb_chatwork_users, s_name)
-
-                            # アクション実行
-                            if command and hasattr(command, 'action') and command.action != "general_chat":
-                                result = execute_action(command, s_name, r_id, a_id, fb_context)
-                                return result
-                            else:
-                                # 通常会話
-                                return get_ai_response(msg, fb_conversation_history, s_name, fb_context, "ja", a_id)
-                        except Exception as fb_e:
-                            print(f"⚠️ フォールバック処理でエラー: {fb_e}")
-                            return "申し訳ないウル、処理中にエラーが発生したウル🐺"
-
-                    # BrainIntegration経由で処理
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        result = loop.run_until_complete(
-                            integration.process_message(
-                                message=clean_message,
-                                room_id=room_id,
-                                account_id=sender_account_id,
-                                sender_name=sender_name,
-                                fallback_func=fallback_ai_commander,
-                                bypass_context=bypass_context,
-                                bypass_handlers=bypass_handlers,
-                            )
-                        )
-                    finally:
-                        loop.close()
-
-                    if result and result.success and result.message:
-                        print(f"🧠 応答: brain={result.used_brain}, fallback={result.fallback_used}, time={result.processing_time_ms}ms")
-                        show_guide = should_show_guide(room_id, sender_account_id)
-                        send_chatwork_message(room_id, result.to_chatwork_message(), sender_account_id, show_guide)
-                        update_conversation_timestamp(room_id, sender_account_id)
-                        return jsonify({
-                            "status": "ok",
-                            "brain": result.used_brain,
-                            "fallback": result.fallback_used,
-                            "mode": mode,
-                        })
-            except Exception as e:
-                print(f"⚠️ 脳アーキテクチャエラー（従来フローにフォールバック）: {e}")
-                import traceback
-                traceback.print_exc()
-
+        # v10.40: Brain完全移行（ai_commander + execute_action削除）
+        # 設計原則「全入力は脳を通る」に準拠
+        # フォールバックなし - Brainが唯一の処理パス
         # =====================================================
-        # 従来のフロー
-        # =====================================================
-
-        # ★★★ pending_taskのフォローアップを最初にチェック ★★★
-        pending_response = handle_pending_task_followup(clean_message, room_id, sender_account_id, sender_name)
-        if pending_response:
-            print(f"📋 pending_taskのフォローアップを処理")
-            show_guide = should_show_guide(room_id, sender_account_id)
-            send_chatwork_message(room_id, pending_response, sender_account_id, show_guide)
-            update_conversation_timestamp(room_id, sender_account_id)
-            return jsonify({"status": "ok"})
-
-        # =====================================================
-        # v10.38.1: 従来フロー用フォールバック（脳無効時のみ実行）
-        # 脳アーキテクチャ有効時は、bypass_handlers で脳内から処理される
-        # ここは USE_BRAIN_ARCHITECTURE=false の場合のみ実行される
-        # =====================================================
-        if USE_GOAL_SETTING_LIB:
-            goal_session_handled = False
-            try:
-                pool = get_pool()
-                has_session = has_active_goal_session(pool, room_id, sender_account_id)
-                print(f"🎯 目標設定セッションチェック: room_id={room_id}, has_session={has_session}")
-
-                if has_session:
-                    goal_session_handled = True
-                    print(f"🎯 アクティブなセッションを検出 - 対話フローにルーティング")
-                    result = process_goal_setting_message(pool, room_id, sender_account_id, clean_message)
-
-                    if result and result.get("success"):
-                        response_message = result.get("message", "")
-                        if response_message:
-                            show_guide = should_show_guide(room_id, sender_account_id)
-                            send_chatwork_message(room_id, response_message, sender_account_id, show_guide)
-                            update_conversation_timestamp(room_id, sender_account_id)
-                            return jsonify({"status": "ok"})
-                        else:
-                            # 成功だがメッセージが空の場合（通常はないが念のため）
-                            print(f"⚠️ 目標設定処理成功だがメッセージが空")
-                            return jsonify({"status": "ok"})
-                    else:
-                        # result が None または success=False の場合
-                        # セッションがあるのでAI司令塔には渡さない
-                        error_msg = result.get("message") if result else None
-                        if not error_msg:
-                            error_msg = "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺"
-                        print(f"⚠️ 目標設定処理失敗: {error_msg}")
-                        send_chatwork_message(room_id, error_msg, sender_account_id, False)
-                        return jsonify({"status": "ok"})
-
-            except Exception as e:
-                print(f"❌ 目標設定セッション処理で例外: {e}")
-                import traceback
-                traceback.print_exc()
-
-                # セッションがあった場合はAI司令塔に渡さない（v10.19.4）
-                if goal_session_handled:
-                    send_chatwork_message(
-                        room_id,
-                        "🤔 目標設定の処理中にエラーが発生したウル...\nもう一度メッセージを送ってほしいウル🐺",
-                        sender_account_id, False
-                    )
-                    return jsonify({"status": "ok"})
-
-        # =====================================================
-        # v6.9.1: ローカルコマンド判定（API制限対策）
-        # =====================================================
-        # 明確なコマンドはAI司令塔を呼ばずに直接処理
-        local_action, local_groups = match_local_command(clean_message)
-        if local_action:
-            print(f"🏠 ローカルコマンド検出: {local_action}")
-            local_response = execute_local_command(
-                local_action, local_groups, 
-                sender_account_id, sender_name, room_id
-            )
-            if local_response:
-                show_guide = should_show_guide(room_id, sender_account_id)
-                send_chatwork_message(room_id, local_response, sender_account_id, show_guide)
-                update_conversation_timestamp(room_id, sender_account_id)
-                return jsonify({"status": "ok"})
-            # local_responseがNoneの場合はAI司令塔に委ねる
-        
-        # 現在のデータを取得
-        all_persons = get_all_persons_summary()
-        all_tasks = get_tasks()
-        chatwork_users = get_all_chatwork_users()  # ★ ChatWorkユーザー一覧を取得
-
-        # ★ Phase X: pending announcement があればそちらを優先処理
-        # v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除
         try:
-            announcement_handler = _get_announcement_handler()
-            if announcement_handler:
-                pending = announcement_handler._get_pending_announcement(room_id, sender_account_id)
-                if pending:
-                    print(f"📢 pending announcement検出: {pending['id']}")
-                    response = announcement_handler.handle_announcement_request(
-                        params={"raw_message": clean_message},
-                        room_id=room_id,
-                        account_id=sender_account_id,
-                        sender_name=sender_name,
-                    )
-                    # v10.26.5: Noneが返った場合はフォローアップではないのでAI司令塔に委ねる
-                    if response is None:
-                        print(f"📢 フォローアップではない判定 → AI司令塔に委ねる")
-                    elif response:
-                        show_guide = should_show_guide(room_id, sender_account_id)
-                        send_chatwork_message(room_id, response, sender_account_id, show_guide)
-                        update_conversation_timestamp(room_id, sender_account_id)
-                        return jsonify({"status": "ok"})
-        except Exception as e:
-            print(f"❌ pending announcement チェックエラー: {e}")
+            integration = _get_brain_integration()
+            if integration and integration.is_brain_enabled():
+                mode = integration.get_mode().value
+                print(f"🧠 脳アーキテクチャで処理開始: mode={mode}")
 
-        # =====================================================
-        # v10.40.14: ルーティング前ガード（長期記憶を強制save_memory）
-        # AI司令塔に依存せず、受信直後にローカル判定でルーティング
-        # =====================================================
-        if USE_LONG_TERM_MEMORY:
-            try:
-                is_long_term = is_long_term_memory_request(clean_message)
-                if is_long_term:
-                    print(f"🔍 [router_guard] long_term=True action=save_memory msg={clean_message[:50]}...")
-                    # 強制的にsave_memoryとして処理
-                    forced_command = {
-                        "action": "save_memory",
-                        "params": {
-                            "attributes": [{"key": "raw_long_term_message", "value": clean_message}]
-                        },
-                        "reasoning": "[router_guard] 長期記憶パターン検出による強制ルーティング"
-                    }
-                    forced_context = {"original_message": clean_message}
-                    action_response = execute_action(forced_command, sender_name, room_id, sender_account_id, forced_context)
-                    if action_response:
-                        show_guide = should_show_guide(room_id, sender_account_id)
-                        send_chatwork_message(room_id, action_response, sender_account_id, show_guide)
-                        update_conversation_timestamp(room_id, sender_account_id)
-                        return jsonify({"status": "ok"})
-            except Exception as e:
-                print(f"❌ [router_guard] エラー（続行）: {e}")
+                # バイパスコンテキストとハンドラーを構築
+                bypass_context = _build_bypass_context(room_id, sender_account_id)
+                bypass_handlers = _build_bypass_handlers()
 
-        # =====================================================
-        # v10.40.18: ルーティング前ガード（長期記憶取得を強制）
-        # 「軸を確認して」等のパターンはAI司令塔をスキップ
-        # =====================================================
-        if USE_LONG_TERM_MEMORY:
-            import re
-            long_term_query_patterns = [
-                r"軸を(確認|教えて|見せて)",
-                r"(俺|私|自分)の軸",
-                r"人生の軸",
-                r"価値観を(確認|教えて)",
-            ]
-            is_long_term_query = False
-            for pattern in long_term_query_patterns:
-                if re.search(pattern, clean_message, re.IGNORECASE):
-                    is_long_term_query = True
-                    break
-
-            if is_long_term_query:
-                print(f"🔍 [router_guard] long_term_query=True msg={clean_message[:50]}...")
+                # BrainIntegration経由で処理（フォールバックなし）
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
                 try:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        result = loop.run_until_complete(
-                            _handle_query_long_term_memory(
-                                account_id=sender_account_id,
-                                sender_name=sender_name
-                            )
+                    result = loop.run_until_complete(
+                        integration.process_message(
+                            message=clean_message,
+                            room_id=room_id,
+                            account_id=sender_account_id,
+                            sender_name=sender_name,
+                            fallback_func=None,  # フォールバックなし（Brain完全移行）
+                            bypass_context=bypass_context,
+                            bypass_handlers=bypass_handlers,
                         )
-                    finally:
-                        loop.close()
+                    )
+                finally:
+                    loop.close()
 
-                    if result.get("success") and result.get("message"):
-                        show_guide = should_show_guide(room_id, sender_account_id)
-                        send_chatwork_message(room_id, result["message"], sender_account_id, show_guide)
-                        update_conversation_timestamp(room_id, sender_account_id)
-                        return jsonify({"status": "ok"})
-                except Exception as e:
-                    print(f"❌ [router_guard] long_term_query エラー（続行）: {e}")
-                    import traceback
-                    traceback.print_exc()
+                if result and result.success and result.message:
+                    print(f"🧠 応答: brain={result.used_brain}, time={result.processing_time_ms}ms")
+                    show_guide = should_show_guide(room_id, sender_account_id)
+                    send_chatwork_message(room_id, result.to_chatwork_message(), sender_account_id, show_guide)
+                    update_conversation_timestamp(room_id, sender_account_id)
+                    return jsonify({
+                        "status": "ok",
+                        "brain": result.used_brain,
+                        "mode": mode,
+                    })
+                else:
+                    # Brainが応答を返せなかった場合もエラー応答
+                    print(f"⚠️ Brain処理が応答なし")
+                    error_msg = "🤔 処理中に問題が発生したウル...もう一度試してほしいウル🐺"
+                    send_chatwork_message(room_id, error_msg, sender_account_id, False)
+                    return jsonify({"status": "ok", "brain": True, "error": "no_response"})
+            else:
+                # Brain統合が無効（通常はありえない状態）
+                print(f"❌ Brain統合が無効です")
+                error_msg = "🤔 システムエラーが発生したウル...管理者に連絡してほしいウル🐺"
+                send_chatwork_message(room_id, error_msg, sender_account_id, False)
+                return jsonify({"status": "error", "message": "Brain integration disabled"}), 500
+        except Exception as e:
+            print(f"❌ 脳アーキテクチャエラー: {e}")
+            import traceback
+            traceback.print_exc()
+            error_msg = "🤔 処理中にエラーが発生したウル...もう一度試してほしいウル🐺"
+            send_chatwork_message(room_id, error_msg, sender_account_id, False)
+            return jsonify({"status": "error", "message": str(e)}), 500
 
-        # AI司令塔に判断を委ねる（AIの判断力を最大活用）
-        command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
-        
-        # 検出された言語を取得（NEW）
-        response_language = command.get("response_language", "ja")
-        print(f"検出された言語: {response_language}")
-        
-        # アクションを実行
-        action_response = execute_action(command, sender_name, room_id, sender_account_id)
-        
-        if action_response:
-            # 案内を表示すべきか判定
-            show_guide = should_show_guide(room_id, sender_account_id)
-            send_chatwork_message(room_id, action_response, sender_account_id, show_guide)
-            # タイムスタンプを更新
-            update_conversation_timestamp(room_id, sender_account_id)
-            return jsonify({"status": "ok"})
-        
-        # 通常会話として処理（言語を指定）
-        history = get_conversation_history(room_id, sender_account_id)
-        
-        # 関連する人物情報をコンテキストに追加
-        # ルームの最近の会話を取得
-        room_context = get_room_context(room_id, limit=30)
-        
-        context_parts = []
-        if room_context:
-            context_parts.append(f"【このルームの最近の会話】\n{room_context}")
-        if all_persons:
-            persons_str = "\n".join([f"・{p['name']}: {p['attributes']}" for p in all_persons[:5] if p['attributes']])
-            if persons_str:
-                context_parts.append(f"【覚えている人物】\n{persons_str}")
-        
-        context = "\n\n".join(context_parts) if context_parts else None
-        
-        # 言語を指定してAI応答生成（NEW）
-        ai_response = get_ai_response(clean_message, history, sender_name, context, response_language, sender_account_id)
-
-        # 分析ログ記録（一般会話）
-        log_analytics_event(
-            event_type="general_chat",
-            actor_account_id=sender_account_id,
-            actor_name=sender_name,
-            room_id=room_id,
-            event_data={
-                "message_length": len(clean_message),
-                "response_length": len(ai_response),
-                "response_language": response_language
-            }
-        )
-        
-        # 会話履歴を保存
-        history.append({"role": "user", "content": clean_message})
-        history.append({"role": "assistant", "content": ai_response})
-        save_conversation_history(room_id, sender_account_id, history)
-        
-        # ChatWorkへ返信
-        # 案内を表示すべきか判定
-        show_guide = should_show_guide(room_id, sender_account_id)
-        send_chatwork_message(room_id, ai_response, sender_account_id, show_guide)
-        # タイムスタンプを更新
-        update_conversation_timestamp(room_id, sender_account_id)
-
-        # v10.21.0: Memory Framework処理（会話記憶）
-        # ChatWork送信後に実行（ユーザー体験を優先）
-        process_memory_after_conversation(
-            room_id=room_id,
-            account_id=sender_account_id,
-            sender_name=sender_name,
-            user_message=clean_message,
-            ai_response=ai_response,
-            history=history
-        )
-
-        return jsonify({"status": "ok"})
+        # =====================================================
+        # v10.40: 従来のフロー完全削除
+        # 設計原則「全入力は脳を通る」に準拠
+        # ai_commander + execute_actionは完全に削除
+        # Brainが唯一の処理パス（上記でreturn済み）
+        # =====================================================
+        # このコードには到達しない（Brainで全て処理される）
+        print("⚠️ 予期しない到達: Brain処理でreturnされるはず")
+        return jsonify({"status": "error", "message": "Unexpected code path"}), 500
         
     except Exception as e:
         print(f"Error: {str(e)}")
@@ -5521,9 +4047,7 @@ def send_chatwork_message(room_id, message, reply_to=None, show_guide=False, ret
     if show_guide:
         message += "\n\n💬 グループチャットでは @ソウルくん をつけて話しかけてウル🐕"
 
-    # 返信タグを一時的に無効化（テスト中）
-    # if reply_to:
-    #     message = f"[rp aid={reply_to}][/rp]\n{message}"
+    # v10.40.3: 返信タグ機能は未使用のためコメント削除
 
     response, success = call_chatwork_api_with_retry(
         method="POST",
@@ -6184,40 +4708,45 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
 @functions_framework.http
 def check_reply_messages(request):
     """5分ごとに実行：返信ボタンとメンションのメッセージを検出
-    
+
+    v10.40.3: handler_wrappers.pyのヘルパー関数を使用して薄型化
     堅牢なエラーハンドリング版 - あらゆるエッジケースに対応
+
+    処理ロジックはlib/brain/handler_wrappers.pyに移行:
+    - validate_polling_message: メッセージバリデーション
+    - should_skip_polling_message: スキップ条件チェック
+    - process_polling_message: メッセージ処理（Brain統合）
+    - process_polling_room: ルーム単位の処理
     """
     try:
         print("=" * 50)
         print("🚀 ポーリング処理開始")
         print("=" * 50)
-        
+
         # テーブルが存在することを確認（二重処理防止の要）
         try:
             ensure_room_messages_table()
             ensure_processed_messages_table()
         except Exception as e:
             print(f"⚠️ テーブル確認でエラー（続行）: {e}")
-        
-        processed_count = 0
-        
+
         # ルーム一覧を取得
         try:
             rooms = get_all_rooms()
         except Exception as e:
             print(f"❌ ルーム一覧取得エラー: {e}")
             return jsonify({"status": "error", "message": f"Failed to get rooms: {str(e)}"}), 500
-        
+
         if not rooms:
             print("⚠️ ルームが0件です")
             return jsonify({"status": "ok", "message": "No rooms found", "processed_count": 0})
-        
+
         if not isinstance(rooms, list):
             print(f"❌ roomsが不正な型: {type(rooms)}")
             return jsonify({"status": "error", "message": f"Invalid rooms type: {type(rooms)}"}), 500
-        
+
         print(f"📋 対象ルーム数: {len(rooms)}")
-        
+
         # サンプルルームの詳細をログ出力（最初の5件のみ）
         for i, room in enumerate(rooms[:5]):
             try:
@@ -6227,7 +4756,7 @@ def check_reply_messages(request):
                 print(f"  📁 サンプルルーム{i+1}: room_id={room_id_sample}, type={room_type_sample}, name={room_name_sample}")
             except Exception as e:
                 print(f"  ⚠️ サンプルルーム{i+1}の表示エラー: {e}")
-        
+
         # 5分前のタイムスタンプを計算
         try:
             five_minutes_ago = int((datetime.now(JST) - timedelta(minutes=5)).timestamp())
@@ -6235,290 +4764,50 @@ def check_reply_messages(request):
         except Exception as e:
             print(f"⚠️ タイムスタンプ計算エラー（デフォルト使用）: {e}")
             five_minutes_ago = 0
-        
+
         # カウンター
-        skipped_my = 0
-        processed_rooms = 0
-        error_rooms = 0
-        skipped_messages = 0
-        
-        for room in rooms:
-            room_id = None  # エラーログ用に先に定義
-            
-            try:
-                # ルームデータの検証
-                if not isinstance(room, dict):
-                    print(f"⚠️ 不正なルームデータ型: {type(room)}")
-                    error_rooms += 1
-                    continue
-                
-                room_id = room.get("room_id")
-                room_type = room.get("type")
-                room_name = room.get("name", "不明")
-                
-                # room_idの検証
-                if room_id is None:
-                    print(f"⚠️ room_idがNone: {room}")
-                    error_rooms += 1
-                    continue
-                
-                print(f"🔍 ルームチェック開始: room_id={room_id}, type={room_type}, name={room_name}")
-                
-                # マイチャットをスキップ
-                if room_type == "my":
-                    skipped_my += 1
-                    print(f"⏭️ マイチャットをスキップ: {room_id}")
-                    continue
-                
-                processed_rooms += 1
-                
-                # メッセージを取得
-                print(f"📞 get_room_messages呼び出し: room_id={room_id}")
-                
-                try:
-                    messages = get_room_messages(room_id, force=True)
-                except Exception as e:
-                    print(f"❌ メッセージ取得エラー: room_id={room_id}, error={e}")
-                    error_rooms += 1
-                    continue
-                
-                # messagesの検証
-                if messages is None:
-                    print(f"⚠️ messagesがNone: room_id={room_id}")
-                    messages = []
-                
-                if not isinstance(messages, list):
-                    print(f"⚠️ messagesが不正な型: {type(messages)}, room_id={room_id}")
-                    messages = []
-                
-                print(f"📨 ルーム {room_id} ({room_name}): {len(messages)}件のメッセージを取得")
-                
-                # メッセージがない場合はスキップ
-                if not messages:
-                    continue
-                
-                for msg in messages:
-                    try:
-                        # msgの検証
-                        if not isinstance(msg, dict):
-                            print(f"⚠️ 不正なメッセージデータ型: {type(msg)}")
-                            skipped_messages += 1
-                            continue
-                        
-                        # 各フィールドを安全に取得
-                        message_id = msg.get("message_id")
-                        body = msg.get("body")  # Noneの可能性あり
-                        account_data = msg.get("account")
-                        send_time = msg.get("send_time")
-                        
-                        # message_idの検証
-                        if message_id is None:
-                            print(f"⚠️ message_idがNone")
-                            skipped_messages += 1
-                            continue
-                        
-                        # accountデータの検証
-                        if account_data is None or not isinstance(account_data, dict):
-                            print(f"⚠️ accountデータが不正: message_id={message_id}")
-                            account_id = None
-                            sender_name = "ゲスト"
-                        else:
-                            account_id = account_data.get("account_id")
-                            sender_name = account_data.get("name", "ゲスト")
-                        
-                        # bodyの検証と安全な処理
-                        if body is None:
-                            body = ""
-                            print(f"⚠️ bodyがNone: message_id={message_id}")
-                        
-                        if not isinstance(body, str):
-                            print(f"⚠️ bodyが文字列ではない: type={type(body)}, message_id={message_id}")
-                            body = str(body) if body else ""
-                        
-                        # デバッグログ（安全なスライス）
-                        print(f"🔍 メッセージチェック: message_id={message_id}")
-                        print(f"   body type: {type(body)}")
-                        print(f"   body length: {len(body)}")
-                        
-                        # 安全なbody表示（スライスエラー防止）
-                        if body:
-                            body_preview = body[:100] if len(body) > 100 else body
-                            # 改行を置換して見やすくする
-                            body_preview = body_preview.replace('\n', '\\n')
-                            print(f"   body preview: {body_preview}")
-                        else:
-                            print(f"   body: (empty)")
-                        
-                        # メンション/返信チェック（安全な呼び出し）
-                        try:
-                            is_mention_or_reply = is_mention_or_reply_to_soulkun(body) if body else False
-                            print(f"   is_mention_or_reply: {is_mention_or_reply}")
-                        except Exception as e:
-                            print(f"   ❌ is_mention_or_reply_to_soulkun エラー: {e}")
-                            is_mention_or_reply = False
-                        
-                        # 5分以内のメッセージのみ処理
-                        if send_time is not None:
-                            try:
-                                if int(send_time) < five_minutes_ago:
-                                    continue
-                            except (ValueError, TypeError) as e:
-                                print(f"⚠️ send_time変換エラー: {send_time}, error={e}")
-                        
-                        # 自分自身のメッセージを無視
-                        if account_id is not None and str(account_id) == MY_ACCOUNT_ID:
-                            continue
+        total_counts = {
+            "processed_count": 0,
+            "skipped_my": 0,
+            "processed_rooms": 0,
+            "error_rooms": 0,
+            "skipped_messages": 0,
+        }
 
-                        # v10.16.1: オールメンション（toall）の判定改善
-                        if should_ignore_toall(body):
-                            print(f"   ⏭️ オールメンション（toall）のみのため無視")
-                            continue
+        # v10.40.3: handler_wrappers.pyのヘルパー関数を使用
+        if USE_HANDLER_WRAPPERS and process_polling_room:
+            for room in rooms:
+                counts = process_polling_room(room, five_minutes_ago, MY_ACCOUNT_ID)
+                for key in total_counts:
+                    total_counts[key] += counts.get(key, 0)
+        else:
+            # フォールバック警告（handler_wrappersが使用できない場合）
+            print("⚠️ handler_wrappers未使用: ポーリング処理がスキップされます")
+            print("   USE_HANDLER_WRAPPERS:", USE_HANDLER_WRAPPERS)
+            print("   process_polling_room:", process_polling_room)
 
-                        # メンションまたは返信を検出
-                        if not is_mention_or_reply:
-                            continue
-
-                        # 処理済みならスキップ
-                        try:
-                            if is_processed(message_id):
-                                print(f"⏭️ すでに処理済み: message_id={message_id}")
-                                continue
-                        except Exception as e:
-                            print(f"⚠️ 処理済みチェックエラー（続行）: {e}")
-                        
-                        print(f"✅ 検出成功！処理開始: room={room_id}, message_id={message_id}")
-                        
-                        # ★★★ 2重処理防止: 即座にマーク（他のプロセスが処理しないように） ★★★
-                        mark_as_processed(message_id, room_id)
-                        print(f"🔒 処理開始マーク: message_id={message_id}")
-                        
-                        # メッセージをDBに保存
-                        try:
-                            save_room_message(
-                                room_id=room_id,
-                                message_id=message_id,
-                                account_id=account_id,
-                                account_name=sender_name,
-                                body=body,
-                                send_time=datetime.fromtimestamp(send_time, tz=JST) if send_time else None
-                            )
-                        except Exception as e:
-                            print(f"⚠️ メッセージ保存エラー（続行）: {e}")
-                        
-                        # メッセージをクリーニング
-                        try:
-                            clean_message = clean_chatwork_message(body) if body else ""
-                        except Exception as e:
-                            print(f"⚠️ メッセージクリーニングエラー: {e}")
-                            clean_message = body
-                        
-                        if clean_message:
-                            try:
-                                # ★★★ pending_taskのフォローアップを最初にチェック ★★★
-                                pending_response = handle_pending_task_followup(clean_message, room_id, account_id, sender_name)
-                                if pending_response:
-                                    print(f"📋 pending_taskのフォローアップを処理")
-                                    send_chatwork_message(room_id, pending_response, None, False)
-                                    processed_count += 1
-                                    continue
-                                
-                                # =====================================================
-                                # v6.9.1: ローカルコマンド判定（API制限対策）
-                                # =====================================================
-                                local_action, local_groups = match_local_command(clean_message)
-                                if local_action:
-                                    print(f"🏠 ローカルコマンド検出: {local_action}")
-                                    local_response = execute_local_command(
-                                        local_action, local_groups, 
-                                        account_id, sender_name, room_id
-                                    )
-                                    if local_response:
-                                        send_chatwork_message(room_id, local_response, None, False)
-                                        processed_count += 1
-                                        continue
-                                
-                                # 通常のWebhook処理と同じ処理を実行
-                                all_persons = get_all_persons_summary()
-                                all_tasks = get_tasks()
-                                chatwork_users = get_all_chatwork_users()  # ★ ChatWorkユーザー一覧を取得
-                                
-                                # AI司令塔に判断を委ねる（AIの判断力を最大活用）
-                                command = ai_commander(clean_message, all_persons, all_tasks, chatwork_users, sender_name)
-                                response_language = command.get("response_language", "ja") if command else "ja"
-                                
-                                # アクションを実行
-                                action_response = execute_action(command, sender_name, room_id, account_id)
-                                
-                                if action_response:
-                                    send_chatwork_message(room_id, action_response, None, False)
-                                else:
-                                    # 通常会話として処理
-                                    history = get_conversation_history(room_id, account_id)
-                                    room_context = get_room_context(room_id, limit=30)
-                                    
-                                    context_parts = []
-                                    if room_context:
-                                        context_parts.append(f"【このルームの最近の会話】\n{room_context}")
-                                    if all_persons:
-                                        persons_str = "\n".join([f"・{p['name']}: {p['attributes']}" for p in all_persons[:5] if p.get('attributes')])
-                                        if persons_str:
-                                            context_parts.append(f"【覚えている人物】\n{persons_str}")
-                                    
-                                    context = "\n\n".join(context_parts) if context_parts else None
-
-                                    ai_response = get_ai_response(clean_message, history, sender_name, context, response_language, account_id)
-
-                                    if history is None:
-                                        history = []
-                                    history.append({"role": "user", "content": clean_message})
-                                    history.append({"role": "assistant", "content": ai_response})
-                                    save_conversation_history(room_id, account_id, history)
-                                    
-                                    send_chatwork_message(room_id, ai_response, None, False)
-                                
-                                processed_count += 1
-                                
-                            except Exception as e:
-                                print(f"❌ メッセージ処理エラー: message_id={message_id}, error={e}")
-                                import traceback
-                                traceback.print_exc()
-                    
-                    except Exception as e:
-                        print(f"❌ メッセージ処理中に予期しないエラー: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        skipped_messages += 1
-                        continue
-                
-            except Exception as e:
-                error_rooms += 1
-                print(f"❌ ルーム {room_id} の処理中にエラー: {e}")
-                import traceback
-                traceback.print_exc()
-                continue  # 次のルームへ
-        
         # サマリーログ
         print("=" * 50)
         print(f"📊 処理サマリー:")
         print(f"   - 総ルーム数: {len(rooms)}")
-        print(f"   - スキップ（マイチャット）: {skipped_my}")
-        print(f"   - 処理したルーム: {processed_rooms}")
-        print(f"   - エラーが発生したルーム: {error_rooms}")
-        print(f"   - スキップしたメッセージ: {skipped_messages}")
-        print(f"   - 処理したメッセージ: {processed_count}")
+        print(f"   - スキップ（マイチャット）: {total_counts['skipped_my']}")
+        print(f"   - 処理したルーム: {total_counts['processed_rooms']}")
+        print(f"   - エラーが発生したルーム: {total_counts['error_rooms']}")
+        print(f"   - スキップしたメッセージ: {total_counts['skipped_messages']}")
+        print(f"   - 処理したメッセージ: {total_counts['processed_count']}")
         print("=" * 50)
-        print(f"✅ ポーリング完了: {processed_count}件処理")
-        
+        print(f"✅ ポーリング完了: {total_counts['processed_count']}件処理")
+
         return jsonify({
             "status": "ok",
-            "processed_count": processed_count,
+            "processed_count": total_counts["processed_count"],
             "rooms_checked": len(rooms),
-            "skipped_my": skipped_my,
-            "processed_rooms": processed_rooms,
-            "error_rooms": error_rooms,
-            "skipped_messages": skipped_messages
+            "skipped_my": total_counts["skipped_my"],
+            "processed_rooms": total_counts["processed_rooms"],
+            "error_rooms": total_counts["error_rooms"],
+            "skipped_messages": total_counts["skipped_messages"]
         })
-        
+
     except Exception as e:
         print(f"❌ ポーリング全体でエラー: {e}")
         import traceback
@@ -6569,29 +4858,11 @@ def send_completion_notification(room_id, task, assigned_by_name):
         assigned_by_name: 依頼者名
     """
     # v10.15.0: 個別通知を無効化（管理部への日次報告に集約）
+    # v10.40.3: コメントアウトされていた旧コードを削除
     task_id = task.get('task_id', 'unknown')
     print(f"📝 [v10.15.0] 完了通知スキップ: task_id={task_id} (管理部への日次報告に集約)")
     return
 
-    # --- 以下は無効化（v10.15.0以前のコード） ---
-    # assigned_to_name = task.get('account', {}).get('name', '担当者')
-    # task_body = task.get('body', 'タスク')
-    #
-    # message = f"[info][title]{assigned_to_name}さんがタスクを完了しましたウル！[/title]"
-    # message += f"タスク: {task_body}\n"
-    # message += f"依頼者: {assigned_by_name}さん\n"
-    # message += f"お疲れ様でしたウル！[/info]"
-    #
-    # url = f"https://api.chatwork.com/v2/rooms/{room_id}/messages"
-    # data = {'body': message}
-    #
-    # headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
-    # response = httpx.post(url, headers=headers, data=data, timeout=10.0)
-    #
-    # if response.status_code == 200:
-    #     print(f"Completion notification sent for task {task['task_id']} in room {room_id}")
-    # else:
-    #     print(f"Failed to send completion notification: {response.status_code}")
 
 def sync_room_members():
     """全ルームのメンバーをchatwork_usersテーブルに同期

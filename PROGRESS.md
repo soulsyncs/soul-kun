@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-30 01:30 JST**
+**最終更新: 2026-01-30 06:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -19,18 +19,17 @@
 
 ## 🚨 次回やること
 
-### 🔥 最優先タスク（2026-01-29時点）
+### 🔥 最優先タスク（2026-01-30時点）
 
-**main.py 分割の続き（Phase 10以降）** ← 次はここから
-- 現在: 7,232行（1,023行削減済み、12.4%削減）
-- 目標: 1,500行以下（あと5,732行削減が必要）
-- **Phase 5-9完了**: 未使用コード削除は完了
-- **次のPhase 10**: 大きな関数の別モジュール抽出が必要
-  - chatwork_webhook (481行) → lib/webhook_core.py
-  - check_reply_messages (345行) → lib/reply_checker.py
-  - get_ai_response (315行) → lib/ai_response.py
-  - _brain_handle_* ラッパー関数群 (~500行) → lib/brain/handlers_wrapper.py
-  - handle_chatwork_task_create (200行) → handlers/task_handler.py へ完全移行
+**main.py 分割 Phase 10 完了** ✅
+- 最終行数: **5,503行**（7,232行から**1,729行削減、24%削減**）
+- 目標1,500行には追加リファクタリングが必要
+- ただし設計原則「全入力は脳を通る」の準拠は達成
+
+**次のステップ候補:**
+- 本番デプロイ・動作確認
+- 残りの後方互換ラッパー関数の整理（リスク評価が必要）
+- get_ai_response (315行) の Brain 内部移動検討
 
 **脳の改善を本番有効化**
 - Feature Flagsを段階的に有効化
@@ -92,6 +91,71 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 10 完了（2026-01-30 06:00）
+
+**Brain完全移行 + main.py軽量化（設計書準拠版）**
+
+設計原則「全入力は脳を通る」に準拠し、main.pyを7,232行から5,503行に削減（24%削減）。
+
+| Phase | 内容 | 削減行数 |
+|-------|------|---------|
+| 10-A | Brain完全移行の検証 | 0 |
+| 10-B | 旧コード削除（ai_commander等） | ~612 |
+| 10-C | ハンドラーをhandler_wrappers.pyに抽出 | ~861 |
+| 10-D | check_reply_messages薄型化 | ~229 |
+| 10-E | 残存ユーティリティ整理 | ~87 |
+| **合計** | | **~1,789** |
+
+**新規ファイル:**
+- `lib/brain/handler_wrappers.py` (1,670行)
+  - 21個の脳用ハンドラーラッパー
+  - セッション継続・管理関数
+  - ポーリング処理ヘルパー
+
+**削除したコード:**
+1. `ai_commander` + `execute_action` - バイパスルート完全削除
+2. `_brain_handle_*` 21関数 - handler_wrappers.pyに移行
+3. check_reply_messagesのインライン処理 - ヘルパー関数に抽出
+4. 未使用ラッパー関数（6関数）
+5. 未使用インポート（6インポート）
+6. コメントアウトされた旧コード
+
+**設計原則との整合性:**
+- 鉄則1「全入力は脳を通る」✅ バイパス削除
+- 鉄則3「脳が判断、機能は実行」✅ execute_action削除
+- 鉄則4「新機能追加も脳構造は変えない」✅ カタログ追加のみで対応可能
+
+---
+
+### ✅ main.py分割 Phase 10-B 完了（2026-01-30 04:30）
+
+**Brain完全移行 + 旧コード削除（設計書準拠版）**
+
+設計原則「全入力は脳を通る」に準拠し、バイパスルート（ai_commander + execute_action）を完全削除。
+
+| 項目 | 削除前 | 削除後 | 削減 |
+|------|--------|--------|------|
+| main.py行数 | 7,232行 | 6,680行 | **552行削減** |
+
+**削除したコード:**
+1. `ai_commander` 関数（197行）- OpenRouter APIでの意図解析
+2. `execute_action` 関数（97行）- ハンドラーディスパッチャ
+3. `fallback_ai_commander` 関数 - chatwork_webhook内のフォールバック
+4. chatwork_webhookの従来フロー（~260行）- 全てBrainで処理
+5. check_reply_messagesの旧コード - Brain統合に置き換え
+
+**保持したコード:**
+- `get_ai_response` - `_brain_ai_response_wrapper`が使用
+- 全ての`_brain_handle_*`ラッパー - Brain内部で使用
+
+**設計原則との整合性:**
+- 鉄則1「全入力は脳を通る」✅ バイパス削除
+- 鉄則3「脳が判断、機能は実行」✅ execute_action削除
+
+**テスト結果:** 1,146パス / 6失敗（既存の失敗、新規回帰なし）
 
 ---
 

@@ -543,6 +543,20 @@ from lib.brain.deep_understanding import (
     FEATURE_FLAG_VOCABULARY_LEARNING,
 )
 
+# v10.40.2: Handler Wrappers（main.pyから移行）
+from lib.brain.handler_wrappers import (
+    # ビルダー関数
+    build_bypass_handlers,
+    build_brain_handlers,
+    build_session_handlers,
+    get_session_management_functions,
+    # v10.40.3: ポーリング処理
+    validate_polling_message,
+    should_skip_polling_message,
+    process_polling_message,
+    process_polling_room,
+)
+
 __all__ = [
     # バージョン
     "BRAIN_VERSION",
@@ -920,6 +934,16 @@ __all__ = [
     "FEATURE_FLAG_ORGANIZATION_CONTEXT",
     "FEATURE_FLAG_EMOTION_READING",
     "FEATURE_FLAG_VOCABULARY_LEARNING",
+    # v10.40.2: Handler Wrappers
+    "build_bypass_handlers",
+    "build_brain_handlers",
+    "build_session_handlers",
+    "get_session_management_functions",
+    # v10.40.3: ポーリング処理
+    "validate_polling_message",
+    "should_skip_polling_message",
+    "process_polling_message",
+    "process_polling_room",
 ]
 
 __version__ = BRAIN_VERSION  # 単一ソースから取得

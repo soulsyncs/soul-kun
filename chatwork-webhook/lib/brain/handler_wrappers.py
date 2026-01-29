@@ -172,7 +172,7 @@ async def _handle_save_long_term_memory(message: str, room_id: str, account_id: 
         traceback.print_exc()
         return {
             "success": False,
-            "message": f"長期記憶の保存中にエラーが発生したウル...🐺\n（エラー: {str(e)}）"
+            "message": "長期記憶の保存中にエラーが発生したウル...🐺\nもう一度試してほしいウル"
         }
 
 
@@ -1371,7 +1371,7 @@ def process_polling_message(
     execute_local_command = getattr(main, 'execute_local_command', None)
     _get_brain_integration = getattr(main, '_get_brain_integration', None)
     _build_bypass_context = getattr(main, '_build_bypass_context', None)
-    _build_bypass_handlers = getattr(main, '_build_bypass_handlers', None)
+    build_bypass_handlers_fn = getattr(main, 'build_bypass_handlers', None)
     send_chatwork_message = getattr(main, 'send_chatwork_message', None)
     USE_BRAIN_ARCHITECTURE = getattr(main, 'USE_BRAIN_ARCHITECTURE', False)
     JST = getattr(main, 'JST', None)
@@ -1447,7 +1447,7 @@ def process_polling_message(
                 integration = _get_brain_integration()
                 if integration and integration.is_brain_enabled():
                     bypass_context = _build_bypass_context(room_id, account_id) if _build_bypass_context else {}
-                    bypass_handlers = _build_bypass_handlers() if _build_bypass_handlers else {}
+                    bypass_handlers = build_bypass_handlers_fn() if build_bypass_handlers_fn else {}
 
                     import asyncio
                     loop = asyncio.new_event_loop()

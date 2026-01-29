@@ -3861,7 +3861,7 @@ def chatwork_webhook(request):
         # v10.38.1: 脳より先のバイパスチェックを削除
         # 目標設定セッション等のバイパス処理は脳の中で行う
         # （脳の7原則「全ての入力は脳を通る」に準拠）
-        # バイパスハンドラーは _build_bypass_handlers() で定義
+        # バイパスハンドラーは build_bypass_handlers() で定義
         # =====================================================
 
         # =====================================================
@@ -3879,7 +3879,7 @@ def chatwork_webhook(request):
 
                 # バイパスコンテキストとハンドラーを構築
                 bypass_context = _build_bypass_context(room_id, sender_account_id)
-                bypass_handlers = _build_bypass_handlers()
+                bypass_handlers = build_bypass_handlers()
 
                 # BrainIntegration経由で処理（フォールバックなし）
                 import asyncio

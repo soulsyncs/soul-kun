@@ -255,7 +255,6 @@ else:
 from utils.date_utils import (
     parse_date_from_text as _new_parse_date_from_text,
     check_deadline_proximity as _new_check_deadline_proximity,
-    get_overdue_days as _new_get_overdue_days,
     JST as _utils_JST,
     DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
 )
@@ -826,11 +825,6 @@ def _get_org_chart_service():
     if _org_chart_service is None and USE_PERSON_SERVICE:
         _org_chart_service = OrgChartService(get_pool=get_pool)
     return _org_chart_service
-
-
-def get_or_create_person(name):
-    """人物を取得/作成（lib/person_service.py に委譲）"""
-    return _get_person_service().get_or_create_person(name)
 
 
 def save_person_attribute(person_name, attribute_type, attribute_value, source="conversation"):
@@ -4179,12 +4173,6 @@ def handle_query_org_chart(params, room_id, account_id, sender_name, context=Non
     return "🤔 組織図の検索方法がわからなかったウル..."
 
 
-def handle_general_chat(params, room_id, account_id, sender_name, context=None):
-    """一般会話のハンドラー（execute_actionからNoneを返して後続処理に委ねる）"""
-    # 一般会話は別のフローで処理するのでNoneを返す
-    return None
-
-
 def handle_api_limitation(params, room_id, account_id, sender_name, context=None):
     """
     API制約により実装不可能な機能を要求された時のハンドラー
@@ -4258,60 +4246,6 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
     return _get_knowledge_handler().handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
-
-
-def call_openrouter_api(system_prompt: str, user_message: str, model: str = None):
-    """
-    OpenRouter APIを呼び出してLLM応答を取得
-
-    Args:
-        system_prompt: システムプロンプト
-        user_message: ユーザーメッセージ
-        model: 使用するモデル
-
-    Returns:
-        LLMの応答テキスト（エラー時はNone）
-    """
-    try:
-        api_key = get_secret("openrouter-api-key")
-        if not api_key:
-            print("❌ OpenRouter APIキーが見つかりません")
-            return None
-
-        model = model or MODELS["default"]
-
-        with httpx.Client(timeout=30.0) as client:
-            response = client.post(
-                OPENROUTER_API_URL,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "https://soulkun.soulsyncs.co.jp",
-                    "X-Title": "Soul-kun ChatWork Bot"
-                },
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_message}
-                    ],
-                    "temperature": 0.7,
-                    "max_tokens": 1000
-                }
-            )
-
-            if response.status_code != 200:
-                print(f"❌ OpenRouter API エラー: {response.status_code} - {response.text}")
-                return None
-
-            data = response.json()
-            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-            return content.strip() if content else None
-
-    except Exception as e:
-        print(f"❌ OpenRouter API 呼び出しエラー: {e}")
-        traceback.print_exc()
-        return None
 
 
 # =====  =====
@@ -6080,33 +6014,6 @@ def get_pending_proposals():
     return _get_proposal_handler().get_pending_proposals()
 
 
-def get_oldest_pending_proposal():
-    """
-    最も古い承認待ち提案を取得（FIFO）
-
-    v10.24.2: handlers/proposal_handler.py に移動済み
-    """
-    return _get_proposal_handler().get_oldest_pending_proposal()
-
-
-def get_proposal_by_id(proposal_id: int):
-    """
-    ID指定で提案を取得
-
-    v10.24.2: handlers/proposal_handler.py に移動済み
-    """
-    return _get_proposal_handler().get_proposal_by_id(proposal_id)
-
-
-def get_latest_pending_proposal():
-    """
-    最新の承認待ち提案を取得
-
-    v10.24.2: handlers/proposal_handler.py に移動済み
-    """
-    return _get_proposal_handler().get_latest_pending_proposal()
-
-
 # =====================================================
 # v6.9.2: 未通知提案の取得・再通知機能
 # =====================================================
@@ -6127,24 +6034,6 @@ def retry_proposal_notification(proposal_id: int):
     v10.24.2: handlers/proposal_handler.py に移動済み
     """
     return _get_proposal_handler().retry_proposal_notification(proposal_id)
-
-
-def approve_proposal(proposal_id: int, reviewed_by: str):
-    """
-    提案を承認して知識または人物情報に反映
-
-    v10.24.2: handlers/proposal_handler.py に移動済み
-    """
-    return _get_proposal_handler().approve_proposal(proposal_id, reviewed_by)
-
-
-def reject_proposal(proposal_id: int, reviewed_by: str):
-    """
-    提案を却下
-
-    v10.24.2: handlers/proposal_handler.py に移動済み
-    """
-    return _get_proposal_handler().reject_proposal(proposal_id, reviewed_by)
 
 
 def get_all_contacts():
@@ -6380,18 +6269,9 @@ def flush_dm_unavailable_notifications():
             print(f"❌ 管理部へのDM不可通知まとめ送信失敗: {response.status_code}")
     except Exception as e:
         print(f"❌ 管理部通知エラー: {e}")
-    
+
     # バッファをクリア
     _dm_unavailable_buffer = []
-
-
-def get_overdue_days(limit_time):
-    """
-    期限超過日数を計算
-
-    v10.24.0: utils/date_utils.py に移動済み
-    """
-    return _new_get_overdue_days(limit_time)
 
 
 def process_overdue_tasks():

@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-29 21:00 JST**
+**最終更新: 2026-01-29 22:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -21,8 +21,8 @@
 
 ### 🔥 最優先タスク（2026-01-29時点）
 
-**main.py 分割の続き（Phase 3-6）** ← 次はここから
-- 現在: 8,255行（315行削減済み）
+**main.py 分割の続き（Phase 4-6）** ← 次はここから
+- 現在: 8,006行（564行削減済み）
 - 目標: 1,500行以下
 
 **脳の改善を本番有効化**
@@ -85,6 +85,34 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 3 完了（2026-01-29 22:30）
+
+**デッドコード削除: USE_NEW_*フラグのフォールバック除去**
+
+`USE_NEW_DATE_UTILS = True`と`USE_NEW_CHATWORK_UTILS = True`は常にTrueのため、
+フォールバックコード（旧実装）は実行されないデッドコード。これを削除して簡素化。
+
+| 関数 | 削除行数 | 変更内容 |
+|------|---------|---------|
+| `APICallCounter`クラス | ~20行 | 直接エクスポートに変更 |
+| `get_api_call_counter` | ~5行 | 直接呼び出し |
+| `reset_api_call_counter` | ~5行 | 直接呼び出し |
+| `clear_room_members_cache` | ~4行 | 直接呼び出し |
+| `call_chatwork_api_with_retry` | ~50行 | 直接呼び出し |
+| `get_room_members_cached` | ~8行 | 直接呼び出し |
+| `get_room_members` | ~14行 | 直接呼び出し |
+| `is_room_member` | ~5行 | 直接呼び出し |
+| `parse_date_from_text` | ~70行 | 直接呼び出し |
+| `check_deadline_proximity` | ~27行 | 直接呼び出し |
+| `get_overdue_days` | ~22行 | 直接呼び出し |
+| **合計** | **~249行** | |
+
+**テスト結果:** chatwork_utils: 23件、date_utils: 23件 → 計46件全テスト合格
+
+**Git統計:** 276行削除、27行追加 → 実質249行削減
 
 ---
 

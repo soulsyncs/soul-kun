@@ -1041,71 +1041,38 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
 
 # =====================================================
 # APIレート制限対策（v10.3.3）
-# v10.24.0: utils/chatwork_utils.py に分割
+# v10.24.0: utils/chatwork_utils.py に移動済み
 # =====================================================
 
-# 新しいモジュールを使用する場合はそちらのクラスを使用
-if USE_NEW_CHATWORK_UTILS:
-    APICallCounter = _new_APICallCounter
-else:
-    class APICallCounter:
-        """APIコール数をカウントするクラス（フォールバック）"""
-
-        def __init__(self):
-            self.count = 0
-            self.start_time = time.time()
-
-        def increment(self):
-            self.count += 1
-
-        def get_count(self):
-            return self.count
-
-        def log_summary(self, function_name: str):
-            elapsed = time.time() - self.start_time
-            print(f"[API Usage] {function_name}: {self.count} calls in {elapsed:.2f}s")
-
-
-# グローバルAPIカウンター（フォールバック用）
-_api_call_counter = APICallCounter()
-
-# ルームメンバーキャッシュ（フォールバック用、同一リクエスト内で有効）
-_room_members_cache = {}
+# クラスをエクスポート（互換性維持）
+APICallCounter = _new_APICallCounter
 
 
 def get_api_call_counter():
     """
     APIカウンターを取得
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    if USE_NEW_CHATWORK_UTILS:
-        return _new_get_api_call_counter()
-    return _api_call_counter
+    return _new_get_api_call_counter()
 
 
 def reset_api_call_counter():
     """
     APIカウンターをリセット
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    if USE_NEW_CHATWORK_UTILS:
-        return _new_reset_api_call_counter()
-    global _api_call_counter
-    _api_call_counter = APICallCounter()
+    return _new_reset_api_call_counter()
 
 
 def clear_room_members_cache():
     """
     ルームメンバーキャッシュをクリア
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    if USE_NEW_CHATWORK_UTILS:
-        return _new_clear_room_members_cache()
-    global _room_members_cache
-    _room_members_cache = {}
+    return _new_clear_room_members_cache()
 
 
 def call_chatwork_api_with_retry(
@@ -1134,64 +1101,11 @@ def call_chatwork_api_with_retry(
     Returns:
         (response, success): レスポンスと成功フラグのタプル
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    # 新しいモジュールを使用
-    if USE_NEW_CHATWORK_UTILS:
-        return _new_call_chatwork_api_with_retry(
-            method, url, headers, data, params, max_retries, initial_wait, timeout
-        )
-
-    # フォールバック: 旧実装
-    wait_time = initial_wait
-    counter = get_api_call_counter()
-
-    for attempt in range(max_retries + 1):
-        try:
-            counter.increment()
-
-            if method.upper() == "GET":
-                response = httpx.get(url, headers=headers, params=params, timeout=timeout)
-            elif method.upper() == "POST":
-                response = httpx.post(url, headers=headers, data=data, timeout=timeout)
-            elif method.upper() == "PUT":
-                response = httpx.put(url, headers=headers, data=data, timeout=timeout)
-            elif method.upper() == "DELETE":
-                response = httpx.delete(url, headers=headers, timeout=timeout)
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
-
-            # 成功（2xx）
-            if response.status_code < 400:
-                return response, True
-
-            # レート制限（429）
-            if response.status_code == 429:
-                if attempt < max_retries:
-                    print(f"⚠️ Rate limit hit (429). Waiting {wait_time}s before retry {attempt + 1}/{max_retries}")
-                    time.sleep(wait_time)
-                    wait_time *= 2  # 指数バックオフ
-                    continue
-                else:
-                    print(f"❌ Rate limit hit (429). Max retries exceeded.")
-                    return response, False
-
-            # その他のエラー（リトライしない）
-            return response, False
-
-        except httpx.TimeoutException:
-            print(f"⚠️ API timeout on attempt {attempt + 1}")
-            if attempt < max_retries:
-                time.sleep(wait_time)
-                wait_time *= 2
-                continue
-            return None, False
-
-        except Exception as e:
-            print(f"❌ API error: {e}")
-            return None, False
-
-    return None, False
+    return _new_call_chatwork_api_with_retry(
+        method, url, headers, data, params, max_retries, initial_wait, timeout
+    )
 
 
 def get_room_members_cached(room_id):
@@ -1199,66 +1113,30 @@ def get_room_members_cached(room_id):
     ルームメンバーを取得（キャッシュあり）
     同一リクエスト内で同じルームを複数回参照する場合に効率的
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    # 新しいモジュールを使用
-    if USE_NEW_CHATWORK_UTILS:
-        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-        return _new_get_room_members_cached(room_id, api_token)
-
-    # フォールバック: 旧実装
-    room_id_str = str(room_id)
-    if room_id_str in _room_members_cache:
-        return _room_members_cache[room_id_str]
-
-    members = get_room_members(room_id)
-    _room_members_cache[room_id_str] = members
-    return members
+    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    return _new_get_room_members_cached(room_id, api_token)
 
 
 def get_room_members(room_id):
     """
     ルームのメンバー一覧を取得（リトライ機構付き）
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-
-    # 新しいモジュールを使用
-    if USE_NEW_CHATWORK_UTILS:
-        return _new_get_room_members(room_id, api_token)
-
-    # フォールバック: 旧実装
-    url = f"https://api.chatwork.com/v2/rooms/{room_id}/members"
-
-    response, success = call_chatwork_api_with_retry(
-        method="GET",
-        url=url,
-        headers={"X-ChatWorkToken": api_token}
-    )
-
-    if success and response and response.status_code == 200:
-        return response.json()
-    elif response:
-        print(f"ルームメンバー取得エラー: {response.status_code} - {response.text}")
-    return []
+    return _new_get_room_members(room_id, api_token)
 
 
 def is_room_member(room_id, account_id):
     """
     指定したアカウントがルームのメンバーかどうかを確認（キャッシュ使用）
 
-    v10.24.0: utils/chatwork_utils.py に分割
+    v10.24.0: utils/chatwork_utils.py に移動済み
     """
-    # 新しいモジュールを使用
-    if USE_NEW_CHATWORK_UTILS:
-        api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-        return _new_is_room_member(room_id, account_id, api_token)
-
-    # フォールバック: 旧実装
-    members = get_room_members_cached(room_id)
-    member_ids = [m.get("account_id") for m in members]
-    return int(account_id) in member_ids
+    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    return _new_is_room_member(room_id, account_id, api_token)
 
 
 # =====================================================
@@ -2904,81 +2782,9 @@ def parse_date_from_text(text):
     自然言語の日付表現をYYYY-MM-DD形式に変換
     例: "明日", "明後日", "12/27", "来週金曜日"
 
-    v10.24.0: utils/date_utils.py に分割
+    v10.24.0: utils/date_utils.py に移動済み
     """
-    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
-    if USE_NEW_DATE_UTILS:
-        return _new_parse_date_from_text(text)
-
-    # フォールバック: 旧実装
-    now = datetime.now(JST)
-    today = now.date()
-
-    text = text.strip().lower()
-
-    # 「明日」
-    if "明日" in text or "あした" in text:
-        return (today + timedelta(days=1)).strftime("%Y-%m-%d")
-
-    # 「明後日」
-    if "明後日" in text or "あさって" in text:
-        return (today + timedelta(days=2)).strftime("%Y-%m-%d")
-
-    # 「今日」
-    if "今日" in text or "きょう" in text:
-        return today.strftime("%Y-%m-%d")
-
-    # 「来週」
-    if "来週" in text:
-        # 来週の月曜日を基準に
-        days_until_monday = (7 - today.weekday()) % 7
-        if days_until_monday == 0:
-            days_until_monday = 7
-        next_monday = today + timedelta(days=days_until_monday)
-
-        # 曜日指定があるか確認
-        weekdays = {
-            "月": 0, "火": 1, "水": 2, "木": 3, "金": 4, "土": 5, "日": 6,
-            "月曜": 0, "火曜": 1, "水曜": 2, "木曜": 3, "金曜": 4, "土曜": 5, "日曜": 6,
-        }
-        for day_name, day_num in weekdays.items():
-            if day_name in text:
-                target = next_monday + timedelta(days=day_num)
-                return target.strftime("%Y-%m-%d")
-
-        # 曜日指定がなければ来週の月曜日
-        return next_monday.strftime("%Y-%m-%d")
-
-    # 「○日後」
-    match = re.search(r'(\d+)日後', text)
-    if match:
-        days = int(match.group(1))
-        return (today + timedelta(days=days)).strftime("%Y-%m-%d")
-
-    # 「MM/DD」形式
-    match = re.search(r'(\d{1,2})[/\-](\d{1,2})', text)
-    if match:
-        month = int(match.group(1))
-        day = int(match.group(2))
-        year = today.year
-        # 過去の日付なら来年に
-        target = datetime(year, month, day).date()
-        if target < today:
-            target = datetime(year + 1, month, day).date()
-        return target.strftime("%Y-%m-%d")
-
-    # 「MM月DD日」形式
-    match = re.search(r'(\d{1,2})月(\d{1,2})日', text)
-    if match:
-        month = int(match.group(1))
-        day = int(match.group(2))
-        year = today.year
-        target = datetime(year, month, day).date()
-        if target < today:
-            target = datetime(year + 1, month, day).date()
-        return target.strftime("%Y-%m-%d")
-
-    return None
+    return _new_parse_date_from_text(text)
 
 
 # =====================================================
@@ -3001,39 +2807,9 @@ def check_deadline_proximity(limit_date_str: str) -> tuple:
         - days_until: 期限までの日数（0=今日, 1=明日, 負=過去）
         - limit_date: 期限日（date型）
 
-    v10.24.0: utils/date_utils.py に分割
+    v10.24.0: utils/date_utils.py に移動済み
     """
-    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
-    if USE_NEW_DATE_UTILS:
-        return _new_check_deadline_proximity(limit_date_str)
-
-    # フォールバック: 旧実装
-    if not limit_date_str:
-        return False, -1, None
-
-    try:
-        # JSTで現在日付を取得
-        now = datetime.now(JST)
-        today = now.date()
-
-        # 期限日をパース
-        limit_date = datetime.strptime(limit_date_str, "%Y-%m-%d").date()
-
-        # 期限までの日数を計算
-        days_until = (limit_date - today).days
-
-        # 過去の日付は別のバリデーションで処理（ここではアラート対象外）
-        if days_until < 0:
-            return False, days_until, limit_date
-
-        # 当日(0) または 明日(1) ならアラート
-        if days_until in DEADLINE_ALERT_DAYS:
-            return True, days_until, limit_date
-
-        return False, days_until, limit_date
-    except Exception as e:
-        print(f"⚠️ check_deadline_proximity エラー: {e}")
-        return False, -1, None
+    return _new_check_deadline_proximity(limit_date_str)
 
 
 # =====================================================
@@ -7131,34 +6907,9 @@ def get_overdue_days(limit_time):
     """
     期限超過日数を計算
 
-    v10.24.0: utils/date_utils.py に分割
+    v10.24.0: utils/date_utils.py に移動済み
     """
-    # 新しいモジュールを使用（USE_NEW_DATE_UTILS=trueの場合）
-    if USE_NEW_DATE_UTILS:
-        return _new_get_overdue_days(limit_time)
-
-    # フォールバック: 旧実装
-    if not limit_time:
-        return 0
-
-    now = datetime.now(JST)
-    today = now.date()
-
-    # v6.8.6: int/float両対応
-    try:
-        if isinstance(limit_time, (int, float)):
-            limit_date = datetime.fromtimestamp(int(limit_time), tz=JST).date()
-        elif hasattr(limit_time, 'date'):
-            limit_date = limit_time.date()
-        else:
-            print(f"⚠️ get_overdue_days: 不明なlimit_time型: {type(limit_time)}")
-            return 0
-    except Exception as e:
-        print(f"⚠️ get_overdue_days: 変換エラー: {limit_time}, error={e}")
-        return 0
-
-    delta = (today - limit_date).days
-    return max(0, delta)
+    return _new_get_overdue_days(limit_time)
 
 
 def process_overdue_tasks():

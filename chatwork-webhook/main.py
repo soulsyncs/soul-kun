@@ -259,7 +259,7 @@ from utils.date_utils import (
     JST as _utils_JST,
     DEADLINE_ALERT_DAYS as _utils_DEADLINE_ALERT_DAYS,
 )
-USE_NEW_DATE_UTILS = True
+# v10.33.1: USE_NEW_DATE_UTILS削除（未使用、フォールバックは既に削除済み）
 print("✅ utils/date_utils.py loaded for date processing")
 
 # =====================================================
@@ -281,7 +281,7 @@ from utils.chatwork_utils import (
     is_mention_or_reply_to as _utils_is_mention_or_reply_to,
     should_ignore_toall as _utils_should_ignore_toall,
 )
-USE_NEW_CHATWORK_UTILS = True
+# v10.33.1: USE_NEW_CHATWORK_UTILS削除（未使用、フォールバックは既に削除済み）
 print("✅ utils/chatwork_utils.py loaded for ChatWork API")
 
 # =====================================================
@@ -470,7 +470,7 @@ MODELS = {
 # Pineconeベクトル検索APIとの統合設定
 # 旧システム（soulkun_knowledge）と併用
 # =====================================================
-import os
+# v10.33.1: 重複import os削除（line 7で既にインポート済み）
 
 PHASE3_KNOWLEDGE_CONFIG = {
     "api_url": os.getenv(
@@ -533,7 +533,7 @@ BOT_NAME_PATTERNS = [
 
 # ソウルくんのaccount_id
 MY_ACCOUNT_ID = "10909425"
-BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
+# v10.33.1: BOT_ACCOUNT_ID削除（MY_ACCOUNT_IDと同一で未使用）
 
 # =====================================================
 # v6.9.0: 管理者学習機能
@@ -561,7 +561,7 @@ else:
 # 明確なコマンドは正規表現で判定し、AIを呼ばずに直接処理
 # これによりAPI呼び出し回数を大幅削減
 # =====================================================
-import re
+# v10.33.1: 重複import re削除（line 5で既にインポート済み）
 
 LOCAL_COMMAND_PATTERNS = [
     # 承認・却下（ID指定必須）

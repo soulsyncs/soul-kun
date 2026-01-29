@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-29 08:30 JST**
+**最終更新: 2026-01-29 16:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,38 @@
 ---
 
 ## 🚨 次回やること
+
+### 🔥 最優先タスク（2026-01-29時点）
+
+**1. ChatWorkで動作確認**
+- 「DMできる相手は誰？」と送信してconnection_queryが動くか確認
+- 成功条件: CEO（account_id=1728974）にDM一覧が返る
+
+**2. CLAUDE.md最適化の完了待ち**
+- 別ターミナルでCLAUDE.mdを最適化中
+- 完了後、次のステップを決定
+
+**3. 設計書の棚卸し & 脳アーキテクチャのシンプル化**
+- 現状: ハンドラーが2箇所に分散（main.py / CapabilityBridge）
+- 目標: 機能追加 = 1ファイル追加するだけ
+- 順序: CLAUDE.md完成後に計画
+
+---
+
+### 2026-01-29の成果
+
+**Connection Query修正（v10.44.3）:** ✅ マージ＆デプロイ完了
+> 「DMできる相手は誰？」が動かなかった問題を修正。
+> - 原因: connection_queryがSYSTEM_CAPABILITIESに未登録だった
+> - 修正: SYSTEM_CAPABILITIESに追加（ハンドラーはCapabilityBridge経由）
+> - PR #320: マージ完了
+> - 設計原則「カタログ追加のみで対応」に準拠
+
+**設計見直しの議論:** 進行中
+> - 2つのハンドラー方式（main.py直接 vs CapabilityBridge）が混在している問題を発見
+> - 長期的には統一が必要だが、まずはCLAUDE.md最適化を待って計画を立てる
+
+---
 
 ### 今どこにいるのか？（素人向け説明）
 
@@ -459,6 +491,18 @@
 > - ChatWorkで「おはよう」等の一般会話を送信し、ログで `🎭 Persona injected | addon=yes` を確認する
 > - カズ以外のアカウントで送信し、`addon=no` になることを確認する
 
+**🔴 テスト待ち（v10.40.18 長期記憶 router_guard）:** 2026-01-29 11:00 JST
+> v10.40.14〜v10.40.18でrouter_guardによる長期記憶の保存・取得パターンを実装した。
+> **テスト手順:**
+> 1. Chatworkで「俺の人生軸は挑戦」を送信
+> 2. 「軸を確認して」を送信
+> 3. 長期記憶が返ってくるか確認（「挑戦」が含まれていれば成功）
+>
+> **今後の方針:**
+> - **推奨**: 段階的改善（インクリメンタル修正）
+> - **理由**: コアアーキテクチャは健全（セキュリティ8/10）、問題は局所的
+> - **Priority 1修正**: user_preferencesアクセス制御、エラーメッセージサニタイズ、audit_logs記録
+
 ---
 
 ## 🔧 障害報告書: v10.40.1〜v10.40.2（2026-01-28）
@@ -811,6 +855,30 @@ else:
   - **コードレビュー対応**: print() → logger.info()、バッファサイズ制限追加
   - **ダブルチェック**: lib/brain/ 同期漏れ発見・修正（PR #326）
   - **Revision**: `chatwork-webhook-00280-daf`
+
+- **11:00 JST**: v10.40.14〜v10.40.18 長期記憶（人生軸・価値観）バグ修正シリーズ ✅ **PR #313, #316, #319, #322, #323 デプロイ完了**
+  - **概要**: 「俺の人生軸は挑戦」等の長期記憶を保存・取得できるようにする修正シリーズ
+  - **v10.40.14 (PR #313)**: router_guard追加（save patterns）
+    - AI司令塔より前にパターンマッチングで`save_memory`を強制
+    - 「一般会話でいいウル？」ループ防止
+    - Revision: `chatwork-webhook-00270-duv`
+  - **v10.40.15 (PR #316)**: テーブル自動作成 + UUID修正
+    - `_ensure_long_term_table()`: コールドスタート時にCREATE TABLE IF NOT EXISTS
+    - `int(user_result[0])` → `str(user_result[0])`: UUID型エラー修正
+    - Revision: `chatwork-webhook-00275-tes`
+  - **v10.40.16 (PR #319)**: SQLカラム名バグ修正
+    - `SELECT user_id` → `SELECT id`（usersテーブルのPKはid）
+    - Revision: `chatwork-webhook-00277-vas`
+  - **v10.40.17 (PR #322)**: list_knowledgeリダイレクト試行
+    - `_brain_handle_list_knowledge`で長期記憶クエリパターン検出
+    - ※結果的にHANDLERSマッピングの問題で動作せず
+    - Revision: `chatwork-webhook-00278-foh`
+  - **v10.40.18 (PR #323)**: router_guard追加（query patterns）
+    - 「軸を確認して」等のクエリパターンをrouter_guardで検出
+    - AI司令塔をバイパスして直接`_handle_query_long_term_memory`を呼び出し
+    - Revision: `chatwork-webhook-00279-cay`
+  - **テスト待ち**: Chatworkで「軸を確認して」が長期記憶を返すか確認必要
+  - **セキュリティレビュー実施**: 8/10スコア、段階的改善を推奨
 
 ### 2026-01-28
 

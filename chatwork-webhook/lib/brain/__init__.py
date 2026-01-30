@@ -78,7 +78,7 @@
 # =============================================================================
 # このバージョンはCloud Loggingの出力で使用される
 # デプロイ時に手動更新すること
-BRAIN_VERSION = "10.43.4"
+BRAIN_VERSION = "10.48.1"
 
 from lib.brain.models import (
     BrainContext,

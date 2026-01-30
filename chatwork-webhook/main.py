@@ -3914,7 +3914,15 @@ def chatwork_webhook(request):
                     })
                 else:
                     # Brainが応答を返せなかった場合もエラー応答
-                    print(f"⚠️ Brain処理が応答なし")
+                    # v10.48.3: デバッグ情報追加
+                    debug_info = {
+                        "has_result": result is not None,
+                        "success": result.success if result else None,
+                        "message_len": len(result.message) if result and result.message else 0,
+                        "action_taken": result.action_taken if result else None,
+                        "error": getattr(result, 'error', None) if result else None,
+                    }
+                    print(f"⚠️ Brain処理が応答なし: {debug_info}")
                     error_msg = "🤔 処理中に問題が発生したウル...もう一度試してほしいウル🐺"
                     send_chatwork_message(room_id, error_msg, sender_account_id, False)
                     return jsonify({"status": "ok", "brain": True, "error": "no_response"})

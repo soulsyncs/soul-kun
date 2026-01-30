@@ -519,6 +519,10 @@ class BrainDecision:
             # パラメータをマージ（理解層のエンティティ + 候補のパラメータ）
             merged_params = {**understanding.entities, **best_candidate.params}
 
+            # v10.48.6: 元のメッセージを必ず含める（general_conversation等で必要）
+            if "message" not in merged_params:
+                merged_params["message"] = understanding.raw_message
+
             return DecisionResult(
                 action=best_candidate.action,
                 params=merged_params,

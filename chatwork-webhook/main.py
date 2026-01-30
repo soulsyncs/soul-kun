@@ -254,7 +254,9 @@ from utils.chatwork_utils import (
     APICallCounter as _new_APICallCounter,
     # v10.40.3: 未使用インポート削除
     # - get_api_call_counter, reset_api_call_counter, clear_room_members_cache
-    # - get_room_members, get_room_members_cached, is_toall_mention
+    # - is_toall_mention
+    # v10.40.5: get_room_members復元（AnnouncementHandlerで使用）
+    get_room_members,
     call_chatwork_api_with_retry as _new_call_chatwork_api_with_retry,
     is_room_member as _new_is_room_member,
     # v10.48.0: メッセージ処理関数
@@ -1119,7 +1121,7 @@ def call_chatwork_api_with_retry(
 
 # v10.40.3: 以下の未使用ラッパー関数を削除
 # - get_room_members_cached (utils/chatwork_utils.pyに直接定義あり)
-# - get_room_members (utils/chatwork_utils.pyに直接定義あり)
+# v10.40.5: get_room_membersはAnnouncementHandlerで使用のためインポート復元
 
 
 def is_room_member(room_id, account_id):

@@ -3914,13 +3914,14 @@ def chatwork_webhook(request):
                     })
                 else:
                     # Brainが応答を返せなかった場合もエラー応答
-                    # v10.48.3: デバッグ情報追加
+                    # v10.48.4: デバッグ情報追加（IntegrationResult対応）
                     debug_info = {
                         "has_result": result is not None,
-                        "success": result.success if result else None,
+                        "success": getattr(result, 'success', None),
                         "message_len": len(result.message) if result and result.message else 0,
-                        "action_taken": result.action_taken if result else None,
-                        "error": getattr(result, 'error', None) if result else None,
+                        "message_preview": (result.message[:100] if result and result.message else "EMPTY"),
+                        "used_brain": getattr(result, 'used_brain', None),
+                        "error": getattr(result, 'error', None),
                     }
                     print(f"⚠️ Brain処理が応答なし: {debug_info}")
                     error_msg = "🤔 処理中に問題が発生したウル...もう一度試してほしいウル🐺"

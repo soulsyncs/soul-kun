@@ -77,6 +77,7 @@ FLAG_DEFINITIONS: Dict[str, Tuple[str, FlagCategory, str]] = {
     "ENABLE_PHASE3_KNOWLEDGE": ("true", FlagCategory.FEATURE, "Phase 3 ナレッジ検索"),
     "USE_MODEL_ORCHESTRATOR": ("false", FlagCategory.FEATURE, "Model Orchestrator（全AI呼び出し統括）"),
     "ENABLE_EXECUTION_EXCELLENCE": ("false", FlagCategory.FEATURE, "Phase 2L: 実行力強化（複合タスク自動実行）"),
+    "ENABLE_LLM_BRAIN": ("false", FlagCategory.FEATURE, "LLM常駐型脳（Claude Opus 4.5 Function Calling）"),
 
     # 検出系
     "USE_DYNAMIC_DEPARTMENT_MAPPING": ("true", FlagCategory.DETECTION, "動的部署マッピング"),
@@ -181,6 +182,7 @@ class FeatureFlags:
     enable_phase3_knowledge: bool = field(default=True)
     use_model_orchestrator: bool = field(default=False)  # Phase 0: Model Orchestrator
     enable_execution_excellence: bool = field(default=False)  # Phase 2L: 実行力強化
+    enable_llm_brain: bool = field(default=False)  # LLM常駐型脳（25章）
 
     # =====================================================
     # 検出系
@@ -314,6 +316,11 @@ class FeatureFlags:
             "ENABLE_EXECUTION_EXCELLENCE", False
         )
 
+        # LLM常駐型脳（25章: Claude Opus 4.5 Function Calling）
+        self.enable_llm_brain = self._get_env_bool(
+            "ENABLE_LLM_BRAIN", False
+        )
+
         # 検出系
         self.use_dynamic_department_mapping = self._get_env_bool(
             "USE_DYNAMIC_DEPARTMENT_MAPPING", True
@@ -404,6 +411,7 @@ class FeatureFlags:
             "enable_phase3_knowledge": self.enable_phase3_knowledge,
             "use_model_orchestrator": self.use_model_orchestrator,
             "enable_execution_excellence": self.enable_execution_excellence,
+            "enable_llm_brain": self.enable_llm_brain,
         }
 
     def get_detection_flags(self) -> Dict[str, bool]:
@@ -623,6 +631,21 @@ def is_execution_excellence_enabled() -> bool:
     return get_flags().enable_execution_excellence
 
 
+def is_llm_brain_enabled() -> bool:
+    """
+    LLM Brain（LLM常駐型脳）が有効かチェック
+
+    設計書: docs/25_llm_native_brain_architecture.md
+
+    Claude Opus 4.5を使用したFunction Calling方式の脳。
+    キーワードマッチングではなくLLMの推論で意図を理解する。
+
+    Returns:
+        bool: LLM Brainが有効か
+    """
+    return get_flags().enable_llm_brain
+
+
 # =====================================================
 # エクスポート
 # =====================================================
@@ -650,4 +673,5 @@ __all__ = [
     "is_dry_run",
     "is_model_orchestrator_enabled",
     "is_execution_excellence_enabled",
+    "is_llm_brain_enabled",
 ]

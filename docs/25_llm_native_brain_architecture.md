@@ -2757,12 +2757,17 @@ MEMORY_TOOLS = [
 
 ## 8. System Promptの設計
 
-### 15.1 概要
+### 8.1 概要
 
 System Promptは、ソウルくんの「人格」「設計思想」「制約」を定義する最重要文書。
 LLM常駐型では、このSystem PromptがLLMの振る舞いの全てを決める。
 
-### 15.2 System Prompt構成
+### 8.2 System Prompt構成
+
+> **⚠️ 章番号の注意**
+> 以下のコードブロック内にある「## 1.」〜「## 8.」は、**System Prompt内部のセクション番号**です。
+> 本文書のメイン章（第1章〜第17章）とは別の番号体系ですのでご注意ください。
+> Design Coverage Matrixでの参照は、本文書のメイン章番号（第4章、第9章など）を使用します。
 
 ```python
 SOULKUN_SYSTEM_PROMPT = """
@@ -3366,7 +3371,7 @@ async def check_daily_cost():
 
 ---
 
-## 15. 実装チェックリスト
+## 16. 実装チェックリスト
 
 ### Phase A: 新クラスの実装
 

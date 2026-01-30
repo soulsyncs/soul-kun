@@ -338,18 +338,23 @@ tasks = response.json()["data"]["overdue_tasks"]  # 変更
 
 ### ■ 必ず守るべき10の鉄則
 
-| # | 鉄則 | Phase |
-|---|------|-------|
-| 1 | **全テーブルにorganization_idを追加** | Phase 3.5〜 |
-| 2 | **Row Level Security（RLS）を実装** | Phase 4A |
-| 3 | **監査ログを全confidential以上の操作で記録** | Phase 3.5 |
-| 4 | **APIは必ず認証必須** | Phase 1〜 |
-| 5 | **ページネーションを1000件超えAPIに実装** | Phase 1-B〜 |
-| 6 | **キャッシュにTTLを設定（デフォルト5分）** | Phase 3.5 |
-| 7 | **破壊的変更時はAPIバージョンアップ** | Phase 4A〜 |
-| 8 | **エラーメッセージに機密情報を含めない** | Phase 1〜 |
-| 9 | **SQLインジェクション対策（パラメータ化）** | Phase 1〜 |
-| 10 | **トランザクション内でAPI呼び出しをしない** | Phase 1〜 |
+> **⚠️ SoT（正）: [CLAUDE.md セクション5](../CLAUDE.md#5-絶対に守る10の鉄則)**
+>
+> 10の鉄則の定義はCLAUDE.mdが正です。ここでは重複定義せず、参照のみ行います。
+> 実装時のPhase別対応状況については、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md)を参照してください。
+
+**10の鉄則一覧（詳細はCLAUDE.md参照）:**
+
+1. 全テーブルにorganization_idを追加
+2. Row Level Security（RLS）を実装
+3. 監査ログを記録（confidential以上）
+4. APIは必ず認証必須
+5. 1000件超えはページネーション
+6. キャッシュにTTL設定（5分）
+7. 破壊的変更はAPIバージョンアップ
+8. エラーに機密情報を含めない
+9. SQLはパラメータ化
+10. トランザクション内でAPI呼び出し禁止
 
 ---
 

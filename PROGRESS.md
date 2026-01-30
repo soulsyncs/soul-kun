@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-29 23:30 JST**
+**最終更新: 2026-01-30 06:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -19,11 +19,17 @@
 
 ## 🚨 次回やること
 
-### 🔥 最優先タスク（2026-01-29時点）
+### 🔥 最優先タスク（2026-01-30時点）
 
-**main.py 分割の続き（Phase 5-6）** ← 次はここから
-- 現在: 7,770行（800行削減済み、9.3%削減）
-- 目標: 1,500行以下
+**main.py 分割 Phase 10 完了** ✅
+- 最終行数: **5,503行**（7,232行から**1,729行削減、24%削減**）
+- 目標1,500行には追加リファクタリングが必要
+- ただし設計原則「全入力は脳を通る」の準拠は達成
+
+**次のステップ候補:**
+- 本番デプロイ・動作確認
+- 残りの後方互換ラッパー関数の整理（リスク評価が必要）
+- get_ai_response (315行) の Brain 内部移動検討
 
 **脳の改善を本番有効化**
 - Feature Flagsを段階的に有効化
@@ -85,6 +91,198 @@ FEATURE_FLAG_CONTEXT_EXPRESSION = "context_expression_resolver"  # Phase 5
 1. 開発環境でFeature Flagsを有効化してテスト
 2. 本番環境でshadowモード（ログのみ）で検証
 3. 本番環境で段階的に有効化（10% → 50% → 100%）
+
+---
+
+### ✅ main.py分割 Phase 10 完了（2026-01-30 06:00）
+
+**Brain完全移行 + main.py軽量化（設計書準拠版）**
+
+設計原則「全入力は脳を通る」に準拠し、main.pyを7,232行から5,503行に削減（24%削減）。
+
+| Phase | 内容 | 削減行数 |
+|-------|------|---------|
+| 10-A | Brain完全移行の検証 | 0 |
+| 10-B | 旧コード削除（ai_commander等） | ~612 |
+| 10-C | ハンドラーをhandler_wrappers.pyに抽出 | ~861 |
+| 10-D | check_reply_messages薄型化 | ~229 |
+| 10-E | 残存ユーティリティ整理 | ~87 |
+| **合計** | | **~1,789** |
+
+**新規ファイル:**
+- `lib/brain/handler_wrappers.py` (1,670行)
+  - 21個の脳用ハンドラーラッパー
+  - セッション継続・管理関数
+  - ポーリング処理ヘルパー
+
+**削除したコード:**
+1. `ai_commander` + `execute_action` - バイパスルート完全削除
+2. `_brain_handle_*` 21関数 - handler_wrappers.pyに移行
+3. check_reply_messagesのインライン処理 - ヘルパー関数に抽出
+4. 未使用ラッパー関数（6関数）
+5. 未使用インポート（6インポート）
+6. コメントアウトされた旧コード
+
+**設計原則との整合性:**
+- 鉄則1「全入力は脳を通る」✅ バイパス削除
+- 鉄則3「脳が判断、機能は実行」✅ execute_action削除
+- 鉄則4「新機能追加も脳構造は変えない」✅ カタログ追加のみで対応可能
+
+---
+
+### ✅ main.py分割 Phase 10-B 完了（2026-01-30 04:30）
+
+**Brain完全移行 + 旧コード削除（設計書準拠版）**
+
+設計原則「全入力は脳を通る」に準拠し、バイパスルート（ai_commander + execute_action）を完全削除。
+
+| 項目 | 削除前 | 削除後 | 削減 |
+|------|--------|--------|------|
+| main.py行数 | 7,232行 | 6,680行 | **552行削減** |
+
+**削除したコード:**
+1. `ai_commander` 関数（197行）- OpenRouter APIでの意図解析
+2. `execute_action` 関数（97行）- ハンドラーディスパッチャ
+3. `fallback_ai_commander` 関数 - chatwork_webhook内のフォールバック
+4. chatwork_webhookの従来フロー（~260行）- 全てBrainで処理
+5. check_reply_messagesの旧コード - Brain統合に置き換え
+
+**保持したコード:**
+- `get_ai_response` - `_brain_ai_response_wrapper`が使用
+- 全ての`_brain_handle_*`ラッパー - Brain内部で使用
+
+**設計原則との整合性:**
+- 鉄則1「全入力は脳を通る」✅ バイパス削除
+- 鉄則3「脳が判断、機能は実行」✅ execute_action削除
+
+**テスト結果:** 1,146パス / 6失敗（既存の失敗、新規回帰なし）
+
+---
+
+### ✅ main.py分割 Phase 9 完了（2026-01-30 02:30）
+
+**未使用import削除**
+
+徹底的なgrep分析により、importのみで使用されていないシンボルを特定し削除。
+
+| 削除したimport | モジュール |
+|--------------|----------|
+| `UserPreference`, `MemoryParameters` | lib/memory |
+| `AlertType`, `MVVContext`, `should_flag_for_review`, `get_mvv_context` | lib/mvv_context |
+| `MemoryScope`, `get_user_life_why` | lib/long_term_memory |
+| `get_admin_account_id`, `get_admin_room_id`, `AdminConfig`, `clear_admin_config_cache` | lib/admin_config |
+| `_utils_JST`, `_utils_DEADLINE_ALERT_DAYS` | utils/date_utils |
+| `GoalSettingDialogue` | lib |
+| `bindparam` | sqlalchemy |
+| `List`, `Optional` | typing |
+
+**行数変化:** 7,248行 → 7,232行 (-16行)
+**総削減:** 8,255行 → 7,232行 (-1,023行、12.4%削減)
+
+---
+
+### ✅ main.py分割 Phase 8 完了（2026-01-30 02:00）
+
+**未使用delegate関数・API関数の削除**
+
+徹底的なgrep分析により、定義のみで呼び出しがない未使用関数を特定し削除。
+
+| 削除した関数 | 行数 | 削除理由 |
+|------------|------|---------|
+| `get_or_create_person()` | 4行 | 未使用delegate（lib/person_service.py使用） |
+| `get_oldest_pending_proposal()` | 8行 | 未使用delegate（handler直接使用） |
+| `get_proposal_by_id()` | 8行 | 未使用delegate（handler直接使用） |
+| `get_latest_pending_proposal()` | 8行 | 未使用delegate（handler直接使用） |
+| `approve_proposal()` | 8行 | 未使用delegate（handler直接使用） |
+| `reject_proposal()` | 8行 | 未使用delegate（handler直接使用） |
+| `get_overdue_days()` | 10行 | 未使用delegate（utils/date_utils.py使用） |
+| `_new_get_overdue_days` import | 1行 | 上記削除に伴い不要化 |
+| `call_openrouter_api()` | 54行 | 未使用API関数（他のOpenRouter呼び出しは別経路） |
+| `handle_general_chat()` | 6行 | 未使用ハンドラー（Noneを返すだけ） |
+| `get_user_id_from_chatwork_account()` | 18行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
+| `get_accessible_departments()` | 65行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
+| `get_user_primary_department()` | 22行 | 未使用（Phase 3.5対応用だが呼び出しなし） |
+
+**行数変化:** 7,475行 → 7,248行 (-227行)
+**総削減:** 8,255行 → 7,248行 (-1,007行、12.2%削減）
+
+---
+
+### ✅ main.py分割 Phase 7 完了（2026-01-30 01:30）
+
+**未使用コード削除とインポート整理**
+
+徹底的なコード分析により、未使用の関数・変数・インポートを特定し削除。
+
+| 削除した項目 | 行数 | 削除理由 |
+|------------|------|---------|
+| `_get_brain()` 関数 | ~70行 | BrainIntegration経由に完全移行済み |
+| `_brain_instance` 変数 | 1行 | `_get_brain()`と共に不要化 |
+| 重複 `import os` | 1行 | line 7で既にインポート済み |
+| 重複 `import re` | 1行 | line 5で既にインポート済み |
+| `USE_NEW_DATE_UTILS` フラグ | 1行 | フォールバック削除済みで不要 |
+| `USE_NEW_CHATWORK_UTILS` フラグ | 1行 | フォールバック削除済みで不要 |
+| `BOT_ACCOUNT_ID` 定数 | 1行 | MY_ACCOUNT_IDと同一で未使用 |
+
+**分析結果:**
+- 100行以上の大関数: 13個（合計2,742行、36.3%）
+- コード行: 3,334行（44.2%）
+- 非コード行（コメント/docstring/空行）: 4,211行（55.8%）
+
+**行数変化:** 7,545行 → 7,475行 (-70行)
+**総削減:** 8,255行 → 7,475行 (-780行、9.4%削減)
+
+---
+
+### ✅ main.py分割 Phase 6 完了（2026-01-30 00:45）
+
+**デッドコード削除とハンドラー簡略化**
+
+未使用の関数・変数を削除し、残りの`if handler:`パターンを簡略化。
+
+| 削除した関数/変数 | 削除理由 |
+|-----------------|---------|
+| `notify_dm_not_available()` | 呼び出し箇所なし（バッファ追加関数） |
+| `get_chatwork_headers()` | 直接ヘッダー構築に置き換え済み |
+| `HEADERS` 変数 | 未使用 |
+
+**HANDLERSのlambda簡略化:**
+- `handle_announcement_request` - `if handler:`チェック削除
+
+**行数変化:** 7,572行 → 7,545行 (-27行)
+**総削減:** 8,255行 → 7,545行 (-710行、8.6%削減)
+
+---
+
+### ✅ main.py分割 Phase 5 完了（2026-01-30 00:15）
+
+**ストレージ層の重複コード削除**
+
+handlers/knowledge_handler.py と main.py の重複コードを削除し、
+ハンドラー委譲に統一。v10.33.1でハンドラー必須化を完了。
+
+| 削除した関数/定数 | 削除理由 |
+|-----------------|---------|
+| `ensure_knowledge_tables()` | handlers/knowledge_handler.py に移行済み |
+| `save_knowledge()` | 未使用（handler.handle_learn_knowledge使用） |
+| `delete_knowledge()` | ハンドラー委譲に変更 |
+| `get_all_knowledge()` | ハンドラー委譲に変更 |
+| `get_knowledge_for_prompt()` | ハンドラー委譲に変更 |
+| `KNOWLEDGE_LIMIT`, `KNOWLEDGE_VALUE_MAX_LENGTH` | ハンドラーに定義済み |
+
+**追加で簡略化した`if handler:`チェック:**
+- `handle_proposal_decision` - 4行削除
+- `handle_proposal_by_id` - 4行削除
+- `handle_local_learn_knowledge` - 4行削除
+- `report_proposal_to_admin` - 4行削除
+- `handle_query_company_knowledge` - 4行削除
+- `handle_list_knowledge`内 - 3行削減
+- `_brain_continue_announcement`内 - 5行削減
+- `_brain_handle_announcement_create`内 - 3行削減
+- `get_context`内アナウンスチェック - 2行削減
+
+**行数変化:** 7,770行 → 7,572行 (-198行)
+**総削減:** 8,255行 → 7,572行 (-683行、8.3%削減)
 
 ---
 

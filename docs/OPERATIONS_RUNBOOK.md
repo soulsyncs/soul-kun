@@ -438,6 +438,114 @@ VALUES ('[ユーザーID]', NOW(), NOW());
 
 ---
 
+## 11. organization_id（テナント）管理
+
+### 11.1 現在の状態
+
+| 項目 | 値 |
+|------|-----|
+| 現在のフェーズ | Phase 3.5（単一テナント） |
+| デフォルトテナント | `org_soulsyncs` |
+| マルチテナント対応 | フレームワーク実装済み、未有効化 |
+
+### 11.2 テナントアーキテクチャ
+
+```
+┌─────────────────────────────────────────────────┐
+│ Phase 3.5（現在）: 単一テナント                    │
+│                                                 │
+│   全データ → organization_id = "org_soulsyncs"   │
+│   lib/tenant.py の DEFAULT_TENANT_ID を使用       │
+└─────────────────────────────────────────────────┘
+          ↓ Phase 4 移行時
+┌─────────────────────────────────────────────────┐
+│ Phase 4: マルチテナント                          │
+│                                                 │
+│   顧客A → organization_id = "org_customer_a"    │
+│   顧客B → organization_id = "org_customer_b"    │
+│   社内  → organization_id = "org_soulsyncs"     │
+│                                                 │
+│   リクエストヘッダー X-Tenant-ID でテナント指定   │
+└─────────────────────────────────────────────────┘
+```
+
+### 11.3 テナント初期化手順
+
+**新規テナント追加時（Phase 4以降）:**
+
+```sql
+-- 1. organizationsテーブルに追加
+INSERT INTO organizations (id, name, plan, is_active, created_at)
+VALUES (
+    'org_customer_xxx',
+    '株式会社〇〇',
+    'standard',
+    true,
+    NOW()
+);
+
+-- 2. 管理者ユーザーを作成
+INSERT INTO users (id, organization_id, email, name, role_level)
+VALUES (
+    'usr_admin_xxx',
+    'org_customer_xxx',
+    'admin@customer.com',
+    '管理者',
+    6  -- 代表レベル
+);
+
+-- 3. デフォルト部署を作成
+INSERT INTO departments (id, organization_id, name, path, level)
+VALUES (
+    'dept_root_xxx',
+    'org_customer_xxx',
+    '全社',
+    'root',
+    0
+);
+```
+
+### 11.4 テナント分離の保証
+
+**Row Level Security（RLS）による強制:**
+
+```sql
+-- 全テーブルにRLSポリシーを適用
+ALTER TABLE tasks ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY tenant_isolation ON tasks
+    USING (organization_id = current_setting('app.current_tenant'));
+```
+
+**アプリケーション層での保証（lib/tenant.py）:**
+
+```python
+# 全クエリでテナントフィルタを強制
+with TenantContext(organization_id):
+    # このブロック内では organization_id がフィルタされる
+    tasks = await get_tasks()  # 自テナントのみ取得
+```
+
+### 11.5 移行時の注意事項
+
+| リスク | 対策 |
+|--------|------|
+| 既存データの organization_id が空 | 移行スクリプトで `org_soulsyncs` を設定 |
+| 新規テーブルに organization_id がない | PRレビューでチェック（10の鉄則 #1） |
+| クロステナントアクセス | `validate_tenant_access()` で拒否 |
+| テナント削除時のデータ残留 | 論理削除 + 30日後に物理削除 |
+
+### 11.6 テナント関連のコード参照先
+
+| 機能 | ファイル |
+|------|---------|
+| テナントコンテキスト管理 | `lib/tenant.py` |
+| アクセス制御 | `api/app/services/access_control.py` |
+| 6段階権限レベル | `api/app/services/access_control.py` L6-12 |
+| RLSポリシー | `migrations/` 配下 |
+
+---
+
 ## 更新履歴
 
 | 日付 | 変更内容 |
@@ -445,6 +553,7 @@ VALUES ('[ユーザーID]', NOW(), NOW());
 | 2026-01-30 | 初版作成（Design Coverage Matrixの漏れ対応） |
 | 2026-01-30 | セクション9追加（Alarm→Runbook対応表） |
 | 2026-01-30 | セクション10追加（監視KPI） |
+| 2026-01-30 | セクション11追加（organization_id管理） |
 
 ---
 

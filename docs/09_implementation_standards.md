@@ -917,6 +917,55 @@ PROMPT_REGRESSION_CASES = [
 | 脳アーキテクチャ変更時 | **必須** |
 | 週次定期実行 | 推奨 |
 
+### 実装ファイル
+
+| ファイル | 役割 |
+|---------|------|
+| `tests/test_prompt_regression.py` | テスト本体（20ケース定義） |
+| `.github/workflows/quality-checks.yml` | CI/CD（手動トリガー） |
+
+### ローカル実行方法
+
+```bash
+# テストを有効化して実行
+PROMPT_REGRESSION_ENABLED=true pytest tests/test_prompt_regression.py -v
+
+# カテゴリ別に実行
+PROMPT_REGRESSION_ENABLED=true pytest tests/test_prompt_regression.py -v -k "category2"
+
+# 3回実行で2/3パス判定（pytest-repeatが必要）
+pip install pytest-repeat
+PROMPT_REGRESSION_ENABLED=true pytest tests/test_prompt_regression.py -v --count=3
+```
+
+### CI/CD統合（手動トリガー）
+
+```yaml
+# .github/workflows/prompt-regression.yml（別途作成）
+name: Prompt Regression Tests
+on:
+  workflow_dispatch:  # 手動トリガー
+    inputs:
+      reason:
+        description: 'Why are you running this test?'
+        required: true
+
+jobs:
+  prompt-regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pytest pytest-asyncio
+      - run: PROMPT_REGRESSION_ENABLED=true pytest tests/test_prompt_regression.py -v
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+> **注意:** プロンプト回帰テストはLLM API呼び出しが発生するため、コスト管理のため手動トリガーを推奨。
+
 ### テストケース追加ルール
 
 - 本番で発生した「想定外の応答」は必ずテストケースに追加

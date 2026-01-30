@@ -122,6 +122,7 @@ Q: この設計要素は1行にすべき？分割すべき？
 | Authorization Gate（実装） | 04章 | 5.6 | ✅ | 03章はテーブル設計のみ |
 | Observability Layer | OPERATIONS_RUNBOOK | セクション9-10 | ✅ | 2026-01-30追加（KPI・アラート対応表） |
 | Tool Execution | 25章 | 第7章 | ✅ | |
+| **設計vs実装の差分** | DESIGN_IMPLEMENTATION_GAP_REPORT | 全体 | ✅ | 2026-01-30追加 |
 
 ---
 
@@ -153,7 +154,7 @@ Q: この設計要素は1行にすべき？分割すべき？
 | PII処理（削除手順） | OPERATIONS_RUNBOOK | セクション7.3 | ✅ | 2026-01-30追加 |
 | Row Level Security | 04章 | 5.6 | ✅ | |
 | organization_id必須ルール | CLAUDE.md | セクション5 | ✅ | |
-| organization_id初期化・移行 | **未定義** | - | ❌ 漏れ | |
+| organization_id初期化・移行 | OPERATIONS_RUNBOOK | セクション11 | ✅ | 2026-01-30追加 |
 
 ---
 
@@ -230,11 +231,11 @@ Q: この設計要素は1行にすべき？分割すべき？
 | 5 | ~~権限事故対応~~ | 中 | ✅ OPERATIONS_RUNBOOK追加 |
 | 6 | ~~コスト管理（本番運用）~~ | 中 | ✅ OPERATIONS_RUNBOOK追加 |
 | 7 | ~~失敗時の挙動（全体原則）~~ | 中 | ✅ OPERATIONS_RUNBOOK追加 |
-| 8 | **organization_id初期化・移行** | 中 | ⚠️ 今後対応 |
+| 8 | ~~organization_id初期化・移行~~ | 中 | ✅ OPERATIONS_RUNBOOK セクション11追加 |
 | 9 | ~~プロンプト回帰テスト~~ | 低 | ✅ 09章 11.7追加 |
 | 10 | **コスト上限テスト** | 低 | ⚠️ 今後対応 |
 
-**2026-01-30対応:** 漏れ10項目のうち9項目を対応完了（OPERATIONS_RUNBOOK.md、09章）。残り2項目（organization_id初期化・移行、コスト上限テスト）は今後のイテレーションで対応。
+**2026-01-30対応:** 漏れ10項目のうち9項目を対応完了。残り1項目（コスト上限テスト）は今後のイテレーションで対応。
 
 ---
 

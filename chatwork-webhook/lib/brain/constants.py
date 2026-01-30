@@ -248,20 +248,30 @@ SPLIT_PATTERNS: List[str] = [
 CAPABILITY_MIN_SCORE_THRESHOLD: float = 0.1
 
 # リスクレベル定義
+# v10.48.10: general_conversation追加（確認不要にするため）
 RISK_LEVELS: Dict[str, str] = {
+    # 低リスク（確認不要）
+    "general_conversation": "low",  # 一般会話は確認不要
     "chatwork_task_create": "low",
     "chatwork_task_complete": "low",
     "chatwork_task_search": "low",
     "goal_registration": "low",  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
     "goal_progress_report": "low",
+    "goal_status_check": "low",
+    "goal_review": "low",
+    "goal_consult": "low",
     "save_memory": "low",
     "query_memory": "low",
-    "delete_memory": "medium",
     "learn_knowledge": "low",
     "query_knowledge": "low",
-    "forget_knowledge": "medium",
     "query_org_chart": "low",
+    "daily_reflection": "low",
+    # 中リスク
+    "delete_memory": "medium",
+    "forget_knowledge": "medium",
     "send_announcement": "medium",
+    "announcement_create": "medium",
+    # 高リスク（要確認）
     "delete": "high",
     "remove": "high",
     "send_all": "high",

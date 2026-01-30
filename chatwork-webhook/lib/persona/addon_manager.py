@@ -1,9 +1,12 @@
 """
 v10.43.0: Persona Add-on Manager
 ユーザー/部署/ロール向けの追加指針をDBから取得
+
+v10.48.1: SQLAlchemy 2.0互換性修正 - text()ラッパー追加
 """
 from typing import Optional
 import logging
+from sqlalchemy import text
 
 
 class TargetType:
@@ -38,7 +41,7 @@ def get_user_addon(pool, org_id: str, user_id: str) -> Optional[str]:
     try:
         with pool.begin() as conn:
             result = conn.execute(
-                """
+                text("""
                 SELECT content
                 FROM persona_addons
                 WHERE organization_id = CAST(:org_id AS uuid)
@@ -47,7 +50,7 @@ def get_user_addon(pool, org_id: str, user_id: str) -> Optional[str]:
                   AND is_active = true
                 ORDER BY version DESC
                 LIMIT 1
-                """,
+                """),
                 {
                     "org_id": org_id,
                     "target_type": TargetType.USER,
@@ -84,13 +87,13 @@ def create_addon(
     try:
         with pool.begin() as conn:
             result = conn.execute(
-                """
+                text("""
                 INSERT INTO persona_addons
                     (organization_id, target_type, target_id, content, version, is_active, created_by)
                 VALUES
                     (CAST(:org_id AS uuid), :target_type, :target_id, :content, :version, true, :created_by)
                 RETURNING id
-                """,
+                """),
                 {
                     "org_id": org_id,
                     "target_type": target_type,

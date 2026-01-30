@@ -538,10 +538,17 @@ class SessionOrchestrator:
         確認への応答を処理
 
         v10.43.3: P5対話フロー無限ループバグ修正
+        v10.48.5: デバッグログ追加
         """
         pending_action = state.state_data.get("pending_action")
         pending_params = state.state_data.get("pending_params", {})
         options = state.state_data.get("confirmation_options", [])
+
+        # v10.48.5: デバッグログ
+        logger.info(
+            f"[CONFIRMATION_DEBUG] pending_action={pending_action}, "
+            f"pending_params={pending_params}, options={options}"
+        )
         retry_count = state.state_data.get("confirmation_retry_count", 0)
 
         # P5安全装置①: 空オプション検知
@@ -636,6 +643,13 @@ class SessionOrchestrator:
             room_id=room_id,
             account_id=account_id,
             sender_name=sender_name,
+        )
+
+        # v10.48.5: デバッグログ
+        logger.info(
+            f"[CONFIRMATION_EXEC_DEBUG] result.success={result.success}, "
+            f"result.message_len={len(result.message) if result.message else 0}, "
+            f"result.message_preview={result.message[:100] if result.message else 'EMPTY'}"
         )
 
         return BrainResponse(

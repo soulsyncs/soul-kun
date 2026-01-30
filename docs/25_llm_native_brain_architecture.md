@@ -1,0 +1,2600 @@
+# 第25章：LLM常駐型脳アーキテクチャ設計書
+
+**バージョン:** v1.0.0
+**作成日:** 2026-01-30
+**作成者:** Claude Code（経営参謀・SE・PM）
+**ステータス:** 設計確定
+**承認者:** カズさん（代表）
+
+---
+
+## 目次
+
+1. [エグゼクティブサマリー](#1-エグゼクティブサマリー)
+2. [設計進化の背景と目的](#2-設計進化の背景と目的)
+3. [設計原則](#3-設計原則)
+4. [新アーキテクチャ全体像](#4-新アーキテクチャ全体像)
+5. [各層の詳細設計](#5-各層の詳細設計)
+6. [Tool定義（Function Calling）](#6-tool定義function-calling)
+7. [System Promptの設計](#7-system-promptの設計)
+8. [リスク対策の詳細](#8-リスク対策の詳細)
+9. [データモデル](#9-データモデル)
+10. [データフロー](#10-データフロー)
+11. [既存コードからの移行計画](#11-既存コードからの移行計画)
+12. [テスト戦略](#12-テスト戦略)
+13. [コスト管理](#13-コスト管理)
+14. [監視・運用](#14-監視運用)
+15. [実装チェックリスト](#15-実装チェックリスト)
+16. [付録](#16-付録)
+
+---
+
+## 1. エグゼクティブサマリー
+
+### 1.1 この設計書の目的
+
+**ソウルくんの「脳」を、キーワードマッチング方式から「LLM常駐型」へ進化させ、人間の秘書のような「汲み取り力」を実現する。**
+
+### 1.2 3行で要約
+
+1. **何をするか**: 脳の中核にClaude Opus 4.5を常駐させ、全ての判断をLLMの推論に委ねる
+2. **なぜ必要か**: 現在のキーワードマッチでは「汲み取り力」に限界があり、場当たり的改善の繰り返しになる
+3. **どう作るか**: Context Builder → LLM Brain → Guardian → AuthGate → Observability の6層構造に進化
+
+### 1.3 コスト見積もり
+
+| 会話回数/月 | LLM利用料 | インフラ | 月額合計 |
+|------------|----------|---------|----------|
+| 1,000回 | 約5,900円 | 約15,000円 | **約21,000円** |
+| 5,000回 | 約29,500円 | 約15,000円 | **約44,500円** |
+| 10,000回 | 約59,000円 | 約15,000円 | **約74,000円** |
+
+※人間の秘書（月30〜50万円）の**1/4〜1/7のコスト**で、24時間対応可能
+
+### 1.4 この設計書の位置づけ
+
+```
+設計書体系
+├─ 01_philosophy_and_principles.md  ← 哲学・原則（なぜ作るか）
+├─ 13_brain_architecture.md         ← 旧・脳設計（キーワードマッチ方式）
+├─ 19_ultimate_brain_architecture.md← Ultimate Brain構想
+└─ ★ 25_llm_native_brain_architecture.md ← 【本設計書】LLM常駐型脳
+```
+
+### 1.5 関連する既存設計書
+
+| 設計書 | 関係 |
+|--------|------|
+| 13_brain_architecture.md | 本設計書で置き換える（7つの鉄則は継承） |
+| 19_ultimate_brain_architecture.md | Chain-of-Thought等の構想を統合 |
+| 17_brain_completion_roadmap.md | Phase 2E〜2Oの一部を本設計書で実現 |
+| handlers/registry.py | SYSTEM_CAPABILITIESをTool定義に変換 |
+
+---
+
+## 2. 設計進化の背景と目的
+
+### 2.1 カズさんの課題認識
+
+> 「全然まともに会話が今できてなくて、すっごい困ってんだよね」
+>
+> 「ケースごとの改良ではなく、そもそもの"推論能力そのもの"を設計として底上げしないと、将来ずっと"場当たり的な改善"になってしまうのではないか？」
+
+### 2.2 現在のアーキテクチャの限界
+
+#### 2.2.1 キーワードマッチングの限界
+
+```python
+# 現在の実装（understanding.py / decision.py）
+INTENT_KEYWORDS = {
+    "chatwork_task_create": {
+        "primary": ["タスク作成", "タスク追加", "タスク作って"],
+        "secondary": ["タスク", "仕事", "やること"],
+        "negative": ["検索", "一覧"],
+    }
+}
+
+# 問題: 以下のような自然な言い方が通じない
+# ✗ 「田中さんにこれ頼んで」→ 「タスク」というキーワードがない
+# ✗ 「さっきの件、お願いできる？」→ 「さっきの件」が何か分からない
+# ✗ 「あれどうなった？」→ 「あれ」が何を指すか分からない
+```
+
+#### 2.2.2 場当たり的改善の悪循環
+
+```
+新しい言い方が通じない
+    ↓
+キーワードを追加
+    ↓
+別の言い方が通じない
+    ↓
+またキーワードを追加
+    ↓
+無限ループ...
+```
+
+#### 2.2.3 理解層と判断層の分離による非効率
+
+現在の4層構造では、理解と判断が別々のステップで行われる。
+LLMの推論力を活かすなら、**理解と判断を一体化**した方が精度が上がる。
+
+### 2.3 LLM常駐型の本質
+
+**LLMを「文章生成器」ではなく「思考エンジン（思考OS）」として使う。**
+
+| 現在 | LLM常駐型 |
+|------|----------|
+| キーワードで意図を推測 | LLMが文脈から意図を推論 |
+| ルールで機能を選択 | LLMがFunction Callingで機能を選択 |
+| 人間が決めたロジックに従う | LLMが自分で考える |
+| 新しい言い方 → 通じない | 新しい言い方 → LLMが汲み取る |
+
+### 2.4 設計進化の決定理由
+
+| 観点 | 評価 |
+|------|------|
+| 設計整合性 | ✅ 7つの鉄則を強化（壊さない） |
+| メリット | ✅ 汲み取り力の根本的向上 |
+| コスト | ✅ 月4〜7万円（人間の秘書の1/4〜1/7） |
+| リスク | ✅ 全て対策可能（既存機構を活用） |
+| 緊急度 | ✅ 今「会話できない」状態で困っている |
+
+**結論: 今すぐ実装すべき。**
+
+---
+
+## 3. 設計原則
+
+### 3.1 継承する原則（7つの鉄則）
+
+既存の7つの鉄則は**全て継承**する。LLM常駐型はこれを**強化**する。
+
+| # | 鉄則 | LLM常駐型での対応 | 強化度 |
+|---|------|------------------|--------|
+| 1 | **全ての入力は脳を通る** | LLM Brainが全入力を受け取る | ✅ 強化 |
+| 2 | **脳は全ての記憶にアクセスできる** | Context Builderで全記憶を集約 | ✅ 維持 |
+| 3 | **脳が判断し、機能は実行するだけ** | LLMが判断、Toolが実行 | ✅ 完全準拠 |
+| 4 | **機能拡張しても脳の構造は変わらない** | Tool定義を追加するだけ | ✅ 強化 |
+| 5 | **確認は脳の責務** | LLMが確認要否を判断 | ✅ 維持 |
+| 6 | **状態管理は脳が統一管理** | Context Builderで状態を注入 | ✅ 維持 |
+| 7 | **速度より正確性を優先** | LLMの推論力で正確性向上 | ✅ 強化 |
+
+### 3.2 新たに追加する原則
+
+| # | 原則 | 説明 | 理由 |
+|---|------|------|------|
+| 8 | **思考過程の透明性** | Chain-of-Thoughtを必須化。全判断の理由を記録 | ブラックボックス化防止 |
+| 9 | **権限チェックはLLMと独立** | AuthorizationGateはLLM判断の後に独立して実行 | セキュリティ確保 |
+| 10 | **Toolは明確に限定** | LLMに与える選択肢（Tool）を明確に定義 | 想定外動作の防止 |
+| 11 | **危険操作は必ずガード** | Guardian LayerでLLM判断後にチェック | 安全性確保 |
+| 12 | **全判断を記録** | Observability Layerで判断ログを永続化 | 追跡可能性確保 |
+
+### 3.3 CLAUDE.mdとの整合性
+
+| CLAUDE.md規定 | 本設計での対応 |
+|---------------|---------------|
+| 脳の8つの鉄則 | 全て準拠（鉄則1〜7 + 鉄則1b） |
+| データソース優先順位（Truth順位） | Context Builderで優先順位に従って取得 |
+| 意図の取り違え検知ルール | LLMの推論 + 確信度判定で対応 |
+| 権限レベル（6段階） | Authorization Gateで強制 |
+| 10の鉄則 | 全て準拠（organization_id、RLS等） |
+
+---
+
+## 4. 新アーキテクチャ全体像
+
+### 4.1 アーキテクチャ図
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        ユーザーのメッセージ                              │
+│                       （ChatWork Webhook）                              │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃                         ソウルくんの「脳」                               ┃
+┃                                                                          ┃
+┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
+┃  │                  ① Context Builder（文脈構築層）                 │  ┃
+┃  │                                                                    │  ┃
+┃  │  【収集する情報】                                                  │  ┃
+┃  │  ├─ 現在の状態（セッション中？確認待ち？通常？）                   │  ┃
+┃  │  ├─ 記憶（会話履歴、人物情報、タスク、目標、ナレッジ）             │  ┃
+┃  │  ├─ CEO教え・価値観（ValueAuthority）                             │  ┃
+┃  │  ├─ ユーザー嗜好（好みの呼び方、報告形式等）                       │  ┃
+┃  │  └─ 設計思想（System Prompt）                                     │  ┃
+┃  │                                                                    │  ┃
+┃  │  【出力】                                                          │  ┃
+┃  │  └─ 構造化されたContext（LLMに渡す形式）                          │  ┃
+┃  │                                                                    │  ┃
+┃  └──────────────────────────────────────────────────────────────────┘  ┃
+┃                                   │                                      ┃
+┃                                   ▼                                      ┃
+┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
+┃  │                  ② LLM Brain（Claude Opus 4.5）                   │  ┃
+┃  │                                                                    │  ┃
+┃  │  【入力】                                                          │  ┃
+┃  │  ├─ System Prompt（ソウルくんの設計思想・人格・制約）              │  ┃
+┃  │  ├─ Context（①で構築した文脈情報）                                │  ┃
+┃  │  ├─ ユーザーメッセージ                                            │  ┃
+┃  │  └─ Tool定義（できることリスト = Function Calling用）             │  ┃
+┃  │                                                                    │  ┃
+┃  │  【処理】                                                          │  ┃
+┃  │  ├─ 意図理解（「何をしたいか」を文脈から汲み取る）                 │  ┃
+┃  │  ├─ 判断（「どのToolを使うか」または「直接応答するか」）           │  ┃
+┃  │  └─ 思考過程の出力（Chain-of-Thought）【必須】                    │  ┃
+┃  │                                                                    │  ┃
+┃  │  【出力】                                                          │  ┃
+┃  │  ├─ Tool呼び出し（tool_name, parameters）                         │  ┃
+┃  │  ├─ または直接応答（雑談、質問への回答等）                         │  ┃
+┃  │  └─ 思考過程（reasoning）                                         │  ┃
+┃  │                                                                    │  ┃
+┃  └──────────────────────────────────────────────────────────────────┘  ┃
+┃                                   │                                      ┃
+┃                                   ▼                                      ┃
+┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
+┃  │              ③ Guardian Layer（守護者層）【リスク対策】           │  ┃
+┃  │                                                                    │  ┃
+┃  │  【チェック項目】                                                  │  ┃
+┃  │  ├─ 危険操作の検出（全員送信、削除、権限変更等）                   │  ┃
+┃  │  ├─ 確信度チェック（LLMの確信度が低い場合は確認モード）            │  ┃
+┃  │  ├─ NGパターン検出（機密情報漏洩、不適切発言等）                   │  ┃
+┃  │  └─ CEO教えとの整合性チェック                                     │  ┃
+┃  │                                                                    │  ┃
+┃  │  【出力】                                                          │  ┃
+┃  │  ├─ ALLOW: そのまま続行                                           │  ┃
+┃  │  ├─ CONFIRM: 確認モードに遷移                                     │  ┃
+┃  │  ├─ BLOCK: 実行をブロック                                         │  ┃
+┃  │  └─ MODIFY: パラメータを修正して続行                              │  ┃
+┃  │                                                                    │  ┃
+┃  └──────────────────────────────────────────────────────────────────┘  ┃
+┃                                   │                                      ┃
+┃                                   ▼                                      ┃
+┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
+┃  │          ④ Authorization Gate（権限チェック）【LLMと独立】        │  ┃
+┃  │                                                                    │  ┃
+┃  │  【重要】LLMの判断とは【完全に独立】して実行                       │  ┃
+┃  │                                                                    │  ┃
+┃  │  【チェック項目】                                                  │  ┃
+┃  │  ├─ このユーザーはこのToolを実行できるか？                         │  ┃
+┃  │  ├─ このユーザーはこのデータにアクセスできるか？                   │  ┃
+┃  │  └─ AccessControl（6段階権限）による強制                          │  ┃
+┃  │                                                                    │  ┃
+┃  │  【出力】                                                          │  ┃
+┃  │  ├─ ALLOWED: 続行                                                  │  ┃
+┃  │  └─ DENIED: 拒否（理由付き）                                      │  ┃
+┃  │                                                                    │  ┃
+┃  │  ※LLMが何を判断しても、ここで最終的なセキュリティを担保            │  ┃
+┃  │                                                                    │  ┃
+┃  └──────────────────────────────────────────────────────────────────┘  ┃
+┃                                   │                                      ┃
+┃                                   ▼                                      ┃
+┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
+┃  │           ⑤ Observability Layer（観測層）【リスク対策】           │  ┃
+┃  │                                                                    │  ┃
+┃  │  【記録する情報】                                                  │  ┃
+┃  │  ├─ 入力メッセージ                                                │  ┃
+┃  │  ├─ LLMの思考過程（Chain-of-Thought）                             │  ┃
+┃  │  ├─ 選択されたTool・パラメータ                                    │  ┃
+┃  │  ├─ Guardian/AuthGateの判定結果                                   │  ┃
+┃  │  ├─ 実行結果                                                      │  ┃
+┃  │  └─ 最終応答                                                      │  ┃
+┃  │                                                                    │  ┃
+┃  │  【追加処理】                                                      │  ┃
+┃  │  ├─ Self-Critique（重要な判断で自己チェック、20%程度）            │  ┃
+┃  │  └─ 学習ループへのフィードバック                                  │  ┃
+┃  │                                                                    │  ┃
+┃  └──────────────────────────────────────────────────────────────────┘  ┃
+┃                                                                          ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      ⑥ Tool実行（Function Calling）                     │
+│                                                                          │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │
+│  │タスク管理│ │目標管理  │ │メモリ    │ │ナレッジ  │ │アナウンス│ ...  │
+│  │(Task)    │ │(Goal)    │ │(Memory)  │ │(Knowledge)│ │(Announce)│      │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘ └──────────┘      │
+│                                                                          │
+│  ※既存のハンドラーをそのまま使用（Tool定義に変換するだけ）              │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            実行結果                                      │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    ⑦ LLM Brain（応答統合）                              │
+│                                                                          │
+│  【入力】                                                                │
+│  ├─ Tool実行結果                                                        │
+│  ├─ 元のContext                                                         │
+│  └─ ユーザーへの応答方針（System Prompt内で定義）                       │
+│                                                                          │
+│  【処理】                                                                │
+│  ├─ 実行結果をユーザー向けに整形                                        │
+│  ├─ 追加アクションの提案（「他に何かありますか？」）                    │
+│  └─ ソウルくんらしい口調で返答生成                                      │
+│                                                                          │
+│  【出力】                                                                │
+│  └─ 最終応答メッセージ                                                  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                       ユーザーへの応答                                   │
+│                      （ChatWork送信）                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 4.2 現在の設計との対応表
+
+| 現在の層 | 新しい設計での位置 | 変更内容 |
+|---------|-------------------|---------|
+| 記憶層（Memory Layer） | ① Context Builder | 統合 |
+| 理解層（Understanding Layer） | ② LLM Brain | 統合・LLM化 |
+| 判断層（Decision Layer） | ② LLM Brain | 統合・LLM化 |
+| 状態管理層（State Layer） | ① Context Builder | 統合 |
+| 実行層（Execution Layer） | ⑥ Tool実行 | 維持（名称変更） |
+| GuardianService | ③ Guardian Layer | 強化 |
+| AuthorizationGate | ④ Authorization Gate | 維持 |
+| Observability | ⑤ Observability Layer | 強化 |
+| ChainOfThought | ② LLM Brain内 | 必須化 |
+| SelfCritique | ⑤ Observability Layer内 | 維持 |
+
+### 4.3 変わる点と変わらない点
+
+#### 変わる点
+
+| 項目 | Before | After |
+|------|--------|-------|
+| 意図理解 | キーワードマッチング | LLMの推論 |
+| 判断 | スコアリングアルゴリズム | Function Calling |
+| 理解と判断 | 別々の層 | LLM Brainで一体化 |
+| 思考過程 | オプション | 必須 |
+| 層構造 | 4層 + 補助層 | 6層 + Tool実行 + 応答統合 |
+
+#### 変わらない点
+
+| 項目 | 説明 |
+|------|------|
+| 7つの鉄則 | 全て維持（むしろ強化） |
+| ハンドラー構造 | 既存のハンドラーをそのまま使用 |
+| 権限チェック | AccessControlをLLMと独立して維持 |
+| 記憶の構造 | Memory Frameworkをそのまま使用 |
+| SYSTEM_CAPABILITIES | Tool定義に変換して使用 |
+| 監査ログ | そのまま維持 |
+
+---
+
+## 5. 各層の詳細設計
+
+### 5.1 Context Builder（文脈構築層）
+
+#### 5.1.1 目的
+
+LLM Brainに渡す「文脈情報」を構築する。
+全ての記憶・状態・設計思想をここで集約し、LLMが適切な判断を行えるようにする。
+
+#### 5.1.2 収集する情報
+
+| カテゴリ | 情報 | 取得元 | 優先度 |
+|---------|------|--------|--------|
+| **状態** | 現在のセッション状態 | brain_conversation_states | 1（最高） |
+| **状態** | pending操作 | brain_conversation_states | 1 |
+| **記憶** | 直近の会話履歴（10件） | conversation_history | 2 |
+| **記憶** | 会話の要約 | conversation_summaries | 3 |
+| **記憶** | ユーザー嗜好 | user_preferences | 3 |
+| **記憶** | 人物情報 | persons | 2 |
+| **記憶** | 関連タスク | chatwork_tasks | 3 |
+| **記憶** | アクティブな目標 | goals | 3 |
+| **価値観** | CEO教え | ceo_teachings | 2 |
+| **価値観** | 会社の価値観（MVV） | 設定 | 2 |
+| **ナレッジ** | 関連する会社知識 | documents, soulkun_knowledge | 4 |
+
+#### 5.1.3 データ構造
+
+```python
+@dataclass
+class LLMContext:
+    """LLM Brainに渡すコンテキスト"""
+
+    # === 現在の状態 ===
+    session_state: Optional[SessionState]      # 現在のセッション状態
+    pending_action: Optional[PendingAction]    # pending操作
+
+    # === ユーザー情報 ===
+    user_id: str                               # ユーザーID
+    user_name: str                             # ユーザー名
+    user_role: str                             # 役職・権限レベル
+    user_preferences: Optional[UserPreferences] # 嗜好情報
+
+    # === 会話履歴 ===
+    recent_messages: List[Message]             # 直近10件の会話
+    conversation_summary: Optional[str]         # 過去の会話要約
+
+    # === 記憶 ===
+    known_persons: List[PersonInfo]            # 記憶している人物
+    recent_tasks: List[TaskInfo]               # 関連タスク
+    active_goals: List[GoalInfo]               # アクティブな目標
+
+    # === 価値観 ===
+    ceo_teachings: List[CEOTeaching]           # CEO教え
+    company_values: str                        # 会社のMVV
+
+    # === ナレッジ（遅延取得可） ===
+    relevant_knowledge: Optional[List[KnowledgeChunk]]
+
+    # === メタ情報 ===
+    current_datetime: datetime                 # 現在日時
+    organization_id: str                       # 組織ID
+    room_id: str                               # ChatWorkルームID
+
+    def to_prompt_string(self) -> str:
+        """LLMプロンプト用の文字列に変換"""
+        sections = []
+
+        # 現在の状態
+        if self.session_state:
+            sections.append(f"【現在のセッション】\n{self.session_state.to_string()}")
+        if self.pending_action:
+            sections.append(f"【pending操作】\n{self.pending_action.to_string()}")
+
+        # ユーザー情報
+        sections.append(f"""【ユーザー情報】
+- 名前: {self.user_name}
+- 役職: {self.user_role}
+- 嗜好: {self.user_preferences.to_string() if self.user_preferences else 'なし'}""")
+
+        # 会話履歴
+        if self.recent_messages:
+            history = "\n".join([f"- {m.sender}: {m.content}" for m in self.recent_messages[-5:]])
+            sections.append(f"【直近の会話】\n{history}")
+
+        # 記憶
+        if self.known_persons:
+            persons = "\n".join([f"- {p.name}: {p.description}" for p in self.known_persons[:5]])
+            sections.append(f"【記憶している人物】\n{persons}")
+
+        if self.recent_tasks:
+            tasks = "\n".join([f"- {t.title} (期限: {t.due_date})" for t in self.recent_tasks[:5]])
+            sections.append(f"【関連タスク】\n{tasks}")
+
+        if self.active_goals:
+            goals = "\n".join([f"- {g.title}: {g.progress}%" for g in self.active_goals[:3]])
+            sections.append(f"【アクティブな目標】\n{goals}")
+
+        # CEO教え
+        if self.ceo_teachings:
+            teachings = "\n".join([f"- {t.content}" for t in self.ceo_teachings[:3]])
+            sections.append(f"【CEO教え（最優先で従う）】\n{teachings}")
+
+        # 現在日時
+        sections.append(f"【現在日時】\n{self.current_datetime.strftime('%Y年%m月%d日 %H:%M')}")
+
+        return "\n\n".join(sections)
+```
+
+#### 5.1.4 実装
+
+```python
+# lib/brain/context_builder.py
+
+class ContextBuilder:
+    """
+    LLM Brainに渡すコンテキストを構築する。
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.1
+    """
+
+    def __init__(
+        self,
+        pool,
+        memory_access: BrainMemoryAccess,
+        state_manager: BrainStateManager,
+    ):
+        self.pool = pool
+        self.memory_access = memory_access
+        self.state_manager = state_manager
+
+    async def build(
+        self,
+        user_id: str,
+        room_id: str,
+        organization_id: str,
+        message: str,
+    ) -> LLMContext:
+        """
+        コンテキストを構築する。
+
+        Truth順位（CLAUDE.md セクション3）に従ってデータを取得。
+        1位: リアルタイムAPI
+        2位: DB（正規データ）
+        3位: 設計書・仕様書
+        4位: Memory（会話の文脈）
+        5位: 推測 → 禁止
+        """
+        # 並列で全ての情報を取得
+        results = await asyncio.gather(
+            self.state_manager.get_current_state(user_id, room_id),
+            self.memory_access.get_recent_messages(user_id, room_id, limit=10),
+            self.memory_access.get_conversation_summary(user_id),
+            self.memory_access.get_user_preferences(user_id),
+            self.memory_access.get_known_persons(organization_id),
+            self.memory_access.get_recent_tasks(user_id, room_id),
+            self.memory_access.get_active_goals(user_id),
+            self._get_ceo_teachings(organization_id),
+            self._get_user_info(user_id, organization_id),
+        )
+
+        (
+            session_state,
+            recent_messages,
+            conversation_summary,
+            user_preferences,
+            known_persons,
+            recent_tasks,
+            active_goals,
+            ceo_teachings,
+            user_info,
+        ) = results
+
+        return LLMContext(
+            session_state=session_state,
+            pending_action=session_state.pending_action if session_state else None,
+            user_id=user_id,
+            user_name=user_info.name,
+            user_role=user_info.role,
+            user_preferences=user_preferences,
+            recent_messages=recent_messages,
+            conversation_summary=conversation_summary,
+            known_persons=known_persons,
+            recent_tasks=recent_tasks,
+            active_goals=active_goals,
+            ceo_teachings=ceo_teachings,
+            company_values=self._get_company_values(),
+            relevant_knowledge=None,  # 必要時に遅延取得
+            current_datetime=datetime.now(JST),
+            organization_id=organization_id,
+            room_id=room_id,
+        )
+
+    async def enrich_with_knowledge(
+        self,
+        context: LLMContext,
+        query: str,
+    ) -> LLMContext:
+        """必要に応じてナレッジを追加取得"""
+        knowledge = await self.memory_access.search_knowledge(
+            query=query,
+            organization_id=context.organization_id,
+            limit=5,
+        )
+        context.relevant_knowledge = knowledge
+        return context
+```
+
+### 5.2 LLM Brain（LLM脳層）
+
+#### 5.2.1 目的
+
+ソウルくんの「思考」の中核。
+Claude Opus 4.5を使用して、ユーザーの意図を汲み取り、適切なToolを選択する。
+
+#### 5.2.2 入力
+
+| 項目 | 説明 |
+|------|------|
+| System Prompt | ソウルくんの人格、設計思想、制約 |
+| Context | Context Builderで構築した文脈情報 |
+| ユーザーメッセージ | 今回のユーザーの入力 |
+| Tool定義 | 実行可能な機能のリスト（Function Calling用） |
+
+#### 5.2.3 出力
+
+| 項目 | 説明 |
+|------|------|
+| tool_calls | 呼び出すToolとパラメータのリスト |
+| または text_response | Toolを使わない直接応答 |
+| reasoning | 思考過程（Chain-of-Thought）【必須】 |
+| confidence | 確信度（0.0〜1.0） |
+
+#### 5.2.4 処理フロー
+
+```
+入力（Context + Message + Tools）
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ Step 1: 状態チェック                    │
+│ - セッション中？→ そのフローを継続      │
+│ - pending操作？→ 確認応答として処理     │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ Step 2: 意図理解（LLMの推論）           │
+│ - ユーザーは何をしたいのか？            │
+│ - 省略されている情報は何か？            │
+│ - 文脈から補完できる情報は何か？        │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ Step 3: Tool選択（Function Calling）    │
+│ - 使用可能なToolから最適なものを選択    │
+│ - パラメータを抽出・補完                │
+│ - または直接応答が適切か判断            │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│ Step 4: 思考過程の出力                  │
+│ - なぜこのToolを選んだか                │
+│ - どの情報を根拠にしたか                │
+│ - 確信度はどの程度か                    │
+└─────────────────────────────────────────┘
+    │
+    ▼
+出力（tool_calls or text_response + reasoning）
+```
+
+#### 5.2.5 実装
+
+```python
+# lib/brain/llm_brain.py
+
+import anthropic
+from typing import List, Optional, Union
+from dataclasses import dataclass
+
+@dataclass
+class LLMBrainResult:
+    """LLM Brainの処理結果"""
+
+    # Tool呼び出し（ある場合）
+    tool_calls: Optional[List[ToolCall]] = None
+
+    # 直接応答（Tool不要の場合）
+    text_response: Optional[str] = None
+
+    # 思考過程（必須）
+    reasoning: str = ""
+
+    # 確信度
+    confidence: float = 0.0
+
+    # 追加情報
+    needs_confirmation: bool = False
+    confirmation_question: Optional[str] = None
+
+
+@dataclass
+class ToolCall:
+    """Tool呼び出し情報"""
+    tool_name: str
+    parameters: dict
+    reasoning: str  # このToolを選んだ理由
+
+
+class LLMBrain:
+    """
+    ソウルくんの脳（LLM常駐型）
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.2
+
+    【7つの鉄則との対応】
+    1. 全ての入力は脳を通る → このクラスが全入力を処理
+    2. 脳は全ての記憶にアクセス → Contextから全記憶を参照
+    3. 脳が判断、機能は実行するだけ → LLMが判断、Toolが実行
+    """
+
+    def __init__(
+        self,
+        model: str = "claude-opus-4-5-20250101",
+        api_key: Optional[str] = None,
+    ):
+        self.client = anthropic.Anthropic(api_key=api_key)
+        self.model = model
+
+    async def process(
+        self,
+        context: LLMContext,
+        message: str,
+        tools: List[ToolDefinition],
+        system_prompt: str,
+    ) -> LLMBrainResult:
+        """
+        ユーザーメッセージを処理する。
+
+        Args:
+            context: Context Builderで構築したコンテキスト
+            message: ユーザーのメッセージ
+            tools: 使用可能なTool定義のリスト
+            system_prompt: ソウルくんのSystem Prompt
+
+        Returns:
+            LLMBrainResult: 処理結果（Tool呼び出しまたは直接応答）
+        """
+        # System Promptを構築
+        full_system_prompt = self._build_system_prompt(
+            base_prompt=system_prompt,
+            context=context,
+        )
+
+        # Tool定義をAnthropic形式に変換
+        anthropic_tools = self._convert_tools(tools)
+
+        # メッセージを構築
+        messages = self._build_messages(context, message)
+
+        # LLM呼び出し
+        response = await self._call_llm(
+            system=full_system_prompt,
+            messages=messages,
+            tools=anthropic_tools,
+        )
+
+        # 結果を解析
+        return self._parse_response(response)
+
+    def _build_system_prompt(
+        self,
+        base_prompt: str,
+        context: LLMContext,
+    ) -> str:
+        """System Promptを構築"""
+        return f"""{base_prompt}
+
+===== 現在のコンテキスト =====
+{context.to_prompt_string()}
+
+===== 重要な指示 =====
+1. 必ず「思考過程」を出力してください。なぜそのToolを選んだか、どの情報を根拠にしたかを説明してください。
+2. 確信度が70%未満の場合は、確認質問を行ってください。
+3. ユーザーの意図を「汲み取る」ことを最優先してください。表面的な言葉だけでなく、文脈から真の意図を推論してください。
+4. CEO教えがある場合は、それを最優先で参照してください。
+"""
+
+    def _build_messages(
+        self,
+        context: LLMContext,
+        message: str,
+    ) -> List[dict]:
+        """メッセージリストを構築"""
+        messages = []
+
+        # 直近の会話履歴を追加
+        for m in context.recent_messages[-5:]:
+            role = "user" if m.sender != "soulkun" else "assistant"
+            messages.append({"role": role, "content": m.content})
+
+        # 今回のメッセージを追加
+        messages.append({"role": "user", "content": message})
+
+        return messages
+
+    async def _call_llm(
+        self,
+        system: str,
+        messages: List[dict],
+        tools: List[dict],
+    ) -> anthropic.Message:
+        """LLMを呼び出す"""
+        return self.client.messages.create(
+            model=self.model,
+            max_tokens=2048,
+            system=system,
+            messages=messages,
+            tools=tools,
+            tool_choice={"type": "auto"},  # LLMが自動でTool使用を判断
+        )
+
+    def _parse_response(
+        self,
+        response: anthropic.Message,
+    ) -> LLMBrainResult:
+        """レスポンスを解析"""
+        tool_calls = []
+        text_response = None
+        reasoning = ""
+
+        for block in response.content:
+            if block.type == "tool_use":
+                tool_calls.append(ToolCall(
+                    tool_name=block.name,
+                    parameters=block.input,
+                    reasoning="",  # 後で抽出
+                ))
+            elif block.type == "text":
+                # テキストブロックから思考過程と応答を分離
+                text = block.text
+                if "【思考過程】" in text:
+                    parts = text.split("【思考過程】")
+                    reasoning = parts[1].split("【")[0].strip() if len(parts) > 1 else ""
+                    text_response = parts[0].strip() if parts[0].strip() else None
+                else:
+                    text_response = text
+
+        # 確信度を抽出（レスポンスから）
+        confidence = self._extract_confidence(reasoning)
+
+        return LLMBrainResult(
+            tool_calls=tool_calls if tool_calls else None,
+            text_response=text_response,
+            reasoning=reasoning,
+            confidence=confidence,
+            needs_confirmation=confidence < 0.7,
+        )
+
+    def _extract_confidence(self, reasoning: str) -> float:
+        """思考過程から確信度を抽出"""
+        # 簡易実装：キーワードベースで推定
+        if "確信" in reasoning or "明確" in reasoning:
+            return 0.9
+        elif "おそらく" in reasoning or "たぶん" in reasoning:
+            return 0.7
+        elif "分からない" in reasoning or "不明" in reasoning:
+            return 0.5
+        else:
+            return 0.8  # デフォルト
+```
+
+### 5.3 Guardian Layer（守護者層）
+
+#### 5.3.1 目的
+
+LLMの判断結果をチェックし、危険な操作をブロック、または確認モードに遷移させる。
+
+#### 5.3.2 チェック項目
+
+| チェック | 説明 | アクション |
+|---------|------|----------|
+| 危険操作 | 全員送信、削除、権限変更等 | CONFIRM or BLOCK |
+| 確信度 | LLMの確信度が低い（< 0.7） | CONFIRM |
+| NGパターン | 機密情報漏洩、不適切発言 | BLOCK |
+| CEO教え違反 | CEO教えと矛盾する判断 | BLOCK or MODIFY |
+| 金額チェック | 高額な操作（> 10万円） | CONFIRM |
+| 複数送信 | 3人以上への送信 | CONFIRM |
+
+#### 5.3.3 出力
+
+| 結果 | 説明 |
+|------|------|
+| ALLOW | そのまま続行 |
+| CONFIRM | 確認モードに遷移（確認質問を生成） |
+| BLOCK | 実行をブロック（理由を通知） |
+| MODIFY | パラメータを修正して続行 |
+
+#### 5.3.4 実装
+
+```python
+# lib/brain/guardian_layer.py
+
+from enum import Enum
+from dataclasses import dataclass
+from typing import Optional, List
+
+class GuardianAction(Enum):
+    ALLOW = "allow"
+    CONFIRM = "confirm"
+    BLOCK = "block"
+    MODIFY = "modify"
+
+
+@dataclass
+class GuardianResult:
+    """Guardian Layerの判定結果"""
+    action: GuardianAction
+    reason: Optional[str] = None
+    confirmation_question: Optional[str] = None
+    modified_params: Optional[dict] = None
+    blocked_reason: Optional[str] = None
+
+
+# 危険操作のリスト
+DANGEROUS_OPERATIONS = {
+    "send_to_all": {"risk": "high", "action": "confirm"},
+    "delete_task": {"risk": "medium", "action": "confirm"},
+    "delete_goal": {"risk": "medium", "action": "confirm"},
+    "delete_memory": {"risk": "high", "action": "confirm"},
+    "change_permission": {"risk": "high", "action": "block"},
+    "send_confidential": {"risk": "critical", "action": "block"},
+}
+
+
+class GuardianLayer:
+    """
+    守護者層 - LLMの判断をチェックする
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.3
+
+    【役割】
+    - LLMが出力したTool呼び出しを検証
+    - 危険な操作をブロックまたは確認
+    - CEO教えとの整合性をチェック
+    """
+
+    def __init__(
+        self,
+        ceo_teachings: List[CEOTeaching],
+        ng_patterns: List[str],
+    ):
+        self.ceo_teachings = ceo_teachings
+        self.ng_patterns = ng_patterns
+
+    async def check(
+        self,
+        llm_result: LLMBrainResult,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """
+        LLMの判断結果をチェックする。
+
+        Args:
+            llm_result: LLM Brainの処理結果
+            context: コンテキスト情報
+
+        Returns:
+            GuardianResult: チェック結果
+        """
+        # 直接応答の場合
+        if llm_result.text_response and not llm_result.tool_calls:
+            return await self._check_text_response(
+                llm_result.text_response,
+                context,
+            )
+
+        # Tool呼び出しの場合
+        if llm_result.tool_calls:
+            return await self._check_tool_calls(
+                llm_result.tool_calls,
+                llm_result.confidence,
+                context,
+            )
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    async def _check_tool_calls(
+        self,
+        tool_calls: List[ToolCall],
+        confidence: float,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """Tool呼び出しをチェック"""
+
+        for tool_call in tool_calls:
+            # 1. 危険操作チェック
+            if tool_call.tool_name in DANGEROUS_OPERATIONS:
+                op = DANGEROUS_OPERATIONS[tool_call.tool_name]
+                if op["action"] == "block":
+                    return GuardianResult(
+                        action=GuardianAction.BLOCK,
+                        blocked_reason=f"この操作（{tool_call.tool_name}）は自動実行できません。",
+                    )
+                elif op["action"] == "confirm":
+                    return GuardianResult(
+                        action=GuardianAction.CONFIRM,
+                        confirmation_question=self._generate_confirmation(tool_call),
+                    )
+
+            # 2. 確信度チェック
+            if confidence < 0.7:
+                return GuardianResult(
+                    action=GuardianAction.CONFIRM,
+                    confirmation_question=f"「{tool_call.tool_name}」を実行してよろしいですか？",
+                    reason="確信度が低いため確認",
+                )
+
+            # 3. パラメータチェック（金額、送信先数等）
+            param_check = await self._check_parameters(tool_call, context)
+            if param_check.action != GuardianAction.ALLOW:
+                return param_check
+
+            # 4. CEO教えチェック
+            ceo_check = await self._check_ceo_teachings(tool_call, context)
+            if ceo_check.action != GuardianAction.ALLOW:
+                return ceo_check
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    async def _check_text_response(
+        self,
+        text: str,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """テキスト応答をチェック"""
+
+        # NGパターンチェック
+        for pattern in self.ng_patterns:
+            if pattern in text:
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"不適切な内容が含まれています。",
+                )
+
+        # 機密情報チェック
+        if await self._contains_confidential(text, context):
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason="機密情報が含まれている可能性があります。",
+            )
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    async def _check_parameters(
+        self,
+        tool_call: ToolCall,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """パラメータをチェック"""
+        params = tool_call.parameters
+
+        # 金額チェック
+        if "amount" in params:
+            amount = params["amount"]
+            if amount > 100000:
+                return GuardianResult(
+                    action=GuardianAction.CONFIRM,
+                    confirmation_question=f"金額が{amount:,}円です。よろしいですか？",
+                )
+
+        # 送信先チェック
+        if "recipients" in params:
+            recipients = params["recipients"]
+            if len(recipients) >= 3:
+                return GuardianResult(
+                    action=GuardianAction.CONFIRM,
+                    confirmation_question=f"{len(recipients)}人に送信します。よろしいですか？",
+                )
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    async def _check_ceo_teachings(
+        self,
+        tool_call: ToolCall,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """CEO教えとの整合性をチェック"""
+        # CEO教えがある場合、それに違反していないかチェック
+        for teaching in self.ceo_teachings:
+            if teaching.is_violated_by(tool_call):
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"CEO教え「{teaching.title}」に違反します。",
+                )
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _generate_confirmation(self, tool_call: ToolCall) -> str:
+        """確認質問を生成"""
+        return f"""🤔 確認させてほしいウル！
+
+「{tool_call.tool_name}」を実行しようとしています。
+パラメータ: {tool_call.parameters}
+
+実行してもいいですか？
+1. はい
+2. いいえ"""
+```
+
+### 5.4 Authorization Gate（権限チェック層）
+
+#### 5.4.1 目的
+
+LLMの判断とは**完全に独立**して、権限チェックを行う。
+LLMがどのような判断をしても、このゲートを通過しない限り実行されない。
+
+#### 5.4.2 チェック内容
+
+| チェック | 説明 |
+|---------|------|
+| Tool実行権限 | このユーザーはこのToolを実行できるか |
+| データアクセス権限 | このユーザーはこのデータにアクセスできるか |
+| 権限レベル | 6段階権限レベルによる制御 |
+
+#### 5.4.3 権限レベル（既存を継承）
+
+| レベル | 役職 | 見れる範囲 |
+|--------|------|-----------|
+| 1 | 業務委託 | 自部署のみ（制限あり） |
+| 2 | 一般社員 | 自部署のみ |
+| 3 | リーダー/課長 | 自部署 + 直下部署 |
+| 4 | 幹部/部長 | 自部署 + 配下全部署 |
+| 5 | 管理部/取締役 | 全組織（最高機密除く） |
+| 6 | 代表/CFO | 全組織・全情報 |
+
+#### 5.4.4 実装
+
+```python
+# lib/brain/authorization_gate.py
+
+from enum import Enum
+from dataclasses import dataclass
+from typing import Optional
+
+class AuthorizationResult(Enum):
+    ALLOWED = "allowed"
+    DENIED = "denied"
+
+
+@dataclass
+class AuthorizationGateResult:
+    """Authorization Gateの判定結果"""
+    result: AuthorizationResult
+    reason: Optional[str] = None
+    denied_message: Optional[str] = None
+
+
+class AuthorizationGate:
+    """
+    権限チェックゲート - LLMとは独立して権限を検証
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.4
+    CLAUDE.md セクション7: 権限レベル（6段階）
+
+    【重要】
+    このクラスはLLMの判断とは完全に独立して動作する。
+    LLMがどのような判断をしても、このゲートを通過しない限り実行されない。
+    """
+
+    def __init__(
+        self,
+        access_control: AccessControl,
+    ):
+        self.access_control = access_control
+
+    async def check(
+        self,
+        user_id: str,
+        organization_id: str,
+        tool_call: ToolCall,
+        context: LLMContext,
+    ) -> AuthorizationGateResult:
+        """
+        権限をチェックする。
+
+        Args:
+            user_id: ユーザーID
+            organization_id: 組織ID
+            tool_call: 実行しようとしているTool呼び出し
+            context: コンテキスト
+
+        Returns:
+            AuthorizationGateResult: チェック結果
+        """
+        # 1. ユーザーの権限レベルを取得
+        user_level = await self.access_control.get_user_level(
+            user_id=user_id,
+            organization_id=organization_id,
+        )
+
+        # 2. Toolの必要権限レベルを取得
+        required_level = self._get_required_level(tool_call.tool_name)
+
+        # 3. Tool実行権限チェック
+        if user_level < required_level:
+            return AuthorizationGateResult(
+                result=AuthorizationResult.DENIED,
+                reason="権限レベル不足",
+                denied_message=f"この操作には権限レベル{required_level}以上が必要です。",
+            )
+
+        # 4. データアクセス権限チェック（Toolがデータを参照する場合）
+        if "target_user_id" in tool_call.parameters:
+            target_user_id = tool_call.parameters["target_user_id"]
+            can_access = await self.access_control.can_access_user_data(
+                accessor_id=user_id,
+                target_id=target_user_id,
+                organization_id=organization_id,
+            )
+            if not can_access:
+                return AuthorizationGateResult(
+                    result=AuthorizationResult.DENIED,
+                    reason="データアクセス権限なし",
+                    denied_message="この情報にアクセスする権限がありません。",
+                )
+
+        # 5. 部署間アクセスチェック
+        if "target_department_id" in tool_call.parameters:
+            target_dept = tool_call.parameters["target_department_id"]
+            can_access = await self.access_control.can_access_department(
+                user_id=user_id,
+                department_id=target_dept,
+                organization_id=organization_id,
+            )
+            if not can_access:
+                return AuthorizationGateResult(
+                    result=AuthorizationResult.DENIED,
+                    reason="部署アクセス権限なし",
+                    denied_message="この部署の情報にアクセスする権限がありません。",
+                )
+
+        return AuthorizationGateResult(result=AuthorizationResult.ALLOWED)
+
+    def _get_required_level(self, tool_name: str) -> int:
+        """Toolの必要権限レベルを取得"""
+        # Toolごとの必要権限レベル定義
+        TOOL_REQUIRED_LEVELS = {
+            # レベル1（誰でも）
+            "chatwork_task_create": 1,
+            "chatwork_task_complete": 1,
+            "chatwork_task_search": 1,
+            "save_memory": 1,
+            "query_memory": 1,
+
+            # レベル2（一般社員以上）
+            "goal_registration": 2,
+            "goal_progress_report": 2,
+
+            # レベル3（リーダー以上）
+            "view_team_tasks": 3,
+            "view_team_goals": 3,
+
+            # レベル5（管理部以上）
+            "view_all_users": 5,
+            "view_salary_info": 6,  # 代表のみ
+
+            # レベル6（代表のみ）
+            "change_permission": 6,
+        }
+
+        return TOOL_REQUIRED_LEVELS.get(tool_name, 2)  # デフォルトはレベル2
+```
+
+### 5.5 Observability Layer（観測層）
+
+#### 5.5.1 目的
+
+全ての判断を記録し、追跡可能にする。
+問題が発生した時に「なぜそうなったか」を調査できるようにする。
+
+#### 5.5.2 記録する情報
+
+| 情報 | 説明 |
+|------|------|
+| 入力メッセージ | ユーザーの元のメッセージ |
+| 構築されたContext | LLMに渡したコンテキスト |
+| LLMの思考過程 | Chain-of-Thought |
+| 選択されたTool | Tool名とパラメータ |
+| Guardian判定 | ALLOW/CONFIRM/BLOCK/MODIFY |
+| AuthGate判定 | ALLOWED/DENIED |
+| 実行結果 | 成功/失敗、結果データ |
+| 最終応答 | ユーザーに返したメッセージ |
+| 処理時間 | 各ステップの所要時間 |
+
+#### 5.5.3 Self-Critique（自己批判）
+
+重要な判断（約20%）では、LLMに自己批判させる。
+
+```
+【Self-Critiqueの発動条件】
+- 確信度が0.7〜0.9の中間帯
+- 複数のToolが候補に上がった場合
+- 危険操作の場合
+- ランダム（10%）
+```
+
+#### 5.5.4 実装
+
+```python
+# lib/brain/observability_layer.py
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+import json
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ObservabilityRecord:
+    """観測記録"""
+
+    # === 識別情報 ===
+    record_id: str
+    timestamp: datetime
+    user_id: str
+    organization_id: str
+    room_id: str
+
+    # === 入力 ===
+    input_message: str
+    context_summary: str
+
+    # === LLM処理 ===
+    llm_model: str
+    llm_reasoning: str
+    llm_confidence: float
+    selected_tools: List[Dict[str, Any]]
+
+    # === チェック結果 ===
+    guardian_action: str
+    guardian_reason: Optional[str]
+    auth_result: str
+    auth_reason: Optional[str]
+
+    # === 実行結果 ===
+    execution_success: bool
+    execution_result: Optional[Dict[str, Any]]
+    execution_error: Optional[str]
+
+    # === 最終応答 ===
+    final_response: str
+
+    # === メトリクス ===
+    total_duration_ms: int
+    llm_duration_ms: int
+    tool_duration_ms: int
+
+    # === Self-Critique（実行した場合） ===
+    self_critique_executed: bool = False
+    self_critique_result: Optional[str] = None
+
+
+class ObservabilityLayer:
+    """
+    観測層 - 全判断を記録する
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.5
+
+    【目的】
+    - 全ての判断を記録し、追跡可能にする
+    - 問題発生時の原因調査を可能にする
+    - 学習ループへのフィードバックを提供する
+    """
+
+    def __init__(
+        self,
+        pool,
+        self_critique_rate: float = 0.2,  # 20%でSelf-Critique実行
+    ):
+        self.pool = pool
+        self.self_critique_rate = self_critique_rate
+
+    async def record(
+        self,
+        record: ObservabilityRecord,
+    ) -> str:
+        """
+        観測記録を保存する。
+
+        Returns:
+            str: 記録ID
+        """
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO brain_observability_logs (
+                    record_id, timestamp, user_id, organization_id, room_id,
+                    input_message, context_summary,
+                    llm_model, llm_reasoning, llm_confidence, selected_tools,
+                    guardian_action, guardian_reason, auth_result, auth_reason,
+                    execution_success, execution_result, execution_error,
+                    final_response,
+                    total_duration_ms, llm_duration_ms, tool_duration_ms,
+                    self_critique_executed, self_critique_result
+                ) VALUES (
+                    $1, $2, $3, $4, $5,
+                    $6, $7,
+                    $8, $9, $10, $11,
+                    $12, $13, $14, $15,
+                    $16, $17, $18,
+                    $19,
+                    $20, $21, $22,
+                    $23, $24
+                )
+                """,
+                record.record_id,
+                record.timestamp,
+                record.user_id,
+                record.organization_id,
+                record.room_id,
+                record.input_message,
+                record.context_summary,
+                record.llm_model,
+                record.llm_reasoning,
+                record.llm_confidence,
+                json.dumps(record.selected_tools),
+                record.guardian_action,
+                record.guardian_reason,
+                record.auth_result,
+                record.auth_reason,
+                record.execution_success,
+                json.dumps(record.execution_result) if record.execution_result else None,
+                record.execution_error,
+                record.final_response,
+                record.total_duration_ms,
+                record.llm_duration_ms,
+                record.tool_duration_ms,
+                record.self_critique_executed,
+                record.self_critique_result,
+            )
+
+        logger.info(f"Observability record saved: {record.record_id}")
+        return record.record_id
+
+    async def should_self_critique(
+        self,
+        llm_result: LLMBrainResult,
+        tool_call: Optional[ToolCall],
+    ) -> bool:
+        """Self-Critiqueを実行すべきか判断"""
+        import random
+
+        # 確信度が中間帯
+        if 0.7 <= llm_result.confidence <= 0.9:
+            return True
+
+        # 危険操作
+        if tool_call and tool_call.tool_name in DANGEROUS_OPERATIONS:
+            return True
+
+        # ランダム（10%）
+        if random.random() < 0.1:
+            return True
+
+        return False
+
+    async def run_self_critique(
+        self,
+        llm_brain: LLMBrain,
+        context: LLMContext,
+        original_result: LLMBrainResult,
+    ) -> str:
+        """Self-Critiqueを実行"""
+        critique_prompt = f"""
+あなたは「ソウルくん」の品質チェック担当です。
+以下の判断が適切かどうかを評価してください。
+
+【元のメッセージ】
+{context.recent_messages[-1].content if context.recent_messages else "不明"}
+
+【判断結果】
+- 選択したTool: {original_result.tool_calls}
+- 思考過程: {original_result.reasoning}
+- 確信度: {original_result.confidence}
+
+【評価してください】
+1. この判断は適切ですか？（Yes/No）
+2. 改善点はありますか？
+3. リスクはありますか？
+"""
+
+        # 別のLLM呼び出しで自己批判
+        critique_result = await llm_brain.process(
+            context=context,
+            message=critique_prompt,
+            tools=[],  # Toolなし（評価のみ）
+            system_prompt="あなたは品質チェック担当です。批判的に評価してください。",
+        )
+
+        return critique_result.text_response or "評価なし"
+```
+
+### 5.6 Tool実行層
+
+#### 5.6.1 目的
+
+LLM BrainがFunction Callingで選択したToolを実行する。
+既存のハンドラーをそのまま活用する。
+
+#### 5.6.2 実装
+
+```python
+# lib/brain/tool_executor.py
+
+from typing import Dict, Callable, Any, Optional
+from dataclasses import dataclass
+
+@dataclass
+class ToolExecutionResult:
+    """Tool実行結果"""
+    success: bool
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    message: Optional[str] = None  # ユーザー向けメッセージ
+    next_action: Optional[str] = None  # 次のアクション提案
+
+
+class ToolExecutor:
+    """
+    Tool実行層 - Function Callingで選択されたToolを実行
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.6
+
+    【設計方針】
+    - 既存のハンドラー（handlers/*.py）をそのまま活用
+    - HANDLERSマッピングを使用
+    - 新しいToolは定義を追加するだけ
+    """
+
+    def __init__(
+        self,
+        handlers: Dict[str, Callable],
+    ):
+        self.handlers = handlers
+
+    async def execute(
+        self,
+        tool_call: ToolCall,
+        context: LLMContext,
+    ) -> ToolExecutionResult:
+        """
+        Toolを実行する。
+
+        Args:
+            tool_call: LLM Brainが選択したTool呼び出し
+            context: コンテキスト
+
+        Returns:
+            ToolExecutionResult: 実行結果
+        """
+        tool_name = tool_call.tool_name
+        parameters = tool_call.parameters
+
+        # 1. ハンドラーを取得
+        handler = self.handlers.get(tool_name)
+        if not handler:
+            return ToolExecutionResult(
+                success=False,
+                error=f"Unknown tool: {tool_name}",
+            )
+
+        # 2. パラメータを整形
+        handler_params = self._prepare_params(
+            parameters=parameters,
+            context=context,
+        )
+
+        # 3. ハンドラーを実行
+        try:
+            result = await self._execute_handler(
+                handler=handler,
+                params=handler_params,
+                context=context,
+            )
+
+            return ToolExecutionResult(
+                success=True,
+                result=result.data if hasattr(result, 'data') else None,
+                message=result.message if hasattr(result, 'message') else None,
+                next_action=result.next_action if hasattr(result, 'next_action') else None,
+            )
+
+        except Exception as e:
+            logger.error(f"Tool execution error: {tool_name}: {e}")
+            return ToolExecutionResult(
+                success=False,
+                error=str(e),
+            )
+
+    def _prepare_params(
+        self,
+        parameters: dict,
+        context: LLMContext,
+    ) -> dict:
+        """パラメータを整形"""
+        params = parameters.copy()
+
+        # 「sender」を実際のユーザー名に置換
+        if params.get("person_name") == "sender":
+            params["person_name"] = context.user_name
+
+        # 日付を正規化
+        if "limit_date" in params:
+            params["limit_date"] = self._normalize_date(params["limit_date"])
+
+        return params
+
+    async def _execute_handler(
+        self,
+        handler: Callable,
+        params: dict,
+        context: LLMContext,
+    ) -> Any:
+        """ハンドラーを実行"""
+        # ハンドラーインターフェースに従って呼び出し
+        return await handler(
+            params=params,
+            room_id=context.room_id,
+            account_id=context.user_id,
+            sender_name=context.user_name,
+            context=context,
+        )
+```
+
+---
+
+## 6. Tool定義（Function Calling）
+
+### 6.1 概要
+
+既存のSYSTEM_CAPABILITIESをAnthropic Function Calling形式に変換する。
+新しいToolの追加は、定義を追加するだけで完了する。
+
+### 6.2 Tool定義の構造
+
+```python
+# lib/brain/tool_definitions.py
+
+from typing import Dict, List, Any
+
+@dataclass
+class ToolDefinition:
+    """Tool定義"""
+    name: str                          # Tool名（ハンドラー名と一致）
+    description: str                   # 説明（LLMがこれを読んで判断）
+    parameters: Dict[str, Any]         # パラメータスキーマ（JSON Schema形式）
+    required: List[str]                # 必須パラメータ
+    examples: List[str]                # トリガー例（LLMの参考用）
+
+
+def convert_capability_to_tool(
+    capability_key: str,
+    capability: Dict[str, Any],
+) -> ToolDefinition:
+    """
+    SYSTEM_CAPABILITIESのエントリをToolDefinitionに変換
+    """
+    # パラメータスキーマを構築
+    properties = {}
+    required = []
+
+    for param_name, param_def in capability.get("params_schema", {}).items():
+        properties[param_name] = {
+            "type": param_def.get("type", "string"),
+            "description": param_def.get("description", ""),
+        }
+        if param_def.get("required", False):
+            required.append(param_name)
+
+    return ToolDefinition(
+        name=capability_key,
+        description=capability.get("description", ""),
+        parameters={
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        },
+        required=required,
+        examples=capability.get("trigger_examples", []),
+    )
+
+
+def get_all_tool_definitions() -> List[ToolDefinition]:
+    """
+    全てのTool定義を取得
+    """
+    from handlers.registry import SYSTEM_CAPABILITIES
+
+    tools = []
+    for key, capability in SYSTEM_CAPABILITIES.items():
+        if capability.get("enabled", True):
+            tools.append(convert_capability_to_tool(key, capability))
+
+    return tools
+
+
+def to_anthropic_format(tools: List[ToolDefinition]) -> List[Dict[str, Any]]:
+    """
+    Anthropic API形式に変換
+    """
+    return [
+        {
+            "name": tool.name,
+            "description": f"{tool.description}\n\n例:\n" + "\n".join(f"- {ex}" for ex in tool.examples[:3]),
+            "input_schema": tool.parameters,
+        }
+        for tool in tools
+    ]
+```
+
+### 6.3 主要なTool定義
+
+#### 6.3.1 タスク管理
+
+```python
+TASK_TOOLS = [
+    ToolDefinition(
+        name="chatwork_task_create",
+        description="""ChatWorkで指定した担当者にタスクを作成する。
+「〇〇さんに△△をお願いして」「田中さんにタスク追加して」などの依頼に対応。
+「俺」「自分」「私」は依頼者自身を指す。
+期限が指定されない場合は確認する。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "assigned_to": {
+                    "type": "string",
+                    "description": "担当者名。「俺」「自分」「私」の場合は「sender」と出力",
+                },
+                "task_body": {
+                    "type": "string",
+                    "description": "タスクの内容",
+                },
+                "limit_date": {
+                    "type": "string",
+                    "description": "期限日（YYYY-MM-DD形式）。「明日」は翌日、「来週金曜」は該当日に変換",
+                },
+                "limit_time": {
+                    "type": "string",
+                    "description": "期限時刻（HH:MM形式）。省略可",
+                },
+            },
+            "required": ["assigned_to", "task_body", "limit_date"],
+        },
+        required=["assigned_to", "task_body", "limit_date"],
+        examples=[
+            "田中さんに資料作成のタスクを追加して、期限は明日",
+            "俺に経費精算のタスク作って",
+            "崇樹に会議室予約をお願いして、来週金曜まで",
+        ],
+    ),
+
+    ToolDefinition(
+        name="chatwork_task_complete",
+        description="""タスクを完了状態にする。
+「完了にして」「終わった」「できた」などの依頼に対応。
+番号またはタスク内容で特定する。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "task_identifier": {
+                    "type": "string",
+                    "description": "タスクを特定する情報（番号、タスク内容の一部、「さっきの」など）",
+                },
+            },
+            "required": ["task_identifier"],
+        },
+        required=["task_identifier"],
+        examples=[
+            "1のタスクを完了にして",
+            "資料作成のタスク終わった",
+            "さっきのタスク完了",
+        ],
+    ),
+
+    ToolDefinition(
+        name="chatwork_task_search",
+        description="""タスクを検索して表示する。
+「〇〇のタスク教えて」「自分のタスク」「未完了のタスク」などに対応。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "person_name": {
+                    "type": "string",
+                    "description": "タスクを検索する人物名。「自分」「俺」の場合は「sender」と出力",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "done", "all"],
+                    "description": "タスクの状態",
+                },
+            },
+            "required": [],
+        },
+        required=[],
+        examples=[
+            "自分のタスク教えて",
+            "田中さんが抱えてるタスク",
+            "未完了のタスク一覧",
+        ],
+    ),
+]
+```
+
+#### 6.3.2 目標管理
+
+```python
+GOAL_TOOLS = [
+    ToolDefinition(
+        name="goal_registration",
+        description="""目標設定セッションを開始する。
+「目標を立てたい」「目標設定したい」という明確な意思表示がある場合のみ使用。
+「目標について聞きたい」「目標と関係ある？」は目標設定開始ではない。""",
+        parameters={
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+        required=[],
+        examples=[
+            "目標を設定したい",
+            "新しい目標を立てたい",
+            "今期の目標を決めたい",
+        ],
+    ),
+
+    ToolDefinition(
+        name="goal_progress_report",
+        description="""目標の進捗を報告・確認する。
+「目標の進捗を報告」「目標どこまで進んだ？」などに対応。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "goal_id": {
+                    "type": "string",
+                    "description": "目標ID（省略時は全目標）",
+                },
+                "progress_content": {
+                    "type": "string",
+                    "description": "進捗内容（報告の場合）",
+                },
+            },
+            "required": [],
+        },
+        required=[],
+        examples=[
+            "目標の進捗を報告したい",
+            "今の目標どこまで進んだ？",
+            "売上目標の進捗教えて",
+        ],
+    ),
+]
+```
+
+#### 6.3.3 メモリ
+
+```python
+MEMORY_TOOLS = [
+    ToolDefinition(
+        name="save_memory",
+        description="""情報を記憶する。
+「覚えて」「メモして」「記憶して」などに対応。
+人物情報、嗜好、事実などを保存する。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "memory_type": {
+                    "type": "string",
+                    "enum": ["person", "preference", "fact"],
+                    "description": "記憶の種類",
+                },
+                "subject": {
+                    "type": "string",
+                    "description": "記憶の対象（人名、カテゴリなど）",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "記憶する内容",
+                },
+            },
+            "required": ["memory_type", "content"],
+        },
+        required=["memory_type", "content"],
+        examples=[
+            "田中さんは営業部長って覚えて",
+            "俺はコーヒーが好きってメモして",
+            "来週の月曜は祝日って記憶して",
+        ],
+    ),
+
+    ToolDefinition(
+        name="query_memory",
+        description="""記憶を検索・確認する。
+「覚えてる？」「知ってる？」「〇〇について教えて」などに対応。""",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "検索クエリ",
+                },
+                "memory_type": {
+                    "type": "string",
+                    "enum": ["person", "preference", "fact", "all"],
+                    "description": "検索対象の記憶タイプ",
+                },
+            },
+            "required": ["query"],
+        },
+        required=["query"],
+        examples=[
+            "田中さんについて覚えてることある？",
+            "俺の好みって何か知ってる？",
+            "来週のスケジュールで覚えてることある？",
+        ],
+    ),
+]
+```
+
+---
+
+## 7. System Promptの設計
+
+### 7.1 概要
+
+System Promptは、ソウルくんの「人格」「設計思想」「制約」を定義する最重要文書。
+LLM常駐型では、このSystem PromptがLLMの振る舞いの全てを決める。
+
+### 7.2 System Prompt構成
+
+```python
+SOULKUN_SYSTEM_PROMPT = """
+# ソウルくんのSystem Prompt
+
+## 1. あなたは誰か
+
+あなたは「ソウルくん」です。株式会社ソウルシンクスの世界最高のAI秘書です。
+
+### 1.1 ミッション（全ての判断基準）
+
+「人でなくてもできることは全部テクノロジーに任せ、人にしかできないことに人が集中できる状態を作る」
+
+このミッションに沿わない行動は取らないでください。
+
+### 1.2 あなたの役割
+
+- 社長の分身：社長の代わりに判断・対応できる存在
+- 社長の鏡：社長の考え・価値観を映し出す存在
+- 社長の最高経営パートナー：経営判断をサポートする存在
+- 会社を守るAI：社長が外出中でも会社を守れる存在
+- スタッフの世界最高のパートナー：全社員の仕事をサポートする存在
+- 世界最高の秘書：誰よりも頼れる秘書
+
+### 1.3 口調
+
+- 語尾に「ウル」を付ける（例：「承知したウル！」「分かったウル🐺」）
+- 親しみやすく、でも失礼にならない
+- 敬語をベースに、親しみを込める
+
+---
+
+## 2. 思考の原則
+
+### 2.1 汲み取り力を最優先
+
+ユーザーの言葉をそのまま受け取るのではなく、「本当は何をしてほしいのか」を汲み取ってください。
+
+【例】
+- 「田中さんにこれ頼んで」→ タスク作成（「タスク」という言葉がなくても理解）
+- 「あれどうなった？」→ 直前の話題の進捗確認
+- 「いつものやつ」→ ユーザーの習慣から推測
+
+### 2.2 推測禁止、確認推奨
+
+自信がない時は、推測で進めず確認してください。
+
+【確認が必要な場合】
+- 確信度が70%未満
+- 「あれ」「それ」「これ」が何を指すか不明確
+- 複数の解釈が可能
+- 危険な操作（削除、全員送信など）
+
+【確認の仕方】
+「〇〇について確認させてほしいウル！
+これは以下のどちらの意味ですか？
+1. [解釈A]
+2. [解釈B]」
+
+### 2.3 思考過程を必ず出力
+
+判断する時は、必ず「なぜそう判断したか」を説明してください。
+これはブラックボックス化を防ぐための重要なルールです。
+
+【形式】
+「【思考過程】
+- ユーザーは〇〇をしたいと思われる
+- 根拠：△△という発言があった
+- 確信度：X%
+- 選択したTool：〇〇」
+
+---
+
+## 3. データソース優先順位（Truth順位）
+
+質問に答える時は、以下の優先順位でデータを参照してください。
+
+| 順位 | データソース | 例 |
+|------|-------------|-----|
+| 1位 | リアルタイムAPI | ChatWork API, Google API |
+| 2位 | DB（正規データ） | ユーザーテーブル, タスクテーブル |
+| 3位 | 設計書・仕様書 | システムの仕様 |
+| 4位 | Memory（会話の文脈） | 過去の会話で覚えた情報 |
+| 5位 | 推測 | **禁止**（必ず確認を取る） |
+
+---
+
+## 4. Toolの使い方
+
+### 4.1 Tool選択の原則
+
+- ユーザーの意図に最も適合するToolを選ぶ
+- 複数の操作が必要な場合は、複数のToolを順番に呼ぶ
+- Toolが不要な場合（雑談、質問への回答）は直接応答
+
+### 4.2 パラメータの補完
+
+- 「俺」「自分」「私」→ sender（依頼者自身）
+- 「明日」→ 翌日の日付（YYYY-MM-DD形式）
+- 「さっきの」→ 直前の会話から特定
+- 不明な場合は確認
+
+### 4.3 使用禁止のパターン
+
+以下の場合はToolを使わず、確認してください：
+- 「〇〇について聞きたい」→ 情報提供であり、操作ではない
+- 「〇〇と関係ある？」→ 質問であり、操作ではない
+- 「目標設定として繋がってる？」→ 目標設定開始ではなく確認質問
+
+---
+
+## 5. 禁止事項
+
+### 5.1 絶対にやってはいけないこと
+
+- 機密情報（給与、評価、M&A情報等）を漏らす
+- 推測で進める（分からなければ確認）
+- 確認なしで危険な操作を実行
+- 不適切な発言（差別、暴力、セクハラ等）
+- 他社の情報を漏らす
+
+### 5.2 やらない方がいいこと
+
+- 長すぎる応答（簡潔に）
+- 過剰な謝罪（必要な時だけ）
+- 上から目線の説教
+
+---
+
+## 6. CEO教えの優先
+
+コンテキストに「CEO教え」がある場合、それを最優先で参照してください。
+CEO教えは、社長からソウルくんへの直接指示であり、最も重要な判断基準です。
+
+---
+
+## 7. 応答の形式
+
+### 7.1 成功時
+
+「[操作内容]したウル！🐺
+
+[詳細情報]
+
+他に何かあれば言ってほしいウル！」
+
+### 7.2 確認時
+
+「🤔 確認させてほしいウル！
+
+[確認内容]
+
+1. [選択肢1]
+2. [選択肢2]
+
+どっちですかウル？」
+
+### 7.3 エラー時
+
+「ごめんウル...🐺
+
+[何が起きたか簡潔に]
+
+[代替案があれば提示]」
+
+---
+
+## 8. 現在のコンテキスト
+
+[Context Builderが構築したコンテキストがここに挿入される]
+"""
+```
+
+---
+
+## 8. リスク対策の詳細
+
+### 8.1 リスク一覧と対策
+
+| リスク | 深刻度 | 対策 | 実装場所 |
+|--------|--------|------|---------|
+| ブラックボックス化 | 高 | Chain-of-Thought必須化 | LLM Brain |
+| 想定外の動作 | 高 | Tool定義で選択肢を限定 | Tool定義 |
+| 機密情報漏洩 | 高 | Guardian Layer + AuthGate | Guardian/AuthGate |
+| 危険操作の自動実行 | 高 | Guardian Layerで確認必須 | Guardian Layer |
+| 権限違反 | 高 | AuthGateで独立チェック | Authorization Gate |
+| 判断理由の追跡不能 | 中 | Observability Layerで全記録 | Observability |
+| コスト超過 | 中 | Prompt Caching + 監視 | コスト管理 |
+| 応答遅延 | 低 | 許容済み | - |
+
+### 8.2 ブラックボックス化対策の詳細
+
+#### 8.2.1 Chain-of-Thought必須化
+
+```python
+# System Promptで強制
+"""
+### 2.3 思考過程を必ず出力
+
+判断する時は、必ず「なぜそう判断したか」を説明してください。
+
+【形式】
+「【思考過程】
+- ユーザーは〇〇をしたいと思われる
+- 根拠：△△という発言があった
+- 確信度：X%
+- 選択したTool：〇〇」
+"""
+
+# 出力に思考過程がない場合はエラー
+def validate_reasoning(result: LLMBrainResult) -> bool:
+    if not result.reasoning or len(result.reasoning) < 20:
+        raise ValueError("思考過程が出力されていません")
+    return True
+```
+
+#### 8.2.2 全判断の記録
+
+```python
+# Observability Layerで全て記録
+record = ObservabilityRecord(
+    input_message=message,
+    llm_reasoning=result.reasoning,  # 思考過程を記録
+    selected_tools=result.tool_calls,
+    ...
+)
+await observability.record(record)
+```
+
+#### 8.2.3 Self-Critique
+
+```python
+# 重要な判断では自己批判
+if await observability.should_self_critique(result, tool_call):
+    critique = await observability.run_self_critique(llm_brain, context, result)
+    record.self_critique_result = critique
+```
+
+### 8.3 セキュリティ対策の詳細
+
+#### 8.3.1 Authorization GateのLLM独立性
+
+```
+LLMの判断 → Guardian Layer → Authorization Gate → Tool実行
+                                     ↑
+                                     │
+                            LLMとは完全に独立
+                            AccessControlで強制
+```
+
+#### 8.3.2 権限チェックの実装
+
+```python
+# Authorization Gate
+async def check(self, user_id, tool_call, context):
+    # 1. ユーザーの権限レベルを取得（DBから）
+    user_level = await self.access_control.get_user_level(user_id)
+
+    # 2. Toolの必要権限を取得（定義から）
+    required_level = self._get_required_level(tool_call.tool_name)
+
+    # 3. 権限チェック（LLMの判断とは無関係）
+    if user_level < required_level:
+        return AuthorizationGateResult(
+            result=AuthorizationResult.DENIED,
+            denied_message="権限がありません",
+        )
+```
+
+#### 8.3.3 機密情報保護
+
+```python
+# Guardian Layerで機密情報をチェック
+CONFIDENTIAL_PATTERNS = [
+    r"給与",
+    r"年収",
+    r"評価",
+    r"査定",
+    r"M&A",
+    r"買収",
+]
+
+async def _contains_confidential(self, text, context):
+    for pattern in CONFIDENTIAL_PATTERNS:
+        if re.search(pattern, text):
+            return True
+    return False
+```
+
+---
+
+## 9. データモデル
+
+### 9.1 新規テーブル
+
+#### 9.1.1 brain_observability_logs
+
+```sql
+CREATE TABLE brain_observability_logs (
+    -- 識別情報
+    record_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    user_id VARCHAR(255) NOT NULL,
+    organization_id VARCHAR(255) NOT NULL,
+    room_id VARCHAR(255) NOT NULL,
+
+    -- 入力
+    input_message TEXT NOT NULL,
+    context_summary TEXT,
+
+    -- LLM処理
+    llm_model VARCHAR(100) NOT NULL,
+    llm_reasoning TEXT NOT NULL,
+    llm_confidence FLOAT NOT NULL,
+    selected_tools JSONB,
+
+    -- チェック結果
+    guardian_action VARCHAR(50) NOT NULL,
+    guardian_reason TEXT,
+    auth_result VARCHAR(50) NOT NULL,
+    auth_reason TEXT,
+
+    -- 実行結果
+    execution_success BOOLEAN NOT NULL,
+    execution_result JSONB,
+    execution_error TEXT,
+
+    -- 最終応答
+    final_response TEXT NOT NULL,
+
+    -- メトリクス
+    total_duration_ms INTEGER NOT NULL,
+    llm_duration_ms INTEGER NOT NULL,
+    tool_duration_ms INTEGER,
+
+    -- Self-Critique
+    self_critique_executed BOOLEAN DEFAULT FALSE,
+    self_critique_result TEXT,
+
+    -- インデックス用
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- インデックス
+CREATE INDEX idx_observability_user ON brain_observability_logs(user_id, timestamp DESC);
+CREATE INDEX idx_observability_org ON brain_observability_logs(organization_id, timestamp DESC);
+CREATE INDEX idx_observability_confidence ON brain_observability_logs(llm_confidence);
+```
+
+### 9.2 既存テーブルの変更
+
+なし。既存のテーブル構造は維持する。
+
+---
+
+## 10. データフロー
+
+### 10.1 正常フロー
+
+```
+1. ユーザーがChatWorkでメンション
+2. chatwork_webhook が受信
+3. LLMNativeBrain.process() を呼び出し
+4. Context Builder がコンテキストを構築
+5. LLM Brain が意図理解 + Tool選択
+6. Guardian Layer がチェック（ALLOW）
+7. Authorization Gate がチェック（ALLOWED）
+8. Tool Executor が実行
+9. LLM Brain が応答を統合
+10. Observability Layer が記録
+11. ユーザーに応答を送信
+```
+
+### 10.2 確認モードフロー
+
+```
+1. ユーザーがChatWorkでメンション
+2. chatwork_webhook が受信
+3. LLMNativeBrain.process() を呼び出し
+4. Context Builder がコンテキストを構築
+5. LLM Brain が意図理解（確信度 < 0.7）
+6. Guardian Layer がチェック（CONFIRM）
+7. 確認質問を生成
+8. Observability Layer が記録
+9. ユーザーに確認質問を送信
+10. ユーザーが回答
+11. 2〜に戻る（pending_actionとして処理）
+```
+
+### 10.3 ブロックフロー
+
+```
+1. ユーザーがChatWorkでメンション
+2. chatwork_webhook が受信
+3. LLMNativeBrain.process() を呼び出し
+4. Context Builder がコンテキストを構築
+5. LLM Brain が意図理解 + Tool選択
+6. Authorization Gate がチェック（DENIED）
+7. 拒否理由を生成
+8. Observability Layer が記録
+9. ユーザーに拒否理由を送信
+```
+
+---
+
+## 11. 既存コードからの移行計画
+
+### 11.1 移行方針
+
+- 既存のハンドラー（handlers/*.py）はそのまま使用
+- SYSTEM_CAPABILITIESをTool定義に変換
+- lib/brain/配下に新しいクラスを追加
+- main.pyのprocess_message呼び出しを差し替え
+
+### 11.2 移行ステップ
+
+#### Phase A: 新クラスの実装（影響なし）
+
+| ステップ | 内容 | 既存への影響 |
+|---------|------|-------------|
+| A-1 | ContextBuilder実装 | なし |
+| A-2 | LLMBrain実装 | なし |
+| A-3 | GuardianLayer実装 | なし |
+| A-4 | ToolExecutor実装 | なし |
+| A-5 | ObservabilityLayer実装 | なし |
+| A-6 | Tool定義変換実装 | なし |
+
+#### Phase B: 統合（Feature Flag）
+
+| ステップ | 内容 | 既存への影響 |
+|---------|------|-------------|
+| B-1 | LLMNativeBrain統合クラス実装 | なし |
+| B-2 | Feature Flag追加 | なし |
+| B-3 | main.pyにフラグ分岐追加 | 最小限 |
+
+#### Phase C: テスト
+
+| ステップ | 内容 |
+|---------|------|
+| C-1 | 単体テスト |
+| C-2 | 統合テスト |
+| C-3 | シャドーモード（ログのみ） |
+| C-4 | 本番10%ロールアウト |
+| C-5 | 本番50%ロールアウト |
+| C-6 | 本番100%ロールアウト |
+
+#### Phase D: 旧コード削除
+
+| ステップ | 内容 |
+|---------|------|
+| D-1 | 旧BrainのFeature Flag削除 |
+| D-2 | 旧コード削除 |
+
+### 11.3 Feature Flag
+
+```python
+# 環境変数
+USE_LLM_NATIVE_BRAIN = os.getenv("USE_LLM_NATIVE_BRAIN", "false").lower() == "true"
+
+# main.py
+if USE_LLM_NATIVE_BRAIN:
+    brain = LLMNativeBrain(...)
+    result = await brain.process(message, context)
+else:
+    brain = SoulkunBrain(...)  # 既存
+    result = await brain.process_message(message, context)
+```
+
+---
+
+## 12. テスト戦略
+
+### 12.1 単体テスト
+
+| 対象 | テスト内容 | テスト数（目標） |
+|------|----------|-----------------|
+| ContextBuilder | コンテキスト構築 | 20 |
+| LLMBrain | 意図理解、Tool選択 | 50 |
+| GuardianLayer | 各チェックパターン | 30 |
+| AuthorizationGate | 権限チェック | 20 |
+| ObservabilityLayer | 記録、Self-Critique | 15 |
+| ToolExecutor | Tool実行 | 20 |
+| **合計** | | **155** |
+
+### 12.2 統合テスト
+
+| シナリオ | 内容 |
+|---------|------|
+| 正常フロー | メッセージ → Tool実行 → 応答 |
+| 確認モード | 確信度低 → 確認 → 実行 |
+| 権限拒否 | 権限なし → 拒否 |
+| 危険操作 | 危険操作 → 確認 |
+| 雑談 | Tool不要 → 直接応答 |
+
+### 12.3 シャドーモード
+
+```python
+# シャドーモード：LLM常駐型を実行するが、結果は既存Brainの結果を使う
+if SHADOW_MODE:
+    # 新Brain実行（結果はログのみ）
+    new_result = await llm_native_brain.process(message, context)
+    logger.info(f"[SHADOW] New brain result: {new_result}")
+
+    # 既存Brainの結果を実際に使う
+    old_result = await old_brain.process_message(message, context)
+    return old_result
+```
+
+---
+
+## 13. コスト管理
+
+### 13.1 コスト構成
+
+| 項目 | 月額見込み（5,000回会話） |
+|------|-------------------------|
+| Claude Opus 4.5 API | 約29,500円 |
+| Cloud Run | 約7,500円 |
+| Supabase | 約5,500円 |
+| Pinecone | 約1,500円 |
+| その他 | 約500円 |
+| **合計** | **約44,500円** |
+
+### 13.2 コスト最適化
+
+#### 13.2.1 Prompt Caching
+
+```python
+# Anthropic Prompt Cachingを使用
+# System Promptと機能カタログはキャッシュ可能
+
+# キャッシュ書き込み（初回のみ）: $6.25/1M tokens
+# キャッシュ読み込み（2回目以降）: $0.50/1M tokens
+# → 約90%のコスト削減
+```
+
+#### 13.2.2 高速パス（将来の最適化）
+
+```python
+# 単純な挨拶・雑談はLLMを呼ばずに応答
+SIMPLE_PATTERNS = {
+    "おはよう": "おはようウル！🐺",
+    "ありがとう": "どういたしましてウル！🐺",
+    ...
+}
+
+if message in SIMPLE_PATTERNS:
+    return SIMPLE_PATTERNS[message]  # LLM呼び出しなし
+```
+
+### 13.3 コスト監視
+
+```python
+# 日次でコストを集計・アラート
+async def check_daily_cost():
+    total = await get_daily_llm_cost()
+    if total > DAILY_LIMIT:
+        await notify_admin(f"LLMコストが上限を超えました: {total}円")
+```
+
+---
+
+## 14. 監視・運用
+
+### 14.1 監視項目
+
+| 項目 | 閾値 | アラート |
+|------|------|---------|
+| LLM応答時間 | > 10秒 | 警告 |
+| Tool実行エラー率 | > 5% | 警告 |
+| 確認モード発生率 | > 30% | 情報 |
+| ブロック発生率 | > 10% | 警告 |
+| 日次コスト | > 5,000円 | 警告 |
+
+### 14.2 ダッシュボード
+
+```
+【ソウルくん脳モニター】
+
+今日の統計:
+- 総会話数: 150
+- 平均応答時間: 2.3秒
+- 確信度平均: 0.85
+- 確認モード: 12回 (8%)
+- ブロック: 2回 (1.3%)
+
+コスト:
+- 本日: 1,234円
+- 今月累計: 28,456円
+- 予測: 42,000円
+```
+
+### 14.3 インシデント対応
+
+| レベル | 条件 | 対応 |
+|--------|------|------|
+| P1（緊急） | 全ユーザーに影響 | 即時ロールバック |
+| P2（重大） | 一部機能停止 | 1時間以内に対応 |
+| P3（警告） | パフォーマンス低下 | 24時間以内に対応 |
+| P4（情報） | 軽微な問題 | 次回リリースで対応 |
+
+---
+
+## 15. 実装チェックリスト
+
+### Phase A: 新クラスの実装
+
+- [ ] lib/brain/context_builder.py
+- [ ] lib/brain/llm_brain.py
+- [ ] lib/brain/guardian_layer.py
+- [ ] lib/brain/authorization_gate.py（既存を拡張）
+- [ ] lib/brain/observability_layer.py
+- [ ] lib/brain/tool_executor.py
+- [ ] lib/brain/tool_definitions.py
+- [ ] lib/brain/llm_native_brain.py（統合クラス）
+
+### Phase B: テスト
+
+- [ ] tests/brain/test_context_builder.py
+- [ ] tests/brain/test_llm_brain.py
+- [ ] tests/brain/test_guardian_layer.py
+- [ ] tests/brain/test_tool_executor.py
+- [ ] tests/brain/test_observability_layer.py
+- [ ] tests/brain/test_llm_native_brain.py（統合テスト）
+
+### Phase C: DB
+
+- [ ] brain_observability_logs テーブル作成
+- [ ] マイグレーションスクリプト
+
+### Phase D: 本番
+
+- [ ] Feature Flag追加（USE_LLM_NATIVE_BRAIN）
+- [ ] main.py分岐追加
+- [ ] シャドーモード実行
+- [ ] 10%ロールアウト
+- [ ] 50%ロールアウト
+- [ ] 100%ロールアウト
+
+### Phase E: 完了
+
+- [ ] 旧コード削除
+- [ ] ドキュメント更新
+- [ ] PROGRESS.md更新
+
+---
+
+## 16. 付録
+
+### 16.1 用語集
+
+| 用語 | 説明 |
+|------|------|
+| LLM常駐型 | LLMを脳の中核に常駐させる設計 |
+| Function Calling | LLMが関数（Tool）を選択する機能 |
+| Chain-of-Thought | LLMの思考過程を出力させる手法 |
+| Self-Critique | LLMに自己批判させる手法 |
+| Context Builder | LLMに渡す文脈情報を構築する層 |
+| Guardian Layer | LLMの判断をチェックする層 |
+| Authorization Gate | 権限チェックを行う層（LLMと独立） |
+| Observability Layer | 全判断を記録する層 |
+
+### 16.2 参考資料
+
+- Anthropic Claude API Documentation
+- Anthropic Function Calling Guide
+- docs/13_brain_architecture.md（旧設計書）
+- CLAUDE.md（設計OS）
+
+### 16.3 変更履歴
+
+| バージョン | 日付 | 変更内容 |
+|-----------|------|---------|
+| v1.0.0 | 2026-01-30 | 初版作成 |
+
+---
+
+**作成者:** Claude Code（経営参謀・SE・PM）
+**承認者:** カズさん（代表）
+**作成日:** 2026-01-30

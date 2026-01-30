@@ -394,6 +394,10 @@ class BrainStateManager:
 
         例: goal_settingの why → what
 
+        v10.48.1: 同期プール対応（Cloud Functions互換性）
+        - async with → with に変更
+        - await conn.execute → conn.execute に変更
+
         Args:
             room_id: ChatWorkルームID
             user_id: ユーザーのアカウントID
@@ -405,9 +409,10 @@ class BrainStateManager:
         """
         try:
             now = datetime.utcnow()
+            import json
 
-            async with self.pool.connect() as conn:
-                async with conn.begin():
+            with self.pool.connect() as conn:
+                with conn.begin():
                     # 既存状態を取得
                     select_query = text("""
                         SELECT id, state_type, state_step, state_data,
@@ -419,7 +424,7 @@ class BrainStateManager:
                           AND user_id = :user_id
                         FOR UPDATE
                     """)
-                    result = await conn.execute(select_query, {
+                    result = conn.execute(select_query, {
                         "org_id": self.org_id,
                         "room_id": room_id,
                         "user_id": user_id,
@@ -433,8 +438,8 @@ class BrainStateManager:
                             user_id=user_id,
                         )
 
-                    # 履歴に記録
-                    await self._record_history(
+                    # 履歴に記録（同期版）
+                    self._record_history_sync(
                         conn=conn,
                         room_id=room_id,
                         user_id=user_id,
@@ -455,7 +460,6 @@ class BrainStateManager:
                     new_expires = now + timedelta(minutes=row.timeout_minutes)
 
                     # 更新
-                    import json
                     update_query = text("""
                         UPDATE brain_conversation_states
                         SET state_step = :new_step,
@@ -466,7 +470,7 @@ class BrainStateManager:
                           AND room_id = :room_id
                           AND user_id = :user_id
                     """)
-                    await conn.execute(update_query, {
+                    conn.execute(update_query, {
                         "org_id": self.org_id,
                         "room_id": room_id,
                         "user_id": user_id,
@@ -517,14 +521,16 @@ class BrainStateManager:
         """
         期限切れの状態をクリーンアップ
 
+        v10.48.1: 同期プール対応（Cloud Functions互換性）
+
         Returns:
             int: クリーンアップした状態の数
         """
         try:
-            async with self.pool.connect() as conn:
-                async with conn.begin():
+            with self.pool.connect() as conn:
+                with conn.begin():
                     # DB関数を呼び出し
-                    result = await conn.execute(
+                    result = conn.execute(
                         text("SELECT cleanup_expired_brain_states()")
                     )
                     row = result.fetchone()
@@ -580,6 +586,58 @@ class BrainStateManager:
             )
         """)
         await conn.execute(history_query, {
+            "org_id": self.org_id,
+            "room_id": room_id,
+            "user_id": user_id,
+            "from_type": from_type,
+            "from_step": from_step,
+            "to_type": to_type,
+            "to_step": to_state_step,
+            "reason": reason,
+            "state_id": state_id,
+        })
+
+    def _record_history_sync(
+        self,
+        conn,
+        room_id: str,
+        user_id: str,
+        from_state: Optional[ConversationState] = None,
+        from_state_type: Optional[str] = None,
+        from_state_step: Optional[str] = None,
+        to_state_type: Optional[StateType] = None,
+        to_state_step: Optional[str] = None,
+        reason: str = "user_action",
+        state_id: Optional[str] = None,
+    ) -> None:
+        """
+        状態遷移履歴を記録（同期版）
+
+        v10.48.1: Cloud Functions互換性のために追加
+        """
+        if from_state:
+            from_type = from_state.state_type.value
+            from_step = from_state.state_step
+        else:
+            from_type = from_state_type
+            from_step = from_state_step
+
+        to_type = to_state_type.value if isinstance(to_state_type, StateType) else to_state_type
+
+        history_query = text("""
+            INSERT INTO brain_state_history (
+                organization_id, room_id, user_id,
+                from_state_type, from_state_step,
+                to_state_type, to_state_step,
+                transition_reason, state_id
+            ) VALUES (
+                :org_id, :room_id, :user_id,
+                :from_type, :from_step,
+                :to_type, :to_step,
+                :reason, :state_id
+            )
+        """)
+        conn.execute(history_query, {
             "org_id": self.org_id,
             "room_id": room_id,
             "user_id": user_id,

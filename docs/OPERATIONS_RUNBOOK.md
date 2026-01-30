@@ -13,7 +13,7 @@
 | **書くこと** | 緊急停止手順、障害対応フロー、権限事故対応、復旧手順 |
 | **書かないこと** | 設計原則（→CLAUDE.md）、詳細実装（→04章）、コード規約（→09章）、脳アーキテクチャ（→25章） |
 | **SoT（この文書が正）** | 緊急停止手順、権限事故対応、監査ログ閲覧手順 |
-| **Owner** | カズさん（代表） |
+| **Owner** | SRE / インフラ担当（連絡先: #infra チャンネル） |
 | **関連リンク** | [CLAUDE.md](../CLAUDE.md)、[security_and_bcp_guide](security_and_bcp_guide.md)、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
 
 ---

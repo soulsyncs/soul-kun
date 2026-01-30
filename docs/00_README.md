@@ -14,7 +14,7 @@
 | **書くこと** | 3層構造の説明、ファイル一覧、クイックリファレンス |
 | **書かないこと** | 設計内容の詳細（→各設計書）、実装コード（→09章）、脳の詳細設計（→25章）、運用手順（→OPERATIONS_RUNBOOK） |
 | **SoT（この文書が正）** | 設計書の分類と配置、「どこを見るべきか」のガイド |
-| **Owner** | カズさん（代表） |
+| **Owner** | Tech Lead（連絡先: #dev チャンネル） |
 | **関連リンク** | [CLAUDE.md](../CLAUDE.md)、[25章](25_llm_native_brain_architecture.md)、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
 
 ---
@@ -169,6 +169,31 @@
 
 > **注意:** アーカイブ内のファイルは `ZZ_DEPRECATED_` プレフィックスが付いています。
 > これはファイル一覧でアーカイブが最下部にソートされ、誤参照を防ぐためです。
+
+### 検索時のarchive除外方法
+
+アーカイブを誤って参照しないよう、検索時は以下のコマンドを使用してください。
+
+**ローカル検索（ripgrep推奨）:**
+```bash
+# docsを検索（archiveを除外）
+rg "検索ワード" docs/ --glob '!docs/archive/**'
+
+# 例：「権限」を検索
+rg "権限" docs/ --glob '!docs/archive/**'
+```
+
+**GitHub検索:**
+```
+# リポジトリ内検索時、archiveを除外
+検索ワード path:docs -path:docs/archive
+```
+
+**VS Code検索:**
+```
+# 「ファイルを除外」に以下を設定
+**/docs/archive/**
+```
 
 ### archive/legacy/（統合された旧設計書）
 

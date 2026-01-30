@@ -6,6 +6,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | 設計書体系のナビゲーション・目次・クイックリファレンス |
+| **書くこと** | 3層構造の説明、ファイル一覧、クイックリファレンス |
+| **書かないこと** | 設計内容の詳細（→各設計書）、実装コード |
+| **SoT（この文書が正）** | 設計書の分類と配置、「どこを見るべきか」のガイド |
+| **Owner** | カズさん（代表） |
+| **関連リンク** | [CLAUDE.md](../CLAUDE.md)、[25章](25_llm_native_brain_architecture.md)、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
+
+---
+
 ## 設計書の読み方
 
 ### 3層構造
@@ -78,6 +91,8 @@
 | 09_implementation_standards.md | 実装規約・コーディング規約 | コード実装時 |
 | security_and_bcp_guide.md | セキュリティ・BCP説明資料 | 営業・説明時 |
 | ENVIRONMENT_VARIABLES.md | 環境変数リファレンス | デプロイ時 |
+| **OPERATIONS_RUNBOOK.md** | 運用Runbook（障害対応・緊急手順） | 本番運用時 |
+| **DESIGN_COVERAGE_MATRIX.md** | 設計要素カバレッジ表（MECE保証） | 設計変更時 |
 
 ---
 

@@ -1,3 +1,16 @@
+> ⚠️ **DEPRECATED - 参照禁止**
+>
+> このファイルは **`docs/25_llm_native_brain_architecture.md`** に統合されました。
+>
+> | 統合先 | 25章 第6章「Execution Layer」 |
+> |--------|----------------------------|
+> | 理由 | 実行力強化設計の統合 |
+> | 日付 | 2026-01-30 |
+>
+> **👉 参照すべきファイル:** [25章 LLM常駐型脳アーキテクチャ](../25_llm_native_brain_architecture.md)
+
+---
+
 # 第21章：Phase 2L - 実行力強化（Execution Excellence）
 
 ## 21.1 概要

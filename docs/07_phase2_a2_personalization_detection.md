@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 2進化版 A2属人化検出機能の詳細設計書 |
+| **書くこと** | 属人化リスク検出のアルゴリズム、personalization_risks/response_logsテーブル設計、PersonalizationDetector実装設計、リスクレベル判定ロジック |
+| **書かないこと** | A1パターン検出（→06_phase2_a1_pattern_detection.md）、soulkun_insightsテーブルの詳細（→06_phase2_a1_pattern_detection.md）、BaseDetector（→同上） |
+| **SoT（この文書が正）** | A2属人化検出のパラメータ（PERSONALIZATION_THRESHOLD等）、personalization_risksテーブル設計、属人化リスクレベル判定条件（critical/high/medium/low） |
+| **Owner** | Tech Lead |
+| **更新トリガー** | 検出パラメータの変更、DBスキーマの変更、リスクレベル判定条件の変更 |
+
+---
+
 ## 1. エグゼクティブサマリー
 
 ### 1.1 この設計書の目的

@@ -9,7 +9,8 @@
 | **この文書の役割** | 実装規約・コーディング基準・テスト戦略の詳細仕様 |
 | **書くこと** | コーディング規約、APIバージョニング、エラーハンドリング、テスト戦略 |
 | **書かないこと** | 原則・概念（→CLAUDE.md）、API仕様（→04章）、DB設計（→03章） |
-| **SoT（この文書が正）** | コーディング規約、テスト戦略（単体/統合/E2E/セキュリティ/パフォーマンス） |
+| **SoT（この文書が正）** | コーディング規約、APIバージョニング実装、テスト戦略（単体/統合/E2E/セキュリティ/パフォーマンス/プロンプト回帰） |
+| **SoT（参照のみ）** | 10の鉄則（→CLAUDE.md）、API仕様（→04章）、DB設計（→03章） |
 | **Owner** | カズさん（代表） |
 | **関連リンク** | [CLAUDE.md](../CLAUDE.md)（原則）、[04章](04_api_and_security.md)（API設計）、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
 
@@ -995,6 +996,111 @@ jobs:
 □ テストケースのNGパターンは適切か？
 □ テストケースの意図キーワードは現実的か？
 ```
+
+---
+
+## 11.8 コスト上限テスト【v10.1.6新設】
+
+### 目的
+
+LLM API呼び出しはコストがかかるため、想定を超えた利用による予算超過を防止する。
+25章 1.4節のコスト見積もりに基づき、上限を設定・検証する。
+
+### コスト見積もり（25章 1.4節より）
+
+| 項目 | 値 | 根拠 |
+|------|-----|------|
+| 日間リクエスト数（想定） | 400回 | 社員40名 × 日10回 |
+| 1リクエストあたりコスト | 約$0.015 | Claude 3.5 Sonnet、平均2000トークン |
+| 日間コスト（想定） | $6.00 | 400 × $0.015 |
+| 月間コスト（想定） | $150 | $6 × 25営業日 |
+| 日間上限（設定値） | **$10.00** | 想定の1.67倍（余裕） |
+| 月間上限（設定値） | **$200** | 想定の1.33倍（余裕） |
+
+### テスト項目
+
+| # | テストケース | 検証内容 | 期待結果 |
+|---|------------|---------|---------|
+| 1 | 日間上限到達 | DAILY_COST_LIMIT_USDを超過した場合 | 新規リクエストを拒否 |
+| 2 | 月間上限到達 | MONTHLY_COST_LIMIT_USDを超過した場合 | 新規リクエストを拒否 |
+| 3 | 80%アラート | 日間上限の80%に到達した場合 | Slackアラート送信 |
+| 4 | コストカウンター | リクエストごとにコストを計上 | 正確な積算 |
+| 5 | 日次リセット | UTC 0時でカウンターリセット | 翌日は0から再開 |
+
+### 環境変数設定
+
+```bash
+# .env.example に追加必須
+DAILY_COST_LIMIT_USD=10.0      # 日間上限（ドル）
+MONTHLY_COST_LIMIT_USD=200.0   # 月間上限（ドル）
+COST_ALERT_THRESHOLD=0.8       # アラート閾値（80%）
+COST_TRACKING_ENABLED=true     # コスト追跡有効化
+```
+
+### テスト実装例
+
+```python
+import pytest
+from unittest.mock import patch
+from cost_tracker import CostTracker
+
+@pytest.fixture
+def cost_tracker():
+    return CostTracker(
+        daily_limit=10.0,
+        monthly_limit=200.0,
+        alert_threshold=0.8
+    )
+
+def test_daily_limit_reached(cost_tracker):
+    """日間上限到達時にリクエストを拒否する"""
+    # 上限ギリギリまで使用
+    cost_tracker.record_cost(9.99)
+
+    # まだリクエスト可能
+    assert cost_tracker.can_make_request(estimated_cost=0.01) == True
+
+    # 上限超過
+    cost_tracker.record_cost(0.01)
+    assert cost_tracker.can_make_request(estimated_cost=0.01) == False
+    assert cost_tracker.get_rejection_reason() == "DAILY_LIMIT_REACHED"
+
+def test_alert_at_80_percent(cost_tracker):
+    """80%到達時にアラートを送信する"""
+    with patch('cost_tracker.send_slack_alert') as mock_alert:
+        # 79%まで使用（アラートなし）
+        cost_tracker.record_cost(7.9)
+        mock_alert.assert_not_called()
+
+        # 80%到達（アラート送信）
+        cost_tracker.record_cost(0.1)
+        mock_alert.assert_called_once()
+        assert "80%" in mock_alert.call_args[0][0]
+
+def test_monthly_limit_independent(cost_tracker):
+    """月間上限は日間上限と独立して機能する"""
+    # 日間上限リセット後も月間上限は累積
+    for day in range(20):
+        cost_tracker.record_cost(9.0)  # 日間$9（上限$10内）
+        cost_tracker.reset_daily()
+
+    # 月間$180（上限$200内）→ まだOK
+    assert cost_tracker.can_make_request(estimated_cost=1.0) == True
+
+    # 月間$200到達
+    cost_tracker.record_cost(20.0)
+    assert cost_tracker.can_make_request(estimated_cost=1.0) == False
+    assert cost_tracker.get_rejection_reason() == "MONTHLY_LIMIT_REACHED"
+```
+
+### CI/CD統合
+
+コスト上限の設定が存在することを `.github/workflows/test-coverage.yml` で検証。
+詳細は同ファイルの `cost-limit` ジョブを参照。
+
+### 本番運用との連携
+
+コスト上限に達した場合の運用対応は `OPERATIONS_RUNBOOK.md セクション5` を参照。
 
 ---
 

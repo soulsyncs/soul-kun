@@ -546,6 +546,271 @@ with TenantContext(organization_id):
 
 ---
 
+## 12. 外部サービス障害対応【2026-01-30追加】
+
+### 12.1 Google Drive API障害
+
+**検知方法:**
+- Cloud Monitoringアラート「Google Drive sync error rate > 10%」
+- ユーザー報告「ドキュメントが同期されない」
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | Google Workspaceステータス確認 | https://www.google.com/appsstatus/dashboard/ |
+| 2 | API割り当て確認 | GCPコンソール → API → Google Drive API → 割り当て |
+| 3 | 同期キュー滞留確認 | `SELECT COUNT(*) FROM document_sync_queue WHERE status = 'pending'` |
+| 4 | 影響範囲特定 | 滞留開始時刻〜現在の同期対象ドキュメント数 |
+| 5-A | Google障害の場合 | フォールバックモード有効化（下記参照） |
+| 5-B | 割り当て超過の場合 | 割り当て引き上げ申請 or 同期間隔を延長 |
+| 6 | 復旧確認 | 同期キューが正常に消化されることを確認 |
+
+**フォールバックモード:**
+```bash
+# 同期を一時停止し、ユーザーへの通知を設定
+gcloud functions deploy sync-google-drive \
+  --update-env-vars SYNC_ENABLED=false,FALLBACK_MESSAGE="Google Driveとの同期を一時停止中です"
+```
+
+**復旧後の確認:**
+- [ ] 滞留していたドキュメントが同期された
+- [ ] 新規アップロードが正常に処理される
+- [ ] ベクトル検索に新規ドキュメントが反映される
+
+---
+
+### 12.2 Pinecone障害
+
+**検知方法:**
+- Cloud Monitoringアラート「Pinecone query latency > 5s」
+- ユーザー報告「ナレッジ検索が遅い/動かない」
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | Pineconeステータス確認 | https://status.pinecone.io/ |
+| 2 | インデックス状態確認 | Pineconeコンソール → Index → Status |
+| 3 | 接続テスト | `curl -X GET "https://{index}-{project}.svc.{environment}.pinecone.io/describe_index_stats"` |
+| 4-A | Pinecone障害の場合 | フォールバックモード有効化 |
+| 4-B | インデックス問題の場合 | インデックス再構築検討 |
+| 5 | 復旧確認 | ナレッジ検索の応答時間が正常に戻る |
+
+**フォールバックモード（ナレッジ検索なしで応答）:**
+```python
+# 環境変数で制御
+PINECONE_FALLBACK_ENABLED=true
+PINECONE_FALLBACK_MESSAGE="現在ナレッジ検索が一時的に利用できません。基本的な応答のみ可能です。"
+```
+
+**ユーザーへの通知:**
+- 「ナレッジベースが一時的に利用できないため、一般的な回答のみ可能です」と説明
+
+---
+
+### 12.3 DNS障害
+
+**検知方法:**
+- Cloud Monitoringアラート「DNS resolution failures」
+- 全サービスが突然応答しなくなる
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | DNS解決テスト | `dig api.soulsyncs.jp` |
+| 2 | Cloud DNSステータス確認 | GCPコンソール → Network Services → Cloud DNS |
+| 3 | 代替DNS確認 | `dig @8.8.8.8 api.soulsyncs.jp` |
+| 4-A | Cloud DNS障害の場合 | 代替DNSの設定を検討 |
+| 4-B | ドメイン問題の場合 | ドメインレジストラ確認 |
+| 5 | 復旧確認 | 全サービスへのアクセス確認 |
+
+**緊急時の直接IP接続（非推奨・最終手段）:**
+```bash
+# Cloud RunのURLを直接使用
+curl https://chatwork-webhook-xxxxx-an.a.run.app/health
+```
+
+---
+
+## 13. インフラ障害対応【2026-01-30追加】
+
+### 13.1 メモリリーク対応
+
+**検知方法:**
+- Cloud Monitoringアラート「Container memory usage > 80%」
+- Cloud Runインスタンスの頻繁な再起動
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | メモリ使用量確認 | GCPコンソール → Cloud Run → メトリクス → Memory utilization |
+| 2 | 異常インスタンス特定 | ログでOOMKillerのパターンを検索 |
+| 3 | 一時対処（再起動） | 新リビジョンのデプロイまたはトラフィック切り替え |
+| 4 | 根本原因調査 | ログ分析、プロファイリング |
+| 5 | 修正デプロイ | 修正版をデプロイ |
+
+**メモリ監視閾値:**
+| 閾値 | アクション |
+|------|-----------|
+| 70% | 警告アラート |
+| 80% | 重大アラート、調査開始 |
+| 90% | 緊急対応、再起動検討 |
+
+**一時的なメモリ増加:**
+```bash
+gcloud run services update chatwork-webhook \
+  --memory 2Gi  # 1Gi → 2Gi
+```
+
+---
+
+### 13.2 ディスク容量不足
+
+**検知方法:**
+- Cloud Monitoringアラート「Cloud SQL disk usage > 80%」
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | 使用量確認 | GCPコンソール → Cloud SQL → 概要 |
+| 2 | 大きなテーブル特定 | `SELECT relname, pg_size_pretty(pg_total_relation_size(relid)) FROM pg_catalog.pg_statio_user_tables ORDER BY pg_total_relation_size(relid) DESC LIMIT 10;` |
+| 3-A | 古いデータ削除可能 | cleanup-old-data Cloud Functionを手動実行 |
+| 3-B | 削除不可 | ストレージ自動拡張を確認/有効化 |
+| 4 | 復旧確認 | 使用率が80%未満に低下 |
+
+**ストレージ自動拡張確認:**
+```bash
+gcloud sql instances describe soulkun-db --format="value(settings.storageAutoResize)"
+# true であれば自動拡張有効
+```
+
+---
+
+## 14. DBマイグレーション障害対応【2026-01-30追加】
+
+### 14.1 マイグレーション失敗時の対応
+
+**検知方法:**
+- デプロイパイプラインでマイグレーションステップが失敗
+- アプリケーション起動時のDB接続エラー
+
+**対応手順:**
+
+| ステップ | アクション | コマンド/手順 |
+|---------|-----------|--------------|
+| 1 | エラー内容確認 | マイグレーションログを確認 |
+| 2 | 現在のスキーマ状態確認 | `SELECT * FROM schema_migrations ORDER BY version DESC LIMIT 5;` |
+| 3 | 影響範囲特定 | 失敗したマイグレーションの変更内容を確認 |
+| 4-A | ロールバック可能 | ロールバックマイグレーション実行 |
+| 4-B | ロールバック不可 | 手動修正（下記参照） |
+| 5 | 復旧確認 | アプリケーションが正常に起動 |
+
+**ロールバック手順:**
+```bash
+# Alembicの場合
+alembic downgrade -1
+
+# 手動ロールバック（最終手段）
+psql -h $DB_HOST -U $DB_USER -d $DB_NAME -f rollback_migration_xxx.sql
+```
+
+**マイグレーション前チェックリスト:**
+- [ ] テスト環境で実行済み
+- [ ] ロールバックスクリプトを準備
+- [ ] バックアップを取得
+- [ ] メンテナンス時間帯を確保（破壊的変更の場合）
+
+---
+
+### 14.2 マイグレーション実行のベストプラクティス
+
+**本番マイグレーション手順:**
+1. **事前準備**
+   - バックアップ取得（自動バックアップ + オンデマンド）
+   - ロールバックスクリプト準備
+   - テスト環境での検証完了
+
+2. **実行**
+   - 低トラフィック時間帯（深夜または早朝）
+   - マイグレーション実行
+   - アプリケーション再起動
+
+3. **確認**
+   - 主要機能の動作確認
+   - エラーログ監視（15分間）
+   - パフォーマンス影響確認
+
+---
+
+## 15. DDoS攻撃対応【2026-01-30追加】
+
+### 15.1 検知と初動
+
+**検知方法:**
+- Cloud Monitoringアラート「Request rate > 10x normal」
+- Cloud Armorログで異常パターン検出
+- ユーザー報告「サービスが遅い/使えない」
+
+**対応手順:**
+
+| ステップ | アクション | 時間目標 |
+|---------|-----------|---------|
+| 1 | 攻撃パターン特定 | 5分 |
+| 2 | Cloud Armor緊急ルール適用 | 10分 |
+| 3 | 影響サービスの確認 | 15分 |
+| 4 | 必要に応じてGCPサポートへ連絡 | 20分 |
+| 5 | 継続的な監視 | 復旧まで |
+
+### 15.2 Cloud Armorルール設定
+
+**事前設定（推奨）:**
+```bash
+# レート制限ルールの作成
+gcloud compute security-policies rules create 1000 \
+  --security-policy=soulkun-policy \
+  --expression="true" \
+  --action=rate-based-ban \
+  --rate-limit-threshold-count=100 \
+  --rate-limit-threshold-interval-sec=60 \
+  --ban-duration-sec=600
+```
+
+**緊急時のIPブロック:**
+```bash
+# 特定IPからのアクセスをブロック
+gcloud compute security-policies rules create 100 \
+  --security-policy=soulkun-policy \
+  --src-ip-ranges="1.2.3.4/32" \
+  --action=deny-403
+```
+
+**緊急時の地域ブロック（最終手段）:**
+```bash
+# 特定地域からのアクセスをブロック
+gcloud compute security-policies rules create 200 \
+  --security-policy=soulkun-policy \
+  --expression="origin.region_code == 'XX'" \
+  --action=deny-403
+```
+
+### 15.3 復旧と事後対応
+
+**復旧確認:**
+- [ ] リクエストレートが正常に戻った
+- [ ] 正規ユーザーがアクセスできる
+- [ ] エラー率が正常範囲
+
+**事後対応:**
+- [ ] 攻撃パターンの分析
+- [ ] 恒久的なCloud Armorルール追加
+- [ ] インシデントレポート作成
+
+---
+
 ## 更新履歴
 
 | 日付 | 変更内容 |
@@ -554,6 +819,10 @@ with TenantContext(organization_id):
 | 2026-01-30 | セクション9追加（Alarm→Runbook対応表） |
 | 2026-01-30 | セクション10追加（監視KPI） |
 | 2026-01-30 | セクション11追加（organization_id管理） |
+| 2026-01-30 | セクション12追加（外部サービス障害対応: Google Drive, Pinecone, DNS） |
+| 2026-01-30 | セクション13追加（インフラ障害対応: メモリリーク, ディスク容量） |
+| 2026-01-30 | セクション14追加（DBマイグレーション障害対応） |
+| 2026-01-30 | セクション15追加（DDoS攻撃対応） |
 
 ---
 

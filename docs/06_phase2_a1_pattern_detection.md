@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 2進化版 A1パターン検出機能の詳細設計書 |
+| **書くこと** | 頻出質問検出のアルゴリズム、question_patterns/soulkun_insights/soulkun_weekly_reportsテーブル設計、BaseDetector/PatternDetector実装設計、週次レポート設計、Cloud Functions設計 |
+| **書かないこと** | A2属人化検出（→07_phase2_a2_personalization_detection.md）、A3ボトルネック検出（→08_phase2_a3_bottleneck_detection.md）、A4感情変化検出（→09_phase2_a4_emotion_detection.md） |
+| **SoT（この文書が正）** | A1パターン検出のパラメータ（PATTERN_THRESHOLD等）、question_patternsテーブル設計、soulkun_insightsテーブル設計（統合テーブルとして全A1-A4で共用）、BaseDetector抽象クラス設計、週次レポートテンプレート |
+| **Owner** | Tech Lead |
+| **更新トリガー** | 検出パラメータの変更、DBスキーマの変更、検出アルゴリズムの変更 |
+
+---
+
 ## 1. エグゼクティブサマリー
 
 ### 1.1 この設計書の目的

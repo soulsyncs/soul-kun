@@ -9,6 +9,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 3ナレッジ検索機能（ソウルくんの脳みそ）の詳細設計書 |
+| **書くこと** | MVP完了定義、documents/document_versions/document_chunks/knowledge_feedback/knowledge_search_logsテーブル設計、Pinecone統合設計、検索・フィードバックAPI設計、RAG検索フロー、Phase 3.5連携設計 |
+| **書かないこと** | Googleドライブ連携の詳細（→06_phase3_google_drive_integration.md）、試験運用手順（→PHASE3_TRIAL_OPERATION_GUIDE.md） |
+| **SoT（この文書が正）** | Phase 3 MVP完了定義（9項目）、documents/document_chunks等のDBスキーマ、Pineconeインデックス・メタデータ設計、ナレッジ検索API仕様、機密区分（classification）とカテゴリ（category）の定義 |
+| **Owner** | Tech Lead |
+| **更新トリガー** | MVP要件の変更、DBスキーマの変更、Pinecone設計の変更、API仕様の変更 |
+
+---
+
 ## 目次
 
 1. [概要と目的](#1-概要と目的)

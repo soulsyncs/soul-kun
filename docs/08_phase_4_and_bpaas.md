@@ -1,5 +1,20 @@
 # 第7章：Phase 4スケーラビリティ検証【v10.1.4新設】
 
+---
+
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 4（BPaaS・マルチテナント）の設計書 |
+| **書くこと** | Phase 4A/4Bの概要、テナント分離戦略、前提条件 |
+| **書かないこと** | RLS実装詳細（→RLS_POLICY_DESIGN.md）、セキュリティ詳細（→SECURITY_AUDIT_ORGANIZATION_ID.md） |
+| **SoT（この文書が正）** | Phase 4のスコープ、Phase 4A/4Bの区分定義 |
+| **Owner** | Tech Lead |
+| **更新トリガー** | Phase 4の計画変更時 |
+
+---
+
 ## 7.1 Phase 4の概要
 
 ### ■ Phase 4の戦略的意義

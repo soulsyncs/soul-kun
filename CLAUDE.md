@@ -4,6 +4,36 @@
 
 ---
 
+## 🚀 現在のステータス（2026-01-31 07:21更新）
+
+| 項目 | 状態 |
+|------|------|
+| **設計書** | ✅ 100%完成（v1.5.0） |
+| **LLM Brain実装** | ✅ 完了（6ファイル、167テストパス） |
+| **E2Eテスト** | ✅ 完了（GPT-5.2動作確認済み） |
+| **次のタスク** | main.py統合 → 本番デプロイ |
+| **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
+
+### 次回やること
+
+```
+1. main.py統合（process_brain_mode()呼び出し追加）
+2. Feature Flag本番テスト（ENABLE_LLM_BRAIN=true）
+3. 本番デプロイ
+```
+
+> **続きのキーワード:** 「LLM Brain main.py統合」
+
+### モデル選定
+
+| 項目 | 内容 |
+|------|------|
+| **採用モデル** | GPT-5.2（OpenRouter経由） |
+| **選定理由** | 推論能力◎、コスパ◎（Claude Sonnet 4比40%安）、暗黙キャッシュ対応 |
+| **コスト** | 約¥9,000/月（5,000通、キャッシュあり） |
+
+---
+
 ## Document Contract（SoT宣言）
 
 | 項目 | 内容 |
@@ -89,6 +119,36 @@
 | **AccessControl** | 「見せていいか」を強制 | 6段階の権限レベルでデータアクセスを制御 |
 
 **重要：脳が「やっていい」と判断しても、AccessControlが「見せちゃダメ」ならデータは見せない。**
+
+### 2-3. v10.0での3層判断アーキテクチャ【2026-01-30追加】
+
+LLM常駐型脳（v10.0以降）では、判断が以下の3層に分離されます：
+
+| 層 | 責務 | 説明 |
+|----|------|------|
+| **LLM Brain** | 提案 | 意図理解、Tool候補の提案、パラメータ抽出 |
+| **Guardian Layer** | 決裁 | Tool実行可否の最終判断、危険操作の検出 |
+| **Authorization Gate** | 強制 | 権限判定（ルールベース）、データアクセス制御 |
+
+```
+ユーザー入力
+    ↓
+【LLM Brain】意図を理解し、Toolと引数を「提案」
+    ↓
+【Guardian Layer】提案を検証し、実行を「決裁」
+    ↓
+【Authorization Gate】権限を「強制」
+    ↓
+Tool実行
+```
+
+**詳細:** `docs/25_llm_native_brain_architecture.md` 第4章「LLM Brain憲法」
+
+> **注意:** 上記のセクション2-2「脳が判断」という表現は、この3層を包括した概念です。
+> 厳密には「脳が提案→Guardian/AuthGateが判断」という流れになります。
+
+> **実装状況:** この3層アーキテクチャは**設計完了・実装進行中**（LLM Brain層: 15%）です。
+> 詳細は `docs/DESIGN_IMPLEMENTATION_GAP_REPORT.md` を参照してください。
 
 ---
 
@@ -194,6 +254,10 @@
 | 6 | 代表/CFO | 全組織・全情報 |
 
 **根拠**: `api/app/services/access_control.py`
+
+> **v10.0以降**: 組織階層ベースの動的権限判定に移行。
+> 従来の「固定役職」ではなく、「組織図上の位置」で自動判定される。
+> 詳細: `docs/06_phase_3-5_org_hierarchy.md`
 
 ---
 
@@ -352,6 +416,8 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 ## 14. 詳細が必要な時に見るファイル
 
+### 設計書（主要）
+
 | 知りたいこと | 見るファイル |
 |-------------|-------------|
 | **脳アーキテクチャ（主軸）** | **`docs/25_llm_native_brain_architecture.md`** ← 最重要 |
@@ -364,6 +430,24 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 | 権限レベルの実装 | `api/app/services/access_control.py` |
 | 進捗状況 | `PROGRESS.md` |
 | 旧設計書（参照用） | `docs/archive/legacy/` |
+
+### 運用・トラブルシューティング
+
+| 状況 | 見るファイル | 判断基準 |
+|------|-------------|---------|
+| **本番が止まった/重大影響** | **`docs/OPERATIONS_RUNBOOK.md`** | 緊急対応が必要 |
+| **原因がわからない** | **`docs/TROUBLESHOOTING_FRAMEWORK.md`** | どの設計書を見るべきか判断したい |
+| 障害訓練を実施 | `docs/DISASTER_DRILL_PLAN.md` | |
+| セキュリティ監査 | `docs/SECURITY_AUDIT_ORGANIZATION_ID.md` | |
+
+### 設計書管理
+
+| 知りたいこと | 見るファイル |
+|-------------|-------------|
+| 設計要素のSoT一覧（MECE保証） | `docs/DESIGN_COVERAGE_MATRIX.md` |
+| 新機能追加時の設計書更新 | `docs/FEATURE_ADDITION_FRAMEWORK.md` |
+| 設計書の廃止手順 | `docs/DESIGN_DEPRECATION_POLICY.md` |
+| 設計書の鮮度管理 | `docs/DOCUMENTATION_FRESHNESS_POLICY.md` |
 
 ---
 

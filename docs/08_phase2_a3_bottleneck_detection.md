@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 2進化版 A3ボトルネック検出機能の詳細設計書 |
+| **書くこと** | ボトルネック検出のアルゴリズム（期限超過/長期未完了/担当者集中）、bottleneck_alertsテーブル設計、BottleneckDetector実装設計、Cloud Function/Scheduler設計 |
+| **書かないこと** | A1パターン検出（→06_phase2_a1_pattern_detection.md）、A2属人化検出（→07_phase2_a2_personalization_detection.md）、soulkun_insightsテーブルの詳細（→06_phase2_a1_pattern_detection.md） |
+| **SoT（この文書が正）** | A3ボトルネック検出のパラメータ（OVERDUE_CRITICAL_DAYS等）、bottleneck_alertsテーブル設計、ボトルネックタイプ定義（overdue_task/stale_task/task_concentration/no_assignee）、リスクレベル判定条件 |
+| **Owner** | Tech Lead |
+| **更新トリガー** | 検出パラメータの変更、DBスキーマの変更、ボトルネックタイプの追加・変更 |
+
+---
+
 ## 1. エグゼクティブサマリー
 
 ### 1.1 この設計書の目的

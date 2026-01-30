@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-01-30 12:20 JST**
+**最終更新: 2026-01-31 07:21 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,126 @@
 ---
 
 ## 🚨 次回やること
+
+### 🚀 LLM Brain実装 - main.py統合待ち（2026-01-31）
+
+**E2Eテスト完了 → main.py統合へ**
+
+| 項目 | 状態 |
+|------|------|
+| **設計書** | ✅ 100%完成（v1.5.0） |
+| **実装** | ✅ 完了（6ファイル） |
+| **ユニットテスト** | ✅ 167件すべてパス |
+| **E2Eテスト** | ✅ 完了（GPT-5.2で動作確認済み） |
+| **次のタスク** | main.py統合 → 本番デプロイ |
+
+**モデル選定（2026-01-31確定）:**
+
+| 項目 | 内容 |
+|------|------|
+| **採用モデル** | GPT-5.2（OpenRouter経由） |
+| **選定理由** | 推論能力◎（ARC-AGI-2: 52-54%）、コスパ◎、暗黙キャッシュ対応 |
+| **コスト比較** | Claude Sonnet 4比**40%安**（¥9,000 vs ¥15,000/5,000通・キャッシュあり） |
+| **APIキー** | GCP Secret Manager「openrouter-api-key」 |
+
+**完成した実装ファイル:**
+```
+lib/brain/
+├── tool_converter.py    # SYSTEM_CAPABILITIES→OpenAI Tool形式変換
+├── context_builder.py   # LLMに渡すコンテキスト構築
+├── llm_brain.py         # GPT-5.2 Function Calling（OpenRouter経由）
+├── guardian_layer.py    # 判断検証（ALLOW/CONFIRM/BLOCK/MODIFY）
+├── state_manager.py     # LLMセッション状態管理（既存更新）
+└── core.py              # Feature Flag統合（既存更新）
+
+tests/
+├── test_llm_brain_tool_converter.py    # 29テスト
+├── test_llm_brain_context_builder.py   # 31テスト
+├── test_llm_brain_core.py              # 51テスト
+├── test_llm_brain_guardian.py          # 29テスト
+└── test_llm_brain_state_manager.py     # 27テスト
+
+tests/e2e/
+└── test_llm_brain_e2e.py               # E2Eテスト（API実呼び出し）
+```
+
+**残りのタスク:**
+1. main.py統合（process_brain_mode()呼び出し追加）
+2. Feature Flag本番テスト（ENABLE_LLM_BRAIN=true）
+3. 本番デプロイ
+
+**続きのキーワード:** 「LLM Brain main.py統合」
+
+---
+
+### ✅ 設計書100%完成（2026-01-30達成）
+
+**25章 LLM常駐型脳アーキテクチャ設計書 v1.5.0**
+
+追加した仕様:
+- 5.1.5〜5.1.7: BrainStateManager/SessionState詳細、並行セッション競合処理
+- 5.2.3b: LLM Brain出力JSON Schema（3パターン）
+- 5.3.3b: Guardian判定優先度デシジョンツリー（7段階）
+- 6.7: エラーハンドリング詳細（6カテゴリ）
+- 6.7.6: LLMストリーミング中断処理
+- 6.7.7: DBコネクションプール枯渇処理
+- 7.1b: Tool変換仕様（SYSTEM_CAPABILITIES→Anthropic形式）
+
+**設計書リファクタリング完了:**
+- 3層構造に整理（設計OS / 基盤設計 / 機能別設計）
+- 旧脳設計書（13〜24章）→ `docs/archive/legacy/` にアーカイブ
+- CLAUDE.mdに現在のステータスセクション追加
+
+---
+
+### 📜 設計システム完成度向上（2026-01-30）
+
+**「完璧に近い設計」達成に向けた設計書フレームワーク整備** ✅
+
+カズさんの要件:
+- 本番障害時に即座にバグ解消できる設計
+- 臨機応変にリカバリできる状態
+- 不要な設計書の削除と常に最適化
+- 新機能追加・外部連携を見据えた拡張性
+
+**作成した設計書フレームワーク（7文書）:**
+
+| # | ドキュメント | 目的 |
+|---|-------------|------|
+| 1 | TROUBLESHOOTING_FRAMEWORK.md | エラー→原因→対処の導線定義 |
+| 2 | DISASTER_DRILL_PLAN.md | 障害訓練計画（6シナリオ） |
+| 3 | RLS_POLICY_DESIGN.md | Phase 4向けRow Level Securityポリシー |
+| 4 | SECURITY_AUDIT_ORGANIZATION_ID.md | organization_idフィルタ監査結果 |
+| 5 | DESIGN_DEPRECATION_POLICY.md | 設計書廃止の正式プロセス |
+| 6 | FEATURE_ADDITION_FRAMEWORK.md | 新機能追加時の設計書更新ガイド |
+| 7 | DOCUMENTATION_FRESHNESS_POLICY.md | 設計書の鮮度管理ルール |
+
+**CI/CDワークフロー追加:**
+
+| # | ワークフロー | 目的 |
+|---|-------------|------|
+| 1 | `.github/workflows/prompt-regression.yml` | プロンプト回帰テスト自動実行 |
+| 2 | `.github/workflows/doc-freshness.yml` | 設計書鮮度の月次自動チェック |
+
+**DESIGN_COVERAGE_MATRIX.md更新:**
+- セクション8「セキュリティ監査・マルチテナント」追加
+- セクション9「設計書管理・運用」追加（7文書のSoT登録）
+
+**_archivedディレクトリ作成:**
+- 廃止済み設計書の保管場所
+- README.mdで管理ルール明記
+
+**達成した効果:**
+
+| 観点 | 対応 |
+|------|------|
+| **本番障害対応** | TROUBLESHOOTING_FRAMEWORK + DISASTER_DRILL_PLANで迅速対応可能 |
+| **リカバリ能力** | 障害訓練計画で実地検証、OPERATIONS_RUNBOOKと連携 |
+| **設計最適化** | DESIGN_DEPRECATION_POLICYで廃止プロセス明確化 |
+| **拡張性** | FEATURE_ADDITION_FRAMEWORKで新機能追加パターン化 |
+| **鮮度維持** | DOCUMENTATION_FRESHNESS_POLICY + CI/CDで自動監視 |
+
+---
 
 ### 🔥 最優先タスク（2026-01-30時点）
 

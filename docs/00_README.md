@@ -94,6 +94,18 @@
 | **OPERATIONS_RUNBOOK.md** | 運用Runbook（障害対応・緊急手順） | 本番運用時 |
 | **DESIGN_COVERAGE_MATRIX.md** | 設計要素カバレッジ表（MECE保証） | 設計変更時 |
 
+### 設計書管理フレームワーク
+
+| ファイル | 役割 | 用途 |
+|---------|------|------|
+| **TROUBLESHOOTING_FRAMEWORK.md** | エラー→原因→対処の導線定義 | バグ発生時に最初に見る |
+| **FEATURE_ADDITION_FRAMEWORK.md** | 新機能追加時の設計書更新ガイド | 新機能実装時 |
+| **DESIGN_DEPRECATION_POLICY.md** | 設計書廃止の正式プロセス | 設計書整理時 |
+| **DOCUMENTATION_FRESHNESS_POLICY.md** | 設計書の鮮度管理ルール | 月次レビュー時 |
+| **DISASTER_DRILL_PLAN.md** | 障害訓練計画（6シナリオ） | 障害訓練時 |
+| **RLS_POLICY_DESIGN.md** | Row Level Securityポリシー設計 | Phase 4移行時 |
+| **SECURITY_AUDIT_ORGANIZATION_ID.md** | organization_idフィルタ監査結果 | セキュリティ確認時 |
+
 ---
 
 ## 第3層：機能別設計

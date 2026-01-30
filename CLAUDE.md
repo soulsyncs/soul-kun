@@ -29,6 +29,8 @@
 
 **ソウルくんの設計で最も重要なこと：ユーザーとのすべての接点で「脳」が介在する。**
 
+> **詳細設計**: `docs/25_llm_native_brain_architecture.md`（LLM常駐型脳アーキテクチャ設計書）
+
 ```
 【入力】                              【能動的出力】
 ユーザーの入力                        システムが自発的に送るメッセージ
@@ -338,12 +340,16 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 | 知りたいこと | 見るファイル |
 |-------------|-------------|
-| 設計の憲法（8項目の詳細） | `docs/00_Goals_and_Principles.md` |
+| **脳アーキテクチャ（主軸）** | **`docs/25_llm_native_brain_architecture.md`** ← 最重要 |
+| LLM Brain 憲法 | `docs/25_llm_native_brain_architecture.md` 第4章 |
+| System Prompt v2.0 | `docs/25_llm_native_brain_architecture.md` 付録17.4 |
+| 設計の哲学・原則 | `docs/01_philosophy_and_principles.md` |
 | DB設計・テーブル定義 | `docs/03_database_design.md` |
 | API設計・セキュリティ | `docs/04_api_and_security.md` |
-| 脳アーキテクチャ | `docs/13_brain_architecture.md` |
+| 実装規約 | `docs/09_implementation_standards.md` |
 | 権限レベルの実装 | `api/app/services/access_control.py` |
 | 進捗状況 | `PROGRESS.md` |
+| 旧設計書（参照用） | `docs/archive/legacy/` |
 
 ---
 

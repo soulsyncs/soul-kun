@@ -1114,8 +1114,20 @@ class BrainDecision:
                 print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
                 return (True, question, options)
 
-        # 確信度が低い場合
-        if confidence < CONFIRMATION_THRESHOLD:
+        # v10.48.9: リスクレベル別の確認閾値を使用（設計書準拠）
+        # confidence.pyのCONFIDENCE_THRESHOLDSと整合
+        # - HIGH: 0.85（タスク完了、削除等）
+        # - NORMAL: 0.70（通常操作）
+        # - LOW: 0.50（一般会話、情報提供）
+        risk_level = RISK_LEVELS.get(action, "normal")
+        if risk_level == "high":
+            threshold = 0.85
+        elif risk_level == "low":
+            threshold = 0.50  # 一般会話は確認不要にしやすく
+        else:
+            threshold = CONFIRMATION_THRESHOLD  # 0.70
+
+        if confidence < threshold:
             question = f"「{understanding.raw_message}」は「{self._get_capability_name(action)}」でいいウル？"
             return (True, question, options)
 

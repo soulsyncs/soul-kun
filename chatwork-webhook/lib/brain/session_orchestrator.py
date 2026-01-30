@@ -681,7 +681,12 @@ class SessionOrchestrator:
         except ValueError:
             pass
 
-        positive_keywords = ["はい", "yes", "ok", "オーケー", "いいよ", "お願い", "うん"]
+        # v10.48.9: 肯定キーワードを拡充（自然な日本語対応）
+        positive_keywords = [
+            "はい", "yes", "ok", "オーケー", "いいよ", "お願い", "うん",
+            "そうだよ", "そう", "そうです", "ええ", "うんうん", "そうそう",
+            "いい", "良い", "オッケー", "おk", "おけ", "りょうかい", "了解",
+        ]
         if any(kw in normalized for kw in positive_keywords):
             return 0
 

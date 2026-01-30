@@ -748,12 +748,16 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
         handle_save_memory = getattr(main, 'handle_save_memory')
 
         # オリジナルメッセージを取得
+        # v10.48.7: params.message をフォールバックとして使用（確認フロー対応）
         original_message = ""
         if context:
             original_message = getattr(context, 'original_message', '') or ''
             if not original_message and hasattr(context, 'to_dict'):
                 ctx_dict = context.to_dict()
                 original_message = ctx_dict.get('original_message', '')
+        # v10.48.7: paramsからのフォールバック（確認後はcontextに元メッセージがない）
+        if not original_message:
+            original_message = params.get("message", "")
 
         # v10.40.11: デバッグログ
         print(f"🔍 [save_memory DEBUG] message: {original_message[:80]}..." if len(original_message) > 80 else f"🔍 [save_memory DEBUG] message: {original_message}")
@@ -833,12 +837,15 @@ async def _brain_handle_query_memory(params, room_id, account_id, sender_name, c
         handle_query_memory = getattr(main, 'handle_query_memory')
 
         # v10.40.9: 長期記憶クエリパターンを検出
+        # v10.48.7: params.message をフォールバックとして使用（確認フロー対応）
         original_message = ""
         if context:
             original_message = getattr(context, 'original_message', '') or ''
             if not original_message and hasattr(context, 'to_dict'):
                 ctx_dict = context.to_dict()
                 original_message = ctx_dict.get('original_message', '')
+        if not original_message:
+            original_message = params.get("message", "")
 
         long_term_query_patterns = [
             r"軸を(確認|教えて|見せて)",
@@ -927,12 +934,15 @@ async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name,
         handle_list_knowledge = getattr(main, 'handle_list_knowledge')
 
         # v10.40.17: 長期記憶クエリパターンを検出
+        # v10.48.7: params.message をフォールバックとして使用（確認フロー対応）
         original_message = ""
         if context:
             original_message = getattr(context, 'original_message', '') or ''
             if not original_message and hasattr(context, 'to_dict'):
                 ctx_dict = context.to_dict()
                 original_message = ctx_dict.get('original_message', '')
+        if not original_message:
+            original_message = params.get("message", "")
 
         long_term_query_patterns = [
             r"軸を(確認|教えて|見せて)",

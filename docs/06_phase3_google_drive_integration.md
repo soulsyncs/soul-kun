@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 3ナレッジ検索のGoogleドライブ連携部分の詳細設計書（05_phase3_knowledge_detailed_design.mdの補遺） |
+| **書くこと** | Googleドライブ連携アーキテクチャ、フォルダ構造設計、監視ジョブ設計、フォルダ→権限マッピング、テキスト抽出・チャンク分割実装、エラーハンドリング、運用・セキュリティ設計 |
+| **書かないこと** | documents/document_chunksテーブルの基本設計（→05_phase3_knowledge_detailed_design.md）、Pinecone統合の詳細（→同上）、検索APIの仕様（→同上） |
+| **SoT（この文書が正）** | Googleドライブフォルダ構造、フォルダ名→classification/category/department_idマッピング、google_drive_sync_logs/google_drive_sync_stateテーブル設計、watch_google_drive Cloud Function仕様 |
+| **Owner** | Tech Lead |
+| **更新トリガー** | Googleドライブフォルダ構造の変更、権限マッピングルールの変更、監視ジョブ仕様の変更 |
+
+---
+
 ## 目次
 
 1. [概要と目的](#1-概要と目的)

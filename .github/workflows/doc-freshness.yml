@@ -1,0 +1,157 @@
+name: Documentation Freshness Check
+
+# =============================================================================
+# 設計書鮮度チェック
+#
+# 目的:
+#   設計書が古くなっていないかを定期的に自動検証
+#
+# トリガー:
+#   - 毎月1日9時（JST）に自動実行
+#   - 手動実行
+#
+# 設計書参照:
+#   docs/DOCUMENTATION_FRESHNESS_POLICY.md
+# =============================================================================
+
+on:
+  schedule:
+    # 毎月1日 9:00 JST（UTC 0:00）に実行
+    - cron: '0 0 1 * *'
+  workflow_dispatch:
+    inputs:
+      threshold_days:
+        description: '警告閾値（日数）'
+        required: false
+        type: number
+        default: 90
+
+jobs:
+  check-freshness:
+    name: Check Documentation Freshness
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # 全履歴を取得
+
+      - name: Check last modified dates
+        id: freshness
+        run: |
+          THRESHOLD_DAYS=${{ github.event.inputs.threshold_days || 90 }}
+          TODAY=$(date +%s)
+          ISSUES_FOUND=0
+
+          echo "# 設計書鮮度レポート" > freshness-report.md
+          echo "" >> freshness-report.md
+          echo "**生成日時:** $(date '+%Y-%m-%d %H:%M:%S')" >> freshness-report.md
+          echo "**警告閾値:** ${THRESHOLD_DAYS}日" >> freshness-report.md
+          echo "" >> freshness-report.md
+
+          echo "## サマリー" >> freshness-report.md
+          echo "" >> freshness-report.md
+
+          # 各ステータスのカウント
+          OK_COUNT=0
+          WARN_COUNT=0
+          CRITICAL_COUNT=0
+
+          echo "## 詳細" >> freshness-report.md
+          echo "" >> freshness-report.md
+          echo "| ファイル | 最終更新 | 経過日数 | 状態 |" >> freshness-report.md
+          echo "|---------|---------|---------|------|" >> freshness-report.md
+
+          for file in docs/*.md; do
+            if [ -f "$file" ]; then
+              # 最終更新日を取得
+              LAST_MODIFIED=$(git log -1 --format="%ci" -- "$file" 2>/dev/null | cut -d' ' -f1)
+
+              if [ -n "$LAST_MODIFIED" ]; then
+                LAST_MODIFIED_TS=$(date -d "$LAST_MODIFIED" +%s 2>/dev/null || echo "0")
+                if [ "$LAST_MODIFIED_TS" != "0" ]; then
+                  DAYS_AGO=$(( (TODAY - LAST_MODIFIED_TS) / 86400 ))
+                else
+                  DAYS_AGO=9999
+                  LAST_MODIFIED="不明"
+                fi
+              else
+                DAYS_AGO=9999
+                LAST_MODIFIED="不明"
+              fi
+
+              # ステータス判定
+              if [ "$DAYS_AGO" -gt "$THRESHOLD_DAYS" ]; then
+                STATUS="🔴 要確認"
+                CRITICAL_COUNT=$((CRITICAL_COUNT + 1))
+                ISSUES_FOUND=1
+              elif [ "$DAYS_AGO" -gt 60 ]; then
+                STATUS="🟡 注意"
+                WARN_COUNT=$((WARN_COUNT + 1))
+              else
+                STATUS="✅ OK"
+                OK_COUNT=$((OK_COUNT + 1))
+              fi
+
+              BASENAME=$(basename "$file")
+              echo "| $BASENAME | $LAST_MODIFIED | ${DAYS_AGO}日 | $STATUS |" >> freshness-report.md
+            fi
+          done
+
+          # サマリーを更新
+          sed -i "/## サマリー/a\\
+          \\
+          | ステータス | 件数 |\\
+          |-----------|------|\\
+          | ✅ OK | ${OK_COUNT} |\\
+          | 🟡 注意 | ${WARN_COUNT} |\\
+          | 🔴 要確認 | ${CRITICAL_COUNT} |\\
+          " freshness-report.md
+
+          echo "" >> freshness-report.md
+          echo "## 推奨アクション" >> freshness-report.md
+          echo "" >> freshness-report.md
+
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "- 🔴 **${CRITICAL_COUNT}件**の設計書が${THRESHOLD_DAYS}日以上更新されていません" >> freshness-report.md
+            echo "- [DOCUMENTATION_FRESHNESS_POLICY.md](docs/DOCUMENTATION_FRESHNESS_POLICY.md) に従ってレビューを実施してください" >> freshness-report.md
+          fi
+
+          if [ "$WARN_COUNT" -gt 0 ]; then
+            echo "- 🟡 **${WARN_COUNT}件**の設計書が60日以上更新されていません（今後の注意が必要）" >> freshness-report.md
+          fi
+
+          if [ "$CRITICAL_COUNT" -eq 0 ] && [ "$WARN_COUNT" -eq 0 ]; then
+            echo "- ✅ 全ての設計書は適切に管理されています" >> freshness-report.md
+          fi
+
+          echo "" >> freshness-report.md
+          echo "---" >> freshness-report.md
+          echo "" >> freshness-report.md
+          echo "**参照:** [設計書鮮度管理ポリシー](docs/DOCUMENTATION_FRESHNESS_POLICY.md)" >> freshness-report.md
+
+          # 結果を出力
+          cat freshness-report.md
+
+          echo "issues_found=$ISSUES_FOUND" >> $GITHUB_OUTPUT
+          echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+          echo "warn_count=$WARN_COUNT" >> $GITHUB_OUTPUT
+
+      - name: Upload freshness report
+        uses: actions/upload-artifact@v4
+        with:
+          name: freshness-report
+          path: freshness-report.md
+          retention-days: 30
+
+      - name: Generate summary
+        run: |
+          echo "# 設計書鮮度チェック結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          cat freshness-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Check for critical issues
+        if: steps.freshness.outputs.critical_count > 0
+        run: |
+          echo "::warning::${{ steps.freshness.outputs.critical_count }}件の設計書が閾値を超えて古くなっています。レビューを実施してください。"

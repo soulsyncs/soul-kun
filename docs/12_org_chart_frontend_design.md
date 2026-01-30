@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | org-chart（組織図管理Webアプリケーション）のフロントエンド設計書 |
+| **書くこと** | システム構成、技術スタック、Supabaseテーブル設計（employees/departments/roles/change_history）、機能一覧、ソウルくん連携（同期API仕様）、フロントエンド改修計画 |
+| **書かないこと** | ソウルくん側の権限管理設計（→PHASE_3-5_DETAILED_DESIGN.md）、Cloud SQL側のテーブル設計（→03_database_design.md） |
+| **SoT（この文書が正）** | Supabaseのemployees/departments/rolesテーブル構造、org-chartの機能一覧・実装状況、ソウルくんAPIとの同期リクエスト形式、追加が必要な機能リスト |
+| **Owner** | Tech Lead |
+| **更新トリガー** | Supabaseスキーマの変更、新機能の追加、同期API仕様の変更 |
+
+---
+
 ## 1. 概要
 
 ### 1.1 システムの位置づけ

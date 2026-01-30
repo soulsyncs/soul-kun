@@ -7,6 +7,19 @@
 
 ---
 
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | Phase 2進化版 A4感情変化検出機能の詳細設計書 |
+| **書くこと** | 感情変化検出のアルゴリズム、emotion_scores/emotion_alertsテーブル設計、EmotionDetector実装設計、LLM感情分析プロンプト、プライバシー・倫理的配慮 |
+| **書かないこと** | A1-A3検出機能（→各設計書参照）、soulkun_insightsテーブルの詳細（→06_phase2_a1_pattern_detection.md） |
+| **SoT（この文書が正）** | A4感情変化検出のパラメータ（SENTIMENT_DROP_CRITICAL等）、emotion_scores/emotion_alertsテーブル設計、感情スコアリング仕様（-1.0〜1.0）、アラートタイプ定義（sudden_drop/sustained_negative/high_volatility/recovery）、プライバシー保護方針（メッセージ本文非保存） |
+| **Owner** | Tech Lead |
+| **更新トリガー** | 検出パラメータの変更、DBスキーマの変更、LLMプロンプトの変更、プライバシー方針の変更 |
+
+---
+
 ## 1. エグゼクティブサマリー
 
 ### 1.1 この設計書の目的

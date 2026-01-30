@@ -8,6 +8,8 @@ import pg8000
 import sqlalchemy
 import json
 import traceback
+import asyncio
+from typing import Optional
 
 # ★★★ v10.31.1: Phase D - 接続設定集約 ★★★
 try:
@@ -151,6 +153,61 @@ def get_pool():
                 pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
             )
         return _pool
+
+# =====================================================
+# LLM Brain Integration (v10.50.0)
+# =====================================================
+_brain_instance: Optional["SoulkunBrain"] = None
+
+
+def get_brain():
+    """Get or create global brain instance (lazy init)"""
+    global _brain_instance
+    if _brain_instance is None:
+        try:
+            from lib.feature_flags import is_llm_brain_enabled
+            if not is_llm_brain_enabled():
+                return None
+            from lib.brain import SoulkunBrain
+            _brain_instance = SoulkunBrain(
+                pool=get_pool(),
+                org_id="org_soulsyncs",
+            )
+            print("✅ Brain instance initialized (v10.50.0)")
+        except Exception as e:
+            print(f"⚠️ Brain init failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+    return _brain_instance
+
+
+def process_with_llm_brain(message: str, room_id: str, account_id: str, sender_name: str) -> Optional[str]:
+    """Process message through LLM Brain (async-to-sync bridge)"""
+    brain = get_brain()
+    if brain is None:
+        return None
+    try:
+        response = asyncio.run(
+            brain.process_message(
+                message=message,
+                room_id=room_id,
+                account_id=account_id,
+                sender_name=sender_name,
+            )
+        )
+        if response and response.success:
+            print(f"🧠 Brain response: action={response.action_taken}, time={response.total_time_ms}ms")
+            return response.message
+        else:
+            print(f"⚠️ Brain returned unsuccessful response")
+            return None
+    except Exception as e:
+        print(f"⚠️ LLM Brain error: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
 
 def clean_chatwork_message(body):
     """ChatWorkメッセージをクリーニング
@@ -1665,11 +1722,35 @@ def chatwork_webhook(request):
             if message_id:
                 mark_as_processed(message_id, room_id)
             return jsonify({"status": "ok"})
-        
+
+        # ========================================
+        # v10.50.0: LLM Brain Integration
+        # ========================================
+        from lib.feature_flags import is_llm_brain_enabled
+
+        if is_llm_brain_enabled():
+            print("🧠 Routing to LLM Brain")
+            brain_response = process_with_llm_brain(
+                message=clean_message,
+                room_id=room_id,
+                account_id=sender_account_id,
+                sender_name=sender_name,
+            )
+
+            if brain_response is not None:
+                show_guide = should_show_guide(room_id, sender_account_id)
+                send_chatwork_message(room_id, brain_response, sender_account_id, show_guide)
+                update_conversation_timestamp(room_id, sender_account_id)
+                if message_id:
+                    mark_as_processed(message_id, room_id)
+                return jsonify({"status": "ok", "source": "llm_brain"})
+            else:
+                print("⚠️ LLM Brain failed, falling back to ai_commander")
+
         # 現在のデータを取得
         all_persons = get_all_persons_summary()
         all_tasks = get_tasks()
-        
+
         # AI司令塔に判断を委ねる（言語検出機能付き）
         command = ai_commander(clean_message, all_persons, all_tasks)
         

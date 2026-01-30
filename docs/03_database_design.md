@@ -1,5 +1,20 @@
 # 第5章：データベース設計
 
+---
+
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | データベース設計・スキーマ定義の詳細仕様 |
+| **書くこと** | テーブル定義（DDL）、インデックス、制約、LTREE設計、ERD |
+| **書かないこと** | 原則・概念（→CLAUDE.md）、API仕様（→04章）、脳の設計（→25章） |
+| **SoT（この文書が正）** | 全テーブルのスキーマ定義、organization_idルール、LTREEパス設計 |
+| **Owner** | カズさん（代表） |
+| **関連リンク** | [CLAUDE.md](../CLAUDE.md)（原則）、[04章](04_api_and_security.md)（API実装）、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
+
+---
+
 ## 5.2.5 組織階層テーブル【Phase 3.5】【新設】
 
 ### ■ departments（部署マスタ）

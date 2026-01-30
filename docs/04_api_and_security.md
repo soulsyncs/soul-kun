@@ -1,5 +1,20 @@
 # 第5.5章：API設計【新設】
 
+---
+
+## Document Contract（SoT宣言）
+
+| 項目 | 内容 |
+|------|------|
+| **この文書の役割** | API設計・セキュリティ実装の詳細仕様 |
+| **書くこと** | APIエンドポイント仕様、認証・認可実装、セキュリティ対策、監査ログ実装 |
+| **書かないこと** | 原則・概念（→CLAUDE.md）、テーブル定義（→03章）、脳の設計（→25章） |
+| **SoT（この文書が正）** | API仕様、Authorization Gate実装、監査ログ実装、権限レベル実装、RLS実装 |
+| **Owner** | カズさん（代表） |
+| **関連リンク** | [CLAUDE.md](../CLAUDE.md)（原則）、[03章](03_database_design.md)（DB設計）、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
+
+---
+
 ## 5.5.1 組織図同期API
 
 ### ■ POST /api/v1/organizations/{org_id}/sync-org-chart

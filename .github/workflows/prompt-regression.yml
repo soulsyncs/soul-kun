@@ -1,0 +1,173 @@
+name: Prompt Regression Tests
+
+# =============================================================================
+# プロンプト回帰テスト
+#
+# 目的:
+#   System Prompt変更後に意図しない挙動変化がないことを検証
+#
+# トリガー:
+#   - 手動実行（workflow_dispatch）
+#   - System Prompt関連ファイルの変更時
+#
+# 設計書参照:
+#   docs/09_implementation_standards.md セクション11.7
+# =============================================================================
+
+on:
+  # 手動トリガー（推奨）
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: 'テスト実行の理由（例: System Prompt変更、モデル更新）'
+        required: true
+        type: string
+      run_with_llm:
+        description: '実際のLLMを呼び出すか（コスト発生）'
+        required: true
+        type: boolean
+        default: false
+
+  # System Prompt関連ファイル変更時に自動実行
+  push:
+    branches: [main]
+    paths:
+      - 'proactive-monitor/lib/brain/**'
+      - 'docs/25_llm_native_brain_architecture.md'
+      - 'tests/test_prompt_regression.py'
+
+  pull_request:
+    paths:
+      - 'proactive-monitor/lib/brain/**'
+      - 'docs/25_llm_native_brain_architecture.md'
+      - 'tests/test_prompt_regression.py'
+
+jobs:
+  # =============================================================================
+  # 1. 判定ロジックテスト（モックモード - 常に実行）
+  # =============================================================================
+  mock-tests:
+    name: Prompt Regression (Mock Mode)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio
+
+      - name: Run mock tests
+        run: |
+          echo "=========================================="
+          echo "プロンプト回帰テスト（モックモード）"
+          echo "=========================================="
+          echo ""
+          echo "判定ロジックの検証を実行します。"
+          echo "LLM呼び出しは行いません（コスト: $0）"
+          echo ""
+
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=$GITHUB_WORKSPACE python -m pytest tests/test_prompt_regression.py -v --tb=short
+
+          echo ""
+          echo "=========================================="
+          echo "モックテスト完了"
+          echo "=========================================="
+
+  # =============================================================================
+  # 2. LLM呼び出しテスト（オプション - 手動トリガー時のみ）
+  # =============================================================================
+  llm-tests:
+    name: Prompt Regression (LLM Mode)
+    runs-on: ubuntu-latest
+    # 手動トリガーかつrun_with_llm=trueの場合のみ実行
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_with_llm == 'true'
+    needs: mock-tests
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio anthropic
+
+      - name: Run LLM tests
+        env:
+          PROMPT_REGRESSION_ENABLED: 'true'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          echo "=========================================="
+          echo "プロンプト回帰テスト（LLMモード）"
+          echo "=========================================="
+          echo ""
+          echo "実際のLLMを呼び出してテストします。"
+          echo "実行理由: ${{ github.event.inputs.reason }}"
+          echo ""
+          echo "注意: API呼び出しによりコストが発生します"
+          echo ""
+
+          cd $GITHUB_WORKSPACE
+          PYTHONPATH=$GITHUB_WORKSPACE python -m pytest tests/test_prompt_regression.py::TestPromptRegressionWithLLM -v --tb=short
+
+          echo ""
+          echo "=========================================="
+          echo "LLMテスト完了"
+          echo "=========================================="
+
+  # =============================================================================
+  # 3. テスト結果サマリー
+  # =============================================================================
+  summary:
+    name: Test Summary
+    runs-on: ubuntu-latest
+    needs: [mock-tests]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "# プロンプト回帰テスト結果" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 実行情報" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| 項目 | 値 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-----|" >> $GITHUB_STEP_SUMMARY
+          echo "| トリガー | ${{ github.event_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ブランチ | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| コミット | ${{ github.sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| 実行者 | ${{ github.actor }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "## 手動実行情報" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **理由**: ${{ github.event.inputs.reason }}" >> $GITHUB_STEP_SUMMARY
+            echo "- **LLMモード**: ${{ github.event.inputs.run_with_llm }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## テスト内容" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- 全20ケース（5カテゴリ）" >> $GITHUB_STEP_SUMMARY
+          echo "- カテゴリ1: 基本応答（5ケース）" >> $GITHUB_STEP_SUMMARY
+          echo "- カテゴリ2: 権限・セキュリティ（5ケース）" >> $GITHUB_STEP_SUMMARY
+          echo "- カテゴリ3: タスク管理（4ケース）" >> $GITHUB_STEP_SUMMARY
+          echo "- カテゴリ4: 曖昧性の処理（3ケース）" >> $GITHUB_STEP_SUMMARY
+          echo "- カテゴリ5: 能動的出力（3ケース）" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## 参照" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- [テスト設計書](docs/09_implementation_standards.md#117-プロンプト回帰テスト)" >> $GITHUB_STEP_SUMMARY
+          echo "- [テストコード](tests/test_prompt_regression.py)" >> $GITHUB_STEP_SUMMARY

@@ -1095,6 +1095,11 @@ class BrainDecision:
         action = candidate.action
         confidence = candidate.score
 
+        # v10.48.11: 一般会話は確認不要（ユーザー体験を損なうため）
+        # 確信度が低くても、一般会話として処理する方がUX上良い
+        if action == "general_conversation":
+            return (False, None, [])
+
         # 理由と選択肢
         question = None
         options = ["はい", "いいえ"]

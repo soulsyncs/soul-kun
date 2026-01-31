@@ -1496,7 +1496,7 @@ class SoulkunBrain:
                     debug_info={
                         "llm_brain": {
                             "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": llm_result.confidence,
+                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
                             "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                         },
                         "guardian": {
@@ -1544,7 +1544,7 @@ class SoulkunBrain:
                     debug_info={
                         "llm_brain": {
                             "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": llm_result.confidence,
+                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
                         },
                         "guardian": {
                             "action": guardian_result.action.value,
@@ -1573,7 +1573,7 @@ class SoulkunBrain:
                     success=True,
                     debug_info={
                         "llm_brain": {
-                            "confidence": llm_result.confidence,
+                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
                             "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                         },
                     },
@@ -1585,10 +1585,16 @@ class SoulkunBrain:
             tool_call = tool_calls_to_execute[0]
 
             # DecisionResultを構築して既存のexecution層に渡す
+            # ConfidenceScoresオブジェクトをfloatに変換
+            decision_confidence = (
+                llm_result.confidence.overall
+                if hasattr(llm_result.confidence, 'overall')
+                else float(llm_result.confidence) if llm_result.confidence else 0.0
+            )
             decision = DecisionResult(
                 action=tool_call.tool_name,
                 params=tool_call.parameters,
-                confidence=llm_result.confidence,
+                confidence=decision_confidence,
                 needs_confirmation=False,  # Guardianで既にチェック済み
             )
 
@@ -1625,7 +1631,7 @@ class SoulkunBrain:
                 debug_info={
                     "llm_brain": {
                         "tool_calls": [tc.to_dict() for tc in tool_calls_to_execute],
-                        "confidence": llm_result.confidence,
+                        "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
                         "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                     },
                     "guardian": {

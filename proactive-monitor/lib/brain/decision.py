@@ -43,6 +43,7 @@ from lib.brain.constants import (
     CONFIRMATION_THRESHOLD,
     AUTO_EXECUTE_THRESHOLD,
     DANGEROUS_ACTIONS,
+    NO_CONFIRMATION_ACTIONS,
     CAPABILITY_SCORING_WEIGHTS,
     CONJUNCTION_PATTERNS,
     CANCEL_KEYWORDS,
@@ -1119,8 +1120,9 @@ class BrainDecision:
                 print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
                 return (True, question, options)
 
-        # 確信度が低い場合
-        if confidence < CONFIRMATION_THRESHOLD:
+        # 確信度が低い場合（ただし確認不要アクションは除く）
+        # v10.53.1: 一般会話で確認ループが発生する問題の修正
+        if confidence < CONFIRMATION_THRESHOLD and action not in NO_CONFIRMATION_ACTIONS:
             question = f"「{understanding.raw_message}」は「{self._get_capability_name(action)}」でいいウル？"
             return (True, question, options)
 

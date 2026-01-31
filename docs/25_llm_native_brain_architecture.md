@@ -2591,7 +2591,10 @@ class GuardianLayer:
                     )
 
             # 2. 確信度チェック
-            if confidence < 0.7:
+            # v10.53.1: NO_CONFIRMATION_ACTIONS に該当するアクションは確認スキップ
+            # 参照: lib/brain/constants.py
+            # 理由: 一般会話（greeting, small_talk等）は確認が不要
+            if confidence < 0.7 and tool_call.tool_name not in NO_CONFIRMATION_ACTIONS:
                 return GuardianResult(
                     action=GuardianAction.CONFIRM,
                     confirmation_question=f"「{tool_call.tool_name}」を実行してよろしいですか？",
@@ -5426,7 +5429,39 @@ async def check_daily_cost():
 | 設計要素の漏れ・重複を確認したい | [Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
 | Phase別の詳細を確認したい | [00_README.md](00_README.md) |
 
-### 17.8 変更履歴
+### 17.8 実装定数・設定ファイル【v1.5.1追加】
+
+#### 17.8.1 確認スキップ対象アクション（NO_CONFIRMATION_ACTIONS）
+
+**定義場所**: `lib/brain/constants.py`
+
+以下のアクションは、確信度が低くても確認をスキップする：
+
+| アクション | 説明 | 理由 |
+|-----------|------|------|
+| `general_conversation` | 一般会話・雑談 | 低リスク、確認がUXを損なう |
+| `greeting` | 挨拶（おはよう等） | 低リスク |
+| `small_talk` | 日常会話 | 低リスク |
+| `thanks` | お礼 | 低リスク |
+| `goodbye` | 別れの挨拶 | 低リスク |
+
+**根拠**: これらのアクションは破壊的操作を伴わず、確認がユーザー体験を著しく損なうため。
+
+#### 17.8.2 環境変数管理（env_config.py）
+
+**定義場所**: `lib/brain/env_config.py`
+
+| 環境変数 | 用途 | デフォルト |
+|---------|------|----------|
+| `USE_BRAIN_ARCHITECTURE` | LLM Brain有効化 | `false` |
+| `LOG_EXECUTION_ID` | 実行IDログ記録 | `false` |
+| `ENABLE_SYSTEM_PROMPT_V2` | System Prompt v2使用 | `false` |
+
+**重要**: 環境変数を追加・変更する場合は必ず `env_config.py` を更新すること。
+
+> **歴史的注意**: `ENABLE_LLM_BRAIN` は非推奨。`USE_BRAIN_ARCHITECTURE` を使用すること。
+
+### 17.9 変更履歴
 
 | バージョン | 日付 | 変更内容 |
 |-----------|------|---------|
@@ -5436,10 +5471,11 @@ async def check_daily_cost():
 | v1.3.0 | 2026-01-30 | Doc Contract追加、日常運用導線（17.7）追加、Design Coverage Matrix対応 |
 | v1.4.0 | 2026-01-30 | P1仕様追加: BrainStateManager/SessionState詳細（5.1.5〜5.1.6）、LLM出力JSON Schema（5.2.3b）、Guardian判定優先度デシジョンツリー（5.3.3b）、エラーハンドリング詳細（6.7）、Tool変換仕様（7.1b） |
 | v1.5.0 | 2026-01-30 | **100%完成**: エッジケース仕様追加 - 並行セッション競合処理（5.1.7）、LLMストリーミング中断処理（6.7.6）、DBコネクションプール枯渇処理（6.7.7） |
+| v1.5.1 | 2026-01-31 | **大規模修繕対応**: NO_CONFIRMATION_ACTIONS追加（17.8.1）、env_config.py追加（17.8.2）、Guardian Layer確信度チェックに例外規定追加 |
 
 ---
 
 **作成者:** Claude Code（経営参謀・SE・PM）
 **承認者:** カズさん（代表）
 **作成日:** 2026-01-30
-**最終更新:** 2026-01-30（v1.5.0: 100%完成）
+**最終更新:** 2026-01-31（v1.5.1: 大規模修繕対応）

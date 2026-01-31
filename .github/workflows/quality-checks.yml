@@ -225,7 +225,94 @@ jobs:
           echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
   # =====================================================
-  # 2. 禁止パターン検出（直接切り詰め防止）
+  # 2. デプロイ設定の整合性チェック（v10.53.1追加）
+  # =====================================================
+  #
+  # 背景:
+  #   環境変数名の不一致（ENABLE_LLM_BRAIN vs USE_BRAIN_ARCHITECTURE）で
+  #   LLM Brainが無効化される問題が発生した。
+  #   この検証で再発を防止する。
+  #
+  deploy-config-check:
+    name: Check deploy configuration consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate deploy configuration
+        run: |
+          echo "🔍 Checking deploy configuration consistency..."
+          echo ""
+
+          # env_config.py から正しい環境変数名を取得
+          ENV_CONFIG_FILE="lib/brain/env_config.py"
+
+          if [ ! -f "$ENV_CONFIG_FILE" ]; then
+            echo "❌ $ENV_CONFIG_FILE not found"
+            exit 1
+          fi
+
+          # ENV_BRAIN_ENABLED の値を抽出
+          EXPECTED_VAR=$(grep 'ENV_BRAIN_ENABLED = ' "$ENV_CONFIG_FILE" | sed 's/.*= "\(.*\)"/\1/')
+          echo "Expected environment variable: $EXPECTED_VAR"
+          echo ""
+
+          ERRORS_FOUND=0
+
+          # 各デプロイファイルをチェック
+          DEPLOY_FILES=(
+            "cloudbuild.yaml"
+            "cloudbuild-proactive-monitor.yaml"
+            "chatwork-webhook/deploy.sh"
+            "proactive-monitor/deploy.sh"
+          )
+
+          for file in "${DEPLOY_FILES[@]}"; do
+            if [ -f "$file" ]; then
+              echo "Checking $file..."
+
+              # 正しい変数名が含まれているか
+              if grep -q "$EXPECTED_VAR=true" "$file"; then
+                echo "  ✅ $EXPECTED_VAR=true found"
+              else
+                echo "  ❌ $EXPECTED_VAR=true NOT found"
+                ERRORS_FOUND=1
+              fi
+
+              # 間違った変数名が含まれていないか
+              for wrong_var in "ENABLE_LLM_BRAIN" "LLM_BRAIN_ENABLED" "BRAIN_ENABLED"; do
+                if grep -q "$wrong_var" "$file"; then
+                  echo "  ❌ Wrong variable name '$wrong_var' found"
+                  ERRORS_FOUND=1
+                fi
+              done
+
+              # 認証設定（--no-allow-unauthenticated がないこと）
+              if grep -q "\-\-no-allow-unauthenticated" "$file"; then
+                echo "  ❌ --no-allow-unauthenticated found (causes auth errors)"
+                ERRORS_FOUND=1
+              fi
+            fi
+          done
+
+          echo ""
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Deploy configuration errors found!"
+            echo ""
+            echo "Fix:"
+            echo "  1. Use '$EXPECTED_VAR' (not ENABLE_LLM_BRAIN)"
+            echo "  2. Use --allow-unauthenticated (not --no-allow-unauthenticated)"
+            echo ""
+            echo "Reference: lib/brain/env_config.py is the Single Source of Truth"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+
+          echo "✅ All deploy configurations are consistent!"
+
+  # =====================================================
+  # 3. 禁止パターン検出（直接切り詰め防止）
   # =====================================================
   #
   # 検出対象: タスク表示用の直接切り詰め（[:30], [:40]形式）
@@ -234,6 +321,8 @@ jobs:
   #   - エラーメッセージ（str(e)[:50]）
   #   - summary_preview（ログ出力用）
   #   - フォールバック関数内の定義
+  #
+  # v10.53.1: 番号を2→3に変更（deploy-config-check追加のため）
   #
   forbidden-patterns-check:
     name: Check for forbidden patterns
@@ -411,7 +500,7 @@ jobs:
           echo "✅ No debug print statements found!"
 
   # =====================================================
-  # 3. ユニットテスト実行
+  # 4. ユニットテスト実行
   # =====================================================
   unit-tests:
     name: Run unit tests
@@ -443,7 +532,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [lib-sync-check, forbidden-patterns-check, unit-tests]
+    needs: [lib-sync-check, deploy-config-check, forbidden-patterns-check, unit-tests]
     steps:
       - name: All checks passed
         run: |
@@ -451,5 +540,6 @@ jobs:
           echo ""
           echo "Checks completed:"
           echo "  - lib/ copies sync check (7 modules, 20+ targets)"
+          echo "  - Deploy configuration consistency check"
           echo "  - Forbidden patterns check (truncation + debug prints)"
           echo "  - Unit tests"

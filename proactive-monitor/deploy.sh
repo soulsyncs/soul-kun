@@ -146,7 +146,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "    --memory=512MB \\"
     echo "    --timeout=540s \\"
     echo "    --allow-unauthenticated \\"
-    echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,ENABLE_LLM_BRAIN=true,LOG_EXECUTION_ID=true"
+    echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "${GREEN}✅ ドライラン完了（全チェックパス）${NC}"

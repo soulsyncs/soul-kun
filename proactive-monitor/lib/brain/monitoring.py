@@ -37,22 +37,30 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class MonitoringThresholds:
-    """モニタリング閾値"""
-    # エラー率
-    error_rate_warning: float = 0.01  # 1%
-    error_rate_critical: float = 0.05  # 5%
+    """
+    モニタリング閾値
 
-    # レスポンス時間（ミリ秒）
-    response_time_warning_ms: int = 3000  # 3秒
-    response_time_critical_ms: int = 10000  # 10秒
+    設計書: docs/25_llm_native_brain_architecture.md 第15章「監視・運用」
+    """
+    # エラー率（設計書: > 5% 警告）
+    error_rate_warning: float = 0.01  # 1%（より早く検知）
+    error_rate_critical: float = 0.05  # 5%（設計書準拠）
+
+    # レスポンス時間（設計書: > 10秒 警告）
+    response_time_warning_ms: int = 3000  # 3秒（より早く検知）
+    response_time_critical_ms: int = 10000  # 10秒（設計書準拠）
 
     # APIエラー率
     api_error_rate_warning: float = 0.02  # 2%
     api_error_rate_critical: float = 0.10  # 10%
 
-    # Guardian Layerブロック率
-    guardian_block_rate_warning: float = 0.10  # 10%
+    # Guardian Layerブロック率（設計書: > 10% 警告）
+    guardian_block_rate_warning: float = 0.10  # 10%（設計書準拠）
     guardian_block_rate_critical: float = 0.20  # 20%
+
+    # 確認モード発生率（設計書: > 30% 情報）【v10.51.1追加】
+    guardian_confirm_rate_info: float = 0.30  # 30%（設計書準拠）
+    guardian_confirm_rate_warning: float = 0.50  # 50%
 
     # 確信度
     low_confidence_threshold: float = 0.5  # 50%未満は低確信度
@@ -61,6 +69,10 @@ class MonitoringThresholds:
     # コスト（円/リクエスト）
     cost_per_request_warning: float = 10.0  # 10円
     cost_per_request_critical: float = 20.0  # 20円
+
+    # 日次コスト（設計書: > 5,000円 警告）【v10.51.1追加】
+    daily_cost_warning: float = 5000.0  # 5,000円（設計書準拠）
+    daily_cost_critical: float = 10000.0  # 10,000円
 
 
 # デフォルト閾値
@@ -157,6 +169,14 @@ class AggregatedMetrics:
         return self.guardian_block_count / total
 
     @property
+    def guardian_confirm_rate(self) -> float:
+        """Guardian確認モード率（設計書: > 30% 情報）"""
+        total = self.guardian_allow_count + self.guardian_confirm_count + self.guardian_block_count
+        if total == 0:
+            return 0.0
+        return self.guardian_confirm_count / total
+
+    @property
     def low_confidence_rate(self) -> float:
         """低確信度率"""
         if self.total_requests == 0:
@@ -195,6 +215,7 @@ class AggregatedMetrics:
             "rates": {
                 "error_rate": round(self.error_rate, 4),
                 "guardian_block_rate": round(self.guardian_block_rate, 4),
+                "guardian_confirm_rate": round(self.guardian_confirm_rate, 4),
                 "low_confidence_rate": round(self.low_confidence_rate, 4),
             },
             "response_time_ms": {
@@ -514,6 +535,14 @@ class LLMBrainMonitor:
             if status != "critical":
                 status = "warning"
             issues.append(f"Guardian block rate high: {metrics.guardian_block_rate:.2%}")
+
+        # Guardian 確認モード率チェック（設計書: > 30% 情報）
+        if metrics.guardian_confirm_rate >= self.thresholds.guardian_confirm_rate_warning:
+            if status not in ["critical", "warning"]:
+                status = "warning"
+            issues.append(f"Guardian confirm rate very high: {metrics.guardian_confirm_rate:.2%}")
+        elif metrics.guardian_confirm_rate >= self.thresholds.guardian_confirm_rate_info:
+            issues.append(f"Guardian confirm rate high (info): {metrics.guardian_confirm_rate:.2%}")
 
         return {
             "status": status,

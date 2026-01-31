@@ -519,10 +519,6 @@ class BrainDecision:
             # パラメータをマージ（理解層のエンティティ + 候補のパラメータ）
             merged_params = {**understanding.entities, **best_candidate.params}
 
-            # v10.48.6: 元のメッセージを必ず含める（general_conversation等で必要）
-            if "message" not in merged_params:
-                merged_params["message"] = understanding.raw_message
-
             return DecisionResult(
                 action=best_candidate.action,
                 params=merged_params,
@@ -774,10 +770,19 @@ class BrainDecision:
 
         v10.42.0 P2: 人生軸との整合性スコアを追加
         スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
+
+        Note: ネガティブキーワードがマッチした場合は即座に0.0を返す
         """
         weights = CAPABILITY_SCORING_WEIGHTS
         message = understanding.raw_message.lower()
         intent = understanding.intent
+
+        # ネガティブキーワードチェック（即座に0を返す）
+        keywords = self.capability_keywords.get(cap_key, {})
+        negative = keywords.get("negative", [])
+        for neg in negative:
+            if neg in message:
+                return 0.0
 
         # 1. キーワードマッチ（35%）
         keyword_score = self._calculate_keyword_score(cap_key, message)
@@ -1095,11 +1100,6 @@ class BrainDecision:
         action = candidate.action
         confidence = candidate.score
 
-        # v10.48.11: 一般会話は確認不要（ユーザー体験を損なうため）
-        # 確信度が低くても、一般会話として処理する方がUX上良い
-        if action == "general_conversation":
-            return (False, None, [])
-
         # 理由と選択肢
         question = None
         options = ["はい", "いいえ"]
@@ -1119,20 +1119,8 @@ class BrainDecision:
                 print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
                 return (True, question, options)
 
-        # v10.48.9: リスクレベル別の確認閾値を使用（設計書準拠）
-        # confidence.pyのCONFIDENCE_THRESHOLDSと整合
-        # - HIGH: 0.85（タスク完了、削除等）
-        # - NORMAL: 0.70（通常操作）
-        # - LOW: 0.50（一般会話、情報提供）
-        risk_level = RISK_LEVELS.get(action, "normal")
-        if risk_level == "high":
-            threshold = 0.85
-        elif risk_level == "low":
-            threshold = 0.50  # 一般会話は確認不要にしやすく
-        else:
-            threshold = CONFIRMATION_THRESHOLD  # 0.70
-
-        if confidence < threshold:
+        # 確信度が低い場合
+        if confidence < CONFIRMATION_THRESHOLD:
             question = f"「{understanding.raw_message}」は「{self._get_capability_name(action)}」でいいウル？"
             return (True, question, options)
 

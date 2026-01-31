@@ -73,6 +73,13 @@
     print(f"brain_metadata coverage: {coverage['percentage']:.1f}%")
 """
 
+# =============================================================================
+# バージョン定義（単一ソース）
+# =============================================================================
+# このバージョンはCloud Loggingの出力で使用される
+# デプロイ時に手動更新すること
+BRAIN_VERSION = "10.43.4"
+
 from lib.brain.models import (
     BrainContext,
     BrainResponse,
@@ -172,9 +179,52 @@ from lib.brain.ceo_learning import (
 
 from lib.brain.guardian import (
     GuardianService,
+    # v10.42.0 P0: Guardian Gate
+    GuardianActionType,
+    GuardianActionResult,
     MVV_VALIDATION_CRITERIA,
     CHOICE_THEORY_CRITERIA,
     SDT_CRITERIA,
+)
+
+# v10.42.0 P1: Decision Layer Enforcement
+from lib.brain.decision import (
+    EnforcementAction,
+    MVVCheckResult,
+)
+
+# v10.42.0 P3: Value Authority Layer
+from lib.brain.value_authority import (
+    ValueAuthority,
+    ValueAuthorityResult,
+    ValueDecision,
+    create_value_authority,
+    LIFE_AXIS_VIOLATION_PATTERNS,
+    GOAL_CONTRADICTION_PATTERNS,
+)
+
+# v10.43.0 P4: Memory Authority Layer
+from lib.brain.memory_authority import (
+    MemoryAuthority,
+    MemoryAuthorityResult,
+    MemoryDecision,
+    MemoryConflict,
+    create_memory_authority,
+    normalize_text,
+    extract_keywords,
+    has_keyword_match,
+    calculate_overlap_score,
+    HARD_CONFLICT_PATTERNS,
+    SOFT_CONFLICT_PATTERNS,
+    ALIGNMENT_PATTERNS,
+)
+
+# v10.43.1 P4: Memory Authority Observation Logger
+from lib.brain.memory_authority_logger import (
+    MemoryAuthorityLogger,
+    SoftConflictLog,
+    get_memory_authority_logger,
+    create_memory_authority_logger,
 )
 
 # Ultimate Brain - Phase 1: Chain-of-Thought & Self-Critique
@@ -494,6 +544,8 @@ from lib.brain.deep_understanding import (
 )
 
 __all__ = [
+    # バージョン
+    "BRAIN_VERSION",
     # メインクラス
     "SoulkunBrain",
     # 状態管理層
@@ -578,9 +630,40 @@ __all__ = [
     "CATEGORY_KEYWORDS",
     # ガーディアン層
     "GuardianService",
+    # v10.42.0 P0: Guardian Gate
+    "GuardianActionType",
+    "GuardianActionResult",
     "MVV_VALIDATION_CRITERIA",
     "CHOICE_THEORY_CRITERIA",
     "SDT_CRITERIA",
+    # v10.42.0 P1: Decision Layer Enforcement
+    "EnforcementAction",
+    "MVVCheckResult",
+    # v10.42.0 P3: Value Authority Layer
+    "ValueAuthority",
+    "ValueAuthorityResult",
+    "ValueDecision",
+    "create_value_authority",
+    "LIFE_AXIS_VIOLATION_PATTERNS",
+    "GOAL_CONTRADICTION_PATTERNS",
+    # v10.43.0 P4: Memory Authority Layer
+    "MemoryAuthority",
+    "MemoryAuthorityResult",
+    "MemoryDecision",
+    "MemoryConflict",
+    "create_memory_authority",
+    "normalize_text",
+    "extract_keywords",
+    "has_keyword_match",
+    "calculate_overlap_score",
+    "HARD_CONFLICT_PATTERNS",
+    "SOFT_CONFLICT_PATTERNS",
+    "ALIGNMENT_PATTERNS",
+    # v10.43.1 P4: Memory Authority Observation Logger
+    "MemoryAuthorityLogger",
+    "SoftConflictLog",
+    "get_memory_authority_logger",
+    "create_memory_authority_logger",
     # Phase 2E: Learning Foundation（v10.33.0）
     # 統合クラス
     "BrainLearning",
@@ -839,4 +922,4 @@ __all__ = [
     "FEATURE_FLAG_VOCABULARY_LEARNING",
 ]
 
-__version__ = "2.8.0"  # v10.40.0: Phase 2I - Deep Understanding
+__version__ = BRAIN_VERSION  # 単一ソースから取得

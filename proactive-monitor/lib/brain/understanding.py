@@ -116,24 +116,45 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "modifiers": ["完了", "終わった", "できた", "done", "済み"],
         "confidence_boost": 0.85,
     },
-    "goal_registration": {  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
-        "primary": ["目標設定", "目標を立てたい", "目標を決めたい", "目標設定したい", "目標を設定したい"],
-        "secondary": ["目標", "ゴール"],
-        "modifiers": ["設定", "立てたい", "決めたい", "作りたい"],
-        "negative": ["進捗", "報告", "状況", "確認", "どれくらい"],  # 進捗報告・状況確認と区別
+    # v10.44.0: goal_registration を精緻化、goal_review / goal_consult 追加
+    # v10.47.0: 「目標設定したい」「目標を設定」「ゴールを決めたい」を追加（registry.pyと統一）
+    "goal_registration": {
+        "primary": ["目標登録", "目標を登録", "新しく目標", "目標を新規", "目標作成", "目標を作", "目標設定したい", "目標を設定", "目標を立てたい", "ゴールを決めたい", "ゴール設定", "ゴールを設定"],
+        "secondary": ["登録したい", "作りたい", "新規作成", "設定したい", "立てたい", "決めたい"],
+        "modifiers": ["登録", "新規", "新しく", "作成", "設定", "立て", "決め"],
+        "negative": ["一覧", "表示", "出して", "確認", "整理", "削除", "修正", "過去", "登録済み", "もともと", "多すぎ", "ぐちゃぐちゃ", "どっち優先", "理由", "数字で", "どう決める", "迷う", "方針", "進捗", "報告", "状況", "どうなった"],
         "confidence_boost": 0.85,
+    },
+    "goal_review": {
+        # v10.52.0: 他ドメインとの誤マッチを防ぐため、目標固有の表現のみに限定
+        "primary": ["目標一覧", "目標を見せて", "目標を表示", "目標を出して", "登録済みの目標", "過去の目標", "ゴール一覧", "ゴールを見せて"],
+        # secondaryからドメイン非依存のキーワードを削除（"一覧", "削除", "見せて"等）
+        "secondary": ["目標", "ゴール"],
+        "modifiers": ["整理", "修正", "多すぎ", "ぐちゃぐちゃ", "過去", "もともと", "登録済み", "最新"],
+        "negative": ["登録したい", "新規", "新しく", "作りたい", "設定したい", "タスク", "仕事", "組織図", "組織", "ナレッジ", "知識", "部署"],
+        "confidence_boost": 0.90,
+    },
+    "goal_consult": {
+        "primary": ["どっち優先", "どう決めたらいい", "目標相談", "目標の決め方", "優先順位"],
+        "secondary": ["迷う", "迷って", "方針", "アドバイス", "理由", "数字で", "どっちがいい"],
+        "modifiers": ["相談", "教えて", "アドバイス"],
+        "negative": ["登録したい", "一覧", "表示", "整理"],
+        "confidence_boost": 0.90,
     },
     "goal_progress_report": {
         "primary": ["目標進捗", "目標報告"],
         "secondary": ["目標", "ゴール"],
         "modifiers": ["進捗", "報告", "どれくらい"],
+        "negative": ["一覧", "表示", "整理", "設定したい", "立てたい", "登録したい", "作りたい", "新規", "決めたい"],
         "confidence_boost": 0.8,
     },
     "goal_status_check": {
-        "primary": ["目標状況", "目標確認"],
-        "secondary": ["目標", "ゴール"],
-        "modifiers": ["状況", "どうなった", "確認"],
-        "confidence_boost": 0.8,
+        # v10.52.0: "どうなった" パターンを追加
+        "primary": ["達成率", "進捗確認", "どれくらい達成", "目標の進捗", "目標どうなった", "目標どうなってる"],
+        "secondary": ["進捗", "状況", "どうなった", "どうなってる"],
+        "modifiers": ["確認", "教えて"],
+        "negative": ["一覧", "表示", "整理", "削除", "修正", "設定", "登録", "新規"],
+        "confidence_boost": 0.85,  # 0.8 → 0.85 に上げて goal_progress_report より優先
     },
     "save_memory": {
         "primary": ["人を覚えて", "社員を記憶"],
@@ -148,10 +169,11 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.8,
     },
     "forget_knowledge": {
-        "primary": ["知識を忘れて", "ナレッジ削除"],
+        # v10.52.0: ナレッジ削除パターンを拡充、confidence_boostを上げる
+        "primary": ["知識を忘れて", "ナレッジ削除", "ナレッジを削除", "知識を削除", "覚えたことを削除"],
         "secondary": ["忘れて", "削除して", "消して"],
-        "modifiers": [],
-        "confidence_boost": 0.8,
+        "modifiers": ["削除", "消す", "忘れ"],
+        "confidence_boost": 0.85,
     },
     "query_knowledge": {
         "primary": ["教えて", "知りたい"],
@@ -160,10 +182,11 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.8,
     },
     "query_org_chart": {
-        "primary": ["組織図", "部署一覧"],
+        # v10.52.0: 組織図表示パターンを拡充、confidence_boostを上げる
+        "primary": ["組織図", "部署一覧", "組織図を見せて", "組織構造"],
         "secondary": ["組織", "部署", "チーム", "誰が", "担当者", "上司", "部下"],
-        "modifiers": [],
-        "confidence_boost": 0.75,
+        "modifiers": ["見せて", "表示", "教えて"],
+        "confidence_boost": 0.85,
     },
     "announcement_create": {
         "primary": ["アナウンスして", "お知らせして"],
@@ -182,6 +205,24 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "secondary": [],
         "modifiers": [],
         "confidence_boost": 0.5,
+    },
+    # v10.44.1: Connection Query（DM可能な相手一覧）- 優先度強化
+    "connection_query": {
+        "primary": [
+            "DMできる相手",
+            "DMできる人",
+            "1on1で繋がってる",
+            "直接チャットできる相手",
+            "個別で繋がってる人",
+        ],
+        "secondary": [
+            "DM", "1on1", "個別", "繋がってる", "直接", "話せる", "チャットできる",
+        ],
+        "modifiers": [
+            "教えて", "一覧", "誰", "全員", "名前", "どんな人",
+        ],
+        "negative": ["タスク", "目標", "記憶", "覚えて"],
+        "confidence_boost": 1.2,  # 最優先に近づける
     },
 }
 

@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
+from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 from .models import (
@@ -272,6 +273,37 @@ class CEOLearningService:
         # Phase 4Aではpersonsテーブルから取得
         return "菊地雅克"
 
+    def _get_user_id_from_account_id(self, account_id: str) -> Optional[str]:
+        """
+        ChatWorkアカウントIDからユーザーID（UUID）を取得
+
+        Args:
+            account_id: ChatWorkアカウントID（例: "1728974"）
+
+        Returns:
+            ユーザーID（UUID文字列）、見つからない場合はNone
+        """
+        query = text("""
+            SELECT id FROM users
+            WHERE chatwork_account_id = :account_id
+            AND organization_id = CAST(:org_id AS UUID)
+            LIMIT 1
+        """)
+
+        try:
+            with self._pool.connect() as conn:
+                result = conn.execute(query, {
+                    "account_id": account_id,
+                    "org_id": self._organization_id,
+                })
+                row = result.fetchone()
+                if row:
+                    return str(row[0])
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get user_id from account_id: {e}")
+            return None
+
     # -------------------------------------------------------------------------
     # 教え抽出
     # -------------------------------------------------------------------------
@@ -313,14 +345,23 @@ class CEOLearningService:
                     message="教えは検出されませんでした",
                 )
 
-            # 2. 各教えを処理
+            # 2. ChatWorkアカウントIDからユーザーID（UUID）を取得
+            user_id = self._get_user_id_from_account_id(account_id)
+            if not user_id:
+                logger.warning(f"User not found for account_id: {account_id}")
+                return ProcessingResult(
+                    success=False,
+                    message=f"ユーザーが見つかりません: account_id={account_id}",
+                )
+
+            # 3. 各教えを処理
             saved_teachings = []
             pending_teachings = []
 
             for teaching_data in extracted:
                 teaching = self._create_teaching_from_extracted(
                     teaching_data,
-                    account_id,
+                    user_id,  # account_id ではなく user_id（UUID）を渡す
                     room_id,
                     message_id,
                 )
@@ -440,11 +481,18 @@ class CEOLearningService:
     def _create_teaching_from_extracted(
         self,
         extracted: ExtractedTeaching,
-        account_id: str,
+        user_id: str,
         room_id: str,
         message_id: Optional[str],
     ) -> CEOTeaching:
-        """抽出された教えからCEOTeachingを作成"""
+        """抽出された教えからCEOTeachingを作成
+
+        Args:
+            extracted: LLMで抽出された教えデータ
+            user_id: CEOのユーザーID（UUID文字列）
+            room_id: ルームID
+            message_id: メッセージID
+        """
         # カテゴリを変換
         try:
             category = TeachingCategory(extracted.category)
@@ -453,7 +501,7 @@ class CEOLearningService:
 
         return CEOTeaching(
             organization_id=self._organization_id,
-            ceo_user_id=account_id,
+            ceo_user_id=user_id,
             statement=extracted.statement,
             reasoning=extracted.reasoning,
             context=extracted.context,

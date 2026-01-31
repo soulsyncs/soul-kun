@@ -135,8 +135,9 @@ class TestDataClasses:
 
     def test_person_info_to_dict(self):
         """PersonInfoがdict変換できる"""
+        # 統一版PersonInfo（SoT: lib/brain/models.py）を使用
         person = PersonInfo(
-            id=uuid4(),
+            person_id=str(uuid4()),
             name="山田太郎",
             attributes={"役職": "部長", "部署": "営業部"},
         )
@@ -146,12 +147,13 @@ class TestDataClasses:
 
     def test_task_info_to_dict(self):
         """TaskInfoがdict変換できる"""
+        # 統一版TaskInfo（SoT: lib/brain/models.py）を使用
         task = TaskInfo(
             task_id="12345",
             body="テストタスク",
             summary="要約",
             status="open",
-            limit_time=datetime(2026, 1, 27, 18, 0, 0),
+            due_date=datetime(2026, 1, 27, 18, 0, 0),  # limit_time -> due_date
             is_overdue=False,
         )
         result = task.to_dict()
@@ -169,8 +171,9 @@ class TestDataClasses:
 
     def test_goal_info_to_dict(self):
         """GoalInfoがdict変換できる"""
+        # 統一版GoalInfo（SoT: lib/brain/models.py）を使用
         goal = GoalInfo(
-            id=uuid4(),
+            goal_id=str(uuid4()),  # id -> goal_id
             title="売上目標達成",
             why="会社の成長のため",
             what="月間売上100万円",

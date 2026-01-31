@@ -35,6 +35,8 @@ from lib.brain.agents.base import (
     MessageType,
     ExpertiseLevel,
 )
+# SoT: lib/brain/models.py から統一版をimport
+from lib.brain.models import GoalInfo
 
 
 logger = logging.getLogger(__name__)
@@ -90,47 +92,8 @@ GOAL_ABANDONED_DAYS = 14
 # データクラス
 # =============================================================================
 
-@dataclass
-class GoalInfo:
-    """
-    目標情報
-    """
-    goal_id: str = ""
-    user_id: str = ""
-    organization_id: str = ""
-
-    # 目標内容
-    title: str = ""
-    why: str = ""              # なぜ（目的・動機）
-    what: str = ""             # 何を（具体的な目標）
-    how: str = ""              # どうやって（行動計画）
-
-    # 状態
-    status: str = GOAL_STATUS_ACTIVE
-    progress_percentage: int = 0
-
-    # 期限
-    target_date: Optional[datetime] = None
-
-    # タイムスタンプ
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    @property
-    def is_stale(self) -> bool:
-        """放置されているか"""
-        if self.updated_at and self.status == GOAL_STATUS_ACTIVE:
-            days_since_update = (datetime.now() - self.updated_at).days
-            return days_since_update >= GOAL_STALE_DAYS
-        return False
-
-    @property
-    def days_since_update(self) -> int:
-        """最終更新からの日数"""
-        if self.updated_at:
-            return (datetime.now() - self.updated_at).days
-        return 0
+# GoalInfo は lib/brain/models.py からimport済み
+# 重複定義を避けるため、ここでは定義しない（SoT: models.py）
 
 
 @dataclass

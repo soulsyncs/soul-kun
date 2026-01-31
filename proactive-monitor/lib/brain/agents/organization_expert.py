@@ -36,6 +36,8 @@ from lib.brain.agents.base import (
     MessageType,
     ExpertiseLevel,
 )
+# SoT: lib/brain/models.py から統一版をimport
+from lib.brain.models import PersonInfo
 
 
 logger = logging.getLogger(__name__)
@@ -121,19 +123,8 @@ EXPERTISE_KEYWORDS = [
 # データクラス
 # =============================================================================
 
-@dataclass
-class PersonInfo:
-    """
-    人物情報
-    """
-    user_id: str = ""
-    name: str = ""
-    department: str = ""
-    position: str = ""
-    email: str = ""
-    chatwork_id: str = ""
-    expertise: List[str] = field(default_factory=list)
-    responsibilities: List[str] = field(default_factory=list)
+# PersonInfo は lib/brain/models.py からimport済み
+# 重複定義を避けるため、ここでは定義しない（SoT: models.py）
 
 
 @dataclass

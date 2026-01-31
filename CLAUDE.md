@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 現在のステータス（2026-01-31 15:00更新）
+## 🚀 現在のステータス（2026-01-31 23:45更新）
 
 | 項目 | 状態 |
 |------|------|
@@ -13,22 +13,48 @@
 | **E2Eテスト** | ✅ 完了（GPT-5.2動作確認済み） |
 | **main.py統合** | ✅ 完了（USE_BRAIN_ARCHITECTURE=true で稼働中） |
 | **Lazy Import** | ✅ 完了（lib/: 283エントリ、lib/brain/: 619エントリ） |
-| **次のタスク** | テスト網羅性の向上（Advanced Judgment, Agents系） |
+| **本番Hotfix** | ✅ 2026-01-31 23:40 完了（7件の型不整合修正） |
+| **次のタスク** | 動作確認・テスト網羅性向上 |
 | **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
+
+### 🔧 本番障害修正完了（2026-01-31 23:40）
+
+**症状**: 「処理中に問題が発生したウル」エラー
+
+**網羅的調査で発見・修正した問題（全7件）:**
+
+| # | ファイル | 問題 | 修正 |
+|---|---------|------|------|
+| 1 | `context_builder.py` | GoalInfoを辞書として扱っていた | 属性アクセスに変更 |
+| 2 | `core.py:1529` | LLMPendingAction.confidenceにオブジェクト | `.overall`で数値化 |
+| 3 | `core.py:1597` | DecisionResult.confidenceにオブジェクト | `.overall`で数値化 |
+| 4-7 | `core.py` (4箇所) | debug_info内にオブジェクト | `.to_dict()`で辞書化 |
+
+**デプロイ:**
+- Revision: `chatwork-webhook-00310-z2j`
+- PR: https://github.com/soulsyncs/soul-kun/pull/368
 
 ### 次回やること
 
 ```
-1. テスト網羅性の向上（優先度：高）
-   - Advanced Judgment テスト（9モジュール、0テスト）
-   - Agents テスト（8モジュール、0テスト）
-   - CEO Learning テスト（2モジュール、0テスト）
-   - Deep Understanding テスト拡充
-2. 本番モニタリング・チューニング
-3. Observability DB永続化（低優先度）
+1. 本番動作確認（目標表示、タスク表示、メッセージ送信）
+2. 静的型チェッカー(mypy)の導入検討
+3. テスト網羅性の向上
 ```
 
-> **続きのキーワード:** 「テスト網羅性向上」「Advanced Judgment テスト」
+> **続きのキーワード:** 「本番動作確認」「mypy導入」
+
+### ✅ 技術的負債解消完了（2026-02-01 08:30）
+
+**GoalInfo/TaskInfo/PersonInfo のクラス定義統一**
+
+4箇所にバラバラに存在していた同名クラスを `lib/brain/models.py` に統一。
+
+| 変更前 | 変更後 |
+|--------|--------|
+| 4ファイルに同名クラスが重複 | `models.py` がSoT（唯一の定義場所） |
+| 各ファイルでフィールド名が異なる | 統一フィールド名 + 後方互換エイリアス |
+| 型不整合でエラー発生 | 全231テストパス |
 
 ### モデル選定
 
@@ -458,9 +484,13 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 
 | 項目 | ファイル | 説明 |
 |------|---------|------|
+| **ドメインモデル** | `lib/brain/models.py` | GoalInfo, TaskInfo, PersonInfo等のSoT【v10.54追加】 |
 | **環境変数名** | `lib/brain/env_config.py` | 環境変数名の定義（USE_BRAIN_ARCHITECTURE等） |
 | **定数** | `lib/brain/constants.py` | 閾値、アクション定義（NO_CONFIRMATION_ACTIONS等） |
 | **デプロイ設定** | `cloudbuild.yaml`, `cloudbuild-proactive-monitor.yaml` | Cloud Build設定 |
+
+> **重要（v10.54）**: GoalInfo/TaskInfo/PersonInfoを他のファイルで定義しないこと。
+> 必ず `from lib.brain.models import GoalInfo, TaskInfo, PersonInfo` でimportして使用。
 
 > **重要**: 環境変数を追加・変更する場合は必ず `lib/brain/env_config.py` を更新し、
 > デプロイ設定（cloudbuild.yaml等）との整合性を `scripts/validate_deploy_config.sh` で検証すること。

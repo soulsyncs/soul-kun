@@ -39,6 +39,8 @@ from lib.brain.constants import (
     INSIGHTS_LIMIT,
 )
 from lib.brain.exceptions import MemoryAccessError, MemoryNotFoundError, MemoryConnectionError
+# SoT: lib/brain/models.py から統一版をimport
+from lib.brain.models import PersonInfo, TaskInfo, GoalInfo
 
 logger = logging.getLogger(__name__)
 
@@ -103,73 +105,8 @@ class UserPreferenceData:
         }
 
 
-@dataclass
-class PersonInfo:
-    """人物情報"""
-    id: Optional[UUID] = None
-    name: str = ""
-    attributes: Dict[str, str] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": str(self.id) if self.id else None,
-            "name": self.name,
-            "attributes": self.attributes,
-        }
-
-
-@dataclass
-class TaskInfo:
-    """タスク情報"""
-    task_id: str = ""
-    body: str = ""
-    summary: Optional[str] = None
-    status: str = "open"
-    limit_time: Optional[datetime] = None
-    room_id: Optional[str] = None
-    room_name: Optional[str] = None
-    assigned_to_name: Optional[str] = None
-    assigned_by_name: Optional[str] = None
-    is_overdue: bool = False
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "task_id": self.task_id,
-            "body": self.body,
-            "summary": self.summary,
-            "status": self.status,
-            "limit_time": self.limit_time.isoformat() if self.limit_time else None,
-            "room_id": self.room_id,
-            "room_name": self.room_name,
-            "assigned_to_name": self.assigned_to_name,
-            "assigned_by_name": self.assigned_by_name,
-            "is_overdue": self.is_overdue,
-        }
-
-
-@dataclass
-class GoalInfo:
-    """目標情報"""
-    id: Optional[UUID] = None
-    title: str = ""
-    why: Optional[str] = None
-    what: Optional[str] = None
-    how: Optional[str] = None
-    status: str = "active"
-    progress: float = 0.0
-    deadline: Optional[datetime] = None
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": str(self.id) if self.id else None,
-            "title": self.title,
-            "why": self.why,
-            "what": self.what,
-            "how": self.how,
-            "status": self.status,
-            "progress": self.progress,
-            "deadline": self.deadline.isoformat() if self.deadline else None,
-        }
+# PersonInfo, TaskInfo, GoalInfo は lib/brain/models.py からimport済み
+# 重複定義を避けるため、ここでは定義しない（SoT: models.py）
 
 
 @dataclass
@@ -584,7 +521,7 @@ class BrainMemoryAccess:
 
                     persons.append(
                         PersonInfo(
-                            id=person_id,
+                            person_id=str(person_id) if person_id else "",
                             name=name,
                             attributes=attributes,
                         )
@@ -672,10 +609,10 @@ class BrainMemoryAccess:
                         body=row[1] or "",
                         summary=row[2],
                         status=row[3] or "open",
-                        limit_time=_parse_limit_time(row[4]),
+                        due_date=_parse_limit_time(row[4]),  # limit_time -> due_date
                         room_id=str(row[5]) if row[5] else None,
                         room_name=row[6],
-                        assigned_to_name=row[7],
+                        assignee_name=row[7],  # assigned_to_name -> assignee_name
                         assigned_by_name=row[8],
                         is_overdue=_is_overdue(row[4]),
                     )
@@ -736,7 +673,7 @@ class BrainMemoryAccess:
 
                 return [
                     GoalInfo(
-                        id=row[0],
+                        goal_id=str(row[0]) if row[0] else "",  # id -> goal_id
                         title=row[1] or "",
                         why=None,  # goalsテーブルにwhy_reasonカラムは存在しない
                         what=row[2],  # descriptionをwhatとして使用

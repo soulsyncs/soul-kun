@@ -4,14 +4,14 @@
 
 ---
 
-## 🚀 現在のステータス（2026-01-31 18:30更新）
+## 🚀 現在のステータス（2026-01-31 21:15更新）
 
 | 項目 | 状態 |
 |------|------|
 | **設計書** | ✅ 100%完成（v1.5.0） |
 | **LLM Brain実装** | ✅ 完了（6ファイル、167テストパス） |
 | **E2Eテスト** | ✅ 完了（GPT-5.2動作確認済み） |
-| **main.py統合** | ✅ 完了（ENABLE_LLM_BRAIN=true で稼働中） |
+| **main.py統合** | ✅ 完了（USE_BRAIN_ARCHITECTURE=true で稼働中） |
 | **次のタスク** | lib/__init__.py Lazy Import リファクタリング |
 | **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
 
@@ -193,6 +193,23 @@ Tool実行
 | 4 | **言葉が二義的（2つ以上の意味）** | 「DM」→ ダイレクトメッセージ? ダイレクトメール? |
 | 5 | **確信度が70%未満** | 何をしたいか自信がない |
 | 6 | **危険な操作** | 削除, 全員への送信, 権限変更 |
+
+#### 4-1b. 確認不要のアクション（例外規定）【v10.53.1追加】
+
+**以下のアクションは、確信度が低くても確認をスキップする：**
+
+| アクション | 理由 |
+|-----------|------|
+| `general_conversation` | 挨拶・雑談は確認不要（低リスク） |
+| `greeting` | 「おはよう」等の挨拶 |
+| `small_talk` | 日常会話・雑談 |
+| `thanks` | お礼 |
+| `goodbye` | 別れの挨拶 |
+
+**根拠**: `lib/brain/constants.py` の `NO_CONFIRMATION_ACTIONS`
+
+> **なぜ例外が必要か**: 一般会話に対して「一般会話でいいですか？」と確認するのは
+> ユーザー体験を著しく損なう。これらは破壊的操作ではなく、リスクが極めて低い。
 
 ### 4-2. 確認テンプレート
 
@@ -433,6 +450,17 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 | 権限レベルの実装 | `api/app/services/access_control.py` |
 | 進捗状況 | `PROGRESS.md` |
 | 旧設計書（参照用） | `docs/archive/legacy/` |
+
+### 実装のSingle Source of Truth【v10.53.2追加】
+
+| 項目 | ファイル | 説明 |
+|------|---------|------|
+| **環境変数名** | `lib/brain/env_config.py` | 環境変数名の定義（USE_BRAIN_ARCHITECTURE等） |
+| **定数** | `lib/brain/constants.py` | 閾値、アクション定義（NO_CONFIRMATION_ACTIONS等） |
+| **デプロイ設定** | `cloudbuild.yaml`, `cloudbuild-proactive-monitor.yaml` | Cloud Build設定 |
+
+> **重要**: 環境変数を追加・変更する場合は必ず `lib/brain/env_config.py` を更新し、
+> デプロイ設定（cloudbuild.yaml等）との整合性を `scripts/validate_deploy_config.sh` で検証すること。
 
 ### 運用・トラブルシューティング
 

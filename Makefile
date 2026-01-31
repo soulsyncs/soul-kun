@@ -13,7 +13,7 @@
 # v10.53.0: 初版作成（大規模修繕対応）
 # =============================================================================
 
-.PHONY: help sync sync-check sync-brain test test-quick deploy deploy-dry-run logs clean
+.PHONY: help sync sync-check sync-brain test test-quick deploy deploy-dry-run deploy-all deploy-proactive logs logs-proactive clean
 
 # デフォルトターゲット
 .DEFAULT_GOAL := help
@@ -79,6 +79,23 @@ deploy-force: ## テストをスキップしてデプロイ（緊急時のみ）
 	@echo "⚠️  テストをスキップしてデプロイします"
 	@./chatwork-webhook/deploy.sh --skip-tests
 
+deploy-proactive: ## proactive-monitorをデプロイ
+	@./proactive-monitor/deploy.sh
+
+deploy-proactive-dry-run: ## proactive-monitorのドライラン
+	@./proactive-monitor/deploy.sh --dry-run
+
+deploy-all: ## 全Cloud Functionsをデプロイ
+	@echo "🚀 全Cloud Functionsをデプロイします..."
+	@echo ""
+	@echo "=== chatwork-webhook ==="
+	@./chatwork-webhook/deploy.sh --skip-tests
+	@echo ""
+	@echo "=== proactive-monitor ==="
+	@./proactive-monitor/deploy.sh --skip-tests
+	@echo ""
+	@echo "✅ 全デプロイ完了"
+
 # =============================================================================
 # ログ
 # =============================================================================
@@ -91,6 +108,12 @@ logs-error: ## エラーログのみ表示
 
 logs-brain: ## Brain関連ログを表示
 	@gcloud functions logs read chatwork-webhook --limit=100 | grep -i brain
+
+logs-proactive: ## proactive-monitorのログを表示
+	@gcloud functions logs read proactive-monitor --limit=50
+
+logs-proactive-error: ## proactive-monitorのエラーログ
+	@gcloud functions logs read proactive-monitor --limit=100 --min-log-level=ERROR
 
 # =============================================================================
 # 開発

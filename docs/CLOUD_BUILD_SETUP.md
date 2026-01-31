@@ -4,6 +4,13 @@
 
 mainブランチへのマージ時に、自動でCloud Functionsにデプロイする設定です。
 
+## 対象Cloud Functions
+
+| Cloud Function | 構成ファイル | トリガー名 |
+|----------------|-------------|-----------|
+| chatwork-webhook | cloudbuild.yaml | chatwork-webhook-auto-deploy |
+| proactive-monitor | cloudbuild-proactive-monitor.yaml | proactive-monitor-auto-deploy |
+
 ## 設定手順
 
 ### Step 1: GitHub接続の設定（GCPコンソール）
@@ -41,7 +48,32 @@ mainブランチへのマージ時に、自動でCloud Functionsにデプロイ�
 
 4. 「作成」をクリック
 
-### Step 3: テスト
+### Step 3: proactive-monitor用トリガーの作成
+
+1. 「トリガーを作成」をクリック
+
+2. 以下の設定を入力：
+
+| 項目 | 値 |
+|------|-----|
+| **名前** | `proactive-monitor-auto-deploy` |
+| **リージョン** | `asia-northeast1` |
+| **説明** | mainブランチへのマージ時にproactive-monitorを自動デプロイ |
+| **イベント** | `ブランチにpush` |
+| **ブランチ** | `^main$` |
+| **構成** | `Cloud Build 構成ファイル` |
+| **ファイルの場所** | `cloudbuild-proactive-monitor.yaml` |
+
+3. 「含まれるファイル」フィルタを追加：
+   ```
+   proactive-monitor/**
+   lib/brain/**
+   lib/feature_flags.py
+   ```
+
+4. 「作成」をクリック
+
+### Step 4: テスト
 
 1. ブランチを作成してPRを出す
 2. mainにマージする

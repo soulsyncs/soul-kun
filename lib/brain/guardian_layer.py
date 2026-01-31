@@ -64,33 +64,68 @@ class RiskLevel(Enum):
 
 
 # 危険操作の定義
+# Task #11: Guardian Layerルール見直し・強化
 DANGEROUS_OPERATIONS: Dict[str, Dict[str, Any]] = {
     # 全員送信系
     "send_to_all": {"risk": "high", "action": "confirm", "double_confirm": True},
     "announcement_create": {"risk": "medium", "action": "confirm"},
+    "broadcast_message": {"risk": "high", "action": "confirm", "double_confirm": True},
 
     # 削除系
     "delete_task": {"risk": "medium", "action": "confirm"},
     "delete_goal": {"risk": "medium", "action": "confirm"},
     "delete_memory": {"risk": "high", "action": "confirm"},
     "forget_knowledge": {"risk": "medium", "action": "confirm"},
+    "bulk_delete": {"risk": "critical", "action": "confirm", "double_confirm": True},
 
     # 権限変更系（絶対禁止）
     "change_permission": {"risk": "critical", "action": "block"},
     "change_role": {"risk": "critical", "action": "block"},
+    "grant_access": {"risk": "critical", "action": "block"},
+    "revoke_access": {"risk": "critical", "action": "block"},
 
     # 機密情報系（絶対禁止）
     "send_confidential": {"risk": "critical", "action": "block"},
     "export_all_data": {"risk": "critical", "action": "block"},
+    "export_user_data": {"risk": "critical", "action": "block"},
+
+    # 外部連携系（確認必要）
+    "api_call_external": {"risk": "medium", "action": "confirm"},
+    "webhook_trigger": {"risk": "medium", "action": "confirm"},
+
+    # 設定変更系
+    "update_system_config": {"risk": "high", "action": "confirm", "double_confirm": True},
+    "change_notification_settings": {"risk": "low", "action": "confirm"},
+
+    # 支払い・経理系
+    "payment_execute": {"risk": "high", "action": "confirm", "double_confirm": True},
+    "invoice_approve": {"risk": "high", "action": "confirm"},
 }
 
 # セキュリティNGパターン（機密情報漏洩の可能性）
+# Task #11: Guardian Layerルール見直し・強化
 SECURITY_NG_PATTERNS = [
+    # 認証情報
     r"パスワード[は:：]\s*\S+",
     r"APIキー[は:：]\s*\S+",
     r"シークレット[は:：]\s*\S+",
     r"アクセストークン[は:：]\s*\S+",
     r"秘密鍵[は:：]\s*\S+",
+    r"(password|passwd)[=:]\s*\S+",
+    r"(api[_-]?key|apikey)[=:]\s*\S+",
+    r"(secret|token)[=:]\s*\S+",
+    r"Bearer\s+[A-Za-z0-9\-_]+",
+
+    # 個人情報
+    r"クレジットカード番号",
+    r"マイナンバー",
+    r"銀行口座番号",
+    r"\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}",  # カード番号パターン
+
+    # 内部システム情報
+    r"データベース接続",
+    r"(DB|database)[\s_]?(URL|URI|connection)",
+    r"(admin|root)[\s_]?(password|pass)",
 ]
 
 # 憲法違反キーワード（LLMが権限判定を試みている兆候）

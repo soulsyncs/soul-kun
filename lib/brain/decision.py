@@ -770,10 +770,19 @@ class BrainDecision:
 
         v10.42.0 P2: 人生軸との整合性スコアを追加
         スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
+
+        Note: ネガティブキーワードがマッチした場合は即座に0.0を返す
         """
         weights = CAPABILITY_SCORING_WEIGHTS
         message = understanding.raw_message.lower()
         intent = understanding.intent
+
+        # ネガティブキーワードチェック（即座に0を返す）
+        keywords = self.capability_keywords.get(cap_key, {})
+        negative = keywords.get("negative", [])
+        for neg in negative:
+            if neg in message:
+                return 0.0
 
         # 1. キーワードマッチ（35%）
         keyword_score = self._calculate_keyword_score(cap_key, message)

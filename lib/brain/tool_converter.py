@@ -297,6 +297,209 @@ def get_tools_for_llm() -> List[Dict[str, Any]]:
     return converter.convert_all(SYSTEM_CAPABILITIES)
 
 
+# =============================================================================
+# Task #12: Tool Converter機能拡張
+# =============================================================================
+
+@dataclass
+class ToolMetadata:
+    """
+    Tool拡張メタデータ
+
+    Guardian LayerやAuthorization Gateが使用する追加情報
+    """
+    name: str
+    category: str = "general"
+    risk_level: str = "low"  # low, medium, high, critical
+    requires_confirmation: bool = False
+    required_permission_level: int = 1  # 1-6
+    dependencies: List[str] = field(default_factory=list)  # 依存するTool名
+    version: str = "1.0.0"
+    deprecated: bool = False
+    deprecation_message: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "name": self.name,
+            "category": self.category,
+            "risk_level": self.risk_level,
+            "requires_confirmation": self.requires_confirmation,
+            "required_permission_level": self.required_permission_level,
+            "dependencies": self.dependencies,
+            "version": self.version,
+            "deprecated": self.deprecated,
+            "deprecation_message": self.deprecation_message,
+        }
+
+
+class ToolMetadataRegistry:
+    """
+    Tool拡張メタデータのレジストリ
+
+    Task #12: Tool Converter機能拡張
+
+    【目的】
+    - Tool のカテゴリ分類
+    - リスクレベル管理
+    - 依存関係マッピング
+    - バージョン管理
+    """
+
+    # カテゴリ定義
+    CATEGORIES = {
+        "task": "タスク管理",
+        "goal": "目標管理",
+        "message": "メッセージ送信",
+        "search": "検索・照会",
+        "memory": "記憶管理",
+        "admin": "管理機能",
+        "external": "外部連携",
+        "report": "レポート生成",
+    }
+
+    # デフォルトのリスクレベルマッピング
+    DEFAULT_RISK_LEVELS = {
+        # 高リスク（削除・変更系）
+        "delete": "high",
+        "remove": "high",
+        "update": "medium",
+        "modify": "medium",
+        # 中リスク（作成・送信系）
+        "create": "medium",
+        "send": "medium",
+        "post": "medium",
+        # 低リスク（検索・取得系）
+        "search": "low",
+        "get": "low",
+        "list": "low",
+        "find": "low",
+    }
+
+    def __init__(self):
+        self._metadata: Dict[str, ToolMetadata] = {}
+        self._loaded = False
+
+    def register(self, metadata: ToolMetadata) -> None:
+        """Toolメタデータを登録"""
+        self._metadata[metadata.name] = metadata
+        logger.debug(f"Registered tool metadata: {metadata.name}")
+
+    def get(self, tool_name: str) -> Optional[ToolMetadata]:
+        """Toolメタデータを取得"""
+        self._ensure_loaded()
+        return self._metadata.get(tool_name)
+
+    def get_by_category(self, category: str) -> List[ToolMetadata]:
+        """カテゴリ別にToolを取得"""
+        self._ensure_loaded()
+        return [m for m in self._metadata.values() if m.category == category]
+
+    def get_high_risk_tools(self) -> List[ToolMetadata]:
+        """高リスクToolを取得"""
+        self._ensure_loaded()
+        return [m for m in self._metadata.values() if m.risk_level in ["high", "critical"]]
+
+    def get_deprecated_tools(self) -> List[ToolMetadata]:
+        """非推奨Toolを取得"""
+        self._ensure_loaded()
+        return [m for m in self._metadata.values() if m.deprecated]
+
+    def infer_risk_level(self, tool_name: str) -> str:
+        """Tool名からリスクレベルを推測"""
+        tool_lower = tool_name.lower()
+        for keyword, risk in self.DEFAULT_RISK_LEVELS.items():
+            if keyword in tool_lower:
+                return risk
+        return "low"
+
+    def infer_category(self, tool_name: str) -> str:
+        """Tool名からカテゴリを推測"""
+        tool_lower = tool_name.lower()
+
+        if "task" in tool_lower:
+            return "task"
+        elif "goal" in tool_lower:
+            return "goal"
+        elif any(k in tool_lower for k in ["message", "send", "post", "announce"]):
+            return "message"
+        # memory を search より先にチェック（"forget"が"get"を含むため）
+        elif any(k in tool_lower for k in ["memory", "remember", "forget"]):
+            return "memory"
+        elif any(k in tool_lower for k in ["search", "find", "get", "list"]):
+            return "search"
+        elif any(k in tool_lower for k in ["admin", "config", "setting"]):
+            return "admin"
+        elif any(k in tool_lower for k in ["api", "webhook", "external"]):
+            return "external"
+        elif any(k in tool_lower for k in ["report", "summary", "analytics"]):
+            return "report"
+        else:
+            return "general"
+
+    def _ensure_loaded(self) -> None:
+        """SYSTEM_CAPABILITIESから自動ロード"""
+        if self._loaded:
+            return
+
+        try:
+            from handlers.registry import SYSTEM_CAPABILITIES
+
+            for key, cap in SYSTEM_CAPABILITIES.items():
+                if not cap.get("enabled", True):
+                    continue
+
+                metadata = ToolMetadata(
+                    name=key,
+                    category=cap.get("category", self.infer_category(key)),
+                    risk_level=self.infer_risk_level(key),
+                    requires_confirmation=cap.get("requires_confirmation", False),
+                    required_permission_level=cap.get("required_level", 1),
+                )
+                self.register(metadata)
+
+            self._loaded = True
+            logger.info(f"Loaded {len(self._metadata)} tool metadata entries")
+
+        except Exception as e:
+            logger.warning(f"Failed to load SYSTEM_CAPABILITIES: {e}")
+            self._loaded = True  # エラー時も再ロードしない
+
+    def get_all(self) -> List[ToolMetadata]:
+        """全Toolメタデータを取得"""
+        self._ensure_loaded()
+        return list(self._metadata.values())
+
+    def get_tool_summary(self) -> Dict[str, Any]:
+        """Toolサマリーを取得"""
+        self._ensure_loaded()
+
+        categories = {}
+        for m in self._metadata.values():
+            if m.category not in categories:
+                categories[m.category] = []
+            categories[m.category].append(m.name)
+
+        return {
+            "total_tools": len(self._metadata),
+            "by_category": categories,
+            "high_risk_count": len(self.get_high_risk_tools()),
+            "deprecated_count": len(self.get_deprecated_tools()),
+            "categories": list(self.CATEGORIES.keys()),
+        }
+
+
+# グローバルレジストリインスタンス
+_metadata_registry: Optional[ToolMetadataRegistry] = None
+
+
+def get_tool_metadata_registry() -> ToolMetadataRegistry:
+    """Toolメタデータレジストリを取得（シングルトン）"""
+    global _metadata_registry
+    if _metadata_registry is None:
+        _metadata_registry = ToolMetadataRegistry()
+    return _metadata_registry
+
+
 def get_tool_metadata(tool_name: str) -> Optional[Dict[str, Any]]:
     """
     Tool名からメタデータを取得

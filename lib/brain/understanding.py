@@ -126,10 +126,12 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.85,
     },
     "goal_review": {
-        "primary": ["目標一覧", "目標を見せて", "目標を表示", "目標を出して", "登録済みの目標", "過去の目標"],
-        "secondary": ["一覧", "表示", "出して", "見せて", "整理", "削除", "修正", "多すぎ", "ぐちゃぐちゃ", "過去", "もともと", "登録済み", "最新"],
-        "modifiers": ["一覧", "表示", "整理", "削除", "修正"],
-        "negative": ["登録したい", "新規", "新しく", "作りたい", "設定したい"],
+        # v10.52.0: 他ドメインとの誤マッチを防ぐため、目標固有の表現のみに限定
+        "primary": ["目標一覧", "目標を見せて", "目標を表示", "目標を出して", "登録済みの目標", "過去の目標", "ゴール一覧", "ゴールを見せて"],
+        # secondaryからドメイン非依存のキーワードを削除（"一覧", "削除", "見せて"等）
+        "secondary": ["目標", "ゴール"],
+        "modifiers": ["整理", "修正", "多すぎ", "ぐちゃぐちゃ", "過去", "もともと", "登録済み", "最新"],
+        "negative": ["登録したい", "新規", "新しく", "作りたい", "設定したい", "タスク", "仕事", "組織図", "組織", "ナレッジ", "知識", "部署"],
         "confidence_boost": 0.90,
     },
     "goal_consult": {
@@ -147,11 +149,12 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.8,
     },
     "goal_status_check": {
-        "primary": ["達成率", "進捗確認", "どれくらい達成", "目標の進捗"],
-        "secondary": ["進捗", "状況"],
+        # v10.52.0: "どうなった" パターンを追加
+        "primary": ["達成率", "進捗確認", "どれくらい達成", "目標の進捗", "目標どうなった", "目標どうなってる"],
+        "secondary": ["進捗", "状況", "どうなった", "どうなってる"],
         "modifiers": ["確認", "教えて"],
         "negative": ["一覧", "表示", "整理", "削除", "修正", "設定", "登録", "新規"],
-        "confidence_boost": 0.8,
+        "confidence_boost": 0.85,  # 0.8 → 0.85 に上げて goal_progress_report より優先
     },
     "save_memory": {
         "primary": ["人を覚えて", "社員を記憶"],
@@ -166,10 +169,11 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.8,
     },
     "forget_knowledge": {
-        "primary": ["知識を忘れて", "ナレッジ削除"],
+        # v10.52.0: ナレッジ削除パターンを拡充、confidence_boostを上げる
+        "primary": ["知識を忘れて", "ナレッジ削除", "ナレッジを削除", "知識を削除", "覚えたことを削除"],
         "secondary": ["忘れて", "削除して", "消して"],
-        "modifiers": [],
-        "confidence_boost": 0.8,
+        "modifiers": ["削除", "消す", "忘れ"],
+        "confidence_boost": 0.85,
     },
     "query_knowledge": {
         "primary": ["教えて", "知りたい"],
@@ -178,10 +182,11 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.8,
     },
     "query_org_chart": {
-        "primary": ["組織図", "部署一覧"],
+        # v10.52.0: 組織図表示パターンを拡充、confidence_boostを上げる
+        "primary": ["組織図", "部署一覧", "組織図を見せて", "組織構造"],
         "secondary": ["組織", "部署", "チーム", "誰が", "担当者", "上司", "部下"],
-        "modifiers": [],
-        "confidence_boost": 0.75,
+        "modifiers": ["見せて", "表示", "教えて"],
+        "confidence_boost": 0.85,
     },
     "announcement_create": {
         "primary": ["アナウンスして", "お知らせして"],

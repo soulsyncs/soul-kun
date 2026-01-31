@@ -64,13 +64,13 @@ def sample_person_info():
 
 @pytest.fixture
 def sample_task_info():
-    """テスト用のTaskInfo"""
+    """テスト用のTaskInfo（統一版: lib/brain/models.py）"""
     return TaskInfo(
         task_id="task_001",
         title="資料作成",
         due_date=datetime.now() + timedelta(days=1),
         status="open",
-        assigned_to="user_001",
+        assignee_name="user_001",  # assigned_to -> assignee_name
         is_overdue=False,
     )
 

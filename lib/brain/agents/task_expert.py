@@ -35,6 +35,8 @@ from lib.brain.agents.base import (
     MessageType,
     ExpertiseLevel,
 )
+# SoT: lib/brain/models.py から統一版をimport
+from lib.brain.models import TaskInfo
 
 
 logger = logging.getLogger(__name__)
@@ -90,38 +92,8 @@ PRIORITY_KEYWORDS = {
 # データクラス
 # =============================================================================
 
-@dataclass
-class TaskInfo:
-    """
-    タスク情報
-    """
-    task_id: str = ""
-    title: str = ""
-    body: str = ""
-    status: str = ""
-    priority: str = TASK_PRIORITY_NORMAL
-    assignee_id: str = ""
-    assignee_name: str = ""
-    due_date: Optional[datetime] = None
-    room_id: str = ""
-    room_name: str = ""
-    created_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
-
-    @property
-    def is_overdue(self) -> bool:
-        """期限切れか"""
-        if self.due_date and self.status != "done":
-            return datetime.now() > self.due_date
-        return False
-
-    @property
-    def days_until_due(self) -> Optional[int]:
-        """期限までの日数"""
-        if self.due_date:
-            delta = self.due_date - datetime.now()
-            return delta.days
-        return None
+# TaskInfo は lib/brain/models.py からimport済み
+# 重複定義を避けるため、ここでは定義しない（SoT: models.py）
 
 
 @dataclass

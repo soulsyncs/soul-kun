@@ -34,6 +34,9 @@ from datetime import datetime
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
 
+# SoT: lib/brain/models.py から統一版をimport
+from lib.brain.models import PersonInfo, TaskInfo, GoalInfo
+
 logger = logging.getLogger(__name__)
 
 # 日本時間
@@ -82,59 +85,8 @@ class UserPreferences:
         return ", ".join(parts) if parts else "なし"
 
 
-@dataclass
-class PersonInfo:
-    """人物情報"""
-    name: str
-    description: str = ""
-    department: Optional[str] = None
-    role: Optional[str] = None
-    attributes: Dict[str, Any] = field(default_factory=dict)
-
-    def to_string(self) -> str:
-        parts = [self.name]
-        if self.department:
-            parts.append(f"({self.department})")
-        if self.role:
-            parts.append(f"[{self.role}]")
-        if self.description:
-            parts.append(f": {self.description}")
-        return "".join(parts)
-
-
-@dataclass
-class TaskInfo:
-    """タスク情報"""
-    task_id: str
-    title: str
-    due_date: Optional[datetime] = None
-    status: str = "open"
-    assigned_to: Optional[str] = None
-    assigned_by: Optional[str] = None
-    is_overdue: bool = False
-
-    def to_string(self) -> str:
-        parts = [self.title]
-        if self.due_date:
-            parts.append(f"(期限: {self.due_date.strftime('%Y-%m-%d')})")
-        if self.is_overdue:
-            parts.append("[期限切れ]")
-        if self.assigned_to:
-            parts.append(f"担当: {self.assigned_to}")
-        return " ".join(parts)
-
-
-@dataclass
-class GoalInfo:
-    """目標情報"""
-    goal_id: str
-    title: str
-    progress: float = 0.0  # 0-100
-    status: str = "active"
-    deadline: Optional[datetime] = None
-
-    def to_string(self) -> str:
-        return f"{self.title} ({self.progress:.0f}%達成)"
+# PersonInfo, TaskInfo, GoalInfo は lib/brain/models.py からimport済み
+# 重複定義を避けるため、ここでは定義しない（SoT: models.py）
 
 
 @dataclass
@@ -538,6 +490,7 @@ class ContextBuilder:
             persons = await self.memory_access.get_person_info()
             return [
                 PersonInfo(
+                    person_id=p.person_id if hasattr(p, 'person_id') else "",  # 修正: person_id追加
                     name=p.name,
                     description=str(p.attributes) if p.attributes else "",
                     attributes=p.attributes if p.attributes else {},
@@ -564,10 +517,10 @@ class ContextBuilder:
                 TaskInfo(
                     task_id=str(t.task_id),
                     title=t.summary or t.body[:50],
-                    due_date=t.limit_time,
+                    due_date=t.due_date,  # 修正: limit_time → due_date（統一版フィールド名）
                     status=t.status,
-                    assigned_to=t.assigned_to_name,
-                    assigned_by=t.assigned_by_name,
+                    assignee_name=t.assignee_name,  # 修正: assigned_to → assignee_name
+                    assigned_by_name=t.assigned_by_name,  # 修正: assigned_by → assigned_by_name
                     is_overdue=t.is_overdue,
                 )
                 for t in tasks[:10]  # 最大10件
@@ -589,11 +542,12 @@ class ContextBuilder:
             goals = await self.memory_access.get_active_goals(user_id)
             result = []
             for g in goals[:5]:  # 最大5件
+                # memory_access.GoalInfoオブジェクトから属性を直接取得
                 goal_info = GoalInfo(
-                    goal_id=str(g.get("id", "")),
-                    title=g.get("title", g.get("goal_title", "")),
-                    progress=float(g.get("progress", 0)),
-                    status=g.get("status", "active"),
+                    goal_id=str(g.goal_id) if g.goal_id else "",  # 修正: g.id → g.goal_id（統一版フィールド名）
+                    title=g.title or "",
+                    progress=float(g.progress) if g.progress else 0.0,
+                    status=g.status or "active",
                 )
                 result.append(goal_info)
             return result

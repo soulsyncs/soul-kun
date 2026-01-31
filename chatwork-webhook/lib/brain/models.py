@@ -117,40 +117,278 @@ class PreferenceData:
 
 @dataclass
 class PersonInfo:
-    """人物情報"""
+    """
+    人物情報（統一版）
 
-    person_id: str
-    name: str                    # 名前
-    chatwork_account_id: Optional[str] = None
-    department: Optional[str] = None
-    role: Optional[str] = None
-    known_info: Dict[str, Any] = field(default_factory=dict)  # その他の情報
+    全コンポーネントで共通使用するPersonInfoの正式定義。
+    SoT: このファイル（lib/brain/models.py）
+
+    注意: 他のファイルでPersonInfoを定義しないこと。
+    必ずこのクラスをimportして使用すること。
+    """
+
+    # 識別子（用途に応じて使い分け）
+    person_id: str = ""              # 汎用ID
+    user_id: Optional[str] = None    # ユーザーID（DB参照用）
+    chatwork_account_id: Optional[str] = None  # Chatwork account_id
+
+    # 基本情報
+    name: str = ""                   # 名前（必須）
+    description: Optional[str] = None  # 説明・メモ
+
+    # 所属情報
+    department: Optional[str] = None   # 部署
+    role: Optional[str] = None         # 役割
+    position: Optional[str] = None     # 役職（roleのエイリアス的用途）
+    email: Optional[str] = None        # メールアドレス
+
+    # スキル・専門性
+    expertise: List[str] = field(default_factory=list)  # 専門分野
+
+    # 責務（organization_expert用）
+    responsibilities: List[str] = field(default_factory=list)
+
+    # 拡張情報（任意のキーバリュー）
+    attributes: Dict[str, Any] = field(default_factory=dict)  # 汎用属性
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "person_id": self.person_id,
+            "user_id": self.user_id,
+            "chatwork_account_id": self.chatwork_account_id,
+            "name": self.name,
+            "description": self.description,
+            "department": self.department,
+            "role": self.role,
+            "position": self.position,
+            "email": self.email,
+            "expertise": self.expertise,
+            "responsibilities": self.responsibilities,
+            "attributes": self.attributes,
+        }
+
+    def to_string(self) -> str:
+        """表示用文字列を生成"""
+        parts = [self.name]
+        if self.department:
+            parts.append(f"({self.department})")
+        if self.role or self.position:
+            parts.append(f"[{self.role or self.position}]")
+        if self.description:
+            parts.append(f": {self.description}")
+        return "".join(parts)
+
+    # 後方互換性のためのプロパティ
+    @property
+    def known_info(self) -> Dict[str, Any]:
+        """後方互換性: attributesのエイリアス"""
+        return self.attributes
+
+    @property
+    def chatwork_id(self) -> Optional[str]:
+        """後方互換性: chatwork_account_idのエイリアス"""
+        return self.chatwork_account_id
+
+    @property
+    def id(self) -> str:
+        """後方互換性: person_idのエイリアス"""
+        return self.person_id
 
 
 @dataclass
 class TaskInfo:
-    """タスク情報"""
+    """
+    タスク情報（統一版）
 
-    task_id: str
-    body: str                    # タスク内容
-    summary: Optional[str] = None  # AI生成の要約
-    assignee_name: Optional[str] = None
-    due_date: Optional[datetime] = None
-    status: str = "open"         # open, done
+    全コンポーネントで共通使用するTaskInfoの正式定義。
+    SoT: このファイル（lib/brain/models.py）
+
+    注意: 他のファイルでTaskInfoを定義しないこと。
+    必ずこのクラスをimportして使用すること。
+    """
+
+    # 識別子
+    task_id: str = ""                  # タスクID
+
+    # タスク内容
+    title: Optional[str] = None        # タイトル（短い表示用）
+    body: str = ""                     # タスク本文（詳細）
+    summary: Optional[str] = None      # AI生成の要約
+
+    # ステータス・優先度
+    status: str = "open"               # open, done
+    priority: str = "normal"           # high, normal, low
+
+    # 期限
+    due_date: Optional[datetime] = None   # 期限（datetimeとして統一）
+    is_overdue: bool = False              # 期限切れフラグ
+
+    # ルーム情報
     room_id: Optional[str] = None
     room_name: Optional[str] = None
+
+    # 担当者情報
+    assignee_id: Optional[str] = None       # 担当者ID
+    assignee_name: Optional[str] = None     # 担当者名
+    assigned_by_id: Optional[str] = None    # 依頼者ID
+    assigned_by_name: Optional[str] = None  # 依頼者名
+
+    # タイムスタンプ（task_expert用）
+    created_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "task_id": self.task_id,
+            "title": self.title,
+            "body": self.body,
+            "summary": self.summary,
+            "status": self.status,
+            "priority": self.priority,
+            "due_date": self.due_date.isoformat() if self.due_date else None,
+            "is_overdue": self.is_overdue,
+            "room_id": self.room_id,
+            "room_name": self.room_name,
+            "assignee_id": self.assignee_id,
+            "assignee_name": self.assignee_name,
+            "assigned_by_id": self.assigned_by_id,
+            "assigned_by_name": self.assigned_by_name,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def to_string(self) -> str:
+        """表示用文字列を生成"""
+        display_name = self.title or self.summary or (self.body[:40] if self.body else "")
+        parts = [display_name]
+        if self.due_date:
+            parts.append(f"(期限: {self.due_date.strftime('%Y-%m-%d')})")
+        if self.is_overdue:
+            parts.append("[期限切れ]")
+        if self.assignee_name:
+            parts.append(f"担当: {self.assignee_name}")
+        return " ".join(parts)
+
+    # 後方互換性のためのプロパティ
+    @property
+    def limit_time(self) -> Optional[datetime]:
+        """後方互換性: due_dateのエイリアス"""
+        return self.due_date
+
+    @property
+    def assigned_to(self) -> Optional[str]:
+        """後方互換性: assignee_nameのエイリアス"""
+        return self.assignee_name
+
+    @property
+    def assigned_to_name(self) -> Optional[str]:
+        """後方互換性: assignee_nameのエイリアス"""
+        return self.assignee_name
+
+    @property
+    def days_until_due(self) -> Optional[int]:
+        """期限までの日数（task_expert用）"""
+        if self.due_date:
+            delta = self.due_date - datetime.now()
+            return delta.days
+        return None
 
 
 @dataclass
 class GoalInfo:
-    """目標情報"""
+    """
+    目標情報（統一版）
 
-    goal_id: str
-    why: Optional[str] = None    # なぜその目標か
-    what: Optional[str] = None   # 何を達成するか
-    how: Optional[str] = None    # どうやって達成するか
-    due_date: Optional[datetime] = None
-    status: str = "active"
+    全コンポーネントで共通使用するGoalInfoの正式定義。
+    SoT: このファイル（lib/brain/models.py）
+
+    注意: 他のファイルでGoalInfoを定義しないこと。
+    必ずこのクラスをimportして使用すること。
+    """
+
+    # 識別子
+    goal_id: str = ""                  # 目標ID
+    user_id: Optional[str] = None      # ユーザーID
+    organization_id: Optional[str] = None  # 組織ID
+
+    # 目標内容
+    title: str = ""                    # タイトル（表示用）
+    why: Optional[str] = None          # なぜその目標か（目的・動機）
+    what: Optional[str] = None         # 何を達成するか（内容）
+    how: Optional[str] = None          # どうやって達成するか（方法）
+
+    # ステータス・進捗
+    status: str = "active"             # active, completed, paused, abandoned
+    progress: float = 0.0              # 進捗率 (0.0 - 100.0)
+
+    # 期限
+    deadline: Optional[datetime] = None   # 期限（datetimeとして統一）
+
+    # タイムスタンプ（goal_expert用）
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "goal_id": self.goal_id,
+            "user_id": self.user_id,
+            "organization_id": self.organization_id,
+            "title": self.title,
+            "why": self.why,
+            "what": self.what,
+            "how": self.how,
+            "status": self.status,
+            "progress": self.progress,
+            "deadline": self.deadline.isoformat() if self.deadline else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "completed_at": self.completed_at.isoformat() if self.completed_at else None,
+        }
+
+    def to_string(self) -> str:
+        """表示用文字列を生成"""
+        display_name = self.title or self.what or ""
+        return f"{display_name} ({self.progress:.0f}%達成)"
+
+    # 後方互換性のためのプロパティ
+    @property
+    def due_date(self) -> Optional[datetime]:
+        """後方互換性: deadlineのエイリアス"""
+        return self.deadline
+
+    @property
+    def id(self) -> str:
+        """後方互換性: goal_idのエイリアス"""
+        return self.goal_id
+
+    @property
+    def target_date(self) -> Optional[datetime]:
+        """後方互換性: deadlineのエイリアス（goal_expert用）"""
+        return self.deadline
+
+    @property
+    def progress_percentage(self) -> int:
+        """後方互換性: progressをintで返す（goal_expert用）"""
+        return int(self.progress)
+
+    @property
+    def is_stale(self) -> bool:
+        """放置されているか（goal_expert用）"""
+        if self.updated_at and self.status == "active":
+            days_since_update = (datetime.now() - self.updated_at).days
+            return days_since_update >= 7  # GOAL_STALE_DAYS
+        return False
+
+    @property
+    def days_since_update(self) -> int:
+        """最終更新からの日数（goal_expert用）"""
+        if self.updated_at:
+            return (datetime.now() - self.updated_at).days
+        return 0
 
 
 @dataclass

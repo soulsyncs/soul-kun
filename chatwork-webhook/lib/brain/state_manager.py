@@ -406,6 +406,10 @@ class BrainStateManager:
         try:
             now = datetime.utcnow()
 
+            # 同期poolの場合は同期メソッドを使用
+            if not self._is_async_pool:
+                return self._update_step_sync(room_id, user_id, new_step, additional_data, now)
+
             async with self.pool.connect() as conn:
                 async with conn.begin():
                     # 既存状態を取得
@@ -508,6 +512,96 @@ class BrainStateManager:
                 room_id=room_id,
                 user_id=user_id,
             )
+
+    def _update_step_sync(
+        self,
+        room_id: str,
+        user_id: str,
+        new_step: str,
+        additional_data: Optional[Dict[str, Any]],
+        now: datetime,
+    ) -> ConversationState:
+        """update_stepの同期版"""
+        import json
+
+        with self.pool.connect() as conn:
+            # 既存状態を取得
+            select_query = text("""
+                SELECT id, state_type, state_step, state_data,
+                       reference_type, reference_id, expires_at,
+                       timeout_minutes, created_at
+                FROM brain_conversation_states
+                WHERE organization_id = :org_id
+                  AND room_id = :room_id
+                  AND user_id = :user_id
+                FOR UPDATE
+            """)
+            result = conn.execute(select_query, {
+                "org_id": self.org_id,
+                "room_id": room_id,
+                "user_id": user_id,
+            })
+            row = result.fetchone()
+
+            if row is None:
+                raise StateError(
+                    message="No active state to update",
+                    room_id=room_id,
+                    user_id=user_id,
+                )
+
+            # state_dataをマージ
+            merged_data = row.state_data or {}
+            if additional_data:
+                merged_data.update(additional_data)
+
+            # タイムアウトを延長
+            new_expires = now + timedelta(minutes=row.timeout_minutes)
+
+            # 更新
+            update_query = text("""
+                UPDATE brain_conversation_states
+                SET state_step = :new_step,
+                    state_data = CAST(:state_data AS jsonb),
+                    expires_at = :expires_at,
+                    updated_at = :now
+                WHERE organization_id = :org_id
+                  AND room_id = :room_id
+                  AND user_id = :user_id
+            """)
+            conn.execute(update_query, {
+                "org_id": self.org_id,
+                "room_id": room_id,
+                "user_id": user_id,
+                "new_step": new_step,
+                "state_data": json.dumps(merged_data),
+                "expires_at": new_expires,
+                "now": now,
+            })
+            conn.commit()
+
+        # 更新後の状態を構築
+        updated_state = ConversationState(
+            state_id=str(row.id),
+            organization_id=self.org_id,
+            room_id=room_id,
+            user_id=user_id,
+            state_type=StateType(row.state_type),
+            state_step=new_step,
+            state_data=merged_data,
+            reference_type=row.reference_type,
+            reference_id=str(row.reference_id) if row.reference_id else None,
+            expires_at=new_expires,
+            created_at=row.created_at,
+            updated_at=now,
+        )
+
+        logger.info(
+            f"State step updated (sync): room={room_id}, user={user_id}, "
+            f"step={row.state_step} → {new_step}"
+        )
+
+        return updated_state
 
     # =========================================================================
     # クリーンアップ

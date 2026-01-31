@@ -56,7 +56,7 @@ steps:
       - '--memory=512MB'
       - '--timeout=540s'
       - '--allow-unauthenticated'
-      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,ENABLE_LLM_BRAIN=true,LOG_EXECUTION_ID=true'
+      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true'
     waitFor: ['sync-check']
 
   # =============================================================================

@@ -9,7 +9,7 @@ v10.46.0: 脳の判断過程を統一的にログ出力し、Cloud Logging + 将
 - 将来的には brain_decision_logs テーブルへの記録も可能な構造
 - コンテキストの種類が増えても同じインターフェースで対応可能
 
-設計書: docs/13_brain_architecture.md
+設計書: docs/25_llm_native_brain_architecture.md（LLM常駐型脳アーキテクチャ）
 鉄則3: 脳が判断し、機能は実行するだけ
 鉄則4: 機能拡張しても脳の構造は変わらない
 

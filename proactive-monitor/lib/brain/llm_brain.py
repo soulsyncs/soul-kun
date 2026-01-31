@@ -390,6 +390,10 @@ class LLMBrain:
         self.max_tokens = max_tokens
         self.use_openrouter = use_openrouter
 
+        # httpxクライアント（コネクションプーリング用）
+        # v10.53.4: 毎回新規クライアント生成を避け、パフォーマンス向上
+        self._client: Optional[httpx.AsyncClient] = None
+
         # API提供元の決定とAPIキー取得
         if use_openrouter:
             self._init_openrouter(model, api_key)
@@ -471,6 +475,51 @@ class LLMBrain:
                 "Anthropic API key is required. "
                 "Set ANTHROPIC_API_KEY environment variable."
             )
+
+    # =========================================================================
+    # httpxクライアント管理（コネクションプーリング）
+    # =========================================================================
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """
+        httpxクライアントを取得（シングルトン）
+
+        コネクションプーリングを活用し、パフォーマンスを向上させる。
+        v10.53.4: 毎回のクライアント生成を回避
+
+        Returns:
+            httpx.AsyncClient: 再利用可能なクライアント
+        """
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=API_TIMEOUT_SECONDS,
+                limits=httpx.Limits(
+                    max_keepalive_connections=5,
+                    max_connections=10,
+                ),
+            )
+            logger.debug("Created new httpx AsyncClient with connection pooling")
+        return self._client
+
+    async def close(self) -> None:
+        """
+        httpxクライアントをクローズ
+
+        リソースを解放する。アプリケーション終了時に呼び出すこと。
+        """
+        if self._client is not None and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
+            logger.debug("Closed httpx AsyncClient")
+
+    async def __aenter__(self):
+        """async context manager entry"""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """async context manager exit"""
+        await self.close()
+        return False
 
     # =========================================================================
     # メイン処理
@@ -739,32 +788,32 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             request_body["tools"] = openai_tools
             request_body["tool_choice"] = "auto"
 
-        # API呼び出し
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": HTTP_REFERER,
-                    "X-Title": APP_TITLE,
-                },
-                json=request_body,
-                timeout=API_TIMEOUT_SECONDS,
+        # API呼び出し（コネクションプーリング使用）
+        client = await self._get_client()
+        response = await client.post(
+            self.api_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": HTTP_REFERER,
+                "X-Title": APP_TITLE,
+            },
+            json=request_body,
+            timeout=API_TIMEOUT_SECONDS,
+        )
+
+        if response.status_code != 200:
+            error_text = response.text
+            logger.error(
+                f"OpenRouter API error: "
+                f"status={response.status_code}, "
+                f"body={error_text[:500]}"
+            )
+            raise Exception(
+                f"OpenRouter API error: {response.status_code} - {error_text}"
             )
 
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(
-                    f"OpenRouter API error: "
-                    f"status={response.status_code}, "
-                    f"body={error_text[:500]}"
-                )
-                raise Exception(
-                    f"OpenRouter API error: {response.status_code} - {error_text}"
-                )
-
-            return response.json()
+        return response.json()
 
     # =========================================================================
     # Anthropic API呼び出し
@@ -809,31 +858,31 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             request_body["tools"] = tools
             request_body["tool_choice"] = {"type": "auto"}
 
-        # API呼び出し
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "x-api-key": self.api_key,
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                },
-                json=request_body,
-                timeout=API_TIMEOUT_SECONDS,
+        # API呼び出し（コネクションプーリング使用）
+        client = await self._get_client()
+        response = await client.post(
+            self.api_url,
+            headers={
+                "x-api-key": self.api_key,
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+            },
+            json=request_body,
+            timeout=API_TIMEOUT_SECONDS,
+        )
+
+        if response.status_code != 200:
+            error_text = response.text
+            logger.error(
+                f"Anthropic API error: "
+                f"status={response.status_code}, "
+                f"body={error_text[:500]}"
+            )
+            raise Exception(
+                f"Anthropic API error: {response.status_code} - {error_text}"
             )
 
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(
-                    f"Anthropic API error: "
-                    f"status={response.status_code}, "
-                    f"body={error_text[:500]}"
-                )
-                raise Exception(
-                    f"Anthropic API error: {response.status_code} - {error_text}"
-                )
-
-            return response.json()
+        return response.json()
 
     # =========================================================================
     # レスポンス解析
@@ -876,9 +925,15 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
                 function = tc.get("function", {})
                 try:
                     parameters = json.loads(function.get("arguments", "{}"))
-                except json.JSONDecodeError:
-                    parameters = {}
-                    logger.warning(f"Failed to parse tool arguments: {function.get('arguments')}")
+                except json.JSONDecodeError as e:
+                    # v10.53.4: JSONパースエラーを握りつぶさず、エラーとして記録
+                    # ただし処理は続行し、空のパラメータでTool呼び出しを試みる
+                    # これにより後続のGuardianLayerで適切に検出される
+                    logger.error(
+                        f"Failed to parse tool arguments (JSONDecodeError): "
+                        f"error={e}, arguments={function.get('arguments')}"
+                    )
+                    parameters = {"_parse_error": str(e)}
 
                 tool_calls.append(ToolCall(
                     tool_name=function.get("name", ""),

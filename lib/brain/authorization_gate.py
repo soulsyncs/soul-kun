@@ -5,7 +5,7 @@
 実行前の権限チェックを統括するレイヤー。
 Guardian Gate、Value Authority、Memory Authority、ExecutionExcellenceの評価を一元管理。
 
-設計書: docs/13_brain_architecture.md
+設計書: docs/25_llm_native_brain_architecture.md（LLM常駐型脳アーキテクチャ）
 """
 
 import asyncio

@@ -6,7 +6,7 @@
 定数の変更は慎重に行い、影響範囲を確認してください。
 
 【設計書参照】
-- docs/13_brain_architecture.md - 脳アーキテクチャ全体設計
+- docs/25_llm_native_brain_architecture.md - LLM常駐型脳アーキテクチャ設計書（主軸）
 - CLAUDE.md セクション3「データソース優先順位」 - TruthSource定義
 - CLAUDE.md セクション4「意図の取り違え検知ルール」 - CONFIRMATION_THRESHOLD
 """

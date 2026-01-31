@@ -137,8 +137,9 @@ class Settings:
     ENVIRONMENT: str = field(default_factory=lambda: os.getenv(
         "ENVIRONMENT", "development"
     ))
+    # セキュリティ: 本番環境でDEBUGがデフォルトtrueにならないよう修正（v10.53.4）
     DEBUG: bool = field(default_factory=lambda: os.getenv(
-        "DEBUG", "true"
+        "DEBUG", "false"
     ).lower() == "true")
 
     # CORS設定（ローカル開発用）

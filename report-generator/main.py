@@ -33,10 +33,26 @@ def report_generator(request: Request):
     print(f"📋 Report Generator called: path={request.path}, method={request.method}")
 
     # CORSヘッダー
+    # セキュリティ: 許可するオリジンを明示的に指定（v10.53.4）
+    ALLOWED_ORIGINS = [
+        "https://app.soulsyncs.co.jp",
+        "https://org-chart.soulsyncs.jp",
+        "https://soulsyncs.co.jp",
+    ]
+
+    request_origin = request.headers.get('Origin', '')
+
+    if request_origin in ALLOWED_ORIGINS:
+        cors_origin = request_origin
+    else:
+        # 許可されていないオリジンにはCORSヘッダーを返さない
+        cors_origin = ALLOWED_ORIGINS[0]  # デフォルト
+
     headers = {
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': cors_origin,
         'Access-Control-Allow-Methods': 'POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
+        'Access-Control-Allow-Credentials': 'true',
     }
 
     # OPTIONSリクエスト（CORS preflight）

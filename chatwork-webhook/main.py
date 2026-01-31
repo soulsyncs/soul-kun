@@ -3752,21 +3752,22 @@ def chatwork_webhook(request):
         # Webhookトークンを取得
         webhook_token = get_chatwork_webhook_token()
         
-        if webhook_token:
-            # トークンが設定されている場合は署名検証を実行
-            if not signature:
-                print("❌ 署名ヘッダーがありません（不正なリクエストの可能性）")
-                return jsonify({"status": "error", "message": "Missing signature"}), 403
-            
-            if not verify_chatwork_webhook_signature(request_body, signature, webhook_token):
-                print("❌ 署名検証失敗（不正なリクエストの可能性）")
-                return jsonify({"status": "error", "message": "Invalid signature"}), 403
-            
-            print("✅ 署名検証成功")
-        else:
-            # トークンが設定されていない場合は警告を出して続行（後方互換性）
-            print("⚠️ Webhookトークンが設定されていません。署名検証をスキップします。")
-            print("⚠️ セキュリティのため、Secret Managerに'CHATWORK_WEBHOOK_TOKEN'を設定してください。")
+        # v10.53.4: Webhook署名検証を必須化（セキュリティ強化）
+        if not webhook_token:
+            # 本番環境ではWebhookトークンが必須
+            print("❌ Webhookトークンが設定されていません。セキュリティ上の理由でリクエストを拒否します。")
+            print("❌ Secret Managerに'CHATWORK_WEBHOOK_TOKEN'を設定してください。")
+            return jsonify({"status": "error", "message": "Webhook token not configured"}), 500
+
+        if not signature:
+            print("❌ 署名ヘッダーがありません（不正なリクエストの可能性）")
+            return jsonify({"status": "error", "message": "Missing signature"}), 403
+
+        if not verify_chatwork_webhook_signature(request_body, signature, webhook_token):
+            print("❌ 署名検証失敗（不正なリクエストの可能性）")
+            return jsonify({"status": "error", "message": "Invalid signature"}), 403
+
+        print("✅ 署名検証成功")
         
         # =====================================================
         # 署名検証完了、通常処理を続行

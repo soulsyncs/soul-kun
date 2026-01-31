@@ -326,6 +326,11 @@ def is_toall_mention(body):
 # ===== データベース操作関数 =====
 
 def get_or_create_person(name):
+    # TODO: v10.53.4 セキュリティ改善 - organization_idフィルタを追加すべき
+    # この関数はレガシーコードであり、lib/brain/経由のアーキテクチャでは
+    # 直接使用されていない。将来的にはorganization_idパラメータを追加し、
+    # マルチテナント環境でのデータ分離を強化する必要がある。
+    # 参照: セキュリティレビュー 2026-01-31
     pool = get_pool()
     with pool.connect() as conn:
         result = conn.execute(
@@ -358,6 +363,8 @@ def save_person_attribute(person_name, attribute_type, attribute_value, source="
     return True
 
 def get_person_info(person_name):
+    # TODO: v10.53.4 セキュリティ改善 - organization_idフィルタを追加すべき
+    # 参照: セキュリティレビュー 2026-01-31
     pool = get_pool()
     with pool.connect() as conn:
         person_result = conn.execute(

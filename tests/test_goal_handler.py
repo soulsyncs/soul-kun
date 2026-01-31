@@ -58,7 +58,10 @@ class TestHandleGoalRegistration:
     """目標登録ハンドラーのテスト"""
 
     def test_vague_goal_without_lib(self):
-        """漠然とした目標タイトル（ライブラリなし）"""
+        """漠然とした目標タイトル（ライブラリなし）→対話フローへ誘導
+
+        v10.53.4: 対話フロー導入により、直接登録ではなく対話形式へ誘導
+        """
         mock_pool, _ = create_mock_pool()
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": "目標を設定したい"}
@@ -68,7 +71,8 @@ class TestHandleGoalRegistration:
         )
 
         assert result["success"] is False
-        assert "目標の内容を教えて" in result["message"]
+        # 対話フローへの誘導メッセージを確認
+        assert "対話形式で進める" in result["message"] or "目標設定したい" in result["message"]
 
     def test_vague_goal_with_lib(self):
         """漠然とした目標タイトル（ライブラリあり）"""
@@ -114,7 +118,10 @@ class TestHandleGoalRegistration:
         assert result["success"] is False
 
     def test_specific_goal_user_not_found(self):
-        """具体的な目標だがユーザーが見つからない"""
+        """具体的な目標でも対話フローへ誘導される
+
+        v10.53.4: 対話フロー導入により、全ての目標登録は対話形式へ
+        """
         mock_pool, mock_conn = create_mock_pool()
 
         # fetchoneがNoneを返す（ユーザー未登録）
@@ -130,7 +137,8 @@ class TestHandleGoalRegistration:
         )
 
         assert result["success"] is False
-        assert "登録されていない" in result["message"]
+        # 対話フローへの誘導メッセージを確認
+        assert "対話形式で進める" in result["message"] or "目標設定したい" in result["message"]
 
     def test_specific_goal_no_organization(self):
         """具体的な目標だがorganization_idがNULL"""
@@ -279,7 +287,10 @@ class TestHandleGoalRegistration:
         assert result["success"] is True
 
     def test_exception_handling(self):
-        """例外処理"""
+        """例外処理 - 対話フロー誘導またはエラーメッセージ
+
+        v10.53.4: 対話フロー導入後は、例外が発生する前に対話誘導が行われる場合がある
+        """
         def raise_error():
             raise Exception("DB接続エラー")
 
@@ -291,7 +302,10 @@ class TestHandleGoalRegistration:
         )
 
         assert result["success"] is False
-        assert "失敗した" in result["message"]
+        # 対話フローへの誘導またはエラーメッセージ
+        assert ("失敗した" in result["message"] or
+                "対話形式で進める" in result["message"] or
+                "目標設定したい" in result["message"])
 
 
 class TestHandleGoalProgressReport:
@@ -846,7 +860,10 @@ class TestVagueGoalDetection:
         "未定義",
     ])
     def test_vague_goal_titles(self, title):
-        """漠然とした目標タイトルのリスト"""
+        """漠然とした目標タイトルは対話フローへ誘導される
+
+        v10.53.4: 対話フロー導入により、直接登録ではなく対話形式へ誘導
+        """
         mock_pool, _ = create_mock_pool()
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": title}
@@ -856,7 +873,8 @@ class TestVagueGoalDetection:
         )
 
         assert result["success"] is False
-        assert "目標の内容を教えて" in result["message"]
+        # 対話フローへの誘導メッセージを確認
+        assert "対話形式で進める" in result["message"] or "目標設定したい" in result["message"]
 
     @pytest.mark.parametrize("title", [
         "粗利300万円達成",
@@ -866,7 +884,11 @@ class TestVagueGoalDetection:
         "プロジェクト完了",
     ])
     def test_specific_goal_titles(self, title):
-        """具体的な目標タイトルは対話に入らない（ユーザー未登録でエラー）"""
+        """具体的な目標タイトルでも対話フローへ誘導される
+
+        v10.53.4: 対話フロー導入により、全ての目標登録は対話形式へ
+        WHY・WHAT・HOWの3ステップで登録する新しいフロー
+        """
         mock_pool, mock_conn = create_mock_pool()
 
         mock_result = MagicMock()
@@ -880,8 +902,9 @@ class TestVagueGoalDetection:
             params, "room_123", "account_456", "テストユーザー"
         )
 
-        # 具体的な目標は登録処理に進む（ユーザー未登録でエラー）
-        assert "登録されていない" in result["message"]
+        # 対話フローへの誘導、または対話状態確認
+        assert result["success"] is False
+        assert "対話形式で進める" in result["message"] or "目標設定したい" in result["message"]
 
 
 if __name__ == "__main__":

@@ -300,16 +300,18 @@ jobs:
           echo "Checking lib/feature_flags.py..."
           FF_FILE="lib/feature_flags.py"
           if [ -f "$FF_FILE" ]; then
-            # 正しい変数名を参照しているか（_get_env_boolの引数）
-            if grep -q "_get_env_bool.*\"$EXPECTED_VAR\"" "$FF_FILE"; then
-              echo "  ✅ Uses $EXPECTED_VAR"
+            # enable_llm_brain の設定で USE_BRAIN_ARCHITECTURE を使用しているか
+            # （コードが複数行にわたる場合も考慮）
+            if grep -A1 "self.enable_llm_brain" "$FF_FILE" | grep -q "\"$EXPECTED_VAR\""; then
+              echo "  ✅ enable_llm_brain uses $EXPECTED_VAR"
             else
-              echo "  ❌ Does not use $EXPECTED_VAR for LLM Brain flag"
+              echo "  ❌ enable_llm_brain does not use $EXPECTED_VAR"
               ERRORS_FOUND=1
             fi
-            # 間違った変数名を参照していないか
-            if grep "_get_env_bool.*\"ENABLE_LLM_BRAIN\"" "$FF_FILE" | grep -v "^#" | grep -q .; then
-              echo "  ❌ Uses wrong variable name 'ENABLE_LLM_BRAIN'"
+            # ENABLE_LLM_BRAIN が使われていないか（ドキュメント/コメント以外で）
+            # 除外: コメント行（#で始まる）、docstring内、文字列リテラル内の説明
+            if grep "ENABLE_LLM_BRAIN" "$FF_FILE" | grep -v "^#" | grep -v "# " | grep "_get_env_bool" | grep -q .; then
+              echo "  ❌ Uses wrong variable name 'ENABLE_LLM_BRAIN' in _get_env_bool"
               ERRORS_FOUND=1
             fi
           fi

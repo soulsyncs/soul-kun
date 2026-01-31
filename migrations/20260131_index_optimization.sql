@@ -1,18 +1,28 @@
--- =====================================================================
+-- ============================================================================
 -- インデックス最適化マイグレーション
---
--- 目的: クエリパフォーマンスの向上
+-- マイグレーション: 20260131_index_optimization.sql
 -- 作成日: 2026-01-31
--- 作成者: Claude Opus 4.5（データベースレビュー結果に基づく）
+-- 作成者: Claude Opus 4.5
 --
--- 参照: セキュリティ・品質レビュー 2026-01-31
--- =====================================================================
+-- 目的:
+-- - クエリパフォーマンスの改善
+-- - N+1問題の軽減
+-- - 日次集計・分析クエリの高速化
+--
+-- 参照:
+-- - Database Query Optimization Review (2026-01-31)
+-- - docs/25_llm_native_brain_architecture.md セクション15
+-- ============================================================================
 
--- =====================================================================
+-- NOTE: CONCURRENTLY を使用しているため、トランザクション外で実行してください
+-- 本番適用時は各CREATEを個別に実行することを推奨
+
+-- ============================================================================
 -- 1. brain_conversation_states の複合インデックス
--- =====================================================================
+-- 目的: セッション状態取得クエリの高速化
+-- ============================================================================
 
--- メイン検索用（organization_id, room_id, user_idの組み合わせ）
+-- 状態取得用の複合インデックス
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_brain_conv_states_lookup
 ON brain_conversation_states (organization_id, room_id, user_id);
 
@@ -21,84 +31,90 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_brain_conv_states_expired
 ON brain_conversation_states (expires_at)
 WHERE expires_at IS NOT NULL;
 
--- =====================================================================
--- 2. ceo_teachings の検索最適化
--- =====================================================================
 
--- アクティブな教えの検索用
+-- ============================================================================
+-- 2. ceo_teachings の検索最適化
+-- 目的: アクティブなCEO教え検索の高速化
+-- ============================================================================
+
+-- アクティブな教えの検索用（部分インデックス）
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ceo_teachings_active_search
 ON ceo_teachings (organization_id, is_active, validation_status)
 WHERE is_active = true;
 
--- ソート用（priority, usage_count）
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ceo_teachings_sort
-ON ceo_teachings (priority DESC, usage_count DESC)
+-- カテゴリ検索用
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ceo_teachings_category
+ON ceo_teachings (organization_id, category)
 WHERE is_active = true;
 
--- =====================================================================
+
+-- ============================================================================
 -- 3. user_long_term_memory の検索最適化
--- =====================================================================
+-- 目的: メモリ検索クエリの高速化
+-- ============================================================================
 
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_long_term_memory_lookup
 ON user_long_term_memory (organization_id, user_id, memory_type);
 
--- =====================================================================
--- 4. brain_decision_logs の分析用インデックス
--- =====================================================================
+-- 作成日時でのソート用
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_long_term_memory_created
+ON user_long_term_memory (organization_id, user_id, created_at DESC);
 
--- 低確信度の判断を分析するためのインデックス
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_logs_low_confidence
+
+-- ============================================================================
+-- 4. brain_decision_logs の分析用インデックス
+-- 目的: 低確信度判断の分析高速化
+-- ============================================================================
+
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_logs_analysis
 ON brain_decision_logs (organization_id, selected_action, understanding_confidence)
 WHERE understanding_confidence < 0.5;
 
--- =====================================================================
+-- 日付範囲での集計用
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_decision_logs_daily
+ON brain_decision_logs (organization_id, created_at);
+
+
+-- ============================================================================
 -- 5. departments の LTREE インデックス
--- =====================================================================
+-- 目的: 階層クエリ（祖先/子孫検索）の高速化
+-- ============================================================================
 
 -- GiSTインデックスでLTREE演算子を高速化
--- 注意: 既に存在する場合はスキップ
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_departments_path_gist
+ON departments USING GIST (path);
+
+
+-- ============================================================================
+-- 6. brain_observability_logs の追加インデックス
+-- 目的: 新しく追加されたObservabilityテーブルの検索高速化
+-- ============================================================================
+
+-- 日次メトリクス集計用
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_brain_obs_logs_daily_metrics
+ON brain_observability_logs (organization_id, DATE(created_at));
+
+-- エラー分析用
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_brain_obs_logs_errors
+ON brain_observability_logs (organization_id, execution_error_code)
+WHERE execution_success = false;
+
+
+-- ============================================================================
+-- 完了メッセージ
+-- ============================================================================
+
 DO $$
 BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE indexname = 'idx_departments_path_gist'
-    ) THEN
-        CREATE INDEX idx_departments_path_gist
-        ON departments USING GIST (path);
-    END IF;
+    RAISE NOTICE '============================================================';
+    RAISE NOTICE 'Index optimization migration completed';
+    RAISE NOTICE '============================================================';
+    RAISE NOTICE 'Added indexes:';
+    RAISE NOTICE '  brain_conversation_states: 2';
+    RAISE NOTICE '  ceo_teachings: 2';
+    RAISE NOTICE '  user_long_term_memory: 2';
+    RAISE NOTICE '  brain_decision_logs: 2';
+    RAISE NOTICE '  departments: 1 (GiST)';
+    RAISE NOTICE '  brain_observability_logs: 2';
+    RAISE NOTICE '============================================================';
 END $$;
-
--- =====================================================================
--- 6. guardian_alerts の検索用インデックス
--- =====================================================================
-
--- ペンディングアラートの検索用
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_guardian_alerts_pending
-ON guardian_alerts (organization_id, status, created_at)
-WHERE status = 'pending';
-
--- =====================================================================
--- 7. goals テーブルの検索最適化
--- =====================================================================
-
--- ユーザーの目標検索用
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_goals_user_lookup
-ON goals (organization_id, user_id, status);
-
--- =====================================================================
--- 確認用クエリ
--- =====================================================================
-
--- インデックスの確認（実行後に手動で確認）
--- SELECT indexname, indexdef
--- FROM pg_indexes
--- WHERE tablename IN (
---     'brain_conversation_states',
---     'ceo_teachings',
---     'user_long_term_memory',
---     'brain_decision_logs',
---     'departments',
---     'guardian_alerts',
---     'goals'
--- )
--- ORDER BY tablename, indexname;

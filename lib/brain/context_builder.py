@@ -589,11 +589,12 @@ class ContextBuilder:
             goals = await self.memory_access.get_active_goals(user_id)
             result = []
             for g in goals[:5]:  # 最大5件
+                # memory_access.GoalInfoオブジェクトから属性を直接取得
                 goal_info = GoalInfo(
-                    goal_id=str(g.get("id", "")),
-                    title=g.get("title", g.get("goal_title", "")),
-                    progress=float(g.get("progress", 0)),
-                    status=g.get("status", "active"),
+                    goal_id=str(g.id) if g.id else "",
+                    title=g.title or "",
+                    progress=float(g.progress) if g.progress else 0.0,
+                    status=g.status or "active",
                 )
                 result.append(goal_info)
             return result

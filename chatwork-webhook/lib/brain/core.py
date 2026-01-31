@@ -1512,6 +1512,12 @@ class SoulkunBrain:
                 import uuid as uuid_mod
                 tool_call = llm_result.tool_calls[0] if llm_result.tool_calls else None
                 confirm_question = guardian_result.confirmation_question or guardian_result.reason or "確認させてほしいウル🐺"
+                # ConfidenceScoresオブジェクトをfloatに変換（シリアライズ対応）
+                confidence_value = (
+                    llm_result.confidence.overall
+                    if hasattr(llm_result.confidence, 'overall')
+                    else float(llm_result.confidence) if llm_result.confidence else 0.0
+                )
                 pending_action = LLMPendingAction(
                     action_id=str(uuid_mod.uuid4()),
                     tool_name=tool_call.tool_name if tool_call else "",
@@ -1520,7 +1526,7 @@ class SoulkunBrain:
                     confirmation_type=guardian_result.risk_level or "ambiguous",
                     original_message=message,
                     original_reasoning=llm_result.reasoning or "",
-                    confidence=llm_result.confidence,
+                    confidence=confidence_value,
                 )
                 await self.llm_state_manager.set_pending_action(
                     user_id=account_id,

@@ -5,6 +5,10 @@ Phase C: 15+個のFeature Flagを1つのファイルに集約
 
 設計書: docs/14_brain_refactoring_plan.md
 
+【重要】環境変数名の注意
+LLM Brain有効化フラグは USE_BRAIN_ARCHITECTURE を使用すること。
+ENABLE_LLM_BRAIN は使わない！（env_config.py参照）
+
 使用例:
     from lib.feature_flags import flags, FeatureFlags
 

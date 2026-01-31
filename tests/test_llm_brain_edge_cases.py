@@ -623,9 +623,9 @@ class TestLLMBrainResponseParsing:
         # 結果が返されること
         assert result is not None
         assert result.tool_calls is not None
-        # 無効なJSONの場合、パラメータは空辞書になる
+        # v10.53.4: 無効なJSONの場合、エラー情報を_parse_errorに保持
         if result.tool_calls:
-            assert result.tool_calls[0].parameters == {}
+            assert "_parse_error" in result.tool_calls[0].parameters
 
     def test_parse_empty_choices(self, llm_brain_openrouter):
         """空のchoicesでも結果を返す（エラーハンドリング）"""

@@ -382,6 +382,9 @@ class GuardianLayer:
     ) -> GuardianResult:
         """
         優先度4: CEO教え違反チェック
+
+        CEO教えの中から禁止・制限パターンを検出し、
+        Tool callがそれに違反していないかチェックする。
         """
         # CEO教えがない場合はパス
         if not self.ceo_teachings and not context.ceo_teachings:
@@ -389,10 +392,141 @@ class GuardianLayer:
 
         all_teachings = self.ceo_teachings + context.ceo_teachings
 
-        # TODO: より高度なCEO教え違反検出
-        # 現時点では基本的なチェックのみ
+        # Tool callの情報を抽出
+        tool_name = tool_call.tool_name.lower()
+        params_str = " ".join([
+            f"{k} {v}" for k, v in tool_call.parameters.items()
+            if isinstance(v, str)
+        ]).lower()
+
+        for teaching in all_teachings:
+            # CEO教えの内容を分析
+            content = teaching.content.lower() if hasattr(teaching, 'content') else ""
+            if not content:
+                continue
+
+            # 禁止パターンの検出
+            violation = self._check_teaching_violation(
+                teaching, tool_name, params_str
+            )
+            if violation:
+                return violation
 
         return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_teaching_violation(
+        self,
+        teaching: CEOTeaching,
+        tool_name: str,
+        params_str: str,
+    ) -> Optional[GuardianResult]:
+        """
+        個々のCEO教えに対する違反チェック
+
+        Args:
+            teaching: CEO教え
+            tool_name: ツール名（小文字）
+            params_str: パラメータの文字列表現（小文字）
+
+        Returns:
+            違反があればGuardianResult、なければNone
+        """
+        content = teaching.content.lower()
+        priority = teaching.priority if hasattr(teaching, 'priority') else 0
+
+        # 禁止キーワードパターン
+        prohibition_patterns = [
+            ("禁止", "block"),
+            ("してはいけない", "block"),
+            ("しないこと", "block"),
+            ("絶対にダメ", "block"),
+            ("やめる", "confirm"),
+            ("避ける", "confirm"),
+            ("注意", "confirm"),
+            ("確認してから", "confirm"),
+        ]
+
+        # 禁止パターンが教えに含まれているか確認
+        action_type = None
+        for pattern, action in prohibition_patterns:
+            if pattern in content:
+                action_type = action
+                break
+
+        if not action_type:
+            return None
+
+        # 教えの内容からキーワードを抽出して、Tool callと照合
+        # キーワード候補: 名詞・動詞の抽出（簡易版）
+        keywords = self._extract_keywords_from_teaching(content)
+
+        # Tool名またはパラメータにキーワードが含まれているか
+        matched_keyword = None
+        for keyword in keywords:
+            if keyword in tool_name or keyword in params_str:
+                matched_keyword = keyword
+                break
+
+        if not matched_keyword:
+            return None
+
+        # 違反を検出
+        teaching_display = teaching.content[:50] + "..." if len(teaching.content) > 50 else teaching.content
+
+        if action_type == "block":
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason=f"CEO教えに違反しています: 「{teaching_display}」",
+                priority_level=4,
+                risk_level="high" if priority >= 7 else "medium",
+            )
+        else:  # confirm
+            return GuardianResult(
+                action=GuardianAction.CONFIRM,
+                confirmation_question=f"🐺 CEO教えに関連する操作ウル。\n\n「{teaching_display}」\n\n実行してよろしいですかウル？",
+                reason=f"CEO教えに関連する操作のため確認が必要",
+                priority_level=4,
+                risk_level="medium" if priority >= 5 else "low",
+            )
+
+    def _extract_keywords_from_teaching(self, content: str) -> List[str]:
+        """
+        CEO教えの内容からキーワードを抽出
+
+        Args:
+            content: 教えの内容（小文字化済み）
+
+        Returns:
+            キーワードのリスト
+        """
+        # 操作に関連する可能性のあるキーワード
+        operation_keywords = [
+            # 送信系
+            "送信", "送る", "メッセージ", "dm", "通知", "全員", "broadcast",
+            # 削除系
+            "削除", "消す", "remove", "delete",
+            # 変更系
+            "変更", "編集", "更新", "update", "modify",
+            # タスク系
+            "タスク", "task", "todo", "期限", "担当",
+            # 目標系
+            "目標", "goal", "ゴール",
+            # 権限系
+            "権限", "アクセス", "permission",
+            # 情報系
+            "情報", "データ", "機密", "個人情報",
+            # 外部系
+            "外部", "api", "連携",
+            # 金額系
+            "金額", "支払", "経費",
+        ]
+
+        found_keywords = []
+        for keyword in operation_keywords:
+            if keyword in content:
+                found_keywords.append(keyword)
+
+        return found_keywords
 
     def _check_confidence(
         self,

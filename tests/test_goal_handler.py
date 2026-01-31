@@ -17,12 +17,27 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'chatwork-webho
 from handlers.goal_handler import GoalHandler
 
 
-def create_mock_pool():
-    """モックプールを作成するヘルパー"""
+def create_mock_pool(dialogue_completed: bool = False):
+    """モックプールを作成するヘルパー
+
+    Args:
+        dialogue_completed: 対話完了状態をシミュレートするか（デフォルト: False）
+    """
     mock_pool = MagicMock()
     mock_conn = MagicMock()
     mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
     mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+    # デフォルトで対話未完了をシミュレート
+    # _check_dialogue_completed は organization_id と brain_conversation_states を確認
+    # dialogue_completed=False の場合、brain_conversation_states の結果をNoneにする
+    def mock_fetchone_side_effect(*args, **kwargs):
+        # これはデフォルトの動作を無効化するため、個別テストで上書きする
+        return None
+
+    if not dialogue_completed:
+        mock_conn.execute.return_value.fetchone.return_value = None
+
     return mock_pool, mock_conn
 
 

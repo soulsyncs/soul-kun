@@ -402,19 +402,14 @@ class TestUpdateStep:
     async def test_updates_step(self):
         """ステップを更新できる"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
-        mock_conn.begin = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=None),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn = MagicMock()
         mock_row = create_mock_row(state_step="why")
         mock_result = MagicMock()
         mock_result.fetchone.return_value = mock_row
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        # 同期コンテキストマネージャーとして設定（_is_async_pool=Falseの場合）
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
         state = await manager.update_step(
@@ -429,22 +424,17 @@ class TestUpdateStep:
     async def test_merges_additional_data(self):
         """追加データがマージされる"""
         mock_pool = MagicMock()
-        mock_conn = AsyncMock()
-        mock_conn.begin = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=None),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn = MagicMock()
         mock_row = create_mock_row(
             state_step="why",
             state_data={"retry_count": 0, "existing": "value"},
         )
         mock_result = MagicMock()
         mock_result.fetchone.return_value = mock_row
-        mock_conn.execute = AsyncMock(return_value=mock_result)
-        mock_pool.connect = MagicMock(return_value=AsyncMock(
-            __aenter__=AsyncMock(return_value=mock_conn),
-            __aexit__=AsyncMock(return_value=None),
-        ))
+        mock_conn.execute.return_value = mock_result
+        # 同期コンテキストマネージャーとして設定（_is_async_pool=Falseの場合）
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
 
         manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
         state = await manager.update_step(

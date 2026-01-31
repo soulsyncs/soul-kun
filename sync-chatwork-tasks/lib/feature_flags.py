@@ -317,8 +317,9 @@ class FeatureFlags:
         )
 
         # LLM常駐型脳（25章: Claude Opus 4.5 Function Calling）
+        # 注意: env_config.pyに合わせてUSE_BRAIN_ARCHITECTUREを使用
         self.enable_llm_brain = self._get_env_bool(
-            "ENABLE_LLM_BRAIN", False
+            "USE_BRAIN_ARCHITECTURE", False
         )
 
         # 検出系

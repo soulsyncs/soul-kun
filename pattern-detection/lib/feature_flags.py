@@ -24,12 +24,15 @@ Phase C: 15+個のFeature Flagを1つのファイルに集約
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from typing import Dict, List, Optional, Callable, Any, Tuple
 from functools import cached_property
 import json
+
+logger = logging.getLogger(__name__)
 
 
 # =====================================================
@@ -69,9 +72,12 @@ FLAG_DEFINITIONS: Dict[str, Tuple[str, FlagCategory, str]] = {
 
     # 機能系
     "USE_ANNOUNCEMENT_FEATURE": ("true", FlagCategory.FEATURE, "アナウンス機能"),
-    "USE_BRAIN_ARCHITECTURE": ("false", FlagCategory.FEATURE, "脳アーキテクチャ"),
+    "USE_BRAIN_ARCHITECTURE": ("true", FlagCategory.FEATURE, "脳アーキテクチャ（v10.40.1: 本番強制）"),
     "DISABLE_MVV_CONTEXT": ("false", FlagCategory.FEATURE, "MVV無効化フラグ"),
     "ENABLE_PHASE3_KNOWLEDGE": ("true", FlagCategory.FEATURE, "Phase 3 ナレッジ検索"),
+    "USE_MODEL_ORCHESTRATOR": ("false", FlagCategory.FEATURE, "Model Orchestrator（全AI呼び出し統括）"),
+    "ENABLE_EXECUTION_EXCELLENCE": ("false", FlagCategory.FEATURE, "Phase 2L: 実行力強化（複合タスク自動実行）"),
+    "ENABLE_LLM_BRAIN": ("false", FlagCategory.FEATURE, "LLM常駐型脳（Claude Opus 4.5 Function Calling）"),
 
     # 検出系
     "USE_DYNAMIC_DEPARTMENT_MAPPING": ("true", FlagCategory.DETECTION, "動的部署マッピング"),
@@ -174,6 +180,9 @@ class FeatureFlags:
     use_brain_architecture: bool = field(default=False)
     brain_mode: str = field(default="false")  # false, true, shadow, gradual
     enable_phase3_knowledge: bool = field(default=True)
+    use_model_orchestrator: bool = field(default=False)  # Phase 0: Model Orchestrator
+    enable_execution_excellence: bool = field(default=False)  # Phase 2L: 実行力強化
+    enable_llm_brain: bool = field(default=False)  # LLM常駐型脳（25章）
 
     # =====================================================
     # 検出系
@@ -273,7 +282,15 @@ class FeatureFlags:
         )
 
         # 脳アーキテクチャ（特殊: モード対応）
+        # v10.40.1: 神経接続修理 - 本番環境ではtrue強制
         brain_mode_str = os.environ.get("USE_BRAIN_ARCHITECTURE", "false").lower()
+        environment = os.environ.get("ENVIRONMENT", "development").lower()
+
+        # 本番環境では脳アーキテクチャを強制有効化
+        if environment == "production" and brain_mode_str == "false":
+            brain_mode_str = "true"
+            logger.info("🧠 本番環境: USE_BRAIN_ARCHITECTURE を強制的に true に設定")
+
         self.brain_mode = brain_mode_str
         self.use_brain_architecture = brain_mode_str in ("true", "shadow", "gradual")
 
@@ -287,6 +304,21 @@ class FeatureFlags:
         # Phase 3 ナレッジ
         self.enable_phase3_knowledge = self._get_env_bool(
             "ENABLE_PHASE3_KNOWLEDGE", True
+        )
+
+        # Model Orchestrator（Phase 0: 次世代能力）
+        self.use_model_orchestrator = self._get_env_bool(
+            "USE_MODEL_ORCHESTRATOR", False
+        )
+
+        # Phase 2L: 実行力強化（複合タスク自動実行）
+        self.enable_execution_excellence = self._get_env_bool(
+            "ENABLE_EXECUTION_EXCELLENCE", False
+        )
+
+        # LLM常駐型脳（25章: Claude Opus 4.5 Function Calling）
+        self.enable_llm_brain = self._get_env_bool(
+            "ENABLE_LLM_BRAIN", False
         )
 
         # 検出系
@@ -377,6 +409,9 @@ class FeatureFlags:
             "use_brain_architecture": self.use_brain_architecture,
             "brain_mode": self.brain_mode,
             "enable_phase3_knowledge": self.enable_phase3_knowledge,
+            "use_model_orchestrator": self.use_model_orchestrator,
+            "enable_execution_excellence": self.enable_execution_excellence,
+            "enable_llm_brain": self.enable_llm_brain,
         }
 
     def get_detection_flags(self) -> Dict[str, bool]:
@@ -574,6 +609,43 @@ def is_dry_run() -> bool:
     return get_flags().dry_run
 
 
+def is_model_orchestrator_enabled() -> bool:
+    """
+    Model Orchestratorが有効かチェック
+
+    Returns:
+        bool: Model Orchestratorが有効か
+    """
+    return get_flags().use_model_orchestrator
+
+
+def is_execution_excellence_enabled() -> bool:
+    """
+    ExecutionExcellence（実行力強化）が有効かチェック
+
+    Phase 2L: 複合タスクの自動分解・実行
+
+    Returns:
+        bool: ExecutionExcellenceが有効か
+    """
+    return get_flags().enable_execution_excellence
+
+
+def is_llm_brain_enabled() -> bool:
+    """
+    LLM Brain（LLM常駐型脳）が有効かチェック
+
+    設計書: docs/25_llm_native_brain_architecture.md
+
+    Claude Opus 4.5を使用したFunction Calling方式の脳。
+    キーワードマッチングではなくLLMの推論で意図を理解する。
+
+    Returns:
+        bool: LLM Brainが有効か
+    """
+    return get_flags().enable_llm_brain
+
+
 # =====================================================
 # エクスポート
 # =====================================================
@@ -599,4 +671,7 @@ __all__ = [
     "is_feature_enabled",
     "get_brain_mode",
     "is_dry_run",
+    "is_model_orchestrator_enabled",
+    "is_execution_excellence_enabled",
+    "is_llm_brain_enabled",
 ]

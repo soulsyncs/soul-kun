@@ -263,6 +263,21 @@ class ChatworkClient(ChatworkClientBase):
             for r in result
         ]
 
+    def list_direct_message_rooms(self) -> List[ChatworkRoom]:
+        """
+        ダイレクトメッセージ（1on1）ルーム一覧を取得
+
+        ChatWork の room_type は3種類:
+        - "my": マイチャット（自分のみ）
+        - "direct": ダイレクトメッセージ（1on1対話）
+        - "group": グループチャット
+
+        Returns:
+            type="direct" の ChatworkRoom リスト
+        """
+        all_rooms = self.get_rooms()
+        return [r for r in all_rooms if r.type == "direct"]
+
     def get_room_members(self, room_id: int) -> List[Dict[str, Any]]:
         """
         ルームのメンバー一覧を取得
@@ -471,6 +486,11 @@ class ChatworkAsyncClient(ChatworkClientBase):
             )
             for r in result
         ]
+
+    async def list_direct_message_rooms(self) -> List[ChatworkRoom]:
+        """ダイレクトメッセージ（1on1）ルーム一覧を取得（非同期）"""
+        all_rooms = await self.get_rooms()
+        return [r for r in all_rooms if r.type == "direct"]
 
 
 # =============================================================================

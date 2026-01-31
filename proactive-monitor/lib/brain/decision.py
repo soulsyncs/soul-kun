@@ -27,6 +27,7 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import Enum
 from typing import Optional, List, Dict, Any, Tuple, Callable
 
 from lib.brain.models import (
@@ -192,6 +193,13 @@ CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
         "secondary": ["こんにちは", "ありがとう", "どう思う"],
         "negative": [],
     },
+    # v10.44.1: Connection Query（DM可能な相手一覧）- 優先度強化
+    "connection_query": {
+        "priority": 100,  # 最優先レベル
+        "primary": ["DM", "1on1", "繋がってる", "直接チャット", "個別"],
+        "secondary": ["話せる", "チャットできる", "コネクション"],
+        "negative": ["タスク", "目標", "記憶"],
+    },
 }
 
 # NOTE: RISK_LEVELS と SPLIT_PATTERNS は lib/brain/constants.py からインポート
@@ -225,6 +233,19 @@ def _load_mvv_context():
 # =============================================================================
 
 
+class EnforcementAction(Enum):
+    """
+    v10.42.0 P1: MVV/NG検出時の強制アクション
+
+    NGパターン検出時に「警告→続行」ではなく
+    「ブロック→強制アクション」を実行するための列挙型。
+    """
+    NONE = "none"                      # 通常処理（強制なし）
+    FORCE_LISTENING = "force_listening"  # 傾聴モード強制遷移（CRITICAL/HIGH）
+    BLOCK_AND_SUGGEST = "block_and_suggest"  # 実行ブロック + 代替提案（MEDIUM）
+    WARN_ONLY = "warn_only"            # 警告のみ（LOW）
+
+
 @dataclass
 class MVVCheckResult:
     """MVV整合性チェック結果"""
@@ -234,6 +255,8 @@ class MVVCheckResult:
     ng_response_hint: Optional[str] = None
     risk_level: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
+    # v10.42.0 P1: 強制アクション
+    enforcement_action: EnforcementAction = EnforcementAction.NONE
 
 
 class BrainDecision:
@@ -393,7 +416,8 @@ class BrainDecision:
                 # TODO: 複数アクションのキュー管理（Phase F以降）
 
             # ステップ3: 機能候補の抽出とスコアリング
-            candidates = self._score_capabilities(understanding)
+            # v10.42.0 P2: contextを渡して人生軸との整合性も評価
+            candidates = self._score_capabilities(understanding, context)
 
             if not candidates:
                 # 候補がない場合は汎用応答
@@ -405,6 +429,18 @@ class BrainDecision:
                     reasoning="No matching capability found",
                     processing_time_ms=self._elapsed_ms(start_time),
                 )
+
+            # ステップ3.5: 優先度強制ルール（v10.44.2）
+            # connection_query は「データソースがChatWork接続情報」のため、
+            # 記憶/雑談/組織図より常に優先される
+            candidates = self._apply_priority_override(candidates, understanding)
+
+            # ルーティングログ（原因追跡用）
+            candidate_names = [c.action for c in candidates[:5]]
+            logger.info(
+                f"ROUTED_INTENT={candidates[0].action if candidates else 'none'} "
+                f"candidates={candidate_names}"
+            )
 
             # ステップ4: 最適な候補を選択
             best_candidate = candidates[0]
@@ -430,8 +466,55 @@ class BrainDecision:
                 logger.warning(
                     f"NG pattern detected: {mvv_result.ng_pattern_type}"
                 )
-                # NGパターンの場合でも処理は続行するが、警告を付与
-                # 実際の対応はレスポンス生成層で行う
+
+                # v10.42.0 P1: 強制アクションに基づいて決定を上書き
+                if mvv_result.enforcement_action == EnforcementAction.FORCE_LISTENING:
+                    # CRITICAL/HIGH → 傾聴モードへ強制遷移
+                    logger.warning(
+                        f"🚨 [P1 Enforcement] Overriding action to forced_listening "
+                        f"(original: {best_candidate.action})"
+                    )
+                    return DecisionResult(
+                        action="forced_listening",  # 傾聴モード用の特別なアクション
+                        params={
+                            "original_action": best_candidate.action,
+                            "ng_pattern_type": mvv_result.ng_pattern_type,
+                            "response_hint": mvv_result.ng_response_hint,
+                            "risk_level": mvv_result.risk_level,
+                        },
+                        confidence=1.0,  # 強制なので確信度は最大
+                        needs_confirmation=False,
+                        reasoning=(
+                            f"NGパターン({mvv_result.ng_pattern_type})検出により"
+                            f"傾聴モードへ強制遷移"
+                        ),
+                        processing_time_ms=self._elapsed_ms(start_time),
+                    )
+
+                elif mvv_result.enforcement_action == EnforcementAction.BLOCK_AND_SUGGEST:
+                    # MEDIUM → 実行ブロック + 代替メッセージ
+                    logger.info(
+                        f"💡 [P1 Enforcement] Overriding action to suggest_alternative "
+                        f"(original: {best_candidate.action})"
+                    )
+                    return DecisionResult(
+                        action="suggest_alternative",  # 代替提案用の特別なアクション
+                        params={
+                            "original_action": best_candidate.action,
+                            "ng_pattern_type": mvv_result.ng_pattern_type,
+                            "response_hint": mvv_result.ng_response_hint,
+                            "risk_level": mvv_result.risk_level,
+                        },
+                        confidence=1.0,
+                        needs_confirmation=False,
+                        reasoning=(
+                            f"NGパターン({mvv_result.ng_pattern_type})検出により"
+                            f"代替提案を実行"
+                        ),
+                        processing_time_ms=self._elapsed_ms(start_time),
+                    )
+
+                # WARN_ONLY または NONE → 従来通り処理続行
 
             # パラメータをマージ（理解層のエンティティ + 候補のパラメータ）
             merged_params = {**understanding.entities, **best_candidate.params}
@@ -561,17 +644,92 @@ class BrainDecision:
         return segments if segments else [message]
 
     # =========================================================================
+    # ステップ3.5: 優先度強制ルール（v10.44.2）
+    # =========================================================================
+
+    # 優先度強制対象のアクション（データソースが固有のため、記憶/雑談より優先）
+    PRIORITY_OVERRIDE_ACTIONS = ["connection_query"]
+
+    # 優先度強制が効くためのキーワード（これらがあればオーバーライド発動）
+    PRIORITY_OVERRIDE_TRIGGERS = {
+        "connection_query": ["dm", "1on1", "繋がってる", "直接チャット", "個別"],
+    }
+
+    def _apply_priority_override(
+        self,
+        candidates: List[ActionCandidate],
+        understanding: UnderstandingResult,
+    ) -> List[ActionCandidate]:
+        """
+        優先度強制ルールを適用
+
+        connection_query など、データソースが固有のアクションは、
+        記憶/雑談/組織図より常に優先される。
+
+        v10.44.2: 「DMできる相手は誰？」が memory_recall に流れる問題を修正
+
+        Args:
+            candidates: スコアリング済みの候補リスト
+            understanding: 理解結果
+
+        Returns:
+            優先度調整後の候補リスト
+        """
+        if not candidates:
+            return candidates
+
+        message_lower = understanding.raw_message.lower()
+
+        # 優先度強制対象のアクションが候補にあるかチェック
+        for priority_action in self.PRIORITY_OVERRIDE_ACTIONS:
+            # 候補に含まれているか
+            priority_candidate = None
+            priority_index = -1
+
+            for i, c in enumerate(candidates):
+                if c.action == priority_action:
+                    priority_candidate = c
+                    priority_index = i
+                    break
+
+            if priority_candidate is None:
+                continue
+
+            # トリガーキーワードがメッセージに含まれているか
+            triggers = self.PRIORITY_OVERRIDE_TRIGGERS.get(priority_action, [])
+            has_trigger = any(t in message_lower for t in triggers)
+
+            if has_trigger:
+                # 優先度強制: 先頭に移動
+                logger.info(
+                    f"🎯 PRIORITY_OVERRIDE: {priority_action} forced to top "
+                    f"(was #{priority_index + 1}, score={priority_candidate.score:.2f})"
+                )
+
+                # 新しいリストを作成: priority_action を先頭に
+                new_candidates = [priority_candidate]
+                for c in candidates:
+                    if c.action != priority_action:
+                        new_candidates.append(c)
+
+                return new_candidates
+
+        return candidates
+
+    # =========================================================================
     # ステップ3: 機能候補の抽出とスコアリング
     # =========================================================================
 
     def _score_capabilities(
         self,
         understanding: UnderstandingResult,
+        context: Optional[BrainContext] = None,
     ) -> List[ActionCandidate]:
         """
         全ての機能に対してスコアリングを行い、候補リストを返す
 
-        スコア = キーワードマッチ(40%) + 意図マッチ(30%) + 文脈マッチ(30%)
+        v10.42.0 P2: 人生軸との整合性スコアを追加
+        スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
         """
         candidates = []
 
@@ -580,6 +738,7 @@ class BrainDecision:
                 cap_key,
                 capability,
                 understanding,
+                context,
             )
 
             if score > CAPABILITY_MIN_SCORE_THRESHOLD:  # 最低スコア閾値
@@ -604,30 +763,49 @@ class BrainDecision:
         cap_key: str,
         capability: Dict[str, Any],
         understanding: UnderstandingResult,
+        context: Optional[BrainContext] = None,
     ) -> float:
         """
         単一の機能に対するスコアを計算
 
-        スコア = キーワードマッチ(40%) + 意図マッチ(30%) + 文脈マッチ(30%)
+        v10.42.0 P2: 人生軸との整合性スコアを追加
+        スコア = キーワードマッチ(35%) + 意図マッチ(25%) + 文脈マッチ(25%) + 人生軸整合(15%)
+
+        Note: ネガティブキーワードがマッチした場合は即座に0.0を返す
         """
         weights = CAPABILITY_SCORING_WEIGHTS
         message = understanding.raw_message.lower()
         intent = understanding.intent
 
-        # 1. キーワードマッチ（40%）
+        # ネガティブキーワードチェック（即座に0を返す）
+        keywords = self.capability_keywords.get(cap_key, {})
+        negative = keywords.get("negative", [])
+        for neg in negative:
+            if neg in message:
+                return 0.0
+
+        # 1. キーワードマッチ（35%）
         keyword_score = self._calculate_keyword_score(cap_key, message)
 
-        # 2. 意図マッチ（30%）
+        # 2. 意図マッチ（25%）
         intent_score = self._calculate_intent_score(cap_key, intent, capability)
 
-        # 3. 文脈マッチ（30%）
+        # 3. 文脈マッチ（25%）
         context_score = self._calculate_context_score(cap_key, understanding)
+
+        # 4. v10.42.0 P2: 人生軸との整合性（15%）
+        life_axis_score = self._calculate_life_axis_alignment(
+            cap_key,
+            message,
+            context,
+        )
 
         # 重み付け合計
         total_score = (
-            keyword_score * weights.get("keyword_match", 0.4) +
-            intent_score * weights.get("intent_match", 0.3) +
-            context_score * weights.get("context_match", 0.3)
+            keyword_score * weights.get("keyword_match", 0.35) +
+            intent_score * weights.get("intent_match", 0.25) +
+            context_score * weights.get("context_match", 0.25) +
+            life_axis_score * weights.get("life_axis_alignment", 0.15)
         )
 
         return min(1.0, total_score)
@@ -739,6 +917,145 @@ class BrainDecision:
 
         return min(1.0, score)
 
+    def _calculate_life_axis_alignment(
+        self,
+        cap_key: str,
+        message: str,
+        context: Optional[BrainContext] = None,
+    ) -> float:
+        """
+        v10.42.0 P2: 人生軸との整合性スコアを計算
+
+        ユーザーの人生軸・価値観・長期目標とアクションの整合性を評価。
+        人生軸に反する場合はスコアを下げ、整合する場合は上げる。
+
+        Args:
+            cap_key: アクション名
+            message: ユーザーメッセージ（小文字化済み）
+            context: 脳コンテキスト（user_life_axisを含む）
+
+        Returns:
+            float: 人生軸との整合性スコア（0.0〜1.0）
+        """
+        # 人生軸データがない場合はニュートラル（0.5）
+        if context is None or context.user_life_axis is None:
+            return 0.5
+
+        life_axis_data = context.user_life_axis
+        if not life_axis_data:
+            return 0.5
+
+        # 人生軸から価値観・原則を抽出
+        life_values = []
+        life_goals = []
+        life_why = None
+
+        for memory in life_axis_data:
+            memory_type = memory.get("memory_type", "")
+            content = memory.get("content", "").lower()
+
+            if memory_type == "life_why":
+                life_why = content
+            elif memory_type == "values":
+                life_values.append(content)
+            elif memory_type == "principles":
+                life_values.append(content)
+            elif memory_type == "long_term_goal":
+                life_goals.append(content)
+            elif memory_type == "identity":
+                life_values.append(content)
+
+        # 整合性スコアの計算
+        alignment_score = 0.5  # ベーススコア（ニュートラル）
+
+        # 1. 目標関連アクションと長期目標の整合性
+        if cap_key.startswith("goal_") and life_goals:
+            # 目標に関連するキーワードがメッセージに含まれているか
+            for goal in life_goals:
+                if self._has_semantic_overlap(message, goal):
+                    alignment_score += 0.3
+                    logger.debug(
+                        f"🎯 [P2 Life Axis] Goal alignment detected: "
+                        f"action={cap_key}, goal='{goal[:30]}...'"
+                    )
+                    break
+
+        # 2. 人生WHYとの整合性
+        if life_why:
+            # 人生WHYに関連するアクションにはボーナス
+            if self._has_semantic_overlap(message, life_why):
+                alignment_score += 0.2
+                logger.debug(
+                    f"🔥 [P2 Life Axis] Life WHY alignment detected: "
+                    f"action={cap_key}"
+                )
+
+        # 3. 価値観との整合性/反する検出
+        for value in life_values:
+            if self._has_semantic_overlap(message, value):
+                alignment_score += 0.15
+                logger.debug(
+                    f"💎 [P2 Life Axis] Value alignment detected: "
+                    f"action={cap_key}, value='{value[:30]}...'"
+                )
+                break
+
+        # 4. 反価値観検出（スコアダウン）
+        # 例: 「適当でいい」「とりあえず」などの価値観軽視表現
+        anti_value_patterns = [
+            "適当でいい",
+            "とりあえず",
+            "どうでもいい",
+            "意味ない",
+            "無駄",
+            "やめたい",  # ただし転職リスクはP1で処理済み
+        ]
+        for pattern in anti_value_patterns:
+            if pattern in message and life_values:
+                alignment_score -= 0.2
+                logger.info(
+                    f"⚠️ [P2 Life Axis] Anti-value pattern detected: "
+                    f"pattern='{pattern}'"
+                )
+                break
+
+        # スコアを0.0〜1.0の範囲にクランプ
+        return max(0.0, min(1.0, alignment_score))
+
+    def _has_semantic_overlap(self, text1: str, text2: str) -> bool:
+        """
+        v10.42.0 P2: 2つのテキスト間に意味的な重複があるか判定
+
+        シンプルなキーワードマッチングで判定（将来的にはEmbedding比較も可能）
+
+        Args:
+            text1: テキスト1
+            text2: テキスト2
+
+        Returns:
+            bool: 意味的な重複があればTrue
+        """
+        # 日本語対応: N-gramベースの部分文字列マッチング
+        # 2文字以上の連続する部分文字列が両方に含まれているかチェック
+
+        # 短いテキストの場合は直接部分一致をチェック
+        shorter = text1 if len(text1) <= len(text2) else text2
+        longer = text2 if len(text1) <= len(text2) else text1
+
+        # 2文字以上のN-gramを生成して比較
+        min_gram_length = 2
+        max_gram_length = min(6, len(shorter))
+
+        for n in range(max_gram_length, min_gram_length - 1, -1):
+            for i in range(len(shorter) - n + 1):
+                gram = shorter[i:i + n]
+                # スペースや句読点のみのN-gramはスキップ
+                if gram.strip() and not gram.isspace():
+                    if gram in longer:
+                        return True
+
+        return False
+
     def _extract_params_for_capability(
         self,
         cap_key: str,
@@ -786,6 +1103,21 @@ class BrainDecision:
         # 理由と選択肢
         question = None
         options = ["はい", "いいえ"]
+
+        # v10.45.0: goal関連で曖昧な場合は3択確認（「目標登録でいい？」は禁止）
+        goal_actions = ["goal_registration", "goal_review", "goal_consult", "goal_status_check", "goal_progress_report"]
+        if action in goal_actions and confidence < 0.7:
+            # 「目標」というキーワードが含まれているが、どの意図か曖昧
+            raw_msg = understanding.raw_message.lower() if understanding.raw_message else ""
+            if "目標" in raw_msg or "ゴール" in raw_msg:
+                question = "目標のことだね🐺 どれがやりたいウル？"
+                options = [
+                    "1️⃣ 新しく目標を作る",
+                    "2️⃣ 登録済みの目標を見る/整理する",
+                    "3️⃣ 目標の決め方を相談する"
+                ]
+                print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
+                return (True, question, options)
 
         # 確信度が低い場合
         if confidence < CONFIRMATION_THRESHOLD:
@@ -854,6 +1186,33 @@ class BrainDecision:
                 result.warnings.append(
                     f"NGパターン検出: {ng_result.pattern_type}"
                 )
+
+                # v10.42.0 P1: リスクレベルに応じた強制アクションを設定
+                risk_level_value = result.risk_level
+                if risk_level_value == "CRITICAL":
+                    # ng_mental_health → 傾聴モード強制遷移
+                    result.enforcement_action = EnforcementAction.FORCE_LISTENING
+                    logger.warning(
+                        f"🚨 [P1 Enforcement] CRITICAL risk → FORCE_LISTENING: "
+                        f"{ng_result.pattern_type}"
+                    )
+                elif risk_level_value == "HIGH":
+                    # ng_retention_critical → 傾聴モード強制遷移
+                    result.enforcement_action = EnforcementAction.FORCE_LISTENING
+                    logger.warning(
+                        f"⚠️ [P1 Enforcement] HIGH risk → FORCE_LISTENING: "
+                        f"{ng_result.pattern_type}"
+                    )
+                elif risk_level_value == "MEDIUM":
+                    # ng_company_criticism, ng_low_psychological_safety → ブロック+代替提案
+                    result.enforcement_action = EnforcementAction.BLOCK_AND_SUGGEST
+                    logger.info(
+                        f"💡 [P1 Enforcement] MEDIUM risk → BLOCK_AND_SUGGEST: "
+                        f"{ng_result.pattern_type}"
+                    )
+                else:
+                    # LOW → 警告のみ
+                    result.enforcement_action = EnforcementAction.WARN_ONLY
 
         except Exception as e:
             logger.warning(f"Error checking MVV alignment: {e}")

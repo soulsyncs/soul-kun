@@ -995,6 +995,26 @@ class LLMStateManager:
         """
         self.brain_state_manager = brain_state_manager
 
+    async def get_current_state(
+        self,
+        room_id: str,
+        user_id: str,
+    ) -> Optional[ConversationState]:
+        """
+        現在の状態を取得（ContextBuilder互換）
+
+        BrainStateManagerの同名メソッドへのラッパー。
+        ContextBuilderが統一的なインターフェースで状態を取得できるようにする。
+
+        Args:
+            room_id: ChatWorkルームID
+            user_id: ユーザーのアカウントID
+
+        Returns:
+            ConversationState: 現在の状態（存在しない場合はNone）
+        """
+        return await self.brain_state_manager.get_current_state(room_id, user_id)
+
     async def get_llm_session(
         self,
         user_id: str,

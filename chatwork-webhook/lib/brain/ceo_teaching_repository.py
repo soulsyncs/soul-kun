@@ -36,6 +36,32 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# UUID検証ヘルパー
+# =============================================================================
+
+def _check_uuid_format(org_id: str) -> bool:
+    """
+    organization_idがUUID形式かどうかをチェック
+
+    ceo_teachingsテーブルのorganization_idカラムはUUID型のため、
+    "org_soulsyncs"のようなテキスト形式の場合はクエリを実行できない。
+
+    Args:
+        org_id: 組織ID
+
+    Returns:
+        bool: UUID形式ならTrue、そうでなければFalse
+    """
+    if not org_id:
+        return False
+    try:
+        UUID(org_id)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
+# =============================================================================
 # CEO教えリポジトリ
 # =============================================================================
 
@@ -45,6 +71,12 @@ class CEOTeachingRepository:
     CEO教えのリポジトリ
 
     ceo_teachings テーブルへのCRUD操作を提供します。
+
+    【注意】organization_idがUUID形式でない場合
+    ceo_teachingsテーブルのorganization_idカラムはUUID型のため、
+    "org_soulsyncs"のようなテキスト形式の場合はDBクエリを実行せず、
+    空のリスト/Noneを返します。これにより、PostgreSQLの
+    "invalid input syntax for type uuid" エラーを防ぎます。
     """
 
     def __init__(self, pool: Engine, organization_id: str):
@@ -57,6 +89,13 @@ class CEOTeachingRepository:
         """
         self._pool = pool
         self._organization_id = organization_id
+        # organization_idがUUID形式かどうかを判定
+        self._org_id_is_uuid = _check_uuid_format(organization_id)
+        if not self._org_id_is_uuid:
+            logger.debug(
+                f"CEOTeachingRepository: organization_id={organization_id} is not UUID format. "
+                "DB queries will be skipped."
+            )
 
     # -------------------------------------------------------------------------
     # Create
@@ -71,7 +110,16 @@ class CEOTeachingRepository:
 
         Returns:
             作成された教え（IDが設定済み）
+
+        Raises:
+            ValueError: organization_idがUUID形式でない場合
         """
+        # UUID形式でない場合はエラー（教え作成は重要な操作のためスキップではなくエラー）
+        if not self._org_id_is_uuid:
+            raise ValueError(
+                f"Cannot create CEO teaching: organization_id={self._organization_id} is not UUID format"
+            )
+
         query = text("""
             INSERT INTO ceo_teachings (
                 organization_id,
@@ -167,6 +215,11 @@ class CEOTeachingRepository:
         Returns:
             教え（見つからない場合はNone）
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_teaching_by_id: organization_id is not UUID format")
+            return None
+
         query = text("""
             SELECT
                 id, organization_id, ceo_user_id,
@@ -211,6 +264,11 @@ class CEOTeachingRepository:
         Returns:
             教えのリスト（優先度順）
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_active_teachings: organization_id is not UUID format")
+            return []
+
         base_query = """
             SELECT
                 id, organization_id, ceo_user_id,
@@ -248,6 +306,39 @@ class CEOTeachingRepository:
 
         return [self._row_to_teaching(row) for row in rows]
 
+    async def search_relevant(
+        self,
+        query: str,
+        organization_id: str = None,
+        limit: int = 10,
+    ) -> List[CEOTeaching]:
+        """
+        関連するCEO教えを非同期検索（ContextBuilder用）
+
+        設計書: docs/25_llm_native_brain_architecture.md
+        LLM Brainのコンテキスト構築時に使用。
+
+        Args:
+            query: 検索クエリ
+            organization_id: 組織ID（省略時はインスタンスのものを使用）
+            limit: 取得件数
+
+        Returns:
+            関連度順の教えリスト
+        """
+        # UUID形式でない場合はスキップ（エラーログも出さない）
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping search_relevant: organization_id is not UUID format")
+            return []
+
+        # 同期メソッドをラップ
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            lambda: self.search_teachings(query, limit)
+        )
+
     def search_teachings(
         self,
         query_text: str,
@@ -263,6 +354,11 @@ class CEOTeachingRepository:
         Returns:
             関連度順の教えリスト
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping search_teachings: organization_id is not UUID format")
+            return []
+
         # キーワードを分割
         keywords = [k.strip() for k in query_text.split() if k.strip()]
 
@@ -328,6 +424,11 @@ class CEOTeachingRepository:
         Returns:
             教えのリスト
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_teachings_by_category: organization_id is not UUID format")
+            return []
+
         if not categories:
             return []
 
@@ -372,6 +473,11 @@ class CEOTeachingRepository:
         Returns:
             検証待ちの教えリスト
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_pending_teachings: organization_id is not UUID format")
+            return []
+
         query = text("""
             SELECT
                 id, organization_id, ceo_user_id,
@@ -415,6 +521,11 @@ class CEOTeachingRepository:
         Returns:
             更新された教え（見つからない場合はNone）
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping update_teaching: organization_id is not UUID format")
+            return None
+
         if not updates:
             return self.get_teaching_by_id(teaching_id)
 
@@ -489,6 +600,11 @@ class CEOTeachingRepository:
         Returns:
             更新成功ならTrue
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping update_validation_status: organization_id is not UUID format")
+            return False
+
         query = text("""
             UPDATE ceo_teachings
             SET validation_status = :status,
@@ -528,6 +644,11 @@ class CEOTeachingRepository:
         Returns:
             更新成功ならTrue
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping increment_usage: organization_id is not UUID format")
+            return False
+
         helpful_increment = 1 if was_helpful else 0
 
         query = text("""
@@ -571,6 +692,11 @@ class CEOTeachingRepository:
         Returns:
             無効化成功ならTrue
         """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping deactivate_teaching: organization_id is not UUID format")
+            return False
+
         query = text("""
             UPDATE ceo_teachings
             SET is_active = false,
@@ -651,14 +777,22 @@ class ConflictRepository:
     矛盾情報のリポジトリ
 
     ceo_teaching_conflicts テーブルへのCRUD操作を提供します。
+
+    【注意】organization_idがUUID形式でない場合はDBクエリを実行しません。
     """
 
     def __init__(self, pool: Engine, organization_id: str):
         self._pool = pool
         self._organization_id = organization_id
+        self._org_id_is_uuid = _check_uuid_format(organization_id)
 
     def create_conflict(self, conflict: ConflictInfo) -> ConflictInfo:
         """矛盾情報を作成"""
+        if not self._org_id_is_uuid:
+            raise ValueError(
+                f"Cannot create conflict: organization_id={self._organization_id} is not UUID format"
+            )
+
         query = text("""
             INSERT INTO ceo_teaching_conflicts (
                 organization_id,
@@ -706,6 +840,10 @@ class ConflictRepository:
 
     def get_conflicts_for_teaching(self, teaching_id: str) -> List[ConflictInfo]:
         """教えに関連する矛盾を取得"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_conflicts_for_teaching: organization_id is not UUID format")
+            return []
+
         query = text("""
             SELECT
                 id, organization_id, teaching_id,
@@ -735,6 +873,10 @@ class ConflictRepository:
 
     def delete_conflicts_for_teaching(self, teaching_id: str) -> int:
         """教えに関連する矛盾を削除"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping delete_conflicts_for_teaching: organization_id is not UUID format")
+            return 0
+
         query = text("""
             DELETE FROM ceo_teaching_conflicts
             WHERE teaching_id = :teaching_id
@@ -776,15 +918,23 @@ class GuardianAlertRepository:
     ガーディアンアラートのリポジトリ
 
     guardian_alerts テーブルへのCRUD操作を提供します。
+
+    【注意】organization_idがUUID形式でない場合はDBクエリを実行しません。
     """
 
     def __init__(self, pool: Engine, organization_id: str):
         self._pool = pool
         self._organization_id = organization_id
+        self._org_id_is_uuid = _check_uuid_format(organization_id)
         self._conflict_repo = ConflictRepository(pool, organization_id)
 
     def create_alert(self, alert: GuardianAlert) -> GuardianAlert:
         """アラートを作成"""
+        if not self._org_id_is_uuid:
+            raise ValueError(
+                f"Cannot create alert: organization_id={self._organization_id} is not UUID format"
+            )
+
         query = text("""
             INSERT INTO guardian_alerts (
                 organization_id,
@@ -832,6 +982,10 @@ class GuardianAlertRepository:
 
     def get_alert_by_id(self, alert_id: str) -> Optional[GuardianAlert]:
         """IDでアラートを取得"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_alert_by_id: organization_id is not UUID format")
+            return None
+
         query = text("""
             SELECT
                 id, organization_id, teaching_id,
@@ -863,6 +1017,10 @@ class GuardianAlertRepository:
 
     def get_pending_alerts(self) -> List[GuardianAlert]:
         """未解決のアラートを取得"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_pending_alerts: organization_id is not UUID format")
+            return []
+
         query = text("""
             SELECT
                 id, organization_id, teaching_id,
@@ -892,6 +1050,10 @@ class GuardianAlertRepository:
 
     def get_alert_by_teaching_id(self, teaching_id: str) -> Optional[GuardianAlert]:
         """教えIDでアラートを取得"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_alert_by_teaching_id: organization_id is not UUID format")
+            return None
+
         query = text("""
             SELECT
                 id, organization_id, teaching_id,
@@ -928,6 +1090,10 @@ class GuardianAlertRepository:
         message_id: str,
     ) -> bool:
         """通知情報を更新"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping update_notification_info: organization_id is not UUID format")
+            return False
+
         query = text("""
             UPDATE guardian_alerts
             SET notified_at = CURRENT_TIMESTAMP,
@@ -959,6 +1125,10 @@ class GuardianAlertRepository:
         ceo_reasoning: Optional[str] = None,
     ) -> bool:
         """アラートを解決"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping resolve_alert: organization_id is not UUID format")
+            return False
+
         query = text("""
             UPDATE guardian_alerts
             SET status = :status,
@@ -1018,14 +1188,21 @@ class TeachingUsageRepository:
     教え使用ログのリポジトリ
 
     teaching_usage_logs テーブルへの操作を提供します。
+
+    【注意】organization_idがUUID形式でない場合はDBクエリを実行しません。
     """
 
     def __init__(self, pool: Engine, organization_id: str):
         self._pool = pool
         self._organization_id = organization_id
+        self._org_id_is_uuid = _check_uuid_format(organization_id)
 
     def log_usage(self, usage: TeachingUsageContext) -> TeachingUsageContext:
         """使用ログを記録"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping log_usage: organization_id is not UUID format")
+            return usage  # ログ記録なしでそのまま返す
+
         query = text("""
             INSERT INTO teaching_usage_logs (
                 organization_id,
@@ -1078,6 +1255,10 @@ class TeachingUsageRepository:
         feedback: Optional[str] = None,
     ) -> bool:
         """フィードバックを更新"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping update_feedback: organization_id is not UUID format")
+            return False
+
         # 直近の使用ログを更新
         query = text("""
             UPDATE teaching_usage_logs
@@ -1113,6 +1294,15 @@ class TeachingUsageRepository:
         days: int = 30,
     ) -> Dict[str, Any]:
         """使用統計を取得"""
+        if not self._org_id_is_uuid:
+            logger.debug(f"Skipping get_usage_stats: organization_id is not UUID format")
+            return {
+                "total_usage": 0,
+                "helpful_count": 0,
+                "not_helpful_count": 0,
+                "avg_relevance_score": None,
+            }
+
         query = text("""
             SELECT
                 COUNT(*) as total_usage,

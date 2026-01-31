@@ -456,7 +456,27 @@ class TradeoffAnalyzer:
         high_score: int,
         low_score: int,
     ) -> str:
-        """スコア差からトレードオフの深刻度を計算"""
+        """スコア差からトレードオフの深刻度を計算
+
+        スコアは1-5の範囲。差が大きいほど深刻なトレードオフ。
+
+        Args:
+            high_score: 高い方のスコア (1-5)
+            low_score: 低い方のスコア (1-5)
+
+        Returns:
+            深刻度の文字列値
+
+        マッピング:
+            diff <= 1: NEGLIGIBLE (無視できる程度 - 両立可能)
+            diff == 2: MINOR (軽微 - 工夫次第で両立可能)
+            diff == 3: MODERATE (中程度 - ある程度の犠牲が必要)
+            diff >= 4: CRITICAL (致命的 - 最大差、一方を完全に犠牲)
+
+        Note:
+            スコア1-5の場合、最大差は4 (5-1)。
+            diff >= 4 は「一方を諦める必要がある」致命的なトレードオフ。
+        """
         diff = high_score - low_score
 
         if diff <= 1:
@@ -465,9 +485,7 @@ class TradeoffAnalyzer:
             return TradeoffSeverity.MINOR.value
         elif diff == 3:
             return TradeoffSeverity.MODERATE.value
-        elif diff == 4:
-            return TradeoffSeverity.SIGNIFICANT.value
-        else:
+        else:  # diff >= 4 (max possible diff for scores 1-5)
             return TradeoffSeverity.CRITICAL.value
 
     # =========================================================================

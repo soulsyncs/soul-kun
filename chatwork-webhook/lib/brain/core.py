@@ -134,6 +134,14 @@ from lib.brain.execution_excellence import (
     FEATURE_FLAG_EXECUTION_EXCELLENCE,
 )
 from lib.feature_flags import is_execution_excellence_enabled as ff_execution_excellence_enabled
+from lib.feature_flags import is_llm_brain_enabled
+
+# v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
+from lib.brain.tool_converter import get_tools_for_llm
+from lib.brain.context_builder import ContextBuilder
+from lib.brain.llm_brain import LLMBrain, LLMBrainResult
+from lib.brain.guardian_layer import GuardianLayer, GuardianAction
+from lib.brain.state_manager import LLMStateManager, LLMSessionMode, LLMPendingAction
 
 # v10.46.0: 観測機能（Observability Layer）
 from lib.brain.observability import (
@@ -298,6 +306,13 @@ class SoulkunBrain:
             enable_persistence=False,  # 将来的にTrue
         )
 
+        # v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
+        self.llm_brain: Optional[LLMBrain] = None
+        self.llm_guardian: Optional[GuardianLayer] = None
+        self.llm_state_manager: Optional[LLMStateManager] = None
+        self.llm_context_builder: Optional[ContextBuilder] = None
+        self._init_llm_brain()
+
         # 内部状態
         self._initialized = False
 
@@ -363,6 +378,25 @@ class SoulkunBrain:
             )
             if ceo_context:
                 context.ceo_teachings = ceo_context
+
+            # =========================================================
+            # v10.50.0: LLM Brain ルーティング
+            # Feature Flag `ENABLE_LLM_BRAIN` が有効な場合、LLM脳で処理
+            # =========================================================
+            if is_llm_brain_enabled() and self.llm_brain is not None:
+                logger.info("🧠 Routing to LLM Brain (Claude Opus 4.5)")
+                return await self._process_with_llm_brain(
+                    message=message,
+                    room_id=room_id,
+                    account_id=account_id,
+                    sender_name=sender_name,
+                    context=context,
+                    start_time=start_time,
+                )
+
+            # =========================================================
+            # 以下は従来のキーワードマッチング方式（LLM Brain無効時）
+            # =========================================================
 
             # 2. 状態チェック: マルチステップセッション中？
             current_state = await self._get_current_state(room_id, account_id)
@@ -1215,6 +1249,42 @@ class SoulkunBrain:
             logger.warning(f"Failed to initialize ExecutionExcellence: {e}")
             self.execution_excellence = None
 
+    def _init_llm_brain(self) -> None:
+        """
+        LLM Brain（LLM常駐型脳）を初期化
+
+        v10.50.0: Claude Opus 4.5を使用したFunction Calling方式の脳
+        設計書: docs/25_llm_native_brain_architecture.md
+
+        Feature Flag `ENABLE_LLM_BRAIN` が有効な場合のみ初期化。
+        """
+        if not is_llm_brain_enabled():
+            logger.info("LLM Brain is disabled by feature flag")
+            return
+
+        try:
+            # LLM Brain コンポーネントの初期化
+            self.llm_brain = LLMBrain()
+            self.llm_guardian = GuardianLayer(
+                ceo_teachings=[],  # CEO教えは実行時に取得
+            )
+            self.llm_state_manager = LLMStateManager(
+                brain_state_manager=self.state_manager,
+            )
+            self.llm_context_builder = ContextBuilder(
+                pool=self.pool,
+                memory_access=self.memory_access,
+                state_manager=self.llm_state_manager,
+                ceo_teaching_repository=self.ceo_teaching_repo,
+            )
+            logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize LLM Brain: {e}")
+            self.llm_brain = None
+            self.llm_guardian = None
+            self.llm_state_manager = None
+            self.llm_context_builder = None
+
     # =========================================================================
     # 実行層
     # =========================================================================
@@ -1340,6 +1410,237 @@ class SoulkunBrain:
     def _elapsed_ms(self, start_time: float) -> int:
         """経過時間をミリ秒で取得"""
         return int((time.time() - start_time) * 1000)
+
+    # =========================================================================
+    # v10.50.0: LLM Brain 処理（25章: LLM常駐型脳アーキテクチャ）
+    # =========================================================================
+
+    async def _process_with_llm_brain(
+        self,
+        message: str,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: BrainContext,
+        start_time: float,
+    ) -> BrainResponse:
+        """
+        LLM Brain（Claude Opus 4.5）でメッセージを処理
+
+        設計書: docs/25_llm_native_brain_architecture.md
+
+        【処理フロー】
+        1. ContextBuilder: LLMに渡すコンテキストを構築
+        2. LLMBrain: Claude API + Function Callingで意図理解・Tool選択
+        3. GuardianLayer: LLMの提案を検証（ALLOW/CONFIRM/BLOCK/MODIFY）
+        4. Execution: Toolを実行
+
+        Args:
+            message: ユーザーのメッセージ
+            room_id: ChatWorkルームID
+            account_id: ユーザーのアカウントID
+            sender_name: 送信者名
+            context: 既に取得済みのBrainContext
+            start_time: 処理開始時刻
+
+        Returns:
+            BrainResponse: 処理結果
+        """
+        try:
+            logger.info(
+                f"🧠 LLM Brain processing: room={room_id}, user={sender_name}, "
+                f"message={message[:50]}..."
+            )
+
+            # 1. LLMコンテキストを構築
+            llm_context = await self.llm_context_builder.build(
+                user_id=account_id,
+                room_id=room_id,
+                organization_id=self.org_id,
+                message=message,
+                sender_name=sender_name,
+            )
+
+            # 2. Toolカタログを取得（SYSTEM_CAPABILITIESから変換）
+            tools = get_tools_for_llm()
+
+            # 3. LLM Brainで処理
+            llm_result: LLMBrainResult = await self.llm_brain.process(
+                context=llm_context,
+                message=message,
+                tools=tools,
+            )
+
+            logger.info(
+                f"🧠 LLM Brain result: tool_calls={len(llm_result.tool_calls or [])}, "
+                f"has_text={llm_result.text_response is not None}, "
+                f"confidence={llm_result.confidence.overall:.2f}"
+            )
+
+            # 4. Guardian Layerで検証
+            guardian_result = await self.llm_guardian.check(llm_result, llm_context)
+
+            logger.info(
+                f"🛡️ Guardian result: action={guardian_result.action.value}, "
+                f"reason={guardian_result.reason[:50] if guardian_result.reason else 'N/A'}..."
+            )
+
+            # 5. Guardianの判断に基づいて処理を分岐
+            if guardian_result.action == GuardianAction.BLOCK:
+                # ブロック: 実行しない
+                block_message = guardian_result.blocked_reason or guardian_result.reason or "その操作は実行できませんウル🐺"
+                return BrainResponse(
+                    message=block_message,
+                    action_taken="guardian_block",
+                    success=False,
+                    debug_info={
+                        "llm_brain": {
+                            "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
+                            "confidence": llm_result.confidence,
+                            "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
+                        },
+                        "guardian": {
+                            "action": guardian_result.action.value,
+                            "reason": guardian_result.reason,
+                        },
+                    },
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+            elif guardian_result.action == GuardianAction.CONFIRM:
+                # 確認が必要: 確認状態に遷移
+                import uuid as uuid_mod
+                tool_call = llm_result.tool_calls[0] if llm_result.tool_calls else None
+                confirm_question = guardian_result.confirmation_question or guardian_result.reason or "確認させてほしいウル🐺"
+                pending_action = LLMPendingAction(
+                    action_id=str(uuid_mod.uuid4()),
+                    tool_name=tool_call.tool_name if tool_call else "",
+                    parameters=tool_call.parameters if tool_call else {},
+                    confirmation_question=confirm_question,
+                    confirmation_type=guardian_result.risk_level or "ambiguous",
+                    original_message=message,
+                    original_reasoning=llm_result.reasoning or "",
+                    confidence=llm_result.confidence,
+                )
+                await self.llm_state_manager.set_pending_action(
+                    user_id=account_id,
+                    room_id=room_id,
+                    pending_action=pending_action,
+                )
+
+                return BrainResponse(
+                    message=confirm_question,
+                    action_taken="request_confirmation",
+                    success=True,
+                    awaiting_confirmation=True,
+                    state_changed=True,
+                    new_state="llm_confirmation_pending",
+                    debug_info={
+                        "llm_brain": {
+                            "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
+                            "confidence": llm_result.confidence,
+                        },
+                        "guardian": {
+                            "action": guardian_result.action.value,
+                            "reason": guardian_result.reason,
+                        },
+                    },
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+            elif guardian_result.action == GuardianAction.MODIFY:
+                # 修正が必要: Guardianが修正したパラメータを使用
+                tool_calls_to_execute = llm_result.tool_calls
+                # パラメータを修正（最初のTool呼び出しのみ）
+                if tool_calls_to_execute and guardian_result.modified_params:
+                    tool_calls_to_execute[0].parameters.update(guardian_result.modified_params)
+
+            else:
+                # ALLOW: そのまま実行
+                tool_calls_to_execute = llm_result.tool_calls
+
+            # 6. テキスト応答のみの場合（Tool呼び出しなし）
+            if not tool_calls_to_execute:
+                return BrainResponse(
+                    message=llm_result.text_response or "お手伝いできることはありますかウル？🐺",
+                    action_taken="llm_text_response",
+                    success=True,
+                    debug_info={
+                        "llm_brain": {
+                            "confidence": llm_result.confidence,
+                            "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
+                        },
+                    },
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+            # 7. Tool実行（既存のexecution層を活用）
+            # 最初のTool呼び出しを実行（複数Toolは将来対応）
+            tool_call = tool_calls_to_execute[0]
+
+            # DecisionResultを構築して既存のexecution層に渡す
+            decision = DecisionResult(
+                action=tool_call.tool_name,
+                params=tool_call.parameters,
+                confidence=llm_result.confidence,
+                needs_confirmation=False,  # Guardianで既にチェック済み
+            )
+
+            result = await self._execute(
+                decision=decision,
+                context=context,
+                room_id=room_id,
+                account_id=account_id,
+                sender_name=sender_name,
+            )
+
+            # v10.46.0: 観測ログ - LLM Brain実行結果
+            self.observability.log_execution(
+                action=tool_call.tool_name,
+                success=result.success,
+                account_id=account_id,
+                execution_time_ms=self._elapsed_ms(start_time),
+                error_code=result.data.get("error_code") if result.data and not result.success else None,
+            )
+
+            # 記憶更新（非同期）
+            asyncio.create_task(
+                self.memory_manager.update_memory_safely(
+                    message, result, context, room_id, account_id, sender_name
+                )
+            )
+
+            return BrainResponse(
+                message=result.message,
+                action_taken=tool_call.tool_name,
+                action_params=tool_call.parameters,
+                success=result.success,
+                suggestions=result.suggestions,
+                debug_info={
+                    "llm_brain": {
+                        "tool_calls": [tc.to_dict() for tc in tool_calls_to_execute],
+                        "confidence": llm_result.confidence,
+                        "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
+                    },
+                    "guardian": {
+                        "action": guardian_result.action.value,
+                    },
+                },
+                total_time_ms=self._elapsed_ms(start_time),
+            )
+
+        except Exception as e:
+            logger.exception(f"LLM Brain error: {e}")
+
+            # フォールバック: 従来の処理に戻る
+            logger.warning("🧠 LLM Brain failed, no fallback available in this version")
+            return BrainResponse(
+                message="申し訳ありませんウル、うまく処理できませんでしたウル🐺",
+                action_taken="llm_brain_error",
+                success=False,
+                debug_info={"error": str(e)},
+                total_time_ms=self._elapsed_ms(start_time),
+            )
 
     def _parse_confirmation_response(
         self,

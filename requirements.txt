@@ -7,3 +7,9 @@ httpx==0.*
 cloud-sql-python-connector[pg8000]==1.*
 sqlalchemy==2.*
 pg8000==1.*
+google-api-python-client==2.*
+google-auth-httplib2==0.*
+google-auth-oauthlib==1.*
+pinecone==5.*
+google-genai==1.*
+pytz

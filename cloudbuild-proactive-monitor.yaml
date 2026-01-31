@@ -1,0 +1,84 @@
+# =============================================================================
+# Cloud Build 自動デプロイ設定（proactive-monitor）
+# =============================================================================
+#
+# 目的:
+#   mainブランチへのマージ時に自動でproactive-monitorをデプロイ
+#
+# トリガー設定（GCPコンソールで設定が必要）:
+#   - 名前: proactive-monitor-auto-deploy
+#   - イベント: Push to a branch
+#   - ブランチ: ^main$
+#   - ファイルフィルタ: proactive-monitor/**, lib/brain/**, lib/feature_flags.py
+#   - 構成ファイル: cloudbuild-proactive-monitor.yaml
+#
+# v10.53.0: 初版作成（大規模修繕対応）
+# =============================================================================
+
+steps:
+  # =============================================================================
+  # Step 1: lib/ 同期チェック
+  # =============================================================================
+  - name: 'gcr.io/cloud-builders/git'
+    id: 'sync-check'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "🔍 lib/ 同期チェック (proactive-monitor)..."
+
+        # proactive-monitor/lib/brain/ と lib/brain/ の差分チェック
+        if ! diff -rq lib/brain proactive-monitor/lib/brain --exclude='__pycache__' --exclude='*.pyc' > /dev/null 2>&1; then
+          echo "❌ lib/brain/ が同期されていません！"
+          echo "   デプロイを中止します。"
+          echo ""
+          echo "修正方法:"
+          echo "   make sync"
+          exit 1
+        fi
+
+        echo "✅ lib/ は同期されています"
+
+  # =============================================================================
+  # Step 2: proactive-monitor をデプロイ
+  # =============================================================================
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-proactive-monitor'
+    entrypoint: 'gcloud'
+    args:
+      - 'functions'
+      - 'deploy'
+      - 'proactive-monitor'
+      - '--source=proactive-monitor'
+      - '--runtime=python311'
+      - '--trigger-http'
+      - '--region=asia-northeast1'
+      - '--memory=512MB'
+      - '--timeout=540s'
+      - '--no-allow-unauthenticated'
+    waitFor: ['sync-check']
+
+  # =============================================================================
+  # Step 3: デプロイ完了通知
+  # =============================================================================
+  - name: 'gcr.io/cloud-builders/curl'
+    id: 'notify'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "✅ proactive-monitor デプロイ完了"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "コミット: $COMMIT_SHA"
+        echo "ブランチ: $BRANCH_NAME"
+        echo ""
+    waitFor: ['deploy-proactive-monitor']
+
+# タイムアウト設定（10分）
+timeout: '600s'
+
+# ログ設定
+options:
+  logging: CLOUD_LOGGING_ONLY

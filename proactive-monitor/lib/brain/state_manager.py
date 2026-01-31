@@ -790,3 +790,399 @@ class BrainStateManager:
 
         except Exception as e:
             logger.error(f"Error clearing state (sync): {e}")
+
+
+# =============================================================================
+# LLM Brain用の拡張（設計書: 25章 セクション5.1.5）
+# =============================================================================
+
+from enum import Enum as PyEnum
+from dataclasses import dataclass, field
+import json
+import uuid
+
+
+class LLMSessionMode(PyEnum):
+    """
+    LLM Brainのセッションモード
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.1.5
+    """
+    NORMAL = "normal"                    # 通常モード
+    CONFIRMATION_PENDING = "confirmation_pending"  # 確認待ち
+    MULTI_STEP_FLOW = "multi_step_flow"  # 複数ステップのフロー中
+    ERROR_RECOVERY = "error_recovery"    # エラーからの回復中
+
+
+@dataclass
+class LLMPendingAction:
+    """
+    確認待ちの操作
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.1.5
+
+    設計意図:
+    - Guardian Layerが確認を要求した操作を保持
+    - ユーザーの応答に基づいて実行/キャンセルを判断
+    """
+    # === 識別情報 ===
+    action_id: str                       # アクションID（UUID）
+    tool_name: str                       # 実行しようとしているTool名
+    parameters: Dict[str, Any]           # パラメータ
+
+    # === 確認情報 ===
+    confirmation_question: str           # ユーザーに送った確認質問
+    confirmation_type: str               # 確認の種類（danger/ambiguous/high_value/low_confidence）
+    original_message: str                # 元のユーザーメッセージ
+
+    # === 思考過程 ===
+    original_reasoning: str = ""         # LLMが出力した思考過程
+    confidence: float = 0.0              # 元の確信度
+
+    # === タイムスタンプ ===
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    expires_at: Optional[datetime] = None  # 有効期限（デフォルト: 10分）
+
+    def is_expired(self) -> bool:
+        """有効期限切れかどうか"""
+        if self.expires_at is None:
+            return datetime.utcnow() > self.created_at + timedelta(minutes=10)
+        return datetime.utcnow() > self.expires_at
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書に変換"""
+        return {
+            "action_id": self.action_id,
+            "tool_name": self.tool_name,
+            "parameters": self.parameters,
+            "confirmation_question": self.confirmation_question,
+            "confirmation_type": self.confirmation_type,
+            "original_message": self.original_message,
+            "original_reasoning": self.original_reasoning,
+            "confidence": self.confidence,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'LLMPendingAction':
+        """辞書から生成"""
+        return cls(
+            action_id=data.get("action_id", str(uuid.uuid4())),
+            tool_name=data.get("tool_name", ""),
+            parameters=data.get("parameters", {}),
+            confirmation_question=data.get("confirmation_question", ""),
+            confirmation_type=data.get("confirmation_type", "unknown"),
+            original_message=data.get("original_message", ""),
+            original_reasoning=data.get("original_reasoning", ""),
+            confidence=data.get("confidence", 0.0),
+            created_at=datetime.fromisoformat(data["created_at"]) if data.get("created_at") else datetime.utcnow(),
+            expires_at=datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None,
+        )
+
+    def to_string(self) -> str:
+        """LLMプロンプト用の文字列表現"""
+        params_str = json.dumps(self.parameters, ensure_ascii=False, indent=2)
+        return f"""
+操作: {self.tool_name}
+パラメータ: {params_str}
+確認質問: {self.confirmation_question}
+元のメッセージ: {self.original_message}
+確信度: {self.confidence:.0%}
+""".strip()
+
+
+@dataclass
+class LLMSessionState:
+    """
+    LLM Brainのセッション状態
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.1.5
+
+    設計意図:
+    - 確認フロー中の状態を保持
+    - 連続した会話の文脈を維持
+    - エラーからの復旧状態を管理
+    """
+    # === 識別情報 ===
+    session_id: str                      # セッションID（UUID）
+    user_id: str                         # ユーザーID
+    room_id: str                         # ChatWorkルームID
+    organization_id: str                 # 組織ID
+
+    # === 状態 ===
+    mode: LLMSessionMode = LLMSessionMode.NORMAL  # 現在のモード
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime = field(default_factory=datetime.utcnow)
+    expires_at: Optional[datetime] = None   # 有効期限（デフォルト: 30分）
+
+    # === pending操作（確認待ち） ===
+    pending_action: Optional[LLMPendingAction] = None
+
+    # === 会話コンテキスト ===
+    conversation_context: Dict[str, Any] = field(default_factory=dict)
+    last_intent: Optional[str] = None       # 最後に認識した意図
+    last_tool_called: Optional[str] = None  # 最後に呼び出したTool
+
+    # === エラー状態 ===
+    last_error: Optional[str] = None
+    error_count: int = 0
+
+    def is_expired(self) -> bool:
+        """セッションが期限切れかどうか"""
+        if self.expires_at is None:
+            # デフォルトは30分
+            return datetime.utcnow() > self.created_at + timedelta(minutes=30)
+        return datetime.utcnow() > self.expires_at
+
+    def to_string(self) -> str:
+        """LLMプロンプト用の文字列表現"""
+        lines = [f"セッションモード: {self.mode.value}"]
+        if self.pending_action:
+            lines.append(f"確認待ち操作: {self.pending_action.tool_name}")
+        if self.last_intent:
+            lines.append(f"直前の意図: {self.last_intent}")
+        if self.last_error:
+            lines.append(f"直前のエラー: {self.last_error}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書に変換"""
+        return {
+            "session_id": self.session_id,
+            "user_id": self.user_id,
+            "room_id": self.room_id,
+            "organization_id": self.organization_id,
+            "mode": self.mode.value,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "pending_action": self.pending_action.to_dict() if self.pending_action else None,
+            "conversation_context": self.conversation_context,
+            "last_intent": self.last_intent,
+            "last_tool_called": self.last_tool_called,
+            "last_error": self.last_error,
+            "error_count": self.error_count,
+        }
+
+
+class LLMStateManager:
+    """
+    LLM Brain用の状態管理
+
+    設計書: docs/25_llm_native_brain_architecture.md セクション5.1.5
+
+    【責務】
+    - LLMセッション状態の作成・取得・更新・削除
+    - pending操作の管理
+    - 確認フローの状態遷移
+
+    【注意】
+    既存のBrainStateManagerと共存する。
+    LLMSessionStateは既存のConversationStateとは別のデータモデル。
+    ただし、DBテーブルは同じbrain_conversation_statesを使用し、
+    state_dataフィールドにLLMセッション情報を格納する。
+    """
+
+    # 確認応答のキーワード
+    APPROVAL_KEYWORDS = ["はい", "yes", "ok", "いいよ", "お願い", "実行", "1", "うん"]
+    DENIAL_KEYWORDS = ["いいえ", "no", "やめ", "キャンセル", "だめ", "2", "ストップ"]
+
+    def __init__(self, brain_state_manager: BrainStateManager):
+        """
+        Args:
+            brain_state_manager: 既存のBrainStateManagerインスタンス
+        """
+        self.brain_state_manager = brain_state_manager
+
+    async def get_current_state(
+        self,
+        room_id: str,
+        user_id: str,
+    ) -> Optional[ConversationState]:
+        """
+        現在の状態を取得（ContextBuilder互換）
+
+        BrainStateManagerの同名メソッドへのラッパー。
+        ContextBuilderが統一的なインターフェースで状態を取得できるようにする。
+
+        Args:
+            room_id: ChatWorkルームID
+            user_id: ユーザーのアカウントID
+
+        Returns:
+            ConversationState: 現在の状態（存在しない場合はNone）
+        """
+        return await self.brain_state_manager.get_current_state(room_id, user_id)
+
+    async def get_llm_session(
+        self,
+        user_id: str,
+        room_id: str,
+    ) -> Optional[LLMSessionState]:
+        """
+        LLMセッション状態を取得
+
+        Returns:
+            LLMSessionState: 有効なセッションがあれば返す、なければNone
+        """
+        # 既存のstate_managerから状態を取得
+        state = await self.brain_state_manager.get_current_state(room_id, user_id)
+
+        if not state:
+            return None
+
+        # state_dataからLLMセッション情報を復元
+        state_data = state.state_data or {}
+        llm_data = state_data.get("llm_session")
+
+        if not llm_data:
+            return None
+
+        # pending_actionを復元
+        pending_action = None
+        if llm_data.get("pending_action"):
+            pending_action = LLMPendingAction.from_dict(llm_data["pending_action"])
+            if pending_action.is_expired():
+                pending_action = None
+
+        return LLMSessionState(
+            session_id=llm_data.get("session_id", str(uuid.uuid4())),
+            user_id=user_id,
+            room_id=room_id,
+            organization_id=state.organization_id,
+            mode=LLMSessionMode(llm_data.get("mode", "normal")),
+            pending_action=pending_action,
+            conversation_context=llm_data.get("conversation_context", {}),
+            last_intent=llm_data.get("last_intent"),
+            last_tool_called=llm_data.get("last_tool_called"),
+            last_error=llm_data.get("last_error"),
+            error_count=llm_data.get("error_count", 0),
+        )
+
+    async def set_pending_action(
+        self,
+        user_id: str,
+        room_id: str,
+        pending_action: LLMPendingAction,
+    ) -> LLMSessionState:
+        """
+        確認待ち操作を設定
+        """
+        session = await self.get_llm_session(user_id, room_id)
+
+        if session is None:
+            session = LLMSessionState(
+                session_id=str(uuid.uuid4()),
+                user_id=user_id,
+                room_id=room_id,
+                organization_id=self.brain_state_manager.org_id,
+            )
+
+        session.mode = LLMSessionMode.CONFIRMATION_PENDING
+        session.pending_action = pending_action
+        session.updated_at = datetime.utcnow()
+
+        await self._save_llm_session(session)
+
+        return session
+
+    async def clear_pending_action(
+        self,
+        user_id: str,
+        room_id: str,
+    ) -> Optional[LLMSessionState]:
+        """
+        確認待ち操作をクリア
+        """
+        session = await self.get_llm_session(user_id, room_id)
+
+        if session is None:
+            return None
+
+        session.mode = LLMSessionMode.NORMAL
+        session.pending_action = None
+        session.updated_at = datetime.utcnow()
+
+        await self._save_llm_session(session)
+
+        return session
+
+    async def handle_confirmation_response(
+        self,
+        user_id: str,
+        room_id: str,
+        response: str,
+    ) -> tuple[bool, Optional[LLMPendingAction]]:
+        """
+        確認応答を処理
+
+        Returns:
+            (approved, pending_action): 承認されたか、元の操作
+        """
+        session = await self.get_llm_session(user_id, room_id)
+
+        if session is None or session.pending_action is None:
+            return (False, None)
+
+        pending = session.pending_action
+
+        # 応答を解析
+        approved = self._is_approval_response(response)
+
+        # 状態をクリア
+        await self.clear_pending_action(user_id, room_id)
+
+        logger.info(f"Confirmation response: approved={approved}, tool={pending.tool_name}")
+
+        return (approved, pending)
+
+    def _is_approval_response(self, response: str) -> bool:
+        """承認応答かどうかを判定"""
+        response_lower = response.lower().strip()
+
+        for keyword in self.APPROVAL_KEYWORDS:
+            if keyword in response_lower:
+                return True
+
+        for keyword in self.DENIAL_KEYWORDS:
+            if keyword in response_lower:
+                return False
+
+        # 不明な場合は否認として扱う（安全側に倒す）
+        return False
+
+    def is_confirmation_response(self, message: str) -> bool:
+        """
+        メッセージが確認応答かどうかを判定
+
+        確認待ち中に別の意図のメッセージが来た場合の判定に使用
+        """
+        message_lower = message.lower().strip()
+
+        # 明確な応答キーワードがあるかチェック
+        all_keywords = self.APPROVAL_KEYWORDS + self.DENIAL_KEYWORDS
+        return any(kw in message_lower for kw in all_keywords)
+
+    async def _save_llm_session(self, session: LLMSessionState) -> None:
+        """LLMセッションを保存（既存のstate_managerを通じて）"""
+        llm_data = {
+            "session_id": session.session_id,
+            "mode": session.mode.value,
+            "pending_action": session.pending_action.to_dict() if session.pending_action else None,
+            "conversation_context": session.conversation_context,
+            "last_intent": session.last_intent,
+            "last_tool_called": session.last_tool_called,
+            "last_error": session.last_error,
+            "error_count": session.error_count,
+        }
+
+        # 既存のstate_managerを通じて保存
+        await self.brain_state_manager.transition_to(
+            room_id=session.room_id,
+            user_id=session.user_id,
+            state_type=StateType.CONFIRMATION if session.mode == LLMSessionMode.CONFIRMATION_PENDING else StateType.NORMAL,
+            step=f"llm_{session.mode.value}",
+            data={"llm_session": llm_data},
+            timeout_minutes=30,
+        )

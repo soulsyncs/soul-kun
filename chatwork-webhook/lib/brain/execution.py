@@ -639,13 +639,11 @@ class BrainExecution:
                 if result.success:
                     return result
 
-                # v10.48.8: success=Falseの場合の処理を改善
-                # - error_codeがない場合 → ソフトエラー（リトライしない）
-                # - error_codeがRETRYABLE_ERRORSにある場合のみリトライ
-                if not result.error_code or result.error_code not in RETRYABLE_ERRORS:
+                # ハンドラー自体のエラー（リトライしない）
+                if result.error_code and result.error_code not in RETRYABLE_ERRORS:
                     return result
 
-                # リトライ可能なエラー（明示的にerror_codeがRETRYABLE_ERRORSにある場合のみ）
+                # リトライ可能なエラー
                 last_error = Exception(result.error_details or "Unknown error")
                 retry_count = attempt + 1
 

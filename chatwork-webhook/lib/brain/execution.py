@@ -9,7 +9,7 @@
 - 結果は脳に戻り、脳が最終的なレスポンスを生成
 - エラーハンドリングも脳の責務
 
-設計書: docs/13_brain_architecture.md セクション8
+設計書: docs/25_llm_native_brain_architecture.md（LLM常駐型脳アーキテクチャ）
 """
 
 from __future__ import annotations

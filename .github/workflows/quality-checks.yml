@@ -499,6 +499,88 @@ jobs:
 
           echo "✅ No debug print statements found!"
 
+      - name: Check for direct BRAIN env var usage
+        run: |
+          echo "🔍 Checking for direct os.environ.get('BRAIN') usage..."
+          echo "   (Should use lib/brain/env_config.py instead)"
+          echo ""
+
+          # 除外ファイル（許可されているファイル）
+          # 注意: この許可リストは既存ファイルを含む。
+          # 新規ファイルでBRAIN環境変数を直接使うことは禁止。
+          # 代わりに lib/brain/env_config.py を使う。
+          ALLOWED_FILES=(
+            # === Single Source of Truth ===
+            "lib/brain/env_config.py"
+            "chatwork-webhook/lib/brain/env_config.py"
+            "proactive-monitor/lib/brain/env_config.py"
+
+            # === feature_flags.py (env_config.pyを呼び出す) ===
+            "lib/feature_flags.py"
+            "chatwork-webhook/lib/feature_flags.py"
+            "proactive-monitor/lib/feature_flags.py"
+            "watch-google-drive/lib/feature_flags.py"
+            "pattern-detection/lib/feature_flags.py"
+            "sync-chatwork-tasks/lib/feature_flags.py"
+            "remind-tasks/lib/feature_flags.py"
+
+            # === 既存のbrain/配下ファイル（内部で他のBRAIN変数を使用）===
+            "lib/brain/integration.py"
+            "lib/brain/llm_brain.py"
+            "chatwork-webhook/lib/brain/integration.py"
+            "chatwork-webhook/lib/brain/llm_brain.py"
+            "proactive-monitor/lib/brain/integration.py"
+            "proactive-monitor/lib/brain/llm_brain.py"
+
+            # === main.py（修正済み、監視対象外）===
+            "main.py"
+            "chatwork-webhook/main.py"
+            "proactive-monitor/main.py"
+          )
+
+          ERRORS_FOUND=0
+
+          # BRAIN を含む os.environ.get() または os.getenv() を検索
+          # 除外: コメント行、env_config.py、feature_flags.py
+          while IFS= read -r line; do
+            file=$(echo "$line" | cut -d: -f1)
+
+            # 許可ファイルかチェック
+            IS_ALLOWED=false
+            for allowed in "${ALLOWED_FILES[@]}"; do
+              if [[ "$file" == "$allowed" ]]; then
+                IS_ALLOWED=true
+                break
+              fi
+            done
+
+            if [ "$IS_ALLOWED" = false ]; then
+              echo "❌ Direct BRAIN env var usage found:"
+              echo "   $line"
+              echo ""
+              echo "   Fix: Use 'from lib.brain.env_config import is_brain_enabled'"
+              echo ""
+              ERRORS_FOUND=1
+            fi
+          done < <(grep -rn "os\.environ\.get.*BRAIN\|os\.getenv.*BRAIN" --include="*.py" 2>/dev/null | grep -v "^#" | grep -v "__pycache__" || true)
+
+          if [ $ERRORS_FOUND -eq 1 ]; then
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "❌ Direct BRAIN environment variable usage detected!"
+            echo ""
+            echo "All BRAIN-related environment variables must be accessed through:"
+            echo "  lib/brain/env_config.py"
+            echo ""
+            echo "Example:"
+            echo "  from lib.brain.env_config import is_brain_enabled"
+            echo "  if is_brain_enabled():"
+            echo "      ..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            exit 1
+          fi
+
+          echo "✅ No direct BRAIN env var usage found!"
+
   # =====================================================
   # 4. ユニットテスト実行
   # =====================================================

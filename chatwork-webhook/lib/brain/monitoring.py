@@ -738,3 +738,500 @@ def get_optimizer() -> ResponseTimeOptimizer:
     if _optimizer is None:
         _optimizer = ResponseTimeOptimizer()
     return _optimizer
+
+
+# =============================================================================
+# DB連携モニタリング（設計書15.2ダッシュボード対応）
+# =============================================================================
+
+@dataclass
+class DailyDBMetrics:
+    """
+    日次DBメトリクス（設計書15.2のダッシュボード用）
+
+    brain_daily_metrics テーブルから取得するメトリクス。
+    リアルタイムの AggregatedMetrics とは異なり、DBに永続化されたデータを使用。
+    """
+    # 基本情報
+    organization_id: str
+    metric_date: datetime
+
+    # 会話統計
+    total_conversations: int = 0
+    unique_users: int = 0
+
+    # 応答時間
+    avg_response_time_ms: int = 0
+    p50_response_time_ms: int = 0
+    p95_response_time_ms: int = 0
+    p99_response_time_ms: int = 0
+    max_response_time_ms: int = 0
+
+    # 確信度
+    avg_confidence: float = 0.0
+    min_confidence: float = 0.0
+
+    # 出力タイプ別
+    tool_call_count: int = 0
+    text_response_count: int = 0
+    clarification_count: int = 0
+
+    # Guardian判定
+    allow_count: int = 0
+    confirm_count: int = 0
+    block_count: int = 0
+
+    # 実行結果
+    success_count: int = 0
+    error_count: int = 0
+
+    # コスト
+    total_input_tokens: int = 0
+    total_output_tokens: int = 0
+    total_cost_yen: float = 0.0
+
+    # 遅いリクエスト
+    slow_request_count: int = 0
+
+    @property
+    def error_rate(self) -> float:
+        """エラー率（%）"""
+        if self.total_conversations == 0:
+            return 0.0
+        return (self.error_count / self.total_conversations) * 100
+
+    @property
+    def confirm_rate(self) -> float:
+        """確認モード発生率（%）"""
+        if self.total_conversations == 0:
+            return 0.0
+        return (self.confirm_count / self.total_conversations) * 100
+
+    @property
+    def block_rate(self) -> float:
+        """ブロック発生率（%）"""
+        if self.total_conversations == 0:
+            return 0.0
+        return (self.block_count / self.total_conversations) * 100
+
+    def check_alerts(self) -> List[Dict[str, Any]]:
+        """
+        設計書15.1の閾値に基づくアラートをチェック
+
+        Returns:
+            アラートのリスト
+        """
+        alerts = []
+        thresholds = DEFAULT_THRESHOLDS
+
+        # LLM応答時間 > 10秒
+        if self.avg_response_time_ms > thresholds.response_time_critical_ms:
+            alerts.append({
+                "level": "warning",
+                "category": "response_time",
+                "message": f"LLM応答時間が閾値を超えています: {self.avg_response_time_ms}ms",
+                "value": self.avg_response_time_ms,
+                "threshold": thresholds.response_time_critical_ms,
+            })
+
+        # エラー率 > 5%
+        if self.error_rate > thresholds.error_rate_critical * 100:
+            alerts.append({
+                "level": "warning",
+                "category": "error_rate",
+                "message": f"エラー率が閾値を超えています: {self.error_rate:.1f}%",
+                "value": self.error_rate,
+                "threshold": thresholds.error_rate_critical * 100,
+            })
+
+        # 確認モード発生率 > 30%
+        if self.confirm_rate > thresholds.guardian_confirm_rate_info * 100:
+            alerts.append({
+                "level": "info",
+                "category": "confirm_rate",
+                "message": f"確認モード発生率が高くなっています: {self.confirm_rate:.1f}%",
+                "value": self.confirm_rate,
+                "threshold": thresholds.guardian_confirm_rate_info * 100,
+            })
+
+        # ブロック発生率 > 10%
+        if self.block_rate > thresholds.guardian_block_rate_warning * 100:
+            alerts.append({
+                "level": "warning",
+                "category": "block_rate",
+                "message": f"ブロック発生率が閾値を超えています: {self.block_rate:.1f}%",
+                "value": self.block_rate,
+                "threshold": thresholds.guardian_block_rate_warning * 100,
+            })
+
+        # 日次コスト > 5,000円
+        if self.total_cost_yen > thresholds.daily_cost_warning:
+            alerts.append({
+                "level": "warning",
+                "category": "daily_cost",
+                "message": f"日次コストが閾値を超えています: ¥{self.total_cost_yen:,.0f}",
+                "value": self.total_cost_yen,
+                "threshold": thresholds.daily_cost_warning,
+            })
+
+        return alerts
+
+    def to_dashboard_string(self) -> str:
+        """
+        設計書15.2形式のダッシュボード文字列を生成
+
+        【ソウルくん脳モニター】
+        今日の統計:
+        - 総会話数: 150
+        - 平均応答時間: 2.3秒
+        - 確信度平均: 0.85
+        - 確認モード: 12回 (8%)
+        - ブロック: 2回 (1.3%)
+        """
+        avg_time_sec = self.avg_response_time_ms / 1000 if self.avg_response_time_ms else 0
+        date_str = self.metric_date.strftime("%Y-%m-%d") if isinstance(self.metric_date, datetime) else str(self.metric_date)
+
+        dashboard = f"""
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+【ソウルくん脳モニター】 {date_str}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 今日の統計:
+  - 総会話数: {self.total_conversations:,}
+  - ユニークユーザー: {self.unique_users:,}
+  - 平均応答時間: {avg_time_sec:.1f}秒
+  - 確信度平均: {self.avg_confidence:.2f}
+
+🛡️ Guardian判定:
+  - 許可 (allow): {self.allow_count:,}回
+  - 確認 (confirm): {self.confirm_count:,}回 ({self.confirm_rate:.1f}%)
+  - ブロック (block): {self.block_count:,}回 ({self.block_rate:.1f}%)
+
+✅ 実行結果:
+  - 成功: {self.success_count:,}回
+  - エラー: {self.error_count:,}回 ({self.error_rate:.1f}%)
+  - 遅延リクエスト (>10秒): {self.slow_request_count:,}回
+
+💰 コスト:
+  - 本日: ¥{self.total_cost_yen:,.0f}
+  - 入力トークン: {self.total_input_tokens:,}
+  - 出力トークン: {self.total_output_tokens:,}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        # アラートがあれば追加
+        alerts = self.check_alerts()
+        if alerts:
+            dashboard += "\n🚨 アラート:\n"
+            for alert in alerts:
+                emoji = {"info": "ℹ️", "warning": "⚠️", "critical": "🚨"}.get(alert["level"], "❓")
+                dashboard += f"  {emoji} [{alert['level'].upper()}] {alert['message']}\n"
+            dashboard += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+
+        return dashboard
+
+
+class DBBrainMonitor:
+    """
+    DB連携 Brain モニター
+
+    brain_observability_logs テーブルからメトリクスを取得して
+    設計書15.2形式のダッシュボードを表示する。
+
+    Usage:
+        monitor = DBBrainMonitor(pool=db_pool)
+
+        # 今日のメトリクスを取得
+        metrics = await monitor.get_daily_metrics(org_id, date.today())
+        print(metrics.to_dashboard_string())
+
+        # アラートをチェック
+        alerts = metrics.check_alerts()
+    """
+
+    def __init__(self, pool=None):
+        """
+        初期化
+
+        Args:
+            pool: データベース接続プール（asyncpg）
+        """
+        self.pool = pool
+
+    async def get_daily_metrics(
+        self,
+        organization_id: str,
+        target_date: datetime,
+    ) -> DailyDBMetrics:
+        """
+        日次メトリクスを取得
+
+        Args:
+            organization_id: 組織ID
+            target_date: 対象日
+
+        Returns:
+            DailyDBMetrics
+        """
+        if not self.pool:
+            logger.warning("No pool available, returning empty metrics")
+            return DailyDBMetrics(
+                organization_id=organization_id,
+                metric_date=target_date,
+            )
+
+        try:
+            async with self.pool.acquire() as conn:
+                # まず集計テーブルを確認
+                row = await conn.fetchrow(
+                    """
+                    SELECT * FROM brain_daily_metrics
+                    WHERE organization_id = $1 AND metric_date = $2
+                    """,
+                    organization_id,
+                    target_date.date() if isinstance(target_date, datetime) else target_date,
+                )
+
+                if row:
+                    return self._row_to_metrics(row, organization_id, target_date)
+
+                # なければリアルタイム集計
+                return await self._aggregate_realtime(conn, organization_id, target_date)
+
+        except Exception as e:
+            logger.error(f"Failed to get daily metrics: {e}")
+            return DailyDBMetrics(
+                organization_id=organization_id,
+                metric_date=target_date,
+            )
+
+    async def _aggregate_realtime(
+        self,
+        conn,
+        organization_id: str,
+        target_date: datetime,
+    ) -> DailyDBMetrics:
+        """リアルタイム集計"""
+        date_value = target_date.date() if isinstance(target_date, datetime) else target_date
+
+        row = await conn.fetchrow(
+            """
+            SELECT
+                COUNT(*) as total_conversations,
+                COUNT(DISTINCT user_id) as unique_users,
+                COALESCE(AVG(total_response_time_ms)::INTEGER, 0) as avg_response_time_ms,
+                COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY total_response_time_ms)::INTEGER, 0) as p50_response_time_ms,
+                COALESCE(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY total_response_time_ms)::INTEGER, 0) as p95_response_time_ms,
+                COALESCE(PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY total_response_time_ms)::INTEGER, 0) as p99_response_time_ms,
+                COALESCE(MAX(total_response_time_ms), 0) as max_response_time_ms,
+                COALESCE(AVG(confidence_overall), 0) as avg_confidence,
+                COALESCE(MIN(confidence_overall), 0) as min_confidence,
+                COUNT(*) FILTER (WHERE output_type = 'tool_call') as tool_call_count,
+                COUNT(*) FILTER (WHERE output_type = 'text_response') as text_response_count,
+                COUNT(*) FILTER (WHERE output_type = 'clarification_needed') as clarification_count,
+                COUNT(*) FILTER (WHERE guardian_action = 'allow') as allow_count,
+                COUNT(*) FILTER (WHERE guardian_action = 'confirm') as confirm_count,
+                COUNT(*) FILTER (WHERE guardian_action = 'block') as block_count,
+                COUNT(*) FILTER (WHERE execution_success = TRUE) as success_count,
+                COUNT(*) FILTER (WHERE execution_success = FALSE) as error_count,
+                COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                COALESCE(SUM(estimated_cost_yen), 0) as total_cost_yen,
+                COUNT(*) FILTER (WHERE total_response_time_ms > 10000) as slow_request_count
+            FROM brain_observability_logs
+            WHERE organization_id = $1
+              AND DATE(created_at) = $2
+              AND environment = 'production'
+            """,
+            organization_id,
+            date_value,
+        )
+
+        if not row:
+            return DailyDBMetrics(
+                organization_id=organization_id,
+                metric_date=target_date,
+            )
+
+        return DailyDBMetrics(
+            organization_id=organization_id,
+            metric_date=target_date,
+            total_conversations=row["total_conversations"] or 0,
+            unique_users=row["unique_users"] or 0,
+            avg_response_time_ms=row["avg_response_time_ms"] or 0,
+            p50_response_time_ms=row["p50_response_time_ms"] or 0,
+            p95_response_time_ms=row["p95_response_time_ms"] or 0,
+            p99_response_time_ms=row["p99_response_time_ms"] or 0,
+            max_response_time_ms=row["max_response_time_ms"] or 0,
+            avg_confidence=float(row["avg_confidence"]) if row["avg_confidence"] else 0.0,
+            min_confidence=float(row["min_confidence"]) if row["min_confidence"] else 0.0,
+            tool_call_count=row["tool_call_count"] or 0,
+            text_response_count=row["text_response_count"] or 0,
+            clarification_count=row["clarification_count"] or 0,
+            allow_count=row["allow_count"] or 0,
+            confirm_count=row["confirm_count"] or 0,
+            block_count=row["block_count"] or 0,
+            success_count=row["success_count"] or 0,
+            error_count=row["error_count"] or 0,
+            total_input_tokens=row["total_input_tokens"] or 0,
+            total_output_tokens=row["total_output_tokens"] or 0,
+            total_cost_yen=float(row["total_cost_yen"] or 0),
+            slow_request_count=row["slow_request_count"] or 0,
+        )
+
+    def _row_to_metrics(
+        self,
+        row,
+        organization_id: str,
+        target_date: datetime,
+    ) -> DailyDBMetrics:
+        """DBの行をDailyDBMetricsに変換"""
+        return DailyDBMetrics(
+            organization_id=organization_id,
+            metric_date=target_date,
+            total_conversations=row["total_conversations"] or 0,
+            unique_users=row["unique_users"] or 0,
+            avg_response_time_ms=row["avg_response_time_ms"] or 0,
+            p50_response_time_ms=row["p50_response_time_ms"] or 0,
+            p95_response_time_ms=row["p95_response_time_ms"] or 0,
+            p99_response_time_ms=row["p99_response_time_ms"] or 0,
+            max_response_time_ms=row["max_response_time_ms"] or 0,
+            avg_confidence=float(row["avg_confidence"]) if row["avg_confidence"] else 0.0,
+            min_confidence=float(row["min_confidence"]) if row["min_confidence"] else 0.0,
+            tool_call_count=row["tool_call_count"] or 0,
+            text_response_count=row["text_response_count"] or 0,
+            clarification_count=row["clarification_count"] or 0,
+            allow_count=row["allow_count"] or 0,
+            confirm_count=row["confirm_count"] or 0,
+            block_count=row["block_count"] or 0,
+            success_count=row["success_count"] or 0,
+            error_count=row["error_count"] or 0,
+            total_input_tokens=row["total_input_tokens"] or 0,
+            total_output_tokens=row["total_output_tokens"] or 0,
+            total_cost_yen=float(row["total_cost_yen"] or 0),
+            slow_request_count=row["slow_request_count"] or 0,
+        )
+
+    async def get_monthly_cost(
+        self,
+        organization_id: str,
+        year: int,
+        month: int,
+    ) -> Dict[str, Any]:
+        """
+        月次コストを取得
+
+        Args:
+            organization_id: 組織ID
+            year: 年
+            month: 月
+
+        Returns:
+            月次コスト情報
+        """
+        if not self.pool:
+            return {"error": "No pool available"}
+
+        try:
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT
+                        COUNT(*) as total_conversations,
+                        COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+                        COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+                        COALESCE(SUM(estimated_cost_yen), 0) as total_cost_yen,
+                        COALESCE(AVG(estimated_cost_yen), 0) as avg_cost_per_conversation
+                    FROM brain_observability_logs
+                    WHERE organization_id = $1
+                      AND EXTRACT(YEAR FROM created_at) = $2
+                      AND EXTRACT(MONTH FROM created_at) = $3
+                      AND environment = 'production'
+                    """,
+                    organization_id,
+                    year,
+                    month,
+                )
+
+                return {
+                    "year": year,
+                    "month": month,
+                    "total_conversations": row["total_conversations"] or 0,
+                    "total_input_tokens": row["total_input_tokens"] or 0,
+                    "total_output_tokens": row["total_output_tokens"] or 0,
+                    "total_cost_yen": float(row["total_cost_yen"] or 0),
+                    "avg_cost_per_conversation": float(row["avg_cost_per_conversation"] or 0),
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to get monthly cost: {e}")
+            return {"error": str(e)}
+
+    async def trigger_daily_aggregation(
+        self,
+        organization_id: str,
+        target_date: datetime,
+    ) -> bool:
+        """
+        日次集計をトリガー
+
+        Args:
+            organization_id: 組織ID
+            target_date: 対象日
+
+        Returns:
+            成功したか
+        """
+        if not self.pool:
+            return False
+
+        try:
+            date_value = target_date.date() if isinstance(target_date, datetime) else target_date
+
+            async with self.pool.acquire() as conn:
+                await conn.execute(
+                    "SELECT aggregate_brain_daily_metrics($1, $2)",
+                    organization_id,
+                    date_value,
+                )
+                logger.info(f"Daily aggregation completed: {organization_id} {date_value}")
+                return True
+
+        except Exception as e:
+            logger.error(f"Failed to trigger daily aggregation: {e}")
+            return False
+
+
+# DBモニターのファクトリ関数
+def create_db_monitor(pool=None) -> DBBrainMonitor:
+    """
+    DBBrainMonitorインスタンスを作成
+
+    Args:
+        pool: データベース接続プール
+
+    Returns:
+        DBBrainMonitor
+    """
+    return DBBrainMonitor(pool=pool)
+
+
+# =============================================================================
+# CLI ユーティリティ
+# =============================================================================
+
+async def print_dashboard(pool, organization_id: str, target_date: Optional[datetime] = None):
+    """
+    ダッシュボードを表示（CLI用）
+
+    Args:
+        pool: データベース接続プール
+        organization_id: 組織ID
+        target_date: 対象日（デフォルト: 今日）
+    """
+    if target_date is None:
+        target_date = datetime.utcnow()
+
+    monitor = DBBrainMonitor(pool=pool)
+    metrics = await monitor.get_daily_metrics(organization_id, target_date)
+    print(metrics.to_dashboard_string())

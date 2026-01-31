@@ -59,7 +59,7 @@ from typing import Any
 # =============================================================================
 # このバージョンはCloud Loggingの出力で使用される
 # デプロイ時に手動更新すること
-BRAIN_VERSION = "10.51.0"
+BRAIN_VERSION = "10.53.6"
 
 # =============================================================================
 # 即座にインポートするモジュール（コア機能）
@@ -493,6 +493,24 @@ _LAZY_IMPORTS = {
     "FEATURE_FLAG_ORGANIZATION_CONTEXT": ("lib.brain.deep_understanding", "FEATURE_FLAG_ORGANIZATION_CONTEXT"),
     "FEATURE_FLAG_EMOTION_READING": ("lib.brain.deep_understanding", "FEATURE_FLAG_EMOTION_READING"),
     "FEATURE_FLAG_VOCABULARY_LEARNING": ("lib.brain.deep_understanding", "FEATURE_FLAG_VOCABULARY_LEARNING"),
+
+    # ----------------------------------------------------------------
+    # v10.53.6: LLM Observability & Monitoring（設計書15章対応）
+    # ----------------------------------------------------------------
+    # LLM Observability
+    "LLMBrainLog": ("lib.brain.llm_observability", "LLMBrainLog"),
+    "LLMBrainObservability": ("lib.brain.llm_observability", "LLMBrainObservability"),
+    "UserFeedback": ("lib.brain.llm_observability", "UserFeedback"),
+    "ConfirmationStatus": ("lib.brain.llm_observability", "ConfirmationStatus"),
+    "LLMLogType": ("lib.brain.llm_observability", "LLMLogType"),
+    "create_llm_observability": ("lib.brain.llm_observability", "create_llm_observability"),
+    "get_llm_observability": ("lib.brain.llm_observability", "get_llm_observability"),
+    "save_user_feedback": ("lib.brain.llm_observability", "save_user_feedback"),
+    # DB連携モニタリング
+    "DailyDBMetrics": ("lib.brain.monitoring", "DailyDBMetrics"),
+    "DBBrainMonitor": ("lib.brain.monitoring", "DBBrainMonitor"),
+    "create_db_monitor": ("lib.brain.monitoring", "create_db_monitor"),
+    "print_dashboard": ("lib.brain.monitoring", "print_dashboard"),
 }
 
 # キャッシュ（一度インポートしたモジュールを再利用）

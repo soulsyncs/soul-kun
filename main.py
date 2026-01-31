@@ -166,8 +166,10 @@ def get_brain():
     if _brain_instance is None:
         try:
             # Note: os.getenv を直接使用（lib/__init__.py の依存問題を回避）
+            # v10.53.2: 環境変数名を USE_BRAIN_ARCHITECTURE に統一
+            # 参照: lib/brain/env_config.py (Single Source of Truth)
             import os
-            if os.getenv("ENABLE_LLM_BRAIN", "false").lower() != "true":
+            if os.getenv("USE_BRAIN_ARCHITECTURE", "false").lower() != "true":
                 return None
             from lib.brain import SoulkunBrain
             _brain_instance = SoulkunBrain(
@@ -1726,10 +1728,12 @@ def chatwork_webhook(request):
 
         # ========================================
         # v10.50.0: LLM Brain Integration
+        # v10.53.2: 環境変数名を USE_BRAIN_ARCHITECTURE に統一
         # ========================================
         # Note: os.getenv を直接使用（lib/__init__.py の依存問題を回避）
+        # 参照: lib/brain/env_config.py (Single Source of Truth)
         import os
-        enable_llm_brain = os.getenv("ENABLE_LLM_BRAIN", "false").lower() == "true"
+        enable_llm_brain = os.getenv("USE_BRAIN_ARCHITECTURE", "false").lower() == "true"
 
         if enable_llm_brain:
             print("🧠 Routing to LLM Brain")

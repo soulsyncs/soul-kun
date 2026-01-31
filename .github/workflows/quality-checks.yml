@@ -295,6 +295,25 @@ jobs:
             fi
           done
 
+          # feature_flags.py もチェック（間違った変数名を参照していないか）
+          echo ""
+          echo "Checking lib/feature_flags.py..."
+          FF_FILE="lib/feature_flags.py"
+          if [ -f "$FF_FILE" ]; then
+            # 正しい変数名を参照しているか（_get_env_boolの引数）
+            if grep -q "_get_env_bool.*\"$EXPECTED_VAR\"" "$FF_FILE"; then
+              echo "  ✅ Uses $EXPECTED_VAR"
+            else
+              echo "  ❌ Does not use $EXPECTED_VAR for LLM Brain flag"
+              ERRORS_FOUND=1
+            fi
+            # 間違った変数名を参照していないか
+            if grep "_get_env_bool.*\"ENABLE_LLM_BRAIN\"" "$FF_FILE" | grep -v "^#" | grep -q .; then
+              echo "  ❌ Uses wrong variable name 'ENABLE_LLM_BRAIN'"
+              ERRORS_FOUND=1
+            fi
+          fi
+
           echo ""
           if [ $ERRORS_FOUND -eq 1 ]; then
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -303,6 +322,7 @@ jobs:
             echo "Fix:"
             echo "  1. Use '$EXPECTED_VAR' (not ENABLE_LLM_BRAIN)"
             echo "  2. Use --allow-unauthenticated (not --no-allow-unauthenticated)"
+            echo "  3. feature_flags.py must use '$EXPECTED_VAR' for enable_llm_brain"
             echo ""
             echo "Reference: lib/brain/env_config.py is the Single Source of Truth"
             echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

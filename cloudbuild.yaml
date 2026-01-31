@@ -50,7 +50,7 @@ steps:
       - '--region=asia-northeast1'
       - '--memory=512MB'
       - '--timeout=540s'
-      - '--no-allow-unauthenticated'
+      - '--allow-unauthenticated'
     waitFor: ['sync-check']
 
   # =============================================================================

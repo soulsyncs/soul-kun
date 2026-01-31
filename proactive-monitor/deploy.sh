@@ -145,7 +145,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "    --region=asia-northeast1 \\"
     echo "    --memory=512MB \\"
     echo "    --timeout=540s \\"
-    echo "    --no-allow-unauthenticated"
+    echo "    --allow-unauthenticated"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "${GREEN}✅ ドライラン完了（全チェックパス）${NC}"
@@ -163,7 +163,7 @@ gcloud functions deploy proactive-monitor \
     --region=asia-northeast1 \
     --memory=512MB \
     --timeout=540s \
-    --no-allow-unauthenticated
+    --allow-unauthenticated
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -17,34 +17,51 @@
 | **型安全性** | ✅ 対象3ファイル 0エラー |
 | **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
 
-### 🔧 CI/CD強化・型安全性修正完了（2026-02-01）
+### ✅ 型安全性修正・本番デプロイ完了（2026-02-01 11:17）
 
-**PR:** https://github.com/soulsyncs/soul-kun/pull/373
+**PR #373:** マージ済み・デプロイ完了
+- Revision: `chatwork-webhook-00324-w49`
+- 全モジュール正常ロード確認済み
 
 **修正内容:**
-
 | # | カテゴリ | 修正 |
 |---|---------|------|
-| 1 | CI/CD | cloudbuild.yamlにテスト実行ステップ追加（29テスト） |
-| 2 | CI/CD | mypy静的型チェック追加（デプロイ前に実行） |
-| 3 | 型修正 | SafeJSONEncoder追加（ConfidenceScores等のシリアライズ対応） |
+| 1 | CI/CD | cloudbuild.yamlにテスト実行ステップ追加 |
+| 2 | CI/CD | mypy静的型チェック追加 |
+| 3 | 型修正 | SafeJSONEncoder追加 |
 | 4 | 型修正 | core.py 18件の型エラー修正 → 0件 |
 | 5 | 型修正 | handler_wrappers.py Returning Any修正 |
 | 6 | バグ修正 | search_tasks_from_db 未定義関数参照修正 |
 
-**mypy結果（対象3ファイル）:**
-- `models.py`: 0エラー
-- `core.py`: 0エラー
-- `handler_wrappers.py`: 0エラー
+### 🔧 CI改善進行中（2026-02-01 11:30）
+
+**PR #375:** https://github.com/soulsyncs/soul-kun/pull/375
+
+**完了:**
+- [x] test-coverage.ymlに依存関係追加（freezegun, fastapi, bs4, Pillow, jpholiday）
+- [x] Cloud Build GitHub接続作成（`chatwork-github-connection`）
+
+**残タスク:**
+- [ ] GitHub OAuth認証完了（下記URL参照）
+- [ ] Cloud Buildトリガー作成
+
+**OAuth認証URL:**
+https://console.cloud.google.com/cloud-build/connections?project=soulkun-production
+
+**既知の問題（Test Coverage Check失敗）:**
+- カバレッジ65%（80%閾値未満）
+- GOOGLE_AI_API_KEY未設定（CI環境）
+- 55件の既存テスト失敗
 
 ### 次回やること
 
 ```
-1. PR #373 のマージ確認
-2. 本番動作確認（目標表示、タスク表示）
+1. GitHub OAuth認証を完了
+2. Cloud Buildトリガーを作成
+3. Test Coverage Check失敗の根本対応を検討
 ```
 
-> **続きのキーワード:** 「PR確認」「本番動作確認」
+> **続きのキーワード:** 「OAuth認証」「トリガー作成」
 
 ---
 

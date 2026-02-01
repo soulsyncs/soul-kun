@@ -63,26 +63,35 @@ Claude Code（実装） → Codex（レビュー） → Claude Code（検証・�
 ```
 → 有効に機能することを確認。今後も継続利用可能。
 
-### CI環境の既知問題
+### ✅ CIテスト全パス達成（2026-02-01 18:30）
 
+**PR #376:** https://github.com/soulsyncs/soul-kun/pull/376
+
+**CI結果:** 4354 passed, 23 skipped, 0 failed
+
+**修正内容:**
+| # | 修正 |
+|---|------|
+| 1 | Python 3.10+対応: resolve_sync() で asyncio.run() を使用 |
+| 2 | mock_openai_embedding で GOOGLE_AI_API_KEY をモック |
+| 3 | TestKnowledgeFeedback に mock_openai_embedding 追加 |
+
+**残る課題:**
 | 問題 | 原因 | 対応 |
 |------|------|------|
 | カバレッジ66%（閾値80%） | テストカバレッジ不足 | 段階的改善 |
-| 7件テスト失敗 | GOOGLE_AI_API_KEY未設定 | CI Secrets追加 |
-| 2件テスト失敗 | asyncイベントループ | テスト修正 |
 
-> **注意**: ローカル環境では4376件全てパス。CI失敗はコード問題ではなく環境設定の問題。
+> **注意**: カバレッジ問題はPR #376とは無関係。全テストパス済み。
 
 ### 次回やること
 
 ```
-1. PR #376 マージ（CI失敗は既知問題、コードは正常）
-2. GOOGLE_AI_API_KEY を GitHub Secrets に追加
-3. 本番動作確認（目標表示、タスク表示）
-4. カバレッジ向上計画策定
+1. PR #376 マージ（全テストパス、カバレッジのみ閾値未達）
+2. 本番動作確認（目標表示、タスク表示）
+3. カバレッジ向上計画策定（lib/person_service.py 0%, lib/user_utils.py 0%など）
 ```
 
-> **続きのキーワード:** 「PR確認」「Secrets追加」「本番動作確認」
+> **続きのキーワード:** 「PR確認」「本番動作確認」「カバレッジ向上」
 
 ---
 

@@ -27,10 +27,34 @@ steps:
       - |
         echo "🔍 lib/ 同期チェック..."
 
+        # デバッグ: ディレクトリの存在確認
+        echo "📋 ディレクトリ確認..."
+        if [ -d "lib/brain" ]; then
+          echo "  ✅ lib/brain/ exists ($(find lib/brain -name '*.py' | wc -l) .py files)"
+        else
+          echo "  ❌ lib/brain/ NOT FOUND"
+        fi
+
+        if [ -d "chatwork-webhook/lib/brain" ]; then
+          echo "  ✅ chatwork-webhook/lib/brain/ exists ($(find chatwork-webhook/lib/brain -name '*.py' | wc -l) .py files)"
+        else
+          echo "  ❌ chatwork-webhook/lib/brain/ NOT FOUND"
+        fi
+
         # chatwork-webhook/lib/brain/ と lib/brain/ の差分チェック
-        if ! diff -rq lib/brain chatwork-webhook/lib/brain --exclude='__pycache__' --exclude='*.pyc' --exclude='handler_wrappers.py' > /dev/null 2>&1; then
+        echo ""
+        echo "📋 差分チェック..."
+        DIFF_OUTPUT=$(diff -rq lib/brain chatwork-webhook/lib/brain --exclude='__pycache__' --exclude='*.pyc' --exclude='handler_wrappers.py' 2>&1)
+        DIFF_STATUS=$?
+
+        if [ $DIFF_STATUS -ne 0 ]; then
           echo "❌ lib/brain/ が同期されていません！"
-          echo "   デプロイを中止します。"
+          echo ""
+          echo "差分詳細:"
+          echo "$DIFF_OUTPUT" | head -30
+          echo ""
+          echo "デプロイを中止します。"
+          echo "修正方法: ./scripts/sync_lib.sh を実行してください。"
           exit 1
         fi
 

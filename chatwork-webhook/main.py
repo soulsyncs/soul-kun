@@ -2220,6 +2220,56 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
         search_all_rooms=is_self_search  # 自分のタスク→全ルーム検索
     )
 
+    # v10.54.5: リアルタイム同期 - ChatWork APIで完了済みのタスクをDBから除外
+    if status == "open" and tasks:
+        try:
+            # 対象ルームのユニークリストを取得
+            target_room_ids = set()
+            if is_self_search:
+                for task in tasks:
+                    task_room_id = task.get("room_id")
+                    if task_room_id:
+                        target_room_ids.add(str(task_room_id))
+            else:
+                target_room_ids.add(str(room_id))
+
+            # 各ルームのopen タスクをAPIから取得
+            # v10.54.5: _get_room_tasks_safe でAPI成功/失敗を区別
+            api_open_task_ids = set()
+            successfully_fetched_rooms = set()  # API取得成功したルームのみ
+            for target_room_id in target_room_ids:
+                api_tasks, api_success = _get_room_tasks_safe(target_room_id, 'open')
+                if not api_success:
+                    print(f"⚠️ リアルタイム同期: room={target_room_id} のAPI取得失敗、スキップ")
+                    continue  # API失敗時はこのルームをスキップ
+                for api_task in api_tasks:
+                    api_open_task_ids.add(str(api_task.get('task_id')))
+                successfully_fetched_rooms.add(target_room_id)  # 成功時のみ追加
+
+            # DB上はopenだがAPI上に存在しないタスクを検出・更新
+            completed_task_ids = []
+            for task in tasks:
+                task_id = str(task.get("task_id"))
+                task_room_id = str(task.get("room_id", room_id))
+
+                # API取得成功したルームのタスクのみチェック（失敗したルームはスキップ）
+                if task_room_id in successfully_fetched_rooms and task_id not in api_open_task_ids:
+                    # API上に存在しない → 完了済み
+                    completed_task_ids.append(task_id)
+                    print(f"🔄 タスク同期: task_id={task_id} がAPI上で完了済み → DBを更新")
+                    try:
+                        update_task_status_in_db(task_id, "done")
+                    except Exception as e:
+                        print(f"⚠️ タスクステータス更新エラー: {e}")
+
+            # 完了タスクを表示リストから除外
+            if completed_task_ids:
+                tasks = [t for t in tasks if str(t.get("task_id")) not in completed_task_ids]
+                print(f"🔄 リアルタイム同期完了: {len(completed_task_ids)}件のタスクを完了扱いに")
+
+        except Exception as e:
+            print(f"⚠️ リアルタイム同期エラー（DBデータで続行）: {e}")
+
     if not tasks:
         status_text = "未完了の" if status == "open" else "完了済みの" if status == "done" else ""
         return f"📋 {display_name}の{status_text}タスクは見つからなかったウル！\nタスクがないか、まだ同期されていないかもウル🤔"
@@ -4831,11 +4881,11 @@ def check_reply_messages(request):
 def get_room_tasks(room_id, status='open'):
     """
     指定されたルームのタスク一覧を取得
-    
+
     Args:
         room_id: ルームID
         status: タスクのステータス ('open' or 'done')
-    
+
     Returns:
         タスクのリスト
     """
@@ -4848,12 +4898,44 @@ def get_room_tasks(room_id, status='open'):
 
     headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
     response = httpx.get(url, headers=headers, params=params, timeout=10.0)
-    
+
     if response.status_code == 200:
         return response.json()
     else:
         print(f"Failed to get tasks for room {room_id}: {response.status_code}")
         return []
+
+
+def _get_room_tasks_safe(room_id, status='open'):
+    """
+    リアルタイム同期用: タスク一覧を取得し、API成功/失敗を区別
+
+    v10.54.5: リアルタイム同期でAPI失敗を検出するための内部関数
+
+    Args:
+        room_id: ルームID
+        status: タスクのステータス ('open' or 'done')
+
+    Returns:
+        tuple: (tasks: list, success: bool)
+        - success=True: API成功、tasksはリスト（空の場合もある）
+        - success=False: API失敗、tasksは空リスト
+    """
+    url = f"https://api.chatwork.com/v2/rooms/{room_id}/tasks"
+    params = {'status': status}
+
+    try:
+        headers = {"X-ChatWorkToken": get_secret("SOULKUN_CHATWORK_TOKEN")}
+        response = httpx.get(url, headers=headers, params=params, timeout=10.0)
+
+        if response.status_code == 200:
+            return response.json(), True
+        else:
+            print(f"API失敗 (room={room_id}): status={response.status_code}")
+            return [], False
+    except Exception as e:
+        print(f"API例外 (room={room_id}): {e}")
+        return [], False
 
 def send_completion_notification(room_id, task, assigned_by_name):
     """

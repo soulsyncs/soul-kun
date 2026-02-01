@@ -42,7 +42,8 @@ jobs:
           # - httpx: HTTP クライアントテスト用
           # - fakeredis: Redisモック用
           # - freezegun: 時刻モック用（test_brain_core.py等で使用）
-          pip install httpx fakeredis freezegun
+          # - fastapi: FastAPIテスト用（test_knowledge_api.py等で使用）
+          pip install httpx fakeredis freezegun fastapi
 
       - name: Run tests with coverage
         run: |

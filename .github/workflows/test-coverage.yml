@@ -43,7 +43,10 @@ jobs:
           # - fakeredis: Redisモック用
           # - freezegun: 時刻モック用（test_brain_core.py等で使用）
           # - fastapi: FastAPIテスト用（test_knowledge_api.py等で使用）
-          pip install httpx fakeredis freezegun fastapi
+          # - beautifulsoup4: HTMLパース用（test_document_processor.py）
+          # - Pillow: 画像処理用（test_multimodal.py）
+          # - jpholiday: 日本の祝日判定用（test_business_day.py）
+          pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday
 
       - name: Run tests with coverage
         run: |

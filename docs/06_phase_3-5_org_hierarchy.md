@@ -7,11 +7,16 @@
 | 項目 | 内容 |
 |------|------|
 | **この文書の役割** | Phase 3.5（組織階層機能）の実装手順書 |
-| **書くこと** | 組織階層のデータモデル、マイグレーション手順、週次スケジュール |
-| **書かないこと** | 組織理論の詳細（→11章）、フロントエンド設計（→12章） |
-| **SoT（この文書が正）** | departmentsテーブル定義、LTREE設計、マイグレーション手順 |
+| **書くこと** | マイグレーション手順、週次スケジュール、LTREE設計の使い方 |
+| **書かないこと** | 組織理論の詳細（→11章）、フロントエンド設計（→12章）、**テーブル定義（→03章）** |
+| **SoT（この文書が正）** | マイグレーション手順、実装スケジュール |
+| **参照のみ（SoTは別）** | departments/user_departments等のテーブル定義 → [03_database_design.md](03_database_design.md) セクション5.2.5 |
 | **Owner** | Tech Lead |
 | **更新トリガー** | 組織階層機能の仕様変更時 |
+
+> **⚠️ 重要（v10.55追加）**: テーブル定義は **03_database_design.md がSoT（唯一の正）** です。
+> 本文書ではテーブル定義の詳細を記載せず、03章への参照のみとします。
+> テーブル定義を変更する場合は、必ず03章を更新してください。
 
 ---
 
@@ -21,121 +26,51 @@
 
 **Day 1-2: テーブル作成（10時間）**
 
+> **テーブル定義のSoT:** [03_database_design.md](03_database_design.md) セクション5.2.5
+>
+> 以下のテーブルを作成します。定義の詳細は03章を参照してください。
+>
+> | テーブル | 目的 | 定義の場所 |
+> |---------|------|-----------|
+> | departments | 部署マスタ | 03章 5.2.5 |
+> | user_departments | ユーザーの所属部署 | 03章 5.2.5 |
+> | department_access_scopes | 部署ごとの権限スコープ | 03章 5.2.5 |
+> | department_hierarchies | 部署階層の事前計算 | 03章 5.2.5 |
+> | org_chart_sync_logs | 組織図同期ログ | 03章 5.2.5 |
+
 ```bash
 # 1. マイグレーションファイル作成
 $ python manage.py makemigration create_organization_tables
 
 # 2. マイグレーション実装
 # migrations/v10_0_001_create_organization_tables.py
+#
+# ※ CREATE TABLE文は 03_database_design.md セクション5.2.5 を参照
+# ※ 以下はマイグレーション実行の流れのみ記載
 ```
 
 ```python
 async def upgrade():
-    """組織階層テーブルを作成"""
-    
+    """組織階層テーブルを作成
+
+    テーブル定義のSoT: docs/03_database_design.md セクション5.2.5
+    ※ CREATE TABLE文は上記設計書からコピーすること
+    """
+
     # 1. LTREEエクステンションを有効化
     await conn.execute("CREATE EXTENSION IF NOT EXISTS ltree;")
-    
-    # 2. departments テーブル作成
-    await conn.execute("""
-        CREATE TABLE departments (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            organization_id UUID NOT NULL REFERENCES organizations(id),
-            name VARCHAR(255) NOT NULL,
-            code VARCHAR(50),
-            parent_department_id UUID REFERENCES departments(id),
-            level INT NOT NULL DEFAULT 1,
-            path LTREE NOT NULL,
-            display_order INT DEFAULT 0,
-            description TEXT,
-            is_active BOOLEAN DEFAULT TRUE,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            created_by UUID REFERENCES users(id),
-            updated_by UUID REFERENCES users(id),
-            CONSTRAINT unique_org_dept_code UNIQUE(organization_id, code),
-            CONSTRAINT check_level CHECK(level >= 1 AND level <= 10)
-        );
-    """)
-    
-    # 3. インデックス作成
-    await conn.execute("""
-        CREATE INDEX idx_departments_org ON departments(organization_id);
-        CREATE INDEX idx_departments_parent ON departments(parent_department_id);
-        CREATE INDEX idx_departments_path ON departments USING GIST(path);
-    """)
-    
-    # 4. user_departments テーブル作成
-    await conn.execute("""
-        CREATE TABLE user_departments (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            department_id UUID NOT NULL REFERENCES departments(id) ON DELETE CASCADE,
-            is_primary BOOLEAN DEFAULT TRUE,
-            role_in_dept VARCHAR(100),
-            started_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            ended_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT unique_user_primary_dept 
-                UNIQUE(user_id, is_primary) 
-                WHERE is_primary = TRUE AND ended_at IS NULL
-        );
-    """)
-    
-    # 5. department_access_scopes テーブル作成
-    await conn.execute("""
-        CREATE TABLE department_access_scopes (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            department_id UUID NOT NULL REFERENCES departments(id),
-            can_view_child_departments BOOLEAN DEFAULT TRUE,
-            can_view_sibling_departments BOOLEAN DEFAULT FALSE,
-            can_view_parent_departments BOOLEAN DEFAULT FALSE,
-            max_depth INT DEFAULT 99,
-            override_confidential_access BOOLEAN DEFAULT FALSE,
-            override_restricted_access BOOLEAN DEFAULT FALSE,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT unique_dept_scope UNIQUE(department_id)
-        );
-    """)
-    
-    # 6. department_hierarchies テーブル作成
-    await conn.execute("""
-        CREATE TABLE department_hierarchies (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            organization_id UUID NOT NULL REFERENCES organizations(id),
-            ancestor_department_id UUID NOT NULL REFERENCES departments(id),
-            descendant_department_id UUID NOT NULL REFERENCES departments(id),
-            depth INT NOT NULL,
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT unique_hierarchy 
-                UNIQUE(ancestor_department_id, descendant_department_id),
-            CONSTRAINT check_depth CHECK(depth >= 0)
-        );
-    """)
-    
-    # 7. org_chart_sync_logs テーブル作成
-    await conn.execute("""
-        CREATE TABLE org_chart_sync_logs (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            organization_id UUID NOT NULL REFERENCES organizations(id),
-            sync_type VARCHAR(50) NOT NULL,
-            status VARCHAR(50) NOT NULL,
-            departments_added INT DEFAULT 0,
-            departments_updated INT DEFAULT 0,
-            departments_deleted INT DEFAULT 0,
-            users_added INT DEFAULT 0,
-            users_updated INT DEFAULT 0,
-            users_deleted INT DEFAULT 0,
-            error_message TEXT,
-            error_details JSONB,
-            started_at TIMESTAMPTZ NOT NULL,
-            completed_at TIMESTAMPTZ,
-            duration_ms INT,
-            triggered_by UUID REFERENCES users(id),
-            source_system VARCHAR(100),
-            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
+
+    # 2. 以下のテーブルを03章の定義に従って作成:
+    #    - departments
+    #    - user_departments
+    #    - department_access_scopes
+    #    - department_hierarchies
+    #    - org_chart_sync_logs
+    #
+    # ※ 詳細なCREATE TABLE文は 03_database_design.md を参照
+
+    # 実装時は03章のDDLをそのままコピーして使用すること
+    pass
 ```
 
 ```bash
@@ -498,6 +433,329 @@ document.getElementById("save-button").addEventListener("click", async () => {
 | **応答時間** | P95 < 200ms |
 | **データバックアップ** | 毎日自動バックアップ |
 | **障害復旧時間** | 4時間以内 |
+
+---
+
+## 13.5 ファイル誤配置検知システム【v10.55追加】
+
+### ■ 概要
+
+機密ファイルが誤って公開フォルダに配置された場合を自動検知し、管理者にアラートを送信するシステムです。
+
+**検知対象:**
+- Google Driveの共有設定が不適切なファイル
+- 機密区分と配置場所の不整合
+- 権限設定の変更によるセキュリティ低下
+
+### ■ 誤配置パターンと検知ルール
+
+| # | パターン | 説明 | 重大度 | 対応 |
+|---|---------|------|-------|------|
+| 1 | **機密 → 公開フォルダ** | confidential/restrictedファイルが「全員に公開」設定 | Critical | 即時アラート + 自動権限復旧 |
+| 2 | **部門限定 → 全社公開** | 部門限定ファイルが全社フォルダに配置 | High | 即時アラート |
+| 3 | **社内 → 外部共有** | internalファイルに外部メールアドレスが追加 | Critical | 即時アラート + 共有解除 |
+| 4 | **権限拡大** | ファイル権限が拡大された | Medium | 日次レポート |
+| 5 | **未分類ファイル** | 機密区分が設定されていないファイル | Low | 週次レポート |
+
+### ■ 検知ジョブ設計
+
+```python
+# lib/knowledge/misplacement_detector.py
+
+from datetime import datetime, timedelta
+from typing import List, Optional
+from dataclasses import dataclass
+from enum import Enum
+
+class Severity(Enum):
+    CRITICAL = "critical"
+    HIGH = "high"
+    MEDIUM = "medium"
+    LOW = "low"
+
+@dataclass
+class MisplacementAlert:
+    file_id: str
+    file_name: str
+    owner_id: str
+    organization_id: str
+    pattern: str
+    severity: Severity
+    current_location: str
+    expected_location: str
+    detected_at: datetime
+    auto_remediated: bool = False
+
+async def detect_misplacements(organization_id: str) -> List[MisplacementAlert]:
+    """ファイル誤配置を検知する（5分ごとに実行）"""
+
+    alerts = []
+
+    # 1. Google Drive APIで変更されたファイルを取得
+    modified_files = await get_recently_modified_files(
+        organization_id=organization_id,
+        since=datetime.now() - timedelta(minutes=5)
+    )
+
+    for file in modified_files:
+        # 2. 機密区分を取得
+        classification = await get_file_classification(file.id)
+
+        # 3. 現在の共有設定を取得
+        sharing_settings = await get_sharing_settings(file.id)
+
+        # 4. 誤配置パターンをチェック
+        alert = check_misplacement_patterns(
+            file=file,
+            classification=classification,
+            sharing=sharing_settings
+        )
+
+        if alert:
+            alerts.append(alert)
+
+            # 5. Critical/Highは即時対応
+            if alert.severity in [Severity.CRITICAL, Severity.HIGH]:
+                await send_immediate_alert(alert)
+
+                # 6. 自動修復（Criticalのみ）
+                if alert.severity == Severity.CRITICAL:
+                    await auto_remediate(alert)
+
+    return alerts
+
+
+def check_misplacement_patterns(
+    file: DriveFile,
+    classification: str,
+    sharing: SharingSettings
+) -> Optional[MisplacementAlert]:
+    """誤配置パターンをチェック"""
+
+    # パターン1: 機密ファイルが公開設定
+    if classification in ["confidential", "restricted"]:
+        if sharing.anyone_can_access:
+            return MisplacementAlert(
+                file_id=file.id,
+                file_name=file.name,
+                owner_id=file.owner_id,
+                organization_id=file.organization_id,
+                pattern="confidential_in_public",
+                severity=Severity.CRITICAL,
+                current_location=sharing.folder_path,
+                expected_location="機密フォルダ",
+                detected_at=datetime.now()
+            )
+
+    # パターン2: 部門限定が全社公開
+    if classification == "confidential" and file.department_id:
+        if sharing.is_organization_wide:
+            return MisplacementAlert(
+                file_id=file.id,
+                file_name=file.name,
+                owner_id=file.owner_id,
+                organization_id=file.organization_id,
+                pattern="department_in_company_wide",
+                severity=Severity.HIGH,
+                current_location=sharing.folder_path,
+                expected_location=f"部門フォルダ: {file.department_id}",
+                detected_at=datetime.now()
+            )
+
+    # パターン3: 社内ファイルに外部共有
+    if classification == "internal":
+        external_emails = [
+            email for email in sharing.shared_emails
+            if not email.endswith(f"@{file.organization_domain}")
+        ]
+        if external_emails:
+            return MisplacementAlert(
+                file_id=file.id,
+                file_name=file.name,
+                owner_id=file.owner_id,
+                organization_id=file.organization_id,
+                pattern="internal_shared_externally",
+                severity=Severity.CRITICAL,
+                current_location=f"外部共有先: {external_emails}",
+                expected_location="社内のみ",
+                detected_at=datetime.now()
+            )
+
+    return None
+```
+
+### ■ 自動修復（Auto-Remediation）
+
+```python
+# lib/knowledge/auto_remediation.py
+
+async def auto_remediate(alert: MisplacementAlert) -> bool:
+    """重大な誤配置を自動修復する"""
+
+    try:
+        if alert.pattern == "confidential_in_public":
+            # 公開設定を解除
+            await revoke_public_access(alert.file_id)
+
+            # 所有者に通知
+            await notify_owner(
+                owner_id=alert.owner_id,
+                message=f"機密ファイル「{alert.file_name}」の公開設定を自動で解除しました。"
+            )
+
+        elif alert.pattern == "internal_shared_externally":
+            # 外部共有を解除
+            await revoke_external_shares(alert.file_id)
+
+            await notify_owner(
+                owner_id=alert.owner_id,
+                message=f"社内ファイル「{alert.file_name}」の外部共有を自動で解除しました。"
+            )
+
+        # 監査ログに記録
+        await audit_log(
+            action="auto_remediation",
+            resource_type="file",
+            resource_id=alert.file_id,
+            details={
+                "pattern": alert.pattern,
+                "severity": alert.severity.value,
+                "remediation": "access_revoked"
+            }
+        )
+
+        return True
+
+    except Exception as e:
+        # 修復失敗時は管理者にエスカレーション
+        await escalate_to_admin(alert, error=str(e))
+        return False
+```
+
+### ■ アラート通知設計
+
+| 重大度 | 通知先 | 通知方法 | タイミング |
+|-------|--------|---------|----------|
+| **Critical** | 管理者 + ファイル所有者 | ChatWork即時通知 + メール | 検知から1分以内 |
+| **High** | 管理者 + ファイル所有者 | ChatWork即時通知 | 検知から5分以内 |
+| **Medium** | 管理者 | 日次サマリーレポート | 毎日9:00 |
+| **Low** | 管理者 | 週次レポート | 毎週月曜9:00 |
+
+```python
+# lib/knowledge/alert_notifier.py
+
+ALERT_TEMPLATES = {
+    "confidential_in_public": """
+🚨 【緊急】機密ファイルが公開設定になっています
+
+■ ファイル名: {file_name}
+■ 所有者: {owner_name}
+■ 検知日時: {detected_at}
+■ 対応状況: {remediation_status}
+
+自動で公開設定を解除しました。
+詳細を確認し、意図的な場合は管理者に連絡してください。
+""",
+
+    "internal_shared_externally": """
+🚨 【緊急】社内ファイルが外部共有されています
+
+■ ファイル名: {file_name}
+■ 共有先: {external_emails}
+■ 検知日時: {detected_at}
+■ 対応状況: {remediation_status}
+
+自動で外部共有を解除しました。
+意図的な共有の場合は、適切な承認プロセスを経てください。
+""",
+
+    "department_in_company_wide": """
+⚠️ 【警告】部門限定ファイルが全社公開になっています
+
+■ ファイル名: {file_name}
+■ 本来の部門: {expected_department}
+■ 現在の設定: 全社公開
+■ 検知日時: {detected_at}
+
+確認の上、適切な権限設定に変更してください。
+"""
+}
+
+async def send_immediate_alert(alert: MisplacementAlert):
+    """即時アラートを送信"""
+
+    template = ALERT_TEMPLATES.get(alert.pattern)
+    if not template:
+        template = "ファイル誤配置を検知しました: {file_name}"
+
+    message = template.format(
+        file_name=alert.file_name,
+        owner_name=await get_user_name(alert.owner_id),
+        detected_at=alert.detected_at.strftime("%Y-%m-%d %H:%M"),
+        remediation_status="自動修復済み" if alert.auto_remediated else "要対応",
+        external_emails=getattr(alert, 'external_emails', 'N/A'),
+        expected_department=alert.expected_location
+    )
+
+    # ChatWorkに送信
+    await send_chatwork_message(
+        room_id=await get_admin_room_id(alert.organization_id),
+        message=message
+    )
+
+    # メールも送信（Criticalのみ）
+    if alert.severity == Severity.CRITICAL:
+        await send_email(
+            to=await get_admin_email(alert.organization_id),
+            subject=f"【緊急】ファイル誤配置検知: {alert.file_name}",
+            body=message
+        )
+```
+
+### ■ 検知ジョブのスケジュール
+
+| ジョブ | 実行間隔 | 処理内容 |
+|-------|---------|---------|
+| `detect_misplacements` | 5分ごと | 直近5分の変更をチェック |
+| `generate_daily_report` | 毎日9:00 | Medium以下のサマリー |
+| `generate_weekly_report` | 毎週月曜9:00 | 全体統計とトレンド |
+| `cleanup_old_alerts` | 毎日3:00 | 90日超過のアラートを削除 |
+
+```python
+# Cloud Scheduler設定（cloudbuild.yaml参照）
+
+MISPLACEMENT_JOBS = [
+    {
+        "name": "detect-misplacements",
+        "schedule": "*/5 * * * *",  # 5分ごと
+        "handler": "detect_misplacements",
+        "timeout": "120s"
+    },
+    {
+        "name": "daily-misplacement-report",
+        "schedule": "0 9 * * *",  # 毎日9:00
+        "handler": "generate_daily_report",
+        "timeout": "300s"
+    },
+    {
+        "name": "weekly-misplacement-report",
+        "schedule": "0 9 * * 1",  # 毎週月曜9:00
+        "handler": "generate_weekly_report",
+        "timeout": "600s"
+    }
+]
+```
+
+### ■ 監査ログ設計
+
+| イベント | 記録内容 | 保持期間 |
+|---------|---------|---------|
+| 誤配置検知 | file_id, pattern, severity, detected_at | 1年 |
+| 自動修復実行 | file_id, action, result, executed_at | 1年 |
+| アラート送信 | alert_id, recipients, channel, sent_at | 1年 |
+| 手動対応完了 | alert_id, resolved_by, resolution, resolved_at | 1年 |
+
+> **注意**: 監査ログにはファイル名やメールアドレスなどのPIIを含めず、IDのみを記録します。
 
 ---
 

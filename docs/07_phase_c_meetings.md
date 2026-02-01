@@ -62,6 +62,191 @@
 | ストレージ | Google Cloud Storage | 録画保存用 |
 | データベース | Cloud SQL (PostgreSQL) | 既存システムと統一 |
 
+### ■ 会議録音のPII保護設計【v10.55追加】
+
+会議録音は個人情報を多量に含むため、厳格なPII保護が必要です。
+
+#### 同意取得ルール
+
+| 段階 | 内容 | 実装 |
+|------|------|------|
+| **事前同意** | 会議参加者全員に録音の同意を取得 | 会議開始時にボット発言で通知 |
+| **明示的表示** | 録音中であることを常時表示 | Zoom/Meet上に「Recording」表示確認 |
+| **オプトアウト** | 録音を拒否した参加者への対応 | その参加者の音声はマスキング処理 |
+| **同意記録** | 誰がいつ同意したかを記録 | `meeting_consent_logs`テーブルに保存 |
+
+```python
+# 同意取得のテンプレートメッセージ
+RECORDING_CONSENT_MESSAGE = """
+[自動通知] この会議は録音・文字起こしされます。
+録音データは90日後に自動削除されます。
+録音に同意しない場合は「/opt-out」とチャットしてください。
+"""
+```
+
+#### 保持期間ポリシー
+
+| データ種別 | 保持期間 | 削除方法 | 根拠 |
+|-----------|---------|---------|------|
+| **録音ファイル** | 90日 | 物理削除（GCS自動削除ポリシー） | 個人情報保護法 |
+| **文字起こし** | 90日 | 論理削除→7日後物理削除 | 監査対応期間 |
+| **議事録** | 無期限 | 削除なし（PII除去済み） | 業務記録 |
+| **同意ログ** | 1年 | 物理削除 | コンプライアンス |
+| **メタデータ** | 1年 | 物理削除 | 監査対応 |
+
+```sql
+-- GCS自動削除ポリシー設定
+-- gsutil lifecycle set lifecycle.json gs://soulkun-meeting-recordings
+{
+  "rule": [{
+    "action": {"type": "Delete"},
+    "condition": {"age": 90}
+  }]
+}
+```
+
+#### 自動削除手順
+
+```python
+# lib/meetings/retention.py
+
+async def cleanup_expired_recordings():
+    """90日超過の録音データを削除する（日次バッチ）"""
+
+    expiry_date = datetime.now() - timedelta(days=90)
+
+    # 1. 対象レコードを取得
+    expired_meetings = await MeetingRecording.filter(
+        created_at__lt=expiry_date,
+        is_deleted=False
+    ).all()
+
+    for meeting in expired_meetings:
+        async with transaction():
+            # 2. GCSから録音ファイルを削除
+            await delete_from_gcs(meeting.recording_url)
+
+            # 3. 文字起こしデータを削除
+            await MeetingTranscript.filter(
+                meeting_id=meeting.id
+            ).delete()
+
+            # 4. 論理削除フラグを設定
+            meeting.is_deleted = True
+            meeting.deleted_at = datetime.now()
+            await meeting.save()
+
+            # 5. 監査ログに記録
+            await audit_log(
+                action="meeting_recording_deleted",
+                resource_id=meeting.id,
+                reason="retention_policy_90_days"
+            )
+
+    return len(expired_meetings)
+```
+
+#### アクセス権限設計
+
+| 権限レベル | 録音ファイル | 文字起こし | 議事録 | 備考 |
+|-----------|-------------|-----------|-------|------|
+| **参加者** | ○ | ○ | ○ | 自分が参加した会議のみ |
+| **上長** | ○ | ○ | ○ | 部下が参加した会議（組織階層判定） |
+| **管理者** | ○ | ○ | ○ | 同一organization_id内のみ |
+| **システム** | ○ | ○ | ○ | バッチ処理用 |
+| **外部** | × | × | × | 一切アクセス不可 |
+
+```python
+# lib/meetings/access_control.py
+
+async def check_meeting_access(
+    user: User,
+    meeting_id: str,
+    access_type: str  # "recording" | "transcript" | "minutes"
+) -> bool:
+    """会議データへのアクセス権限を確認"""
+
+    meeting = await Meeting.get(meeting_id)
+
+    # 1. organization_idチェック（必須）
+    if user.organization_id != meeting.organization_id:
+        return False
+
+    # 2. 参加者チェック
+    is_participant = await MeetingParticipant.filter(
+        meeting_id=meeting_id,
+        user_id=user.id
+    ).exists()
+
+    if is_participant:
+        return True
+
+    # 3. 組織階層による上長チェック
+    participant_ids = await MeetingParticipant.filter(
+        meeting_id=meeting_id
+    ).values_list("user_id", flat=True)
+
+    accessible_users = await get_subordinates(user)
+
+    if any(p_id in accessible_users for p_id in participant_ids):
+        return True
+
+    # 4. 管理者チェック
+    if user.role in ["admin", "system"]:
+        return True
+
+    return False
+```
+
+#### PII除去処理
+
+文字起こしから議事録を生成する際、PIIを自動除去します：
+
+```python
+# lib/meetings/pii_sanitizer.py
+
+MEETING_PII_PATTERNS = [
+    # 電話番号（会議中に読み上げられたもの）
+    (r"\b0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}\b", "[電話番号]"),
+
+    # メールアドレス
+    (r"[\w\.\-]+@[\w\.\-]+\.\w+", "[メールアドレス]"),
+
+    # クレジットカード番号
+    (r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "[カード番号]"),
+
+    # 住所パターン
+    (r"[都道府県市区町村].{5,30}[番号丁目]", "[住所]"),
+
+    # 社員番号
+    (r"\b[A-Z]{2,3}[-]?\d{4,6}\b", "[社員番号]"),
+]
+
+def sanitize_transcript_for_minutes(transcript: str) -> str:
+    """文字起こしからPIIを除去して議事録用にする"""
+    sanitized = transcript
+    for pattern, replacement in MEETING_PII_PATTERNS:
+        sanitized = re.sub(pattern, replacement, sanitized)
+    return sanitized
+```
+
+#### 監査ログ設計
+
+| イベント | 記録内容 | 保持期間 |
+|---------|---------|---------|
+| 録音開始 | meeting_id, start_time, participants_count | 1年 |
+| 録音終了 | meeting_id, end_time, file_size | 1年 |
+| 文字起こし完了 | meeting_id, word_count, processing_time | 1年 |
+| 議事録生成 | meeting_id, minutes_id, token_count | 1年 |
+| 録音アクセス | user_id, meeting_id, access_type | 1年 |
+| 録音削除 | meeting_id, reason, deleted_by | 1年 |
+| 同意取得 | meeting_id, user_id, consent_type | 1年 |
+| オプトアウト | meeting_id, user_id, reason | 1年 |
+
+> **注意**: 監査ログにはPII（名前、メールアドレス等）を含めず、IDのみを記録します。
+
+---
+
 ### ■ Phase Cの依存関係
 
 **前提条件:**

@@ -513,6 +513,134 @@ output: {
 | **例** | 「ユーザーは『頼んで』と言っている → 依頼 → タスク作成」 |
 | **理由** | ブラックボックス化を防ぐための必須要件 |
 
+#### 4.3.9 思考過程のPII除去（PII Sanitization）【v10.55追加】
+
+| 項目 | 内容 |
+|------|------|
+| **定義** | 思考過程に含まれるPII（個人識別情報）を除去してから記録する |
+| **適用タイミング** | Observability Layerで思考過程を記録する直前 |
+| **処理方式** | マスキング（元データは復元不可能にする） |
+| **理由** | CLAUDE.md セクション8.3「監査ログに名前・メール・本文を記録しない」との整合性確保 |
+
+##### 4.3.9.1 マスキング対象
+
+| 対象 | マスキング後 | 例 |
+|------|------------|-----|
+| 個人名（日本語） | `[PERSON]` | 田中太郎さん → [PERSON] |
+| 個人名（敬称付き） | `[PERSON]` | 山田部長 → [PERSON] |
+| メールアドレス | `[EMAIL]` | tanaka@example.com → [EMAIL] |
+| 電話番号 | `[PHONE]` | 090-1234-5678 → [PHONE] |
+| 給与/金額（個人に紐づく） | `[AMOUNT]` | 月額85万円 → [AMOUNT] |
+| 住所 | `[ADDRESS]` | 東京都渋谷区... → [ADDRESS] |
+| 評価/査定情報 | `[EVALUATION]` | S評価 → [EVALUATION] |
+| クレジットカード番号 | `[CARD]` | 4111-1111-... → [CARD] |
+| マイナンバー | `[ID_NUMBER]` | 1234-5678-... → [ID_NUMBER] |
+
+##### 4.3.9.2 実装仕様
+
+```python
+import re
+from typing import List, Tuple
+
+# PIIパターン定義（優先度順）
+PII_PATTERNS: List[Tuple[str, str, str]] = [
+    # (パターン名, 正規表現, 置換文字列)
+
+    # 高優先度: 機密性が高いもの
+    ("credit_card", r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "[CARD]"),
+    ("my_number", r"\b\d{4}[-\s]?\d{4}[-\s]?\d{4}\b", "[ID_NUMBER]"),
+
+    # メールアドレス
+    ("email", r"[\w\.\-]+@[\w\.\-]+\.\w+", "[EMAIL]"),
+
+    # 電話番号（日本形式）
+    ("phone", r"\b0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}\b", "[PHONE]"),
+
+    # 金額（給与等、個人に紐づく文脈）
+    ("salary", r"(月額|年収|給与|報酬|時給)[：:\s]*\d+[万千]?円?", "[AMOUNT]"),
+    ("bonus", r"(賞与|ボーナス)[：:\s]*\d+[万千]?円?", "[AMOUNT]"),
+
+    # 評価情報
+    ("evaluation", r"(評価|査定|ランク)[：:\s]*[SABCD][+\-]?(?:評価)?", "[EVALUATION]"),
+
+    # 日本語個人名（敬称付き）
+    ("person_title", r"[一-龯ぁ-んァ-ン]{2,4}(さん|様|氏|くん|ちゃん|殿)", "[PERSON]"),
+    ("person_position", r"[一-龯ぁ-んァ-ン]{2,4}(社長|部長|課長|係長|主任|リーダー|マネージャー)", "[PERSON]"),
+]
+
+def sanitize_reasoning(reasoning: str) -> str:
+    """
+    思考過程からPIIを除去する
+
+    Args:
+        reasoning: LLMが出力した思考過程（生データ）
+
+    Returns:
+        PIIをマスキングした思考過程
+
+    Example:
+        >>> sanitize_reasoning("田中さんの給与は月額85万円です")
+        "[PERSON]の給与は[AMOUNT]です"
+    """
+    if not reasoning:
+        return reasoning
+
+    sanitized = reasoning
+
+    for pattern_name, pattern, replacement in PII_PATTERNS:
+        sanitized = re.sub(pattern, replacement, sanitized)
+
+    return sanitized
+
+def get_sanitization_log(original: str, sanitized: str) -> dict:
+    """
+    サニタイズ処理のログを生成（監査用）
+
+    ※ オリジナルの内容は記録しない（PII保護のため）
+    """
+    return {
+        "original_length": len(original),
+        "sanitized_length": len(sanitized),
+        "pii_detected": original != sanitized,
+        "mask_count": sanitized.count("["),  # マスク数の概算
+    }
+```
+
+##### 4.3.9.3 記録される形式
+
+**マスキング前（LLMの生出力）:**
+```
+田中太郎さんの給与情報を確認したい。田中さんは営業部の部長で、給与は月額85万円。
+tanaka@soulsyncs.jp にメールを送信する必要がある。連絡先は090-1234-5678。
+```
+
+**マスキング後（Observability Layerに記録される形式）:**
+```
+[PERSON]の給与情報を確認したい。[PERSON]は営業部の部長で、給与は[AMOUNT]。
+[EMAIL] にメールを送信する必要がある。連絡先は[PHONE]。
+```
+
+##### 4.3.9.4 適用箇所
+
+| 箇所 | 適用 | 理由 |
+|------|------|------|
+| Observability Layer（ログ記録） | ✅ 必須 | 監査ログにPIIを残さない |
+| Guardian Layer（判定ログ） | ✅ 必須 | 同上 |
+| デバッグログ | ✅ 必須 | 開発環境でも漏洩防止 |
+| ユーザーへの応答 | ❌ 不要 | ユーザー向けは元データを使用 |
+| LLM Brain内部処理 | ❌ 不要 | 処理中は元データが必要 |
+
+##### 4.3.9.5 例外ケース
+
+| ケース | 対応 | 理由 |
+|--------|------|------|
+| 本人が自分の情報を確認 | マスキングする | ログには残さない原則 |
+| 代表（権限レベル6）の操作 | マスキングする | 権限に関わらずログは保護 |
+| デバッグ目的での確認 | マスキングする | 開発者もPIIを見るべきではない |
+
+> **重要**: PIIマスキングは「ログに残すか」の問題であり、「処理中に使うか」とは別。
+> LLMは処理中は元データを使用し、記録時のみマスキングする。
+
 ---
 
 ### 4.4 LLMがしてはいけないこと（決裁領域）- 詳細
@@ -5472,6 +5600,86 @@ async def check_daily_cost():
 | v1.4.0 | 2026-01-30 | P1仕様追加: BrainStateManager/SessionState詳細（5.1.5〜5.1.6）、LLM出力JSON Schema（5.2.3b）、Guardian判定優先度デシジョンツリー（5.3.3b）、エラーハンドリング詳細（6.7）、Tool変換仕様（7.1b） |
 | v1.5.0 | 2026-01-30 | **100%完成**: エッジケース仕様追加 - 並行セッション競合処理（5.1.7）、LLMストリーミング中断処理（6.7.6）、DBコネクションプール枯渇処理（6.7.7） |
 | v1.5.1 | 2026-01-31 | **大規模修繕対応**: NO_CONFIRMATION_ACTIONS追加（17.8.1）、env_config.py追加（17.8.2）、Guardian Layer確信度チェックに例外規定追加 |
+| v1.5.2 | 2026-02-02 | **設計整合性改善**: System Prompt反映チェックリスト追加（17.10）、PII除去セクション追加（4.3.9） |
+
+### 17.10 System Prompt反映チェックリスト【v10.55追加】
+
+System Promptを変更する際は、以下のチェックリストを使用して関連設計書との整合性を確認してください。
+
+#### 17.10.1 変更前チェックリスト
+
+| # | 確認項目 | 確認先 | 確認者 |
+|---|---------|--------|--------|
+| 1 | LLM Brain憲法に違反しないか | 25章 第4章 | Tech Lead |
+| 2 | 権限レベル設計と整合するか | CLAUDE.md セクション7 | Tech Lead |
+| 3 | 禁止事項に抵触しないか | CLAUDE.md セクション9 | Tech Lead |
+| 4 | MVV（ミッション・ビジョン・バリュー）と整合するか | 01章、25章 第3章 | 代表 |
+| 5 | 既存のTool定義と矛盾しないか | 25章 第7章 | Implementer |
+| 6 | キャラクター設定と整合するか | 25章 付録17.4 第2章 | PM |
+
+#### 17.10.2 変更後チェックリスト
+
+| # | 確認項目 | 方法 | 完了条件 |
+|---|---------|------|---------|
+| 1 | System Prompt本体を更新 | 25章 付録17.4を編集 | レビュー承認 |
+| 2 | CLAUDE.mdの関連セクションを更新 | 該当セクションを編集 | 整合性確認 |
+| 3 | lib/brain/prompt_builder.pyを更新 | コード変更 | テストパス |
+| 4 | テスト実行 | `pytest lib/brain/tests/` | 全テストパス |
+| 5 | 変更履歴を更新 | 25章 17.9を編集 | バージョン記載 |
+| 6 | Design Coverage Matrixを更新 | 該当セルを更新 | 影響範囲記載 |
+
+#### 17.10.3 関連ファイル一覧
+
+| ファイル | 役割 | 変更時の注意 |
+|---------|------|-------------|
+| `docs/25_llm_native_brain_architecture.md` 付録17.4 | System Prompt完全版（SoT） | ここが正。他はコピー |
+| `lib/brain/prompt_builder.py` | System Prompt生成コード | 17.4と同期必須 |
+| `lib/brain/constants.py` | 定数定義 | NO_CONFIRMATION_ACTIONS等 |
+| `CLAUDE.md` | 設計OS（原則） | 矛盾チェック必須 |
+| `docs/01_philosophy_and_principles.md` | 哲学・原則 | MVV変更時は両方更新 |
+
+#### 17.10.4 同期手順
+
+System Promptを変更する際の標準手順：
+
+```bash
+# 1. System Prompt本体を編集
+vim docs/25_llm_native_brain_architecture.md
+# → 付録17.4を編集
+
+# 2. prompt_builder.pyを同期
+vim lib/brain/prompt_builder.py
+# → System Prompt部分を更新
+
+# 3. 整合性テストを実行
+pytest lib/brain/tests/test_prompt_builder.py -v
+
+# 4. CLAUDE.mdとの整合性確認
+diff <(grep -A5 "禁止事項" CLAUDE.md) <(grep -A5 "禁止" docs/25_llm_native_brain_architecture.md)
+
+# 5. 変更履歴を更新
+vim docs/25_llm_native_brain_architecture.md
+# → 17.9 変更履歴にエントリ追加
+
+# 6. コミット
+git add docs/25_llm_native_brain_architecture.md lib/brain/prompt_builder.py CLAUDE.md
+git commit -m "feat: System Prompt更新 - [変更内容]"
+```
+
+#### 17.10.5 レビュー観点
+
+System Prompt変更のPRレビュー時は、以下を確認：
+
+| 観点 | 確認内容 |
+|------|---------|
+| **安全性** | LLM Brain憲法に違反しないか |
+| **一貫性** | 他の設計書と矛盾しないか |
+| **完全性** | 関連ファイルが全て更新されているか |
+| **テスト** | 変更に対するテストが追加されているか |
+| **バージョン** | 変更履歴が更新されているか |
+
+> **重要**: System Promptはソウルくんの「人格」を定義する最重要ドキュメントです。
+> 変更は必ずカズさん（代表）の承認を得てから行ってください。
 
 ---
 

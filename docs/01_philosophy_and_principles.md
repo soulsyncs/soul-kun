@@ -101,6 +101,65 @@
 | **6** | **組織モデルの一元管理**【v10.0追加】 | 組織構造は単一のテーブルで管理し、全機能で共有 |
 | **7** | **テナント識別子の一元管理**【v10.1追加】 | tenant_id = organization_id（同義）。Phase 4Aでorganization_idに統一予定 |
 
+### ■ テナント識別子の移行ガイドライン【v10.55追加】
+
+#### 用語の統一
+
+| 用語 | 定義 | 使用場所 |
+|------|------|---------|
+| `organization_id` | **正式名称**。今後はこちらを使用 | 新規コード、新規設計書 |
+| `tenant_id` | **旧名称**。organization_idと同義 | 既存コード（Phase 4Aで廃止予定） |
+
+> **重要**: `organization_id` と `tenant_id` は完全に同義。値も同一。
+> 単に命名の統一のための移行であり、データ移行は不要。
+
+#### 新規開発時のルール
+
+| 場面 | ルール |
+|------|--------|
+| 新規テーブル作成 | `organization_id` を使用（`tenant_id` は禁止） |
+| 新規API作成 | `organization_id` を使用 |
+| 既存コード修正 | 可能であれば `organization_id` に置換 |
+| 設計書作成 | `organization_id` を使用 |
+
+#### 移行計画
+
+| Phase | 内容 | 時期 |
+|-------|------|------|
+| **現在（v10.55）** | 新規コードは `organization_id`、既存コードは `tenant_id` のまま | - |
+| **Phase 4A** | 全コードを `organization_id` に統一 | Q3 |
+| **Phase 4A完了後** | `tenant_id` を完全廃止（型エイリアスも削除） | Q4 |
+
+#### 移行時の検証チェックリスト
+
+```
+□ 全テーブルで `organization_id` が使用されているか
+□ 全APIで `organization_id` が使用されているか
+□ 全設計書で `organization_id` が使用されているか
+□ `tenant_id` への参照が残っていないか（grep検索: `grep -r "tenant_id" --include="*.py"`)
+□ 環境変数で `TENANT_` プレフィックスを使用していないか
+```
+
+#### 互換性維持のためのエイリアス（移行期間中のみ）
+
+```python
+# lib/brain/types.py での定義（移行期間中のみ）
+
+# 正式名称
+OrganizationId = str
+
+# 旧名称（後方互換用、Phase 4A完了後に削除）
+TenantId = OrganizationId  # 同義であることを明示
+
+# 使用例（推奨）
+def get_user(organization_id: OrganizationId) -> User:
+    ...
+
+# 使用例（非推奨、既存コードのみ許容）
+def get_user_legacy(tenant_id: TenantId) -> User:
+    ...
+```
+
 ---
 
 ## 1.3 RAG設計原則

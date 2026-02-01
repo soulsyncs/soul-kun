@@ -346,6 +346,132 @@ def topological_sort(departments: list[DepartmentData]) -> list[DepartmentData]:
     return [dept_map[dept_id] for dept_id in sorted_ids]
 ```
 
+### ■ リカバリ設計（Staged Commit方式）【v10.55追加】
+
+> **背景**: `sync_type=full` で全削除→再作成を行う場合、途中でエラーが発生するとデータが消失するリスクがある。
+> このリスクを軽減するため、Staged Commit方式を採用する。
+
+#### Staged Commit方式の概要
+
+```
+従来（危険）:
+  1. 既存データを削除 ← ここで失敗するとデータ消失
+  2. 新データを挿入
+  3. 完了
+
+Staged Commit方式（安全）:
+  1. 新データをステージングテーブルに作成
+  2. ステージングデータを検証
+  3. 検証OKなら、アトミックに切り替え ← 失敗しても旧データは残る
+  4. 旧データをバックアップとして保持（24時間）
+```
+
+#### 実装例
+
+```python
+async def sync_org_chart_staged(
+    org_id: str,
+    data: OrgChartSyncRequest
+) -> dict:
+    """
+    Staged Commit方式での組織図同期
+
+    1. 新データを別テーブルに準備
+    2. 検証が全てパスしたら、アトミックに切り替え
+    3. 失敗時は旧データがそのまま残る
+    """
+    staging_suffix = f"_staging_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    backup_suffix = f"_backup_{datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+    try:
+        # === Phase 1: ステージングテーブルに新データ作成 ===
+        await create_staging_tables(org_id, staging_suffix)
+        await populate_staging_data(org_id, staging_suffix, data)
+
+        # === Phase 2: ステージングデータの検証 ===
+        validation_result = await validate_staging_data(org_id, staging_suffix)
+        if not validation_result.is_valid:
+            raise ValueError(f"検証失敗: {validation_result.errors}")
+
+        # === Phase 3: 依存関係の検証（タスク、権限等） ===
+        dependency_result = await validate_dependencies(org_id, staging_suffix)
+        if not dependency_result.is_valid:
+            raise ValueError(f"依存関係エラー: {dependency_result.errors}")
+
+        # === Phase 4: アトミックに切り替え ===
+        async with db.transaction():
+            # 4-1. 現行テーブルをバックアップにリネーム
+            await rename_tables(org_id, "", backup_suffix)
+
+            # 4-2. ステージングテーブルを本番にリネーム
+            await rename_tables(org_id, staging_suffix, "")
+
+        # === Phase 5: クリーンアップ（非同期） ===
+        # バックアップは24時間後に削除（即時削除しない）
+        await schedule_backup_cleanup(org_id, backup_suffix, hours=24)
+
+        return {
+            "status": "success",
+            "backup_id": backup_suffix,
+            "message": "24時間以内であればバックアップから復元可能"
+        }
+
+    except Exception as e:
+        # 失敗時: ステージングテーブルを削除、旧データは維持
+        await drop_staging_tables(org_id, staging_suffix)
+        raise
+
+
+async def restore_from_backup(org_id: str, backup_suffix: str) -> dict:
+    """
+    バックアップからの復元
+
+    バックアップテーブルが存在する場合（24時間以内）、
+    現行データをバックアップに戻す。
+    """
+    # バックアップの存在確認
+    if not await backup_tables_exist(org_id, backup_suffix):
+        raise ValueError(f"バックアップが見つかりません: {backup_suffix}")
+
+    async with db.transaction():
+        # 現行テーブルを削除
+        await drop_tables(org_id, "")
+
+        # バックアップを本番にリネーム
+        await rename_tables(org_id, backup_suffix, "")
+
+    return {
+        "status": "restored",
+        "message": f"バックアップ {backup_suffix} から復元完了"
+    }
+```
+
+#### リカバリ手順
+
+| シナリオ | 検出方法 | 復旧手順 | RTO |
+|---------|---------|---------|-----|
+| 同期中にエラー | トランザクションロールバック | 自動復旧（旧データ維持） | 0分 |
+| 同期完了後に問題発覚 | 手動検出 | `restore_from_backup()` 実行 | 5分 |
+| バックアップ期限切れ | 24時間経過 | 日次バックアップから復元 | 1時間 |
+
+#### バックアップ保持期間
+
+| データ | 保持期間 | 自動削除 | 理由 |
+|--------|---------|---------|------|
+| 同期前バックアップ | 24時間 | ✅ | 当日中の問題検出用 |
+| 日次DBバックアップ | 7日 | ✅ | 週単位での問題検出用 |
+| 月次アーカイブ | 1年 | ❌ | 長期保存用 |
+
+#### API拡張（バックアップ操作）
+
+```
+# バックアップ一覧
+GET /api/v1/organizations/{org_id}/sync-backups
+
+# バックアップから復元
+POST /api/v1/organizations/{org_id}/sync-backups/{backup_id}/restore
+```
+
 ---
 
 ## 5.5.2 組織階層照会API

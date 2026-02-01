@@ -56,6 +56,111 @@
 
 ---
 
+## クイックスタート【v10.55追加】
+
+### 目的別・最短参照ルート
+
+**あなたの状況に応じて、必要な設計書だけを効率的に参照できます。**
+
+#### 新規参画者（まず全体を理解したい）
+
+```
+Step 1: CLAUDE.md（15分）
+        ↓ 全体の判断基準を理解
+Step 2: 25章 第1章（5分）
+        ↓ エグゼクティブサマリーで概要把握
+Step 3: 25章 第4章（20分）
+        ↓ LLM Brain憲法で禁止事項を理解
+Step 4: 本README（10分）
+        → 全体像把握完了
+```
+
+#### バグ修正者（障害対応中）
+
+```
+Step 1: TROUBLESHOOTING_FRAMEWORK.md
+        ↓ エラー→原因→対処を特定
+Step 2: OPERATIONS_RUNBOOK.md
+        ↓ 緊急対応手順を実行
+Step 3: 該当機能の設計書
+        → 根本原因を特定・修正
+```
+
+#### 機能追加者（新機能を実装）
+
+```
+Step 1: FEATURE_ADDITION_FRAMEWORK.md
+        ↓ 新機能追加時の設計書更新ルール
+Step 2: DESIGN_COVERAGE_MATRIX.md
+        ↓ 影響範囲と更新対象を特定
+Step 3: 25章 第7章
+        ↓ Tool定義の追加方法
+Step 4: 09_implementation_standards.md
+        → 実装規約に従って実装
+```
+
+#### セキュリティ確認者（監査・レビュー）
+
+```
+Step 1: CLAUDE.md セクション5
+        ↓ 10の鉄則を確認
+Step 2: 04_api_and_security.md
+        ↓ API・認証・権限設計を確認
+Step 3: SECURITY_AUDIT_ORGANIZATION_ID.md
+        ↓ organization_id監査結果
+Step 4: 25章 第4章
+        → LLM権限制限を確認
+```
+
+#### デプロイ担当者（本番リリース）
+
+```
+Step 1: ENVIRONMENT_VARIABLES.md
+        ↓ 必要な環境変数を確認
+Step 2: cloudbuild.yaml
+        ↓ CI/CDパイプラインを確認
+Step 3: OPERATIONS_RUNBOOK.md
+        → ロールバック手順を確認
+```
+
+#### 営業・説明担当者（顧客説明）
+
+```
+Step 1: 01_philosophy_and_principles.md
+        ↓ 哲学・MVV・価値提案
+Step 2: security_and_bcp_guide.md
+        ↓ セキュリティ説明資料
+Step 3: 02_phase_overview.md
+        → 機能ロードマップ
+```
+
+### よくある質問への最短ルート
+
+| 質問 | 最短ルート |
+|------|-----------|
+| 「このAPIは安全？」 | 04章 → セキュリティ要件 → 該当API仕様 |
+| 「このテーブルの定義は？」 | 03章 → スキーマ定義 |
+| 「脳の仕組みは？」 | 25章 第5-6章 |
+| 「禁止事項は？」 | CLAUDE.md セクション9 + 25章 第4章 |
+| 「エラーの原因は？」 | TROUBLESHOOTING_FRAMEWORK.md → 原因分類 |
+| 「新しい環境変数を追加したい」 | ENVIRONMENT_VARIABLES.md + lib/brain/env_config.py |
+| 「設計書を廃止したい」 | DESIGN_DEPRECATION_POLICY.md |
+| 「テストの書き方は？」 | 09章 → テスト規約 |
+| 「RLSの実装状況は？」 | RLS_POLICY_DESIGN.md |
+| 「権限レベルは？」 | CLAUDE.md セクション7 |
+
+### 緊急時のクイックアクセス
+
+| 状況 | 最初に見るファイル | 次のアクション |
+|------|------------------|---------------|
+| **本番障害** | OPERATIONS_RUNBOOK.md | 障害対応フローに従う |
+| **セキュリティインシデント** | OPERATIONS_RUNBOOK.md → セキュリティ章 | エスカレーション |
+| **データ漏洩疑い** | 04章 → 監査ログ設計 | ログ調査 |
+| **デプロイ失敗** | cloudbuild.yaml + OPERATIONS_RUNBOOK.md | ロールバック |
+| **テスト失敗** | TROUBLESHOOTING_FRAMEWORK.md | 原因特定 |
+
+---
+
 ## 第1層：設計OS
 
 | ファイル | 役割 | 必読 |

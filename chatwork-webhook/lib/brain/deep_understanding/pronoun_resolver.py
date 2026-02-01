@@ -277,12 +277,14 @@ class EnhancedPronounResolver:
         pronoun: str,
         message: str,
     ) -> PronounResolutionResult:
-        """同期版のresolve（テスト用）"""
+        """同期版のresolve（テスト用）
+
+        Python 3.10+ 対応: 新しいイベントループを作成して実行
+        """
         import asyncio
 
-        return asyncio.get_event_loop().run_until_complete(
-            self.resolve(pronoun, message)
-        )
+        # 新しいイベントループを作成して実行（Python 3.10+ 対応）
+        return asyncio.run(self.resolve(pronoun, message))
 
     # =========================================================================
     # 代名詞情報の取得

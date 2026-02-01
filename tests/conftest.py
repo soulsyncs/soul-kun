@@ -102,8 +102,14 @@ def clear_admin_config_cache_fixture():
 # ================================================================
 
 @pytest.fixture
-def mock_openai_embedding():
-    """Gemini Embedding APIのモック（後方互換のため名前は維持）"""
+def mock_openai_embedding(monkeypatch):
+    """Gemini Embedding APIのモック（後方互換のため名前は維持）
+
+    v10.54.5: GOOGLE_AI_API_KEY 環境変数もモック（CI環境対応）
+    """
+    # 環境変数をモック（APIキーチェックをパス）
+    monkeypatch.setenv('GOOGLE_AI_API_KEY', 'mock-api-key-for-testing')
+
     with patch('lib.embedding.genai') as mock_genai:
         # 新SDK（google-genai）のモック構造
         mock_client = MagicMock()

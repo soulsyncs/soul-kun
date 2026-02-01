@@ -17,6 +17,7 @@
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
@@ -29,6 +30,53 @@ from lib.brain.constants import SESSION_TIMEOUT_MINUTES
 from lib.brain.exceptions import StateError
 
 logger = logging.getLogger(__name__)
+
+
+class SafeJSONEncoder(json.JSONEncoder):
+    """
+    安全なJSONエンコーダー
+
+    シリアライズ不可能なオブジェクト（dataclass、datetime等）を
+    安全にJSON形式に変換する。
+
+    v10.54.1: ConfidenceScoresシリアライズエラー対策
+    """
+
+    def default(self, obj):
+        # to_dict()メソッドを持つオブジェクト（dataclass等）
+        if hasattr(obj, 'to_dict'):
+            return obj.to_dict()
+
+        # datetime
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+
+        # UUID
+        if isinstance(obj, UUID):
+            return str(obj)
+
+        # Enum
+        if hasattr(obj, 'value'):
+            return obj.value
+
+        # その他のオブジェクトは文字列化
+        try:
+            return str(obj)
+        except Exception:
+            return f"<non-serializable: {type(obj).__name__}>"
+
+
+def _safe_json_dumps(data: Any) -> str:
+    """
+    安全なJSON文字列化
+
+    Args:
+        data: シリアライズ対象データ
+
+    Returns:
+        JSON文字列
+    """
+    return json.dumps(data or {}, cls=SafeJSONEncoder, ensure_ascii=False)
 
 
 class BrainStateManager:
@@ -230,7 +278,6 @@ class BrainStateManager:
             old_state = await self.get_current_state(room_id, user_id)
 
             # 同期プールの場合は同期的に実行
-            import json
             with self.pool.connect() as conn:
                 # UPSERT
                 upsert_query = text("""
@@ -266,7 +313,7 @@ class BrainStateManager:
                     "user_id": user_id,
                     "state_type": state_type.value,
                     "state_step": step,
-                    "state_data": json.dumps(data or {}),
+                    "state_data": _safe_json_dumps(data),
                     "reference_type": reference_type,
                     "reference_id": reference_id,
                     "expires_at": expires_at,
@@ -459,7 +506,6 @@ class BrainStateManager:
                     new_expires = now + timedelta(minutes=row.timeout_minutes)
 
                     # 更新
-                    import json
                     update_query = text("""
                         UPDATE brain_conversation_states
                         SET state_step = :new_step,
@@ -475,7 +521,7 @@ class BrainStateManager:
                         "room_id": room_id,
                         "user_id": user_id,
                         "new_step": new_step,
-                        "state_data": json.dumps(merged_data),
+                        "state_data": _safe_json_dumps(merged_data),
                         "expires_at": new_expires,
                         "now": now,
                     })
@@ -522,8 +568,6 @@ class BrainStateManager:
         now: datetime,
     ) -> ConversationState:
         """update_stepの同期版"""
-        import json
-
         with self.pool.connect() as conn:
             # 既存状態を取得
             select_query = text("""
@@ -574,7 +618,7 @@ class BrainStateManager:
                 "room_id": room_id,
                 "user_id": user_id,
                 "new_step": new_step,
-                "state_data": json.dumps(merged_data),
+                "state_data": _safe_json_dumps(merged_data),
                 "expires_at": new_expires,
                 "now": now,
             })
@@ -627,7 +671,7 @@ class BrainStateManager:
             if deleted_count > 0:
                 logger.info(f"Cleaned up {deleted_count} expired brain states")
 
-            return deleted_count
+            return int(deleted_count) if deleted_count is not None else 0
 
         except Exception as e:
             logger.error(f"Error cleaning up expired states: {e}")
@@ -651,6 +695,8 @@ class BrainStateManager:
         state_id: Optional[str] = None,
     ) -> None:
         """状態遷移履歴を記録"""
+        from_type: Optional[str]
+        from_step: Optional[str]
         if from_state:
             from_type = from_state.state_type.value
             from_step = from_state.state_step
@@ -779,7 +825,6 @@ class BrainStateManager:
         try:
             with self.pool.connect() as conn:
                 with conn.begin():
-                    import json
                     upsert_query = text("""
                         INSERT INTO brain_conversation_states (
                             organization_id, room_id, user_id,
@@ -813,7 +858,7 @@ class BrainStateManager:
                         "user_id": user_id,
                         "state_type": state_type.value,
                         "state_step": step,
-                        "state_data": json.dumps(data or {}),
+                        "state_data": _safe_json_dumps(data),
                         "reference_type": reference_type,
                         "reference_id": reference_id,
                         "expires_at": expires_at,
@@ -892,7 +937,6 @@ class BrainStateManager:
 
 from enum import Enum as PyEnum
 from dataclasses import dataclass, field
-import json
 import uuid
 
 
@@ -976,7 +1020,7 @@ class LLMPendingAction:
 
     def to_string(self) -> str:
         """LLMプロンプト用の文字列表現"""
-        params_str = json.dumps(self.parameters, ensure_ascii=False, indent=2)
+        params_str = json.dumps(self.parameters, cls=SafeJSONEncoder, ensure_ascii=False, indent=2)
         return f"""
 操作: {self.tool_name}
 パラメータ: {params_str}

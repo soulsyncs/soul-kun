@@ -164,7 +164,10 @@ async def _handle_save_long_term_memory(message: str, room_id: str, account_id: 
             message=message
         )
 
-        return result
+        # 型安全のため明示的にDict[str, Any]を返す
+        if isinstance(result, dict):
+            return result
+        return {"success": False, "message": "予期しない戻り値ウル🐺"}
 
     except Exception as e:
         print(f"❌ 長期記憶保存エラー: {e}")
@@ -266,6 +269,10 @@ async def _handle_save_bot_persona(
         )
 
         # v10.40.11: 保存先をログ出力
+        # 型安全のため明示的にDict[str, Any]に変換
+        if not isinstance(result, dict):
+            return {"success": False, "message": "予期しない戻り値ウル🐺"}
+
         redirected_to = result.get("redirected_to", "")
         if redirected_to:
             print(f"🔍 [bot_persona DEBUG] 実際の保存先: {redirected_to}")
@@ -289,7 +296,7 @@ async def _handle_save_bot_persona(
 async def _handle_query_long_term_memory(
     account_id: str,
     sender_name: str,
-    target_user_id: int = None
+    target_user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     v10.40.9: 長期記憶（人生軸・価値観）を取得
@@ -674,6 +681,9 @@ async def _brain_handle_task_search(params, room_id, account_id, sender_name, co
         result = handle_chatwork_task_search(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "タスクが見つからなかったウル🐺")
     except Exception as e:
+        print(f"task_search error: {e}")
+        import traceback
+        traceback.print_exc()
         return HandlerResult(success=False, message=f"タスク検索でエラーが発生したウル🐺")
 
 
@@ -807,7 +817,7 @@ async def _brain_handle_save_memory(params, room_id, account_id, sender_name, co
         if result:
             print(f"🔍 [save_memory DEBUG] 保存先: person_attributes")
             # 保存成功（メッセージが返ってきた）
-            return HandlerResult(success=True, message=result)
+            return HandlerResult(success=True, message=str(result))
         else:
             print(f"🔍 [save_memory DEBUG] 保存先: none (保存失敗)")
             return HandlerResult(
@@ -867,12 +877,12 @@ async def _brain_handle_query_memory(params, room_id, account_id, sender_name, c
                 sender_name=sender_name
             )
             if result.get("success"):
-                return HandlerResult(success=True, message=result.get("message", ""))
+                return HandlerResult(success=True, message=str(result.get("message", "")))
             # 長期記憶がなければ従来処理にフォールバック
 
         # 従来の記憶検索
         result = handle_query_memory(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "記憶が見つからなかったウル🐺")
+        return HandlerResult(success=True, message=str(result) if result else "記憶が見つからなかったウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"記憶検索でエラーが発生したウル🐺")
 
@@ -964,11 +974,11 @@ async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name,
                 sender_name=sender_name
             )
             if result.get("success"):
-                return HandlerResult(success=True, message=result.get("message", ""))
+                return HandlerResult(success=True, message=str(result.get("message", "")))
             # 長期記憶がなければ従来処理にフォールバック
 
         result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "知識一覧を取得したウル🐺")
+        return HandlerResult(success=True, message=str(result) if result else "知識一覧を取得したウル🐺")
     except Exception as e:
         print(f"❌ list_knowledge error: {e}")
         return HandlerResult(success=False, message=f"知識一覧でエラーが発生したウル🐺")

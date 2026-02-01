@@ -580,8 +580,10 @@ class BrainContext:
         if not self.has_multimodal_content():
             return ""
         # MultimodalBrainContextのto_prompt_contextメソッドを使用
-        if hasattr(self.multimodal_context, 'to_prompt_context'):
-            return self.multimodal_context.to_prompt_context()
+        ctx = self.multimodal_context
+        if ctx is not None and hasattr(ctx, 'to_prompt_context'):
+            result = ctx.to_prompt_context()
+            return str(result) if result is not None else ""
         return ""
 
     def to_prompt_context(self) -> str:

@@ -1497,11 +1497,12 @@ def search_tasks_from_db(room_id, assigned_to_account_id=None, assigned_by_accou
     """DBからタスクを検索
 
     v10.24.4: handlers/task_handler.py に移動済み
+    v10.54.2: 未定義関数参照を修正（get_user_id_func/get_accessible_departments_funcはオプション）
     """
     return _get_task_handler().search_tasks_from_db(
         room_id, assigned_to_account_id, assigned_by_account_id, status,
         enable_dept_filter, organization_id, search_all_rooms,
-        get_user_id_from_chatwork_account, get_accessible_departments
+        get_user_id_func=None, get_accessible_departments_func=None
     )
 
 

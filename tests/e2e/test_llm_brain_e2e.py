@@ -38,6 +38,8 @@ import logging
 from datetime import datetime
 from typing import Optional, Tuple
 
+import pytest
+
 # ロギング設定
 logging.basicConfig(
     level=logging.INFO,
@@ -228,6 +230,7 @@ async def test_tool_converter():
         return None
 
 
+@pytest.mark.skip(reason="E2Eテスト: main()から呼び出す（pytestから直接実行不可）")
 async def test_llm_brain_process(brain, context, tools):
     """LLM Brainの処理テスト（実際のAPI呼び出し）"""
     print("\n" + "=" * 60)

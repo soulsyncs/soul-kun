@@ -1109,9 +1109,7 @@ class SoulkunBrain:
         v10.40.1: goal_setting_sessionsへのフォールバックを削除
         - goal_setting.py が brain_conversation_states を使用するように書き換えられたため
         - 全ての状態は brain_conversation_states で一元管理
-
-        v10.39.3: brain_conversation_states だけでなく goal_setting_sessions も確認
-        - 脳がバイパスなしで全てを処理するため、両方のテーブルをチェック
+        - 旧テーブル（goal_setting_sessions）は参照しない
 
         タイムアウトしている場合は自動的にクリアしてNoneを返す。
         """

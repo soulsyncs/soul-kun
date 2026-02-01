@@ -43,6 +43,11 @@ from lib.brain.models import (
     # Phase 2K: Proactive Message（鉄則1b準拠）
     ProactiveMessageResult,
     ProactiveMessageTone,
+    # v10.54: 統一版ドメインモデル（SoT: lib/brain/models.py）
+    PersonInfo,
+    TaskInfo,
+    GoalInfo,
+    InsightInfo,
 )
 
 from lib.brain.constants import (
@@ -959,54 +964,55 @@ class SoulkunBrain:
                     for pref in memory_context["user_preferences"]
                 ]
 
-            # 人物情報
+            # 人物情報（v10.54: PersonInfoオブジェクトとして代入）
             if memory_context.get("person_info"):
                 context.person_info = [
-                    {
-                        "name": person.name if hasattr(person, 'name') else person.get('name', ''),
-                        "attributes": person.attributes if hasattr(person, 'attributes') else person.get('attributes', {}),
-                    }
+                    person if isinstance(person, PersonInfo) else PersonInfo(
+                        name=person.name if hasattr(person, 'name') else person.get('name', ''),
+                        attributes=person.attributes if hasattr(person, 'attributes') else person.get('attributes', {}),
+                    )
                     for person in memory_context["person_info"]
                 ]
 
-            # タスク情報
+            # タスク情報（v10.54: TaskInfoオブジェクトとして代入）
             if memory_context.get("recent_tasks"):
                 context.recent_tasks = [
-                    {
-                        "task_id": task.task_id if hasattr(task, 'task_id') else task.get('task_id', ''),
-                        "body": task.body if hasattr(task, 'body') else task.get('body', ''),
-                        "summary": task.summary if hasattr(task, 'summary') else task.get('summary'),
-                        "status": task.status if hasattr(task, 'status') else task.get('status', 'open'),
-                        "limit_time": task.limit_time if hasattr(task, 'limit_time') else task.get('limit_time'),
-                        "is_overdue": task.is_overdue if hasattr(task, 'is_overdue') else task.get('is_overdue', False),
-                    }
+                    task if isinstance(task, TaskInfo) else TaskInfo(
+                        task_id=task.task_id if hasattr(task, 'task_id') else task.get('task_id', ''),
+                        body=task.body if hasattr(task, 'body') else task.get('body', ''),
+                        summary=task.summary if hasattr(task, 'summary') else task.get('summary'),
+                        status=task.status if hasattr(task, 'status') else task.get('status', 'open'),
+                        due_date=task.due_date if hasattr(task, 'due_date') else (task.limit_time if hasattr(task, 'limit_time') else task.get('limit_time') or task.get('due_date')),
+                        is_overdue=task.is_overdue if hasattr(task, 'is_overdue') else task.get('is_overdue', False),
+                    )
                     for task in memory_context["recent_tasks"]
                 ]
 
-            # 目標情報
+            # 目標情報（v10.54: GoalInfoオブジェクトとして代入）
             if memory_context.get("active_goals"):
                 context.active_goals = [
-                    {
-                        "title": goal.title if hasattr(goal, 'title') else goal.get('title', ''),
-                        "why": goal.why if hasattr(goal, 'why') else goal.get('why'),
-                        "what": goal.what if hasattr(goal, 'what') else goal.get('what'),
-                        "how": goal.how if hasattr(goal, 'how') else goal.get('how'),
-                        "status": goal.status if hasattr(goal, 'status') else goal.get('status', 'active'),
-                        "progress": goal.progress if hasattr(goal, 'progress') else goal.get('progress', 0.0),
-                    }
+                    goal if isinstance(goal, GoalInfo) else GoalInfo(
+                        goal_id=goal.goal_id if hasattr(goal, 'goal_id') else goal.get('goal_id', ''),
+                        title=goal.title if hasattr(goal, 'title') else goal.get('title', ''),
+                        why=goal.why if hasattr(goal, 'why') else goal.get('why'),
+                        what=goal.what if hasattr(goal, 'what') else goal.get('what'),
+                        how=goal.how if hasattr(goal, 'how') else goal.get('how'),
+                        status=goal.status if hasattr(goal, 'status') else goal.get('status', 'active'),
+                        progress=float(goal.progress if hasattr(goal, 'progress') else goal.get('progress', 0.0)),
+                    )
                     for goal in memory_context["active_goals"]
                 ]
 
-            # インサイト
+            # インサイト（v10.54: InsightInfoオブジェクトとして代入）
             if memory_context.get("insights"):
                 context.insights = [
-                    {
-                        "insight_type": insight.insight_type if hasattr(insight, 'insight_type') else insight.get('insight_type', ''),
-                        "importance": insight.importance if hasattr(insight, 'importance') else insight.get('importance', 'medium'),
-                        "title": insight.title if hasattr(insight, 'title') else insight.get('title', ''),
-                        "description": insight.description if hasattr(insight, 'description') else insight.get('description', ''),
-                        "recommended_action": insight.recommended_action if hasattr(insight, 'recommended_action') else insight.get('recommended_action'),
-                    }
+                    insight if isinstance(insight, InsightInfo) else InsightInfo(
+                        insight_type=insight.insight_type if hasattr(insight, 'insight_type') else insight.get('insight_type', ''),
+                        importance=insight.importance if hasattr(insight, 'importance') else insight.get('importance', 'medium'),
+                        title=insight.title if hasattr(insight, 'title') else insight.get('title', ''),
+                        description=insight.description if hasattr(insight, 'description') else insight.get('description', ''),
+                        recommended_action=insight.recommended_action if hasattr(insight, 'recommended_action') else insight.get('recommended_action'),
+                    )
                     for insight in memory_context["insights"]
                 ]
 

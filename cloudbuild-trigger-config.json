@@ -1,0 +1,18 @@
+{
+  "name": "chatwork-webhook-auto-deploy",
+  "description": "mainブランチへのpush時に自動デプロイ（テスト・型チェック実行後）",
+  "github": {
+    "owner": "soulsyncs",
+    "name": "soul-kun",
+    "push": {
+      "branch": "^main$"
+    }
+  },
+  "includedFiles": [
+    "chatwork-webhook/**",
+    "lib/**",
+    "cloudbuild.yaml"
+  ],
+  "filename": "cloudbuild.yaml",
+  "serviceAccount": "projects/soulkun-production/serviceAccounts/soulkun-production@appspot.gserviceaccount.com"
+}

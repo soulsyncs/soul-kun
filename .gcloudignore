@@ -37,13 +37,14 @@ ENV/
 Thumbs.db
 
 # Project specific - exclude unneeded directories
-chatwork-webhook/
+# NOTE: chatwork-webhook/ は Cloud Build で必要なため除外しない
 sync-chatwork-tasks/
 remind-tasks/
 daily-reflection/
 docs/
 *.md
 
-# Keep lib and api directories (explicitly NOT ignored)
+# Keep essential directories (explicitly NOT ignored)
 !lib/
 !api/
+!chatwork-webhook/

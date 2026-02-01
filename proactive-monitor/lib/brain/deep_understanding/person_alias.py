@@ -243,11 +243,14 @@ class PersonAliasResolver:
         self,
         input_name: str,
     ) -> PersonResolutionResult:
-        """同期版のresolve（テスト用）"""
+        """同期版のresolve（テスト用）
+
+        Python 3.10+ 対応: 新しいイベントループを作成して実行
+        """
         import asyncio
-        return asyncio.get_event_loop().run_until_complete(
-            self.resolve(input_name)
-        )
+
+        # 新しいイベントループを作成して実行（Python 3.10+ 対応）
+        return asyncio.run(self.resolve(input_name))
 
     # =========================================================================
     # 正規化

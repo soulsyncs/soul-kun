@@ -17,12 +17,63 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'chatwork-webho
 from handlers.goal_handler import GoalHandler
 
 
-def create_mock_pool():
-    """モックプールを作成するヘルパー"""
+def create_mock_pool(dialogue_completed: bool = False, user_data: tuple = None):
+    """モックプールを作成するヘルパー
+
+    Args:
+        dialogue_completed: Trueの場合、対話完了済みとして振る舞う
+        user_data: ユーザーデータ (user_id, org_id, name) のタプル。
+                   None の場合はユーザー未登録として振る舞う。
+
+    Note:
+        v10.40.0 で対話フロー必須化が導入されたため、
+        _check_dialogue_completed が2つのクエリを実行する:
+        1. users テーブルから organization_id を取得
+        2. brain_conversation_states から対話完了を確認
+
+        dialogue_completed=True の場合、両方のクエリに適切な応答を返す必要がある。
+    """
     mock_pool = MagicMock()
     mock_conn = MagicMock()
     mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
     mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+    if dialogue_completed:
+        # 対話完了済みの場合: _check_dialogue_completed が True を返すようモック
+        # クエリ1: users テーブルから org_id 取得 → org_id を返す
+        # クエリ2: brain_conversation_states から完了確認 → 行を返す（完了済み）
+        # クエリ3以降: 登録処理のためのユーザーデータ取得
+        mock_results = []
+
+        # クエリ1: _check_dialogue_completed 内の users テーブル検索
+        org_result = MagicMock()
+        org_result.fetchone.return_value = ("org-uuid",)  # org_id のみ
+        mock_results.append(org_result)
+
+        # クエリ2: _check_dialogue_completed 内の brain_conversation_states 検索
+        dialogue_result = MagicMock()
+        dialogue_result.fetchone.return_value = MagicMock()  # 行が存在 = 完了済み
+        mock_results.append(dialogue_result)
+
+        # クエリ3以降: 登録処理のためのユーザーデータ取得
+        if user_data:
+            user_result = MagicMock()
+            user_result.fetchone.return_value = user_data
+            mock_results.append(user_result)
+        else:
+            # ユーザー未登録
+            user_result = MagicMock()
+            user_result.fetchone.return_value = None
+            mock_results.append(user_result)
+
+        mock_conn.execute.side_effect = mock_results
+    else:
+        # 対話未完了の場合: _check_dialogue_completed が False を返すようモック
+        # クエリ1: users テーブル → None（ユーザー未登録）または org_id なし
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_conn.execute.return_value = mock_result
+
     return mock_pool, mock_conn
 
 
@@ -58,8 +109,8 @@ class TestHandleGoalRegistration:
     """目標登録ハンドラーのテスト"""
 
     def test_vague_goal_without_lib(self):
-        """漠然とした目標タイトル（ライブラリなし）"""
-        mock_pool, _ = create_mock_pool()
+        """漠然とした目標タイトル（ライブラリなし）→ 対話フローへ誘導"""
+        mock_pool, _ = create_mock_pool(dialogue_completed=False)
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": "目標を設定したい"}
 
@@ -67,8 +118,9 @@ class TestHandleGoalRegistration:
             params, "room_123", "account_456", "テストユーザー"
         )
 
+        # 対話フロー未完了の場合は対話開始を促す
         assert result["success"] is False
-        assert "目標の内容を教えて" in result["message"]
+        assert "対話形式" in result["message"] or "目標設定したい" in result["message"]
 
     def test_vague_goal_with_lib(self):
         """漠然とした目標タイトル（ライブラリあり）"""
@@ -114,13 +166,12 @@ class TestHandleGoalRegistration:
         assert result["success"] is False
 
     def test_specific_goal_user_not_found(self):
-        """具体的な目標だがユーザーが見つからない"""
-        mock_pool, mock_conn = create_mock_pool()
+        """具体的な目標だがユーザーが見つからない
 
-        # fetchoneがNoneを返す（ユーザー未登録）
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = None
-        mock_conn.execute.return_value = mock_result
+        v10.40.0: 対話フロー必須化により、dialogue_completed=True が必要
+        """
+        # dialogue_completed=True, user_data=None でユーザー未登録をテスト
+        mock_pool, mock_conn = create_mock_pool(dialogue_completed=True, user_data=None)
 
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": "粗利300万円達成する"}
@@ -279,7 +330,11 @@ class TestHandleGoalRegistration:
         assert result["success"] is True
 
     def test_exception_handling(self):
-        """例外処理"""
+        """例外処理（対話完了確認時のDBエラー）
+
+        v10.40.0: 対話完了確認時に例外が発生した場合、
+        安全側に倒して対話未完了として扱い、対話フローへ誘導する。
+        """
         def raise_error():
             raise Exception("DB接続エラー")
 
@@ -290,8 +345,9 @@ class TestHandleGoalRegistration:
             params, "room_123", "account_456", "テストユーザー"
         )
 
+        # DBエラー時は安全側に倒して対話フローへ誘導
         assert result["success"] is False
-        assert "失敗した" in result["message"]
+        assert "対話形式" in result["message"] or "目標設定したい" in result["message"]
 
 
 class TestHandleGoalProgressReport:
@@ -821,7 +877,11 @@ class TestHandleGoalStatusCheck:
 
 
 class TestVagueGoalDetection:
-    """漠然とした目標タイトル検出のテスト"""
+    """目標タイトルと対話フロー必須化のテスト
+
+    v10.40.0: 対話フロー必須化により、漠然/具体的に関わらず、
+    対話が完了していなければ対話フローへ誘導される。
+    """
 
     @pytest.mark.parametrize("title", [
         "目標を設定したい",
@@ -846,8 +906,11 @@ class TestVagueGoalDetection:
         "未定義",
     ])
     def test_vague_goal_titles(self, title):
-        """漠然とした目標タイトルのリスト"""
-        mock_pool, _ = create_mock_pool()
+        """漠然とした目標タイトルは対話フローへ誘導
+
+        v10.40.0: 対話未完了の場合は対話フローへ誘導される。
+        """
+        mock_pool, _ = create_mock_pool(dialogue_completed=False)
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": title}
 
@@ -856,7 +919,8 @@ class TestVagueGoalDetection:
         )
 
         assert result["success"] is False
-        assert "目標の内容を教えて" in result["message"]
+        # v10.40.0: 対話フロー必須化により対話開始を促す
+        assert "対話形式" in result["message"] or "目標設定したい" in result["message"]
 
     @pytest.mark.parametrize("title", [
         "粗利300万円達成",
@@ -866,12 +930,12 @@ class TestVagueGoalDetection:
         "プロジェクト完了",
     ])
     def test_specific_goal_titles(self, title):
-        """具体的な目標タイトルは対話に入らない（ユーザー未登録でエラー）"""
-        mock_pool, mock_conn = create_mock_pool()
+        """具体的な目標でも対話未完了なら対話フローへ誘導
 
-        mock_result = MagicMock()
-        mock_result.fetchone.return_value = None  # ユーザー未登録
-        mock_conn.execute.return_value = mock_result
+        v10.40.0: 対話フロー必須化により、具体的な目標タイトルでも
+        対話が完了していなければ対話フローへ誘導される。
+        """
+        mock_pool, _ = create_mock_pool(dialogue_completed=False)
 
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": title}
@@ -880,7 +944,35 @@ class TestVagueGoalDetection:
             params, "room_123", "account_456", "テストユーザー"
         )
 
-        # 具体的な目標は登録処理に進む（ユーザー未登録でエラー）
+        assert result["success"] is False
+        # v10.40.0: 対話フロー必須化により対話開始を促す
+        assert "対話形式" in result["message"] or "目標設定したい" in result["message"]
+
+    @pytest.mark.parametrize("title", [
+        "粗利300万円達成",
+        "毎日日報を書く",
+        "資格試験に合格する",
+        "新規顧客10社獲得",
+        "プロジェクト完了",
+    ])
+    def test_specific_goal_titles_with_dialogue_completed(self, title):
+        """具体的な目標（対話完了済み）は登録処理に進む
+
+        v10.40.0: 対話が完了していれば登録処理に進む。
+        ユーザー未登録の場合はエラー。
+        """
+        # dialogue_completed=True, user_data=None でユーザー未登録をテスト
+        mock_pool, _ = create_mock_pool(dialogue_completed=True, user_data=None)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+        params = {"goal_title": title}
+
+        result = handler.handle_goal_registration(
+            params, "room_123", "account_456", "テストユーザー"
+        )
+
+        # 対話完了済みなので登録処理に進む → ユーザー未登録でエラー
+        assert result["success"] is False
         assert "登録されていない" in result["message"]
 
 

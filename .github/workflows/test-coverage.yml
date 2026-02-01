@@ -54,11 +54,8 @@ jobs:
           echo ""
 
           # カバレッジ計測対象ディレクトリ
-          # - lib/: 共通ライブラリ
-          # - chatwork-webhook/: Webhook処理
-          # - sync-chatwork-tasks/: タスク同期
-          # - remind-tasks/: リマインド
-          # - api/: FastAPI（新規API）
+          # - lib/: 共通ライブラリ（現在の計測対象）
+          # ※ 他ディレクトリは将来追加予定
 
           pytest tests/ \
             --cov=lib \

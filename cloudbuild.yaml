@@ -9,7 +9,7 @@
 # トリガー設定（GCPコンソールで設定が必要）:
 #   - イベント: Push to a branch
 #   - ブランチ: ^main$
-#   - ファイルフィルタ: chatwork-webhook/**
+#   - ファイルフィルタ: chatwork-webhook/**, lib/**, cloudbuild.yaml
 #
 # v10.53.0: 初版作成（大規模修繕対応）
 # v10.54.3: テスト実行・mypy追加（デプロイ前に品質チェック）

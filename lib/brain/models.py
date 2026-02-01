@@ -652,6 +652,33 @@ class BrainContext:
 
         return "\n".join(parts)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        辞書形式に変換（シリアライズ用）
+
+        Returns:
+            BrainContextの内容を辞書として返す
+        """
+        return {
+            "current_state": self.current_state.to_dict() if self.current_state and hasattr(self.current_state, 'to_dict') else None,
+            "recent_conversation": [
+                msg.to_dict() if hasattr(msg, 'to_dict') else {"role": msg.role, "content": msg.content}
+                for msg in self.recent_conversation
+            ],
+            "conversation_summary": self.conversation_summary.to_dict() if self.conversation_summary and hasattr(self.conversation_summary, 'to_dict') else None,
+            "user_preferences": self.user_preferences.to_dict() if self.user_preferences and hasattr(self.user_preferences, 'to_dict') else None,
+            "sender_name": self.sender_name,
+            "sender_account_id": self.sender_account_id,
+            "person_info": [p.to_dict() if hasattr(p, 'to_dict') else {"name": p.name} for p in self.person_info],
+            "recent_tasks": [t.to_dict() if hasattr(t, 'to_dict') else {"task_id": t.task_id} for t in self.recent_tasks],
+            "active_goals": [g.to_dict() if hasattr(g, 'to_dict') else {"goal_id": g.goal_id} for g in self.active_goals],
+            "goal_session": self.goal_session.to_dict() if self.goal_session and hasattr(self.goal_session, 'to_dict') else None,
+            "insights": [i.to_dict() if hasattr(i, 'to_dict') else {} for i in self.insights],
+            "organization_id": self.organization_id,
+            "room_id": self.room_id,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+        }
+
 
 # =============================================================================
 # 理解層のモデル

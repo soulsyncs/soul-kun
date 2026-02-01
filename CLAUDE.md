@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 現在のステータス（2026-02-01 更新）
+## 🚀 現在のステータス（2026-02-01 21:13 更新）
 
 | 項目 | 状態 |
 |------|------|
@@ -13,55 +13,37 @@
 | **E2Eテスト** | ✅ 完了（GPT-5.2動作確認済み） |
 | **main.py統合** | ✅ 完了（USE_BRAIN_ARCHITECTURE=true で稼働中） |
 | **Lazy Import** | ✅ 完了（lib/: 283エントリ、lib/brain/: 619エントリ） |
-| **CI/CD** | ✅ テスト実行+mypy追加（v10.54.4） |
+| **CI/CD** | ✅ テスト実行+mypy+sync-check（v10.54.5） |
 | **型安全性** | ✅ 対象3ファイル 0エラー |
+| **本番デプロイ** | ✅ Revision 00327-s85（2026-02-01 21:12） |
 | **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
 
-### ✅ 型安全性修正・本番デプロイ完了（2026-02-01 11:17）
+### ✅ 本番障害修正・デプロイ完了（2026-02-01 21:13）
 
-**PR #373:** マージ済み・デプロイ完了
-- Revision: `chatwork-webhook-00324-w49`
-- 全モジュール正常ロード確認済み
+**修正した問題:**
+| # | 問題 | 原因 | 修正内容 | PR |
+|---|------|------|---------|-----|
+| 1 | 目標表示が生JSON | handler_wrappers.py で辞書を文字列化せず | `_extract_handler_result()` 追加 | #379 |
+| 2 | 完了タスクが未完了表示 | API失敗時に全タスクを完了扱い | `_get_room_tasks_safe()` でAPI成功/失敗を区別 | #379 |
+| 3 | Cloud Build sync-check失敗 | .gcloudignore で chatwork-webhook/ 除外 | 除外を解除 | #380, #381 |
 
-**修正内容:**
-| # | カテゴリ | 修正 |
-|---|---------|------|
-| 1 | CI/CD | cloudbuild.yamlにテスト実行ステップ追加 |
-| 2 | CI/CD | mypy静的型チェック追加 |
-| 3 | 型修正 | SafeJSONEncoder追加 |
-| 4 | 型修正 | core.py 18件の型エラー修正 → 0件 |
-| 5 | 型修正 | handler_wrappers.py Returning Any修正 |
-| 6 | バグ修正 | search_tasks_from_db 未定義関数参照修正 |
+**デプロイ:**
+- Revision: `chatwork-webhook-00327-s85`
+- Cloud Build: SUCCESS（sync-check✅ → tests✅ → mypy✅ → deploy✅）
 
-### ✅ テスト失敗修正・CI改善完了（2026-02-01 18:10）
+### 次回やること
 
-**PR #375:** マージ済み（CI依存関係追加）
-**PR #376:** https://github.com/soulsyncs/soul-kun/pull/376（テスト修正）
-
-**完了:**
-- [x] test-coverage.ymlに依存関係追加（freezegun, fastapi, bs4, Pillow, jpholiday）
-- [x] Cloud Build GitHub接続作成（`chatwork-github-connection`）
-- [x] GitHub OAuth認証完了
-- [x] Cloud Buildトリガー確認済み（`push-to-main`トリガー既存）
-- [x] **全テスト修正完了（4376 passed, 23 skipped）**
-
-**テスト修正詳細（PR #376）:**
-
-| # | ファイル | 修正内容 |
-|---|---------|---------|
-| 1 | test_advanced_judgment.py | processing_time_ms >= 0 に変更（高速テスト対応） |
-| 2 | test_brain_core.py | intent パターンマッチのテストメッセージ修正 |
-| 3 | test_brain_decision.py | timezone-aware datetime 使用 |
-| 4 | test_brain_state_manager.py | AsyncMock で async pool を正しくモック |
-| 5 | test_goal_handler.py | v10.40.0 対話フロー必須化対応（27テスト修正） |
-| 6 | lib/brain/core.py | v10.39.3 古いコメント削除 |
-| 7 | test_llm_brain_e2e.py | pytest.mark.skip マーカー追加 |
-
-**Codexレビュー連携:**
 ```
-Claude Code（実装） → Codex（レビュー） → Claude Code（検証・修正）
+1. 本番動作確認（目標表示、タスク表示が正常に動作するか）
+2. カバレッジ向上（66% → 80%目標）
+   - lib/person_service.py: 0% → テスト追加
+   - lib/goal_setting.py: 40% → テスト追加
+3. 古いPRの整理（#362, #332, #321, #294, #285, #181, #138）
 ```
-→ 有効に機能することを確認。今後も継続利用可能。
+
+> **続きのキーワード:** 「本番確認」「カバレッジ向上」「PR整理」
+
+---
 
 ### ✅ CIテスト全パス・PR #376 マージ完了（2026-02-01 18:30）
 
@@ -69,33 +51,12 @@ Claude Code（実装） → Codex（レビュー） → Claude Code（検証・�
 
 **CI結果:** 4354 passed, 23 skipped, 0 failed
 
-**修正内容（全33テスト修正）:**
-| # | 修正 |
-|---|------|
-| 1 | test_goal_handler.py: v10.40.0対話フロー必須化対応（27件） |
-| 2 | Python 3.10+対応: resolve_sync() で asyncio.run() を使用 |
-| 3 | mock_openai_embedding で GOOGLE_AI_API_KEY をモック |
-| 4 | TestKnowledgeFeedback に mock_openai_embedding 追加 |
-
 **残る課題:**
 | 問題 | 原因 | 対応 |
 |------|------|------|
 | カバレッジ66%（閾値80%） | テストカバレッジ不足 | 段階的改善 |
 
 > **注意**: カバレッジ問題はPR #376とは無関係。全テストパス済み。
-
-### 次回やること
-
-```
-1. 本番動作確認（目標表示、タスク表示）
-2. カバレッジ向上（66% → 80%目標）
-   - lib/person_service.py: 0% → テスト追加
-   - lib/user_utils.py: 0% → テスト追加
-   - lib/goal_setting.py: 40% → テスト追加
-3. 古いPRの整理（#362, #332, #321, #294, #285, #181, #138）
-```
-
-> **続きのキーワード:** 「本番確認」「カバレッジ向上」「PR整理」
 
 ---
 

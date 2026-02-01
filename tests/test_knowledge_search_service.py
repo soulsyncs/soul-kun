@@ -228,8 +228,11 @@ class TestKnowledgeFeedback:
     """フィードバック機能のテスト"""
 
     @pytest.fixture
-    def mock_services(self, mock_async_db_conn):
-        """サービスのモック"""
+    def mock_services(self, mock_async_db_conn, mock_openai_embedding):
+        """サービスのモック
+
+        v10.54.5: mock_openai_embedding 追加（CI環境でGOOGLE_AI_API_KEY未設定対応）
+        """
         return {
             'db_conn': mock_async_db_conn,
         }

@@ -1,0 +1,42 @@
+# pyproject.toml - ソウルくんプロジェクト設定
+# v10.54: mypy設定追加
+
+[tool.mypy]
+# 基本設定
+python_version = "3.11"
+warn_return_any = true
+warn_unused_ignores = true
+show_error_codes = true
+pretty = true
+
+# 段階的に厳格化（まずはlib/brain/から）
+# 他のモジュールは順次追加
+[[tool.mypy.overrides]]
+module = "lib.brain.*"
+disallow_untyped_defs = false  # 将来的にtrueに
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+
+# 外部ライブラリの型チェックを無視
+[[tool.mypy.overrides]]
+module = [
+    "flask.*",
+    "firebase_admin.*",
+    "google.*",
+    "sqlalchemy.*",
+    "pinecone.*",
+    "openai.*",
+    "anthropic.*",
+    "chatwork.*",
+    "pytest.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# pytest設定
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]

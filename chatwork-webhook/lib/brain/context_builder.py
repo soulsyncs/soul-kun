@@ -357,7 +357,7 @@ class ContextBuilder:
             "ceo_teachings",
             "user_info",
         ]
-        defaults = [
+        defaults: List[Any] = [
             None,  # session_state
             [],    # recent_messages
             None,  # conversation_summary
@@ -439,7 +439,8 @@ class ContextBuilder:
         try:
             summary = await self.memory_access.get_conversation_summary(user_id)
             if summary and hasattr(summary, 'summary_text'):
-                return summary.summary_text
+                text = summary.summary_text
+                return str(text) if text is not None else None
             return None
         except Exception as e:
             logger.warning(f"Error getting conversation summary: {e}")

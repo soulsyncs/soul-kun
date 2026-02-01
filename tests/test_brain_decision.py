@@ -16,7 +16,7 @@ Phase E: Decision Layer Enhancement
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 from unittest.mock import MagicMock, patch, AsyncMock
 
@@ -1066,7 +1066,8 @@ class TestEdgeCases:
             room_id="room_123",
             user_id="user_456",
             state_type=StateType.GOAL_SETTING,
-            expires_at=datetime.now() - timedelta(hours=1),  # 期限切れ
+            # timezone-aware datetime を使用（UTCで1時間前 = 確実に期限切れ）
+            expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         )
         context = BrainContext(
             room_id="room_123",

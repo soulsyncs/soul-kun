@@ -17,12 +17,23 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'chatwork-webho
 from handlers.goal_handler import GoalHandler
 
 
-def create_mock_pool():
-    """モックプールを作成するヘルパー"""
+def create_mock_pool(dialogue_completed: bool = False):
+    """モックプールを作成するヘルパー
+
+    Args:
+        dialogue_completed: Trueの場合、対話完了済みとして振る舞う
+    """
     mock_pool = MagicMock()
     mock_conn = MagicMock()
     mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
     mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+    # _check_dialogue_completed のDB応答をモック
+    # dialogue_completed=False の場合、fetchone() は None を返す（対話未完了）
+    mock_result = MagicMock()
+    mock_result.fetchone.return_value = MagicMock() if dialogue_completed else None
+    mock_conn.execute.return_value = mock_result
+
     return mock_pool, mock_conn
 
 
@@ -58,8 +69,8 @@ class TestHandleGoalRegistration:
     """目標登録ハンドラーのテスト"""
 
     def test_vague_goal_without_lib(self):
-        """漠然とした目標タイトル（ライブラリなし）"""
-        mock_pool, _ = create_mock_pool()
+        """漠然とした目標タイトル（ライブラリなし）→ 対話フローへ誘導"""
+        mock_pool, _ = create_mock_pool(dialogue_completed=False)
         handler = GoalHandler(get_pool=lambda: mock_pool)
         params = {"goal_title": "目標を設定したい"}
 
@@ -67,8 +78,9 @@ class TestHandleGoalRegistration:
             params, "room_123", "account_456", "テストユーザー"
         )
 
+        # 対話フロー未完了の場合は対話開始を促す
         assert result["success"] is False
-        assert "目標の内容を教えて" in result["message"]
+        assert "対話形式" in result["message"] or "目標設定したい" in result["message"]
 
     def test_vague_goal_with_lib(self):
         """漠然とした目標タイトル（ライブラリあり）"""

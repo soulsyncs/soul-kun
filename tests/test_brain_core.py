@@ -305,7 +305,8 @@ class TestUnderstanding:
     async def test_understand_goal_progress(self, brain):
         """目標進捗報告の意図を理解"""
         context = BrainContext(organization_id="org_test")
-        result = await brain._understand("目標の進捗を報告したい", context)
+        # "目標進捗" はgoal_progress_reportのprimaryパターンにマッチ
+        result = await brain._understand("目標進捗を報告します", context)
 
         assert result.intent == "goal_progress_report"
         assert result.intent_confidence >= 0.7

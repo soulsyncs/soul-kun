@@ -402,6 +402,8 @@ class TestUpdateStep:
     async def test_updates_step(self):
         """ステップを更新できる"""
         mock_pool = MagicMock()
+        # async pool として検出されるように begin を AsyncMock に設定
+        mock_pool.begin = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.begin = MagicMock(return_value=AsyncMock(
             __aenter__=AsyncMock(return_value=None),
@@ -429,6 +431,8 @@ class TestUpdateStep:
     async def test_merges_additional_data(self):
         """追加データがマージされる"""
         mock_pool = MagicMock()
+        # async pool として検出されるように begin を AsyncMock に設定
+        mock_pool.begin = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.begin = MagicMock(return_value=AsyncMock(
             __aenter__=AsyncMock(return_value=None),

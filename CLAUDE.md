@@ -63,18 +63,19 @@ Claude Code（実装） → Codex（レビュー） → Claude Code（検証・�
 ```
 → 有効に機能することを確認。今後も継続利用可能。
 
-### ✅ CIテスト全パス達成（2026-02-01 18:30）
+### ✅ CIテスト全パス・PR #376 マージ完了（2026-02-01 18:30）
 
-**PR #376:** https://github.com/soulsyncs/soul-kun/pull/376
+**PR #376:** マージ済み（edf56d2）
 
 **CI結果:** 4354 passed, 23 skipped, 0 failed
 
-**修正内容:**
+**修正内容（全33テスト修正）:**
 | # | 修正 |
 |---|------|
-| 1 | Python 3.10+対応: resolve_sync() で asyncio.run() を使用 |
-| 2 | mock_openai_embedding で GOOGLE_AI_API_KEY をモック |
-| 3 | TestKnowledgeFeedback に mock_openai_embedding 追加 |
+| 1 | test_goal_handler.py: v10.40.0対話フロー必須化対応（27件） |
+| 2 | Python 3.10+対応: resolve_sync() で asyncio.run() を使用 |
+| 3 | mock_openai_embedding で GOOGLE_AI_API_KEY をモック |
+| 4 | TestKnowledgeFeedback に mock_openai_embedding 追加 |
 
 **残る課題:**
 | 問題 | 原因 | 対応 |
@@ -86,12 +87,15 @@ Claude Code（実装） → Codex（レビュー） → Claude Code（検証・�
 ### 次回やること
 
 ```
-1. PR #376 マージ（全テストパス、カバレッジのみ閾値未達）
-2. 本番動作確認（目標表示、タスク表示）
-3. カバレッジ向上計画策定（lib/person_service.py 0%, lib/user_utils.py 0%など）
+1. 本番動作確認（目標表示、タスク表示）
+2. カバレッジ向上（66% → 80%目標）
+   - lib/person_service.py: 0% → テスト追加
+   - lib/user_utils.py: 0% → テスト追加
+   - lib/goal_setting.py: 40% → テスト追加
+3. 古いPRの整理（#362, #332, #321, #294, #285, #181, #138）
 ```
 
-> **続きのキーワード:** 「PR確認」「本番動作確認」「カバレッジ向上」
+> **続きのキーワード:** 「本番確認」「カバレッジ向上」「PR整理」
 
 ---
 

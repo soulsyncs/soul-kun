@@ -33,13 +33,29 @@
 | 5 | 型修正 | handler_wrappers.py Returning Any修正 |
 | 6 | バグ修正 | search_tasks_from_db 未定義関数参照修正 |
 
-### 🔧 CI改善進行中（2026-02-01 11:30）
+### 🔧 CI改善完了（2026-02-01 12:05）
 
 **PR #375:** https://github.com/soulsyncs/soul-kun/pull/375
 
 **完了:**
 - [x] test-coverage.ymlに依存関係追加（freezegun, fastapi, bs4, Pillow, jpholiday）
 - [x] Cloud Build GitHub接続作成（`chatwork-github-connection`）
+- [x] **Codex連携レビュー実施**（ChatGPT Plus内のCodex機能でダブルチェック）
+- [x] **Codex指摘対応**（コメント不整合2件を修正: fa7a5e4）
+
+**Codexレビュー結果:**
+| 指摘 | 対応 |
+|------|------|
+| test-coverage.yml: コメントと`--cov=lib`の不整合 | ✅ 修正済み |
+| cloudbuild.yaml: ファイルフィルタのコメント不整合 | ✅ 修正済み |
+| serviceAccountの過剰権限 | ⏳ 後で検討（専用SA作成が望ましい） |
+| 依存関係のバージョン固定 | ⏳ 後で検討（低優先） |
+
+**新しいワークフロー確立:**
+```
+Claude Code（実装） → Codex（レビュー） → Claude Code（検証・修正）
+```
+→ 有効に機能することを確認。今後も継続利用可能。
 
 **残タスク:**
 - [ ] GitHub OAuth認証完了（下記URL参照）
@@ -49,9 +65,9 @@
 https://console.cloud.google.com/cloud-build/connections?project=soulkun-production
 
 **既知の問題（Test Coverage Check失敗）:**
-- カバレッジ65%（80%閾値未満）
+- カバレッジ66%（80%閾値未満）← 既存問題、PR #375とは無関係
 - GOOGLE_AI_API_KEY未設定（CI環境）
-- 55件の既存テスト失敗
+- 44件の既存テスト失敗
 
 ### 次回やること
 

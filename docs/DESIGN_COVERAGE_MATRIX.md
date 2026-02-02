@@ -56,6 +56,15 @@
 | org_chart_sync_logs テーブル | 03章 5.2.5 | 06章（Phase 3.5） | 同上 |
 | documents テーブル | 03章（該当セクション） | 05章（Phase 3） | 同上 |
 | document_chunks テーブル | 03章（該当セクション） | 05章（Phase 3） | 同上 |
+| brain_learnings テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2E 学習基盤 |
+| brain_learning_logs テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2E 学習ログ |
+| brain_episodes テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G エピソード記憶 |
+| brain_episode_entities テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G エンティティ関連 |
+| brain_knowledge_nodes テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G 知識グラフ |
+| brain_knowledge_edges テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G 知識グラフ |
+| brain_temporal_events テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G 時系列記憶 |
+| brain_temporal_comparisons テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G 時系列比較 |
+| brain_memory_consolidations テーブル | 03章 5.2.7 | 25章 第9章 | Phase 2G 記憶統合 |
 
 **テーブル定義変更時のルール:**
 

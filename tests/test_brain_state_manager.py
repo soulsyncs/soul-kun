@@ -386,8 +386,8 @@ class TestClearState:
         # エラーなく完了することを確認
         await manager.clear_state(TEST_ROOM_ID, TEST_USER_ID)
 
-        # SELECTのみ呼ばれる
-        assert mock_conn.execute.call_count == 1
+        # SET（RLSコンテキスト）+ SELECT + RESET = 3回呼ばれる
+        assert mock_conn.execute.call_count == 3
 
 
 # =============================================================================

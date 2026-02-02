@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -245,6 +246,52 @@ class BrainLearning:
         # テーブル存在フラグ
         self._table_ensured = False
 
+    @contextmanager
+    def _connect_with_org_context(self):
+        """
+        organization_idコンテキスト付きでDB接続を取得（RLS対応）
+
+        brain_*テーブルのRLSポリシーはapp.current_organization_idを
+        参照するため、接続時に必ず設定する。
+
+        注意:
+        - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
+        - 終了時にRESETで値をクリア
+        """
+        import sqlalchemy
+        with self.pool.connect() as conn:
+            conn.execute(
+                sqlalchemy.text("SET app.current_organization_id = :org_id"),
+                {"org_id": self.org_id}
+            )
+            try:
+                yield conn
+            finally:
+                conn.execute(sqlalchemy.text("RESET app.current_organization_id"))
+
+    @contextmanager
+    def _begin_with_org_context(self):
+        """
+        organization_idコンテキスト付きでトランザクション開始（RLS対応）
+
+        注意:
+        - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
+        - 終了時にRESETで値をクリア（PostgreSQLのSETはセッションスコープ）
+        """
+        import sqlalchemy
+        with self.pool.begin() as conn:
+            conn.execute(
+                sqlalchemy.text("SET app.current_organization_id = :org_id"),
+                {"org_id": self.org_id}
+            )
+            try:
+                yield conn
+            finally:
+                try:
+                    conn.execute(sqlalchemy.text("RESET app.current_organization_id"))
+                except Exception:
+                    pass  # トランザクション終了後は無視
+
     # =========================================================================
     # テーブル作成（v10.49.0）
     # =========================================================================
@@ -261,7 +308,7 @@ class BrainLearning:
 
         try:
             import sqlalchemy
-            with self.pool.begin() as conn:
+            with self._begin_with_org_context() as conn:
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE IF NOT EXISTS brain_decision_logs (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -415,7 +462,7 @@ class BrainLearning:
             import json
 
             saved_count = 0
-            with self.pool.begin() as conn:
+            with self._begin_with_org_context() as conn:
                 for log in logs_to_save:
                     try:
                         conn.execute(sqlalchemy.text("""
@@ -481,7 +528,7 @@ class BrainLearning:
             import sqlalchemy
             import json
 
-            with self.pool.begin() as conn:
+            with self._begin_with_org_context() as conn:
                 conn.execute(sqlalchemy.text("""
                     INSERT INTO brain_decision_logs (
                         organization_id, room_id, user_id, user_message,
@@ -768,7 +815,7 @@ class BrainLearning:
                 logger.warning("[Phase2E] No DB pool, cannot save learning")
                 return False
 
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 saved_learning = self._phase2e_learning.save(conn, learning)
                 conn.commit()
 
@@ -852,7 +899,7 @@ class BrainLearning:
 
             cutoff_date = datetime.now() - timedelta(days=days)
 
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 result = conn.execute(sqlalchemy.text("""
                     SELECT selected_action, COUNT(*) as count,
                            AVG(understanding_confidence) as avg_confidence
@@ -914,7 +961,7 @@ class BrainLearning:
 
             cutoff_date = datetime.now() - timedelta(days=days)
 
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 result = conn.execute(sqlalchemy.text("""
                     SELECT selected_action, execution_error, COUNT(*) as count
                     FROM brain_decision_logs
@@ -973,7 +1020,7 @@ class BrainLearning:
 
             cutoff_date = datetime.now() - timedelta(days=days)
 
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 result = conn.execute(sqlalchemy.text("""
                     SELECT selected_action,
                            COUNT(*) as total,

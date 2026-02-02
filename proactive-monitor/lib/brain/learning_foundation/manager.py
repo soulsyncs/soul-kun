@@ -519,13 +519,13 @@ class LearningManager:
                 scope_counts[learning.scope] += 1
 
         # 適用回数の統計
-        apply_counts = [l.apply_count for l in learnings]
+        apply_counts = [l.applied_count for l in learnings]
         total_applies = sum(apply_counts)
         avg_applies = total_applies / len(learnings) if learnings else 0
 
         # フィードバックの統計
-        positive_feedback = sum(l.positive_feedback_count for l in learnings)
-        negative_feedback = sum(l.negative_feedback_count for l in learnings)
+        positive_feedback = sum(l.success_count for l in learnings)
+        negative_feedback = sum(l.failure_count for l in learnings)
 
         return {
             "total_count": total_count,

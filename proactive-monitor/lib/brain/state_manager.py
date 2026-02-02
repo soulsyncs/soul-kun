@@ -19,6 +19,7 @@
 import asyncio
 import json
 import logging
+from contextlib import contextmanager, asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 from uuid import UUID
@@ -125,7 +126,7 @@ class BrainStateManager:
         logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}, uuid_org={self._org_id_is_uuid}")
 
     def _check_uuid_format(self, org_id: str) -> bool:
-        """org_idがUUID形式かどうかをチェック"""
+        """org_idがUUID形式かどうかをチェック（クエリスキップ判定用）"""
         if not org_id:
             return False
         try:
@@ -134,9 +135,53 @@ class BrainStateManager:
         except (ValueError, TypeError):
             return False
 
+    @contextmanager
+    def _connect_with_org_context(self):
+        """
+        organization_idコンテキスト付きでDB接続を取得（RLS対応）
+
+        brain_*テーブルのRLSポリシーはapp.current_organization_idを
+        参照するため、接続時に必ず設定する。
+
+        注意:
+        - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
+        - 終了時にRESETで値をクリア
+
+        Yields:
+            conn: organization_idが設定されたDB接続
+        """
+        with self.pool.connect() as conn:
+            conn.execute(
+                text("SET app.current_organization_id = :org_id"),
+                {"org_id": self.org_id}
+            )
+            try:
+                yield conn
+            finally:
+                conn.execute(text("RESET app.current_organization_id"))
+
+    @asynccontextmanager
+    async def _connect_with_org_context_async(self):
+        """
+        organization_idコンテキスト付きでDB接続を取得（非同期版）
+
+        注意:
+        - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
+        - 終了時にRESETで値をクリア
+        """
+        async with self.pool.connect() as conn:
+            await conn.execute(
+                text("SET app.current_organization_id = :org_id"),
+                {"org_id": self.org_id}
+            )
+            try:
+                yield conn
+            finally:
+                await conn.execute(text("RESET app.current_organization_id"))
+
     def _execute_sync(self, query, params: dict):
         """同期的にクエリを実行"""
-        with self.pool.connect() as conn:
+        with self._connect_with_org_context() as conn:
             result = conn.execute(query, params)
             conn.commit()
             return result
@@ -183,7 +228,7 @@ class BrainStateManager:
             """)
 
             # 同期プールの場合は同期的に実行
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 result = conn.execute(query, {
                     "org_id": self.org_id,
                     "room_id": room_id,
@@ -278,7 +323,7 @@ class BrainStateManager:
             old_state = await self.get_current_state(room_id, user_id)
 
             # 同期プールの場合は同期的に実行
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 # UPSERT
                 upsert_query = text("""
                     INSERT INTO brain_conversation_states (
@@ -389,7 +434,7 @@ class BrainStateManager:
         reason: str = "user_cancel",
     ) -> None:
         """状態クリアの同期版"""
-        with self.pool.connect() as conn:
+        with self._connect_with_org_context() as conn:
             # 既存状態を取得
             select_query = text("""
                 SELECT id, state_type, state_step
@@ -457,7 +502,7 @@ class BrainStateManager:
             if not self._is_async_pool:
                 return self._update_step_sync(room_id, user_id, new_step, additional_data, now)
 
-            async with self.pool.connect() as conn:
+            async with self._connect_with_org_context_async() as conn:
                 async with conn.begin():
                     # 既存状態を取得
                     select_query = text("""
@@ -568,7 +613,7 @@ class BrainStateManager:
         now: datetime,
     ) -> ConversationState:
         """update_stepの同期版"""
-        with self.pool.connect() as conn:
+        with self._connect_with_org_context() as conn:
             # 既存状態を取得
             select_query = text("""
                 SELECT id, state_type, state_step, state_data,
@@ -659,7 +704,7 @@ class BrainStateManager:
             int: クリーンアップした状態の数
         """
         try:
-            async with self.pool.connect() as conn:
+            async with self._connect_with_org_context_async() as conn:
                 async with conn.begin():
                     # DB関数を呼び出し
                     result = await conn.execute(
@@ -764,7 +809,7 @@ class BrainStateManager:
                   AND user_id = :user_id
             """)
 
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 result = conn.execute(query, {
                     "org_id": self.org_id,
                     "room_id": room_id,
@@ -823,7 +868,7 @@ class BrainStateManager:
         expires_at = now + timedelta(minutes=timeout_minutes)
 
         try:
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 with conn.begin():
                     upsert_query = text("""
                         INSERT INTO brain_conversation_states (
@@ -911,7 +956,7 @@ class BrainStateManager:
         既存のFlask/Cloud Functionsとの互換性のため。
         """
         try:
-            with self.pool.connect() as conn:
+            with self._connect_with_org_context() as conn:
                 with conn.begin():
                     delete_query = text("""
                         DELETE FROM brain_conversation_states

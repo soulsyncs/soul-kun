@@ -17,12 +17,15 @@ Phase 2: 能動的モニタリング（Proactive Monitoring）
 Cloud Schedulerから毎時実行（本番環境）
 """
 
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, List, Dict, Any, Callable, Awaitable
+from uuid import UUID
 from lib.brain.constants import JST
 import logging
+from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -278,6 +281,31 @@ class ProactiveMonitor:
             TriggerType.TASK_COMPLETED_STREAK: self._check_task_completed_streak,
             TriggerType.LONG_ABSENCE: self._check_long_absence,
         }
+
+    @asynccontextmanager
+    async def _connect_with_org_context(self, organization_id: str):
+        """
+        organization_idコンテキスト付きでDB接続を取得（RLS対応）
+
+        brain_*テーブルのRLSポリシーはapp.current_organization_idを
+        参照するため、接続時に必ず設定する。
+
+        注意:
+        - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
+        - 終了時にRESETで値をクリア
+
+        Args:
+            organization_id: 組織ID（UUID文字列）
+        """
+        async with self._pool.connect() as conn:
+            await conn.execute(
+                text("SET app.current_organization_id = :org_id"),
+                {"org_id": organization_id}
+            )
+            try:
+                yield conn
+            finally:
+                await conn.execute(text("RESET app.current_organization_id"))
 
     # --------------------------------------------------------
     # ヘルパーメソッド（型変換）
@@ -781,7 +809,8 @@ class ProactiveMonitor:
                 LIMIT 1
             """)
 
-            async with self._pool.connect() as conn:
+            # brain_*テーブルアクセス: RLSコンテキスト設定
+            async with self._connect_with_org_context(user_ctx.organization_id) as conn:
                 result = await conn.execute(query, {
                     "org_id": user_ctx.organization_id,
                     "user_id": user_ctx.user_id,
@@ -943,7 +972,8 @@ class ProactiveMonitor:
                 VALUES (:org_id, :user_id, :trigger_type, CAST(:details AS jsonb), :sent_at)
             """)
 
-            async with self._pool.connect() as conn:
+            # brain_*テーブルアクセス: RLSコンテキスト設定
+            async with self._connect_with_org_context(user_ctx.organization_id) as conn:
                 await conn.execute(query, {
                     "org_id": user_ctx.organization_id,
                     "user_id": user_ctx.user_id,

@@ -221,9 +221,9 @@ def get_db_session_with_org(organization_id: str):
     pool = get_db_pool()
     conn = pool.connect()
     try:
-        # organization_idをセッション変数に設定
+        # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
         conn.execute(
-            text("SET app.current_organization_id = :org_id"),
+            text("SELECT set_config('app.current_organization_id', :org_id, false)"),
             {"org_id": organization_id}
         )
         logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
@@ -231,7 +231,7 @@ def get_db_session_with_org(organization_id: str):
     finally:
         # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
         try:
-            conn.execute(text("RESET app.current_organization_id"))
+            conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
         except Exception:
             pass  # 接続が既に閉じられている場合は無視
         conn.close()
@@ -348,9 +348,9 @@ async def get_async_db_session_with_org(organization_id: str):
 
     pool = await get_async_db_pool()
     async with pool.connect() as conn:
-        # organization_idをセッション変数に設定
+        # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
         await conn.execute(
-            text("SET app.current_organization_id = :org_id"),
+            text("SELECT set_config('app.current_organization_id', :org_id, false)"),
             {"org_id": organization_id}
         )
         logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
@@ -359,7 +359,7 @@ async def get_async_db_session_with_org(organization_id: str):
         finally:
             # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
             try:
-                await conn.execute(text("RESET app.current_organization_id"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
             except Exception:
                 pass  # 接続が既に閉じられている場合は無視
 
@@ -386,8 +386,9 @@ def set_tenant_context(conn, tenant_id: str) -> None:
             # 以降のクエリは自動的にテナントでフィルタ
             result = conn.execute(text("SELECT * FROM tasks"))
     """
+    # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
     conn.execute(
-        text("SET app.current_tenant = :tenant_id"),
+        text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
         {"tenant_id": tenant_id}
     )
 
@@ -417,8 +418,9 @@ def set_organization_context(conn, organization_id: str) -> None:
     if not organization_id:
         raise ValueError("organization_id is required for RLS")
 
+    # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
     conn.execute(
-        text("SET app.current_organization_id = :org_id"),
+        text("SELECT set_config('app.current_organization_id', :org_id, false)"),
         {"org_id": organization_id}
     )
     logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
@@ -428,8 +430,9 @@ async def set_tenant_context_async(conn, tenant_id: str) -> None:
     """
     非同期版: 接続にテナントコンテキストを設定
     """
+    # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
     await conn.execute(
-        text("SET app.current_tenant = :tenant_id"),
+        text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
         {"tenant_id": tenant_id}
     )
 
@@ -445,8 +448,9 @@ async def set_organization_context_async(conn, organization_id: str) -> None:
     if not organization_id:
         raise ValueError("organization_id is required for RLS")
 
+    # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
     await conn.execute(
-        text("SET app.current_organization_id = :org_id"),
+        text("SELECT set_config('app.current_organization_id', :org_id, false)"),
         {"org_id": organization_id}
     )
     logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")

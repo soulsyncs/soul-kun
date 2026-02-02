@@ -151,14 +151,15 @@ class BrainStateManager:
             conn: organization_idが設定されたDB接続
         """
         with self.pool.connect() as conn:
+            # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             conn.execute(
-                text("SET app.current_organization_id = :org_id"),
+                text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
             try:
                 yield conn
             finally:
-                conn.execute(text("RESET app.current_organization_id"))
+                conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
 
     @asynccontextmanager
     async def _connect_with_org_context_async(self):
@@ -170,14 +171,15 @@ class BrainStateManager:
         - 終了時にRESETで値をクリア
         """
         async with self.pool.connect() as conn:
+            # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             await conn.execute(
-                text("SET app.current_organization_id = :org_id"),
+                text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
             try:
                 yield conn
             finally:
-                await conn.execute(text("RESET app.current_organization_id"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
 
     def _execute_sync(self, query, params: dict):
         """同期的にクエリを実行"""

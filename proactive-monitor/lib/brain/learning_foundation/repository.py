@@ -174,9 +174,9 @@ class LearningRepository:
                 applied_in_room_id,
                 applied_for_account_id,
                 trigger_message,
-                applied_result,
-                user_feedback,
-                feedback_at,
+                was_successful,
+                feedback_message,
+                user_feedback_at,
                 created_at
             ) VALUES (
                 :id,
@@ -186,9 +186,9 @@ class LearningRepository:
                 :applied_in_room_id,
                 :applied_for_account_id,
                 :trigger_message,
-                :applied_result,
-                :user_feedback,
-                :feedback_at,
+                :was_successful,
+                :feedback_message,
+                :user_feedback_at,
                 :created_at
             )
             RETURNING id
@@ -203,9 +203,9 @@ class LearningRepository:
             "applied_in_room_id": log.applied_in_room_id,
             "applied_for_account_id": log.applied_for_account_id,
             "trigger_message": log.trigger_message,
-            "applied_result": log.applied_result,
-            "user_feedback": log.user_feedback,
-            "feedback_at": log.feedback_at,
+            "was_successful": log.was_successful,
+            "feedback_message": log.feedback_message,
+            "user_feedback_at": log.user_feedback_at,
             "created_at": now,
         })
 
@@ -971,8 +971,8 @@ class LearningRepository:
                 "taught_by_name", "taught_in_room_id", "source_message", "source_context",
                 "detection_pattern", "detection_confidence", "classification",
                 "supersedes_id", "superseded_by_id", "related_learning_ids",
-                "is_active", "effectiveness_score", "apply_count", "positive_feedback_count",
-                "negative_feedback_count", "created_at", "updated_at"
+                "is_active", "effectiveness_score", "applied_count", "success_count",
+                "failure_count", "created_at", "updated_at"
             ]
             data = dict(zip(columns, row))
 
@@ -1015,9 +1015,9 @@ class LearningRepository:
             related_learning_ids=related_learning_ids,
             is_active=data["is_active"],
             effectiveness_score=data.get("effectiveness_score"),
-            apply_count=data.get("apply_count", 0),
-            positive_feedback_count=data.get("positive_feedback_count", 0),
-            negative_feedback_count=data.get("negative_feedback_count", 0),
+            applied_count=data.get("applied_count", 0),
+            success_count=data.get("success_count", 0),
+            failure_count=data.get("failure_count", 0),
             created_at=data.get("created_at"),
             updated_at=data.get("updated_at"),
         )
@@ -1037,8 +1037,8 @@ class LearningRepository:
             columns = [
                 "id", "organization_id", "learning_id", "applied_at",
                 "applied_in_room_id", "applied_for_account_id",
-                "trigger_message", "applied_result", "user_feedback",
-                "feedback_at", "created_at"
+                "trigger_message", "was_successful", "feedback_message",
+                "user_feedback_at", "created_at"
             ]
             data = dict(zip(columns, row))
 
@@ -1050,9 +1050,9 @@ class LearningRepository:
             applied_in_room_id=data.get("applied_in_room_id"),
             applied_for_account_id=data.get("applied_for_account_id"),
             trigger_message=data.get("trigger_message"),
-            applied_result=data.get("applied_result"),
-            user_feedback=data.get("user_feedback"),
-            feedback_at=data.get("feedback_at"),
+            was_successful=data.get("was_successful"),
+            feedback_message=data.get("feedback_message"),
+            user_feedback_at=data.get("user_feedback_at"),
             created_at=data.get("created_at"),
         )
 

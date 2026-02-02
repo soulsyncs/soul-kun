@@ -106,13 +106,15 @@
 | 各ファイルでフィールド名が異なる | 統一フィールド名 + 後方互換エイリアス |
 | 型不整合でエラー発生 | 全231テストパス |
 
-### モデル選定
+### モデル選定（SoT統一）
 
 | 項目 | 内容 |
 |------|------|
-| **採用モデル** | GPT-5.2（OpenRouter経由） |
-| **選定理由** | 推論能力◎、コスパ◎（Claude Sonnet 4比40%安）、暗黙キャッシュ対応 |
-| **コスト** | 約¥9,000/月（5,000通、キャッシュあり） |
+| **LLM Brain（判断）** | OpenRouter 経由の `openai/gpt-5.2` |
+| **一般AI（補助処理）** | `google/gemini-3-flash-preview`（ENVIRONMENT_VARIABLES.md の DEFAULT_AI_MODEL） |
+| **Embedding** | `models/text-embedding-004`（Gemini Embedding） |
+| **選定理由** | 脳は推論精度とTool信頼性重視。補助処理はコスパ重視で分離。 |
+| **コスト** | 25章の見積もりと一致させること（モデル変更時は両方更新） |
 
 ---
 

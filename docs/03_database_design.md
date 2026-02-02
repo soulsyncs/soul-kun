@@ -1211,6 +1211,302 @@ await conn.execute("""
 
 ---
 
+## 5.2.7 脳の学習・記憶テーブル【Phase 2E/2G】【新設】
+
+**目的:** 脳の学習（Phase 2E）と記憶強化（Phase 2G）をDBレベルで一貫して管理する  
+**実装参照:** migrations/phase2e_learning_foundation.sql / migrations/phase2g_memory_enhancement.sql
+
+### ■ brain_learnings（学習内容）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_learnings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    learned_content JSONB NOT NULL,
+    learned_content_version INT DEFAULT 1,
+    scope VARCHAR(50) NOT NULL,
+    scope_target_id VARCHAR(100),
+    trigger_type VARCHAR(50) NOT NULL,
+    trigger_value TEXT,
+    trigger_pattern TEXT,
+    authority_level VARCHAR(30) NOT NULL,
+    decision_impact VARCHAR(30) NOT NULL,
+    relationship_type VARCHAR(30),
+    taught_by_account_id VARCHAR(50),
+    taught_by_user_name VARCHAR(200),
+    taught_at TIMESTAMPTZ DEFAULT NOW(),
+    is_active BOOLEAN DEFAULT TRUE,
+    supersedes_id UUID REFERENCES brain_learnings(id),
+    superseded_by_id UUID REFERENCES brain_learnings(id),
+    related_ceo_teaching_id UUID,
+    related_learning_ids UUID[] DEFAULT '{}',
+    applied_count INT DEFAULT 0,
+    success_count INT DEFAULT 0,
+    failure_count INT DEFAULT 0,
+    effectiveness_score DECIMAL(3,2) DEFAULT 0.5,
+    last_applied_at TIMESTAMPTZ,
+    detection_pattern VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_org
+    ON brain_learnings(organization_id);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_category
+    ON brain_learnings(organization_id, category);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_trigger
+    ON brain_learnings(trigger_type, trigger_value);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_scope
+    ON brain_learnings(organization_id, scope, scope_target_id);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_active
+    ON brain_learnings(organization_id, is_active) WHERE is_active = TRUE;
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_authority
+    ON brain_learnings(authority_level);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_effectiveness
+    ON brain_learnings(effectiveness_score DESC);
+CREATE INDEX IF NOT EXISTS idx_brain_learnings_learned_content
+    ON brain_learnings USING GIN(learned_content jsonb_path_ops);
+```
+
+### ■ brain_learning_logs（学習適用ログ）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_learning_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    learning_id UUID NOT NULL REFERENCES brain_learnings(id) ON DELETE CASCADE,
+    applied_at TIMESTAMPTZ DEFAULT NOW(),
+    applied_for_account_id VARCHAR(50),
+    applied_for_user_name VARCHAR(200),
+    applied_in_room_id VARCHAR(50),
+    applied_result JSONB DEFAULT '{}',
+    was_successful BOOLEAN,
+    context_hash VARCHAR(64),
+    context_summary TEXT,
+    feedback_received BOOLEAN DEFAULT FALSE,
+    feedback_message TEXT,
+    user_feedback_at TIMESTAMPTZ,
+    feedback_positive BOOLEAN,
+    response_latency_ms INT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_learning_logs_learning
+    ON brain_learning_logs(learning_id);
+CREATE INDEX IF NOT EXISTS idx_brain_learning_logs_org
+    ON brain_learning_logs(organization_id);
+CREATE INDEX IF NOT EXISTS idx_brain_learning_logs_applied_at
+    ON brain_learning_logs(applied_at DESC);
+CREATE INDEX IF NOT EXISTS idx_brain_learning_logs_feedback
+    ON brain_learning_logs(learning_id, feedback_received) WHERE feedback_received = TRUE;
+```
+
+### ■ brain_episodes（エピソード記憶）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_episodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    user_id VARCHAR(50),
+    episode_type VARCHAR(30) NOT NULL DEFAULT 'interaction',
+    summary TEXT NOT NULL,
+    details JSONB DEFAULT '{}',
+    emotional_valence DECIMAL(3,2) DEFAULT 0.0,
+    importance_score DECIMAL(3,2) DEFAULT 0.5,
+    keywords TEXT[] DEFAULT '{}',
+    embedding_id VARCHAR(100),
+    recall_count INT DEFAULT 0,
+    last_recalled_at TIMESTAMPTZ,
+    decay_factor DECIMAL(3,2) DEFAULT 1.0,
+    room_id VARCHAR(50),
+    occurred_at TIMESTAMPTZ DEFAULT NOW(),
+    source VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_episodes_org_user
+    ON brain_episodes(organization_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_brain_episodes_type
+    ON brain_episodes(organization_id, episode_type);
+CREATE INDEX IF NOT EXISTS idx_brain_episodes_keywords
+    ON brain_episodes USING GIN(keywords);
+CREATE INDEX IF NOT EXISTS idx_brain_episodes_occurred
+    ON brain_episodes(organization_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_brain_episodes_importance
+    ON brain_episodes(organization_id, importance_score DESC);
+```
+
+### ■ brain_episode_entities（エピソード-エンティティ関連）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_episode_entities (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    episode_id UUID NOT NULL REFERENCES brain_episodes(id) ON DELETE CASCADE,
+    entity_type VARCHAR(30) NOT NULL,
+    entity_id VARCHAR(100) NOT NULL,
+    entity_name VARCHAR(200),
+    relationship VARCHAR(30) NOT NULL DEFAULT 'involved',
+    metadata JSONB DEFAULT '{}',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_episode_entities_episode
+    ON brain_episode_entities(episode_id);
+CREATE INDEX IF NOT EXISTS idx_brain_episode_entities_entity
+    ON brain_episode_entities(organization_id, entity_type, entity_id);
+```
+
+### ■ brain_knowledge_nodes（知識ノード）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_knowledge_nodes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    node_type VARCHAR(30) NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    description TEXT,
+    aliases TEXT[] DEFAULT '{}',
+    properties JSONB DEFAULT '{}',
+    importance_score DECIMAL(3,2) DEFAULT 0.5,
+    activation_level DECIMAL(3,2) DEFAULT 0.5,
+    source VARCHAR(30) NOT NULL DEFAULT 'learned',
+    confidence DECIMAL(3,2) DEFAULT 0.8,
+    evidence_count INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_nodes_org
+    ON brain_knowledge_nodes(organization_id);
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_nodes_type
+    ON brain_knowledge_nodes(organization_id, node_type);
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_nodes_name
+    ON brain_knowledge_nodes(organization_id, LOWER(name));
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_nodes_aliases
+    ON brain_knowledge_nodes USING GIN(aliases);
+```
+
+### ■ brain_knowledge_edges（知識エッジ）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_knowledge_edges (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    source_node_id UUID NOT NULL REFERENCES brain_knowledge_nodes(id) ON DELETE CASCADE,
+    target_node_id UUID NOT NULL REFERENCES brain_knowledge_nodes(id) ON DELETE CASCADE,
+    edge_type VARCHAR(30) NOT NULL,
+    description TEXT,
+    properties JSONB DEFAULT '{}',
+    weight DECIMAL(3,2) DEFAULT 1.0,
+    evidence TEXT[] DEFAULT '{}',
+    evidence_count INT DEFAULT 1,
+    source VARCHAR(30) NOT NULL DEFAULT 'learned',
+    confidence DECIMAL(3,2) DEFAULT 0.8,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(organization_id, source_node_id, target_node_id, edge_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_edges_source
+    ON brain_knowledge_edges(source_node_id);
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_edges_target
+    ON brain_knowledge_edges(target_node_id);
+CREATE INDEX IF NOT EXISTS idx_brain_knowledge_edges_type
+    ON brain_knowledge_edges(organization_id, edge_type);
+```
+
+### ■ brain_temporal_events（時系列イベント）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_temporal_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    user_id VARCHAR(50),
+    event_type VARCHAR(30) NOT NULL,
+    event_name VARCHAR(200) NOT NULL,
+    event_value DECIMAL,
+    event_data JSONB DEFAULT '{}',
+    related_entity_type VARCHAR(30),
+    related_entity_id VARCHAR(100),
+    related_episode_id UUID REFERENCES brain_episodes(id) ON DELETE SET NULL,
+    event_at TIMESTAMPTZ NOT NULL,
+    period_start TIMESTAMPTZ,
+    period_end TIMESTAMPTZ,
+    source VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_events_org_user
+    ON brain_temporal_events(organization_id, user_id);
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_events_type
+    ON brain_temporal_events(organization_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_events_entity
+    ON brain_temporal_events(organization_id, related_entity_type, related_entity_id);
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_events_time
+    ON brain_temporal_events(organization_id, event_at DESC);
+```
+
+### ■ brain_temporal_comparisons（時系列比較）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_temporal_comparisons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    comparison_type VARCHAR(30) NOT NULL,
+    subject_type VARCHAR(30) NOT NULL,
+    subject_id VARCHAR(100) NOT NULL,
+    subject_name VARCHAR(200),
+    baseline_event_id UUID REFERENCES brain_temporal_events(id) ON DELETE SET NULL,
+    current_event_id UUID REFERENCES brain_temporal_events(id) ON DELETE SET NULL,
+    baseline_value DECIMAL,
+    current_value DECIMAL,
+    change_value DECIMAL,
+    change_percent DECIMAL,
+    trend VARCHAR(30),
+    analysis_summary TEXT,
+    analysis_details JSONB DEFAULT '{}',
+    confidence DECIMAL(3,2) DEFAULT 0.8,
+    period_label VARCHAR(100),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_comparisons_subject
+    ON brain_temporal_comparisons(organization_id, subject_type, subject_id);
+CREATE INDEX IF NOT EXISTS idx_brain_temporal_comparisons_trend
+    ON brain_temporal_comparisons(organization_id, trend);
+```
+
+### ■ brain_memory_consolidations（記憶統合ログ）
+
+```sql
+CREATE TABLE IF NOT EXISTS brain_memory_consolidations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL,
+    consolidation_type VARCHAR(30) NOT NULL,
+    action VARCHAR(30) NOT NULL,
+    source_type VARCHAR(30) NOT NULL,
+    source_ids UUID[] NOT NULL,
+    target_id UUID,
+    summary TEXT,
+    details JSONB DEFAULT '{}',
+    episodes_processed INT DEFAULT 0,
+    episodes_merged INT DEFAULT 0,
+    episodes_forgotten INT DEFAULT 0,
+    triggered_by VARCHAR(50),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_brain_memory_consolidations_org
+    ON brain_memory_consolidations(organization_id);
+CREATE INDEX IF NOT EXISTS idx_brain_memory_consolidations_type
+    ON brain_memory_consolidations(organization_id, consolidation_type);
+CREATE INDEX IF NOT EXISTS idx_brain_memory_consolidations_created
+    ON brain_memory_consolidations(organization_id, created_at DESC);
+```
+
 
 ---
 

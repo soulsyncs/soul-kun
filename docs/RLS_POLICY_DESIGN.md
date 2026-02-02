@@ -118,6 +118,17 @@ async def get_db_with_tenant(
 | audit_logs | 必須 | tenant_isolation_audit | ALL |
 | departments | 必須 | tenant_isolation_depts | ALL |
 | users | 必須 | tenant_isolation_users | ALL |
+| brain_learnings | 必須 | tenant_isolation_brain_learnings | ALL |
+| brain_learning_logs | 必須 | tenant_isolation_brain_learning_logs | ALL |
+| brain_episodes | 必須 | tenant_isolation_brain_episodes | ALL |
+| brain_episode_entities | 必須 | tenant_isolation_brain_episode_entities | ALL |
+| brain_knowledge_nodes | 必須 | tenant_isolation_brain_knowledge_nodes | ALL |
+| brain_knowledge_edges | 必須 | tenant_isolation_brain_knowledge_edges | ALL |
+| brain_temporal_events | 必須 | tenant_isolation_brain_temporal_events | ALL |
+| brain_temporal_comparisons | 必須 | tenant_isolation_brain_temporal_comparisons | ALL |
+| brain_memory_consolidations | 必須 | tenant_isolation_brain_memory_consolidations | ALL |
+
+**注記:** Phase 4適用前はアプリ側で `organization_id` を必須フィルタとし、RLSは段階的に導入する。
 | user_departments | 不要 | - | - |
 
 ### 3.2 ポリシー定義

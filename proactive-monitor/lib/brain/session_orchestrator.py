@@ -415,7 +415,7 @@ class SessionOrchestrator:
                 state_changed=True,
                 new_state="normal",
                 total_time_ms=self._elapsed_ms(start_time),
-                metadata={
+                debug_info={
                     "interrupted_session": interrupted_session,
                     "original_action": inferred_action,
                 },

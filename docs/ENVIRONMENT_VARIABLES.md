@@ -175,15 +175,23 @@ echo -n "your-password" | gcloud secrets create soulkun-db-password --data-file=
 
 ## AI/LLM 設定
 
+### LLM Brain（判断エンジン）
+
+| 変数 | 説明 | デフォルト |
+|------|------|-----------|
+| `LLM_BRAIN_MODEL` | LLM Brainのモデル名（OpenRouter形式） | `openai/gpt-5.2` |
+
+**注意**: LLM Brainのデフォルトモデルは `lib/brain/llm_brain.py` の `DEFAULT_MODEL_OPENROUTER` に定義。変更時はコードと設計書の両方を更新すること。
+
 ### OpenRouter（AI応答機能）
 
-★ v10.12.0: Gemini 3 Flashに統一
+★ v10.12.0: Gemini 3 Flashに統一（補助処理向け）
 
 | 変数 | 説明 | デフォルト |
 |------|------|-----------|
 | `OPENROUTER_API_URL` | API エンドポイント | `https://openrouter.ai/api/v1/chat/completions` |
-| `DEFAULT_AI_MODEL` | 標準モデル | `google/gemini-3-flash-preview` |
-| `COMMANDER_AI_MODEL` | 高度な判断用モデル | `google/gemini-3-flash-preview` |
+| `DEFAULT_AI_MODEL` | 標準モデル（補助処理） | `google/gemini-3-flash-preview` |
+| `COMMANDER_AI_MODEL` | 高度な判断用モデル（補助処理） | `google/gemini-3-flash-preview` |
 
 ### Gemini Embedding
 

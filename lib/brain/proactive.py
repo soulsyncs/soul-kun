@@ -303,6 +303,7 @@ class ProactiveMonitor:
                 text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": organization_id}
             )
+            logger.info(f"[RLS] SET app.current_organization_id = {(organization_id or '')[:8]}...")
             try:
                 yield conn
             finally:

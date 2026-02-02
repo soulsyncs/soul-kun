@@ -16,6 +16,8 @@
 import pytest
 import sys
 import os
+from datetime import datetime
+from unittest.mock import MagicMock
 
 # libディレクトリをパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -567,6 +569,236 @@ class TestEdgeCases:
         assert evaluation["specificity_score"] >= 0.4  # 数字があるので高スコア
 
 
+class TestHelperResponses:
+    """補助応答・ガイダンスのテスト"""
+
+    @pytest.fixture
+    def dialogue(self):
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_name = "テストユーザー"
+        return d
+
+    def test_detect_frustration(self, dialogue):
+        assert dialogue._detect_frustration("答えたじゃん") is True
+        assert dialogue._detect_frustration("了解しました") is False
+
+    def test_generate_understanding_response_with_missing(self, dialogue):
+        response = dialogue._generate_understanding_response(
+            {"why": "", "what": "", "how": ""}, {}
+        )
+        assert "もう少し教えてほしい" in response
+        assert "WHY" in response and "WHAT" in response and "HOW" in response
+
+    def test_generate_understanding_response_complete(self, dialogue):
+        response = dialogue._generate_understanding_response(
+            {"why": "成長したい", "what": "売上300万", "how": "毎日30分"}, {}
+        )
+        assert "この理解で合ってるかな？" in response
+
+    def test_step_guidance_and_hint(self, dialogue):
+        assert "仕事" in dialogue._get_step_guidance("why")
+        assert "数字" in dialogue._get_step_guidance("what")
+        assert "行動" in dialogue._get_step_guidance("how")
+        assert "例えば" in dialogue._get_step_hint("why")
+
+    def test_get_current_question(self, dialogue):
+        session = {"current_step": "why", "id": "s1"}
+        result = dialogue._get_current_question(session)
+        assert result["step"] == "why"
+        assert "WHY" in result["message"]
+
+
+class TestPersonalization:
+    """パーソナライズのテスト"""
+
+    @pytest.fixture
+    def dialogue(self):
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_name = "テストユーザー"
+        d.enriched_context = {
+            "goal_patterns": {"completion_rate": 80},
+            "user_preferences": {"emotion_trend": {"trend_direction": "declining"}},
+            "recommendations": {"focus_areas": ["具体的な数値目標の例を提示"]},
+        }
+        return d
+
+    def test_personalize_feedback_applies_hints(self, dialogue):
+        base = "🐺 ここから始めよう"
+        result = dialogue._personalize_feedback(base, "ng_abstract", "why", step_attempt=2)
+        assert "💡 ヒント" in result
+        assert "🐺💙" in result  # 感情傾向の反映
+
+
+class TestSyncContext:
+    """同期コンテキスト取得のテスト"""
+
+    def test_get_sync_context_success(self):
+        class DummyEnricher:
+            def _get_goal_pattern_context(self, user_id):
+                return {"completion_rate": 80}
+
+            def _generate_recommendations(self, context):
+                return {"focus_areas": ["x"], "suggested_feedback_style": "supportive"}
+
+            def _empty_context(self):
+                return {"conversation_summary": {}, "user_preferences": {}, "goal_patterns": {}, "recommendations": {}}
+
+        d = GoalSettingDialogue(None, "12345", "67890")
+        d.user_id = "user-1"
+        ctx = d._get_sync_context(DummyEnricher())
+        assert ctx["goal_patterns"]["completion_rate"] == 80
+        assert "focus_areas" in ctx["recommendations"]
+
+
+class TestRetryCount:
+    """リトライ回数取得のテスト"""
+
+    def test_get_total_retry_count(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = (5,)
+        mock_conn.execute.return_value = mock_result
+        assert d._get_total_retry_count(mock_conn, "session-1") == 5
+
+    def test_get_total_retry_count_handles_error(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_conn.execute.side_effect = Exception("db")
+        assert d._get_total_retry_count(mock_conn, "session-1") == 0
+
+
+class TestSessionLifecycleHelpers:
+    """セッション系ヘルパーのテスト"""
+
+    def test_get_user_info_sets_fields(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("user-1", "org-1", "太郎")
+        mock_conn.execute.return_value = mock_result
+
+        assert d._get_user_info(mock_conn) is True
+        assert d.user_id == "user-1"
+        assert d.org_id == "org-1"
+        assert d.user_name == "太郎"
+
+    def test_get_active_session_returns_dict(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = (
+            "session-1",
+            "what",
+            {"why_answer": "why", "what_answer": "what", "how_answer": "how"},
+            datetime(2026, 2, 2, 10, 0, 0),
+            datetime(2026, 2, 3, 10, 0, 0),
+        )
+        mock_conn.execute.return_value = mock_result
+
+        session = d._get_active_session(mock_conn)
+        assert session["id"] == "session-1"
+        assert session["current_step"] == "what"
+        assert session["why_answer"] == "why"
+
+    def test_create_session_commits(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("session-1",)
+        mock_conn.execute.return_value = mock_result
+
+        session_id = d._create_session(mock_conn)
+        assert session_id == "session-1"
+        mock_conn.commit.assert_called_once()
+
+    def test_update_session_completed_skips_current_step(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ({},)
+        mock_conn.execute.return_value = mock_result
+
+        d._update_session(
+            mock_conn,
+            session_id="session-1",
+            current_step="how",
+            status="completed",
+            goal_id="goal-1",
+        )
+        args, params = mock_conn.execute.call_args
+        # completedの場合は current_step が渡されない
+        assert "current_step" not in params
+
+    def test_log_interaction_inserts(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        d._log_interaction(
+            mock_conn,
+            session_id="session-1",
+            step="why",
+            user_message="msg",
+            ai_response="resp",
+            detected_pattern="ok",
+            evaluation_result={"a": 1},
+            feedback_given=True,
+            result="accepted",
+            step_attempt=1,
+        )
+        mock_conn.commit.assert_called_once()
+
+    def test_get_step_attempt_count_adds_one(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = (2,)
+        mock_conn.execute.return_value = mock_result
+        assert d._get_step_attempt_count(mock_conn, "session-1", "why") == 3
+
+
+class TestGoalRegistration:
+    """目標登録のテスト"""
+
+    def test_register_goal_numeric_target(self):
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        d.org_id = "org-1"
+        d.user_id = "user-1"
+        mock_conn = MagicMock()
+
+        session = {
+            "why_answer": "成長したい",
+            "what_answer": "今月の売上300万を達成",
+            "how_answer": "毎日30分電話",
+        }
+
+        d._register_goal(mock_conn, session)
+        args, params = mock_conn.execute.call_args
+        call_params = args[1] if len(args) > 1 else params
+        assert call_params["goal_type"] == "numeric"
+        assert call_params["unit"] == "円"
+        assert call_params["target_value"] == 3000000.0
+        mock_conn.commit.assert_called_once()
+
+
+class TestLongResponseAnalysis:
+    """長文解析のテスト"""
+
+    def test_analyze_long_response_skips_without_key(self, monkeypatch):
+        from lib import goal_setting as gs
+        monkeypatch.setattr(gs, "OPENROUTER_API_KEY", "")
+        d = GoalSettingDialogue(None, "room-1", "acc-1")
+        msg = "a" * (gs.LONG_RESPONSE_THRESHOLD + 1)
+        result = d._analyze_long_response_with_llm(msg, {})
+        assert result is None
+
+
 # =====================================================
 # v10.40.2: Confirm Step テスト
 # フィードバック要求・迷い・不安の検出と導きの対話
@@ -1006,3 +1238,152 @@ class TestUpdateSessionSQL:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestGoalSettingSessionHelpers:
+    """DB依存のヘルパー関数テスト"""
+
+    def _mock_pool(self, user_row=None, count_row=None):
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_user_result = MagicMock()
+        mock_count_result = MagicMock()
+        mock_user_result.fetchone.return_value = user_row
+        mock_count_result.fetchone.return_value = count_row
+        mock_conn.execute.side_effect = [mock_user_result, mock_count_result]
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+        return mock_pool, mock_conn
+
+    def test_has_active_goal_session_true(self):
+        from lib.goal_setting import has_active_goal_session
+        mock_pool, _ = self._mock_pool(user_row=("org-1",), count_row=(2,))
+        assert has_active_goal_session(mock_pool, "room-1", "acc-1") is True
+
+    def test_has_active_goal_session_false_when_no_user(self):
+        from lib.goal_setting import has_active_goal_session
+        mock_pool, _ = self._mock_pool(user_row=None, count_row=None)
+        assert has_active_goal_session(mock_pool, "room-1", "acc-1") is False
+
+
+class TestGoalSettingUserPatternAnalyzer:
+    """GoalSettingUserPatternAnalyzerのテスト"""
+
+    def test_update_user_pattern_creates_new(self):
+        from lib.goal_setting import GoalSettingUserPatternAnalyzer
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_conn.execute.return_value = mock_result
+
+        analyzer = GoalSettingUserPatternAnalyzer(mock_conn, "org-1")
+        analyzer.update_user_pattern(
+            user_id="user-1",
+            session_id="session-1",
+            step="why",
+            pattern="ng_abstract",
+            was_accepted=False,
+            retry_count=2,
+            specificity_score=0.2
+        )
+
+        # INSERTが呼ばれることを確認
+        assert mock_conn.execute.call_count >= 1
+        mock_conn.commit.assert_called_once()
+
+    def test_update_user_pattern_updates_existing(self):
+        from lib.goal_setting import GoalSettingUserPatternAnalyzer
+        mock_conn = MagicMock()
+        existing = (
+            "id-1",  # id
+            {"ng_abstract": 1},  # pattern_history
+            3,  # total_sessions
+            {"ng_abstract": 1},  # why_tendency
+            {},  # what_tendency
+            {},  # how_tendency
+            0.4,  # avg_specificity_score
+        )
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = existing
+        mock_conn.execute.return_value = mock_result
+
+        analyzer = GoalSettingUserPatternAnalyzer(mock_conn, "org-1")
+        analyzer.update_user_pattern(
+            user_id="user-1",
+            session_id="session-1",
+            step="why",
+            pattern="ng_abstract",
+            was_accepted=True,
+            retry_count=1,
+            specificity_score=0.6
+        )
+
+        assert mock_conn.execute.call_count >= 1
+        mock_conn.commit.assert_called_once()
+
+    def test_generate_recommendations_rules(self):
+        from lib.goal_setting import GoalSettingUserPatternAnalyzer
+        analyzer = GoalSettingUserPatternAnalyzer(MagicMock(), "org-1")
+        result = (
+            "ng_abstract",  # dominant
+            {},  # pattern_history
+            5,  # total_sessions
+            2,  # completed_sessions
+            3.0,  # avg_retry_count
+            40.0,  # completion_rate
+            {}, {}, {},  # tendencies
+            0.3,  # avg_specificity_score
+            None,  # preferred_feedback_style
+        )
+
+        rec = analyzer._generate_recommendations(result)
+        assert rec["suggested_feedback_style"] == "gentle"
+        assert "抽象的な表現" in rec["avoid_patterns"]
+        assert "具体的な数値目標の例を提示" in rec["focus_areas"]
+
+
+class TestGoalHistoryProvider:
+    """GoalHistoryProviderのテスト"""
+
+    def test_get_past_goals_context_extracts_rates_and_patterns(self):
+        from lib.goal_setting import GoalHistoryProvider
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            (
+                "goal-1",
+                "売上目標",
+                "WHY: 成長したい\\nWHAT: 売上300万\\nHOW: 毎日30分",
+                "completed",
+                300.0,
+                300.0,
+                datetime(2026, 2, 1),
+                datetime(2026, 1, 1),
+            ),
+            (
+                "goal-2",
+                "習慣化",
+                "WHY: 継続したい\\nWHAT: 週3回運動\\nHOW: 毎週",
+                "in_progress",
+                10.0,
+                2.0,
+                None,
+                datetime(2026, 1, 15),
+            ),
+        ]
+        mock_conn.execute.return_value = mock_result
+
+        provider = GoalHistoryProvider(mock_conn, "org-1")
+        context = provider.get_past_goals_context("user-1", limit=5)
+
+        assert len(context["past_goals"]) == 2
+        assert context["past_goals"][0]["achievement_rate"] == 100
+        assert "数値目標" in context["success_patterns"]
+        assert "習慣化" in context["success_patterns"]
+        assert context["avg_achievement_rate"] > 0
+
+    def test_get_past_goals_context_without_ids_returns_empty(self):
+        from lib.goal_setting import GoalHistoryProvider
+        provider = GoalHistoryProvider(MagicMock(), None)
+        context = provider.get_past_goals_context("", limit=3)
+        assert context["past_goals"] == []

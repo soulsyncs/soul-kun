@@ -14,6 +14,7 @@
 import pytest
 import sys
 import os
+from unittest.mock import MagicMock
 
 # libディレクトリをパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -358,3 +359,98 @@ class TestBotPersonaVsLongTermMemorySeparation:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestLongTermMemoryManager:
+    """LongTermMemoryManagerのユニットテスト"""
+
+    def _mock_pool_with_rows(self, rows):
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = rows
+        mock_conn.execute.return_value = mock_result
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+        return mock_pool, mock_conn
+
+    def test_save_success_returns_message_and_metadata(self, monkeypatch):
+        from lib import long_term_memory as ltm
+        monkeypatch.setattr(ltm, "_ensure_long_term_table", lambda pool: None)
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+        manager = ltm.LongTermMemoryManager(
+            pool=mock_pool,
+            org_id="11111111-1111-1111-1111-111111111111",
+            user_id="22222222-2222-2222-2222-222222222222",
+            user_name="カズ"
+        )
+
+        result = manager.save("挑戦し続ける", memory_type=ltm.MemoryType.VALUES, scope=ltm.MemoryScope.ORG_SHARED)
+
+        assert result["success"] is True
+        assert result["memory_type"] == ltm.MemoryType.VALUES
+        assert result["scope"] == ltm.MemoryScope.ORG_SHARED
+        assert "カズ" in result["message"]
+        assert "挑戦し続ける" in result["message"]
+
+    def test_get_all_for_requester_owner_returns_rows(self):
+        from lib import long_term_memory as ltm
+        rows = [
+            ("id1", ltm.MemoryType.LIFE_WHY, "content", {}, None, None, ltm.MemoryScope.PRIVATE)
+        ]
+        mock_pool, _ = self._mock_pool_with_rows(rows)
+        manager = ltm.LongTermMemoryManager(
+            pool=mock_pool,
+            org_id="org",
+            user_id="owner",
+            user_name="あなた"
+        )
+
+        result = manager.get_all_for_requester(requester_user_id="owner")
+        assert len(result) == 1
+        assert result[0]["memory_type"] == ltm.MemoryType.LIFE_WHY
+
+    def test_get_all_for_requester_non_owner_filters_scope(self):
+        from lib import long_term_memory as ltm
+        rows = [
+            ("id2", ltm.MemoryType.VALUES, "content", {}, None, None, ltm.MemoryScope.ORG_SHARED)
+        ]
+        mock_pool, _ = self._mock_pool_with_rows(rows)
+        manager = ltm.LongTermMemoryManager(
+            pool=mock_pool,
+            org_id="org",
+            user_id="owner",
+            user_name="あなた"
+        )
+
+        result = manager.get_all_for_requester(requester_user_id="other")
+        assert len(result) == 1
+        assert result[0]["scope"] == ltm.MemoryScope.ORG_SHARED
+
+    def test_format_for_display_with_scope(self, monkeypatch):
+        from lib import long_term_memory as ltm
+
+        manager = ltm.LongTermMemoryManager(
+            pool=MagicMock(),
+            org_id="org",
+            user_id="user",
+            user_name="あなた"
+        )
+
+        monkeypatch.setattr(manager, "get_all", lambda: [
+            {
+                "memory_type": ltm.MemoryType.VALUES,
+                "content": "挑戦",
+                "scope": ltm.MemoryScope.ORG_SHARED,
+            }
+        ])
+
+        output = manager.format_for_display(show_scope=True)
+        assert "【価値観】" in output
+        assert "[共有]" in output
+        assert "挑戦" in output

@@ -564,10 +564,11 @@ class TestStateTypeEnum:
         assert StateType.CONFIRMATION.value == "confirmation"
         assert StateType.TASK_PENDING.value == "task_pending"
         assert StateType.MULTI_ACTION.value == "multi_action"
+        assert StateType.LIST_CONTEXT.value == "list_context"  # v10.56.2
 
     def test_state_type_count(self):
-        """6種類の状態タイプがある"""
-        assert len(StateType) == 6
+        """7種類の状態タイプがある（v10.56.2: LIST_CONTEXT追加）"""
+        assert len(StateType) == 7
 
 
 # =============================================================================

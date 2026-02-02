@@ -443,6 +443,8 @@ try:
         _brain_handle_goal_status_check,
         _brain_handle_goal_review,
         _brain_handle_goal_consult,
+        _brain_handle_goal_delete,  # v10.56.2: 目標削除
+        _brain_handle_goal_cleanup,  # v10.56.2: 目標整理
         _brain_handle_announcement_create,
         _brain_handle_query_org_chart,
         _brain_handle_daily_reflection,
@@ -1325,6 +1327,7 @@ def _get_brain_integration():
                 "continue_goal_setting": session_handlers.get("goal_setting"),
                 "continue_announcement": session_handlers.get("announcement"),
                 "continue_task_pending": session_handlers.get("task_pending"),
+                "continue_list_context": session_handlers.get("list_context"),  # v10.56.2
             })
             # セッション管理関数を追加
             session_mgmt = get_session_management_functions()
@@ -1349,6 +1352,8 @@ def _get_brain_integration():
                 "goal_status_check": _brain_handle_goal_status_check,
                 "goal_review": _brain_handle_goal_review,
                 "goal_consult": _brain_handle_goal_consult,
+                "goal_delete": _brain_handle_goal_delete,  # v10.56.2: 目標削除
+                "goal_cleanup": _brain_handle_goal_cleanup,  # v10.56.2: 目標整理
                 "announcement_create": _brain_handle_announcement_create,
                 "query_org_chart": _brain_handle_query_org_chart,
                 "daily_reflection": _brain_handle_daily_reflection,
@@ -3355,6 +3360,26 @@ def handle_goal_consult(params, room_id, account_id, sender_name, context=None):
     v10.44.0: handlers/goal_handler.py に移動済み
     """
     return _get_goal_handler().handle_goal_consult(params, room_id, account_id, sender_name, context)
+
+
+def handle_goal_delete(params, room_id, account_id, sender_name, context=None):
+    """
+    目標削除ハンドラー
+
+    v10.56.2: handlers/goal_handler.py に移動済み
+    設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.1
+    """
+    return _get_goal_handler().handle_goal_delete(params, room_id, account_id, sender_name, context)
+
+
+def handle_goal_cleanup(params, room_id, account_id, sender_name, context=None):
+    """
+    目標整理ハンドラー
+
+    v10.56.2: handlers/goal_handler.py に移動済み
+    設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.2
+    """
+    return _get_goal_handler().handle_goal_cleanup(params, room_id, account_id, sender_name, context)
 
 
 HANDLERS = {

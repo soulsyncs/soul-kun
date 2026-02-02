@@ -976,5 +976,184 @@ class TestVagueGoalDetection:
         assert "登録されていない" in result["message"]
 
 
+# =============================================================================
+# v10.56.0: 目標削除・整理ハンドラーのテスト
+# =============================================================================
+
+def create_mock_pool_for_delete(goals_data=None, user_data=None):
+    """削除・整理テスト用のモックプールを作成"""
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+    mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+    # デフォルトのユーザーデータ
+    if user_data is None:
+        user_data = ("user-uuid", "org-uuid", "テストユーザー")
+
+    # 呼び出しごとの結果を設定
+    mock_results = []
+
+    # クエリ1: ユーザー情報取得
+    user_result = MagicMock()
+    user_result.fetchone.return_value = user_data
+    mock_results.append(user_result)
+
+    # クエリ2: 目標一覧取得
+    goals_result = MagicMock()
+    if goals_data:
+        goals_result.fetchall.return_value = goals_data
+    else:
+        goals_result.fetchall.return_value = []
+    mock_results.append(goals_result)
+
+    mock_conn.execute.side_effect = mock_results
+
+    return mock_pool, mock_conn
+
+
+class TestGoalDeleteHandler:
+    """handle_goal_delete のテスト"""
+
+    def test_delete_shows_list_when_no_numbers(self):
+        """番号未指定時は一覧を表示"""
+        goals_data = [
+            (str(uuid4()), "粗利300万円", 3000000, "円", date(2026, 1, 31)),
+            (str(uuid4()), "新規顧客10件", 10, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is True
+        assert "番号で教えて" in result["message"]
+        assert "awaiting_input" in result
+
+    def test_delete_requires_confirmation(self):
+        """削除前に確認を求める"""
+        goal_id = str(uuid4())
+        goals_data = [
+            (goal_id, "粗利300万円", 3000000, "円", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_delete(
+            params={"goal_numbers": [1], "confirmed": False},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is True
+        assert "間違いない" in result["message"]
+        assert "awaiting_confirmation" in result
+
+    def test_delete_user_not_found(self):
+        """ユーザー未登録時はエラー"""
+        mock_pool, mock_conn = create_mock_pool_for_delete(user_data=None)
+        # user_data=Noneの時の振る舞いを設定
+        user_result = MagicMock()
+        user_result.fetchone.return_value = None
+        mock_conn.execute.side_effect = [user_result]
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is False
+
+
+class TestGoalCleanupHandler:
+    """handle_goal_cleanup のテスト"""
+
+    def test_cleanup_user_not_found(self):
+        """ユーザー未登録時はエラー"""
+        mock_pool, mock_conn = create_mock_pool_for_delete(user_data=None)
+        user_result = MagicMock()
+        user_result.fetchone.return_value = None
+        mock_conn.execute.side_effect = [user_result]
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_cleanup(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is False
+
+    def test_cleanup_no_org_id(self):
+        """組織情報がない場合はエラー"""
+        # org_idがNoneのユーザー
+        mock_pool, mock_conn = create_mock_pool_for_delete(
+            user_data=("user-uuid", None, "テストユーザー")
+        )
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_cleanup(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is False
+        assert "組織情報" in result["message"]
+
+
+class TestNextActionInHandlers:
+    """次の一手の提示テスト"""
+
+    def test_progress_report_includes_next_action(self):
+        """進捗報告後に次の一手が含まれる"""
+        mock_pool, mock_conn = MagicMock(), MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=None)
+
+        # ユーザーと目標のモック
+        user_result = MagicMock()
+        user_result.fetchone.return_value = ("user-uuid", "org-uuid", "テストユーザー")
+
+        goal_result = MagicMock()
+        goal_result.fetchone.return_value = (
+            str(uuid4()), "粗利300万円", "numeric", 3000000, 1500000, "円", date(2026, 1, 31)
+        )
+
+        prev_result = MagicMock()
+        prev_result.fetchone.return_value = (0,)
+
+        mock_conn.execute.side_effect = [user_result, goal_result, prev_result, MagicMock(), MagicMock()]
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        result = handler.handle_goal_progress_report(
+            params={"progress_value": 100000},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー"
+        )
+
+        assert result["success"] is True
+        assert "次の一手" in result["message"]
+        assert "next_action" in result
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

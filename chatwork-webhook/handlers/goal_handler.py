@@ -523,7 +523,23 @@ class GoalHandler:
                         response += f"📝 報告: {daily_note}\n"
                     response += f"\n今日も頑張ったウル！{user_name}さん、素敵ウル🐺✨"
 
-                return {"success": True, "message": response}
+                # v10.56.0: 次の一手を提示（設計書5.7.1）
+                # 注: これは「判断」ではなく「表示ルール」。設計書5.7で「必ず1つ提示する」と
+                # 規定されており、達成率に応じた定型文を機械的に選択する。LLM判断は不要。
+                response += "\n\n"
+                response += "─────────────────\n"
+                response += "💡 次の一手: "
+                if goal_type == "numeric" and target_value:
+                    if achievement_rate >= 100:
+                        response += "次の目標を設定しようウル🎯"
+                    elif achievement_rate >= 80:
+                        response += "あと少し！今日もう1件アクションしようウル💪"
+                    else:
+                        response += "明日も同じペースで進めようウル📈"
+                else:
+                    response += "明日も報告してくれると嬉しいウル🐺"
+
+                return {"success": True, "message": response, "next_action": "明日も進捗報告"}
 
         except Exception as e:
             print(f"❌ handle_goal_progress_report エラー: {e}")
@@ -655,7 +671,11 @@ class GoalHandler:
 
                 response += f"✨ {len(goals_result)}個の目標を追いかけてるウル！{user_name}さん、頑張ってるウル🐺"
 
-            return {"success": True, "message": response}
+                # v10.56.0: 次の一手を提示
+                response += "\n\n─────────────────\n"
+                response += "💡 次の一手: 今日の進捗を報告しようウル📊"
+
+            return {"success": True, "message": response, "next_action": "進捗を報告する"}
 
         except Exception as e:
             print(f"❌ handle_goal_status_check エラー: {e}")
@@ -789,7 +809,23 @@ class GoalHandler:
                 elif active_count > 5:
                     response += f"💡 アクティブな目標が{active_count}個あるウル。優先順位をつけた方がいいかもウル🐺\n"
 
-            return {"success": True, "message": response}
+                # v10.56.0: 次の一手を提示（設計書5.7.3）
+                # 注: これは「判断」ではなく「表示ルール」。設計書5.7で「必ず1つ提示する」と
+                # 規定されており、状態に応じた定型文を機械的に選択する。LLM判断は不要。
+                next_action = "進捗を報告する"  # デフォルト値
+                response += "\n─────────────────\n"
+                response += "💡 次の一手: "
+                if active_count == 0:
+                    response += "新しい目標を設定しようウル🎯"
+                    next_action = "目標を設定する"
+                elif total > 10:
+                    response += "まずは目標を整理しようウル🧹"
+                    next_action = "目標を整理する"
+                else:
+                    response += "一番大事な目標の進捗を報告しようウル📊"
+                    next_action = "進捗を報告する"
+
+            return {"success": True, "message": response, "next_action": next_action}
 
         except Exception as e:
             print(f"❌ handle_goal_review エラー: {e}")
@@ -830,6 +866,7 @@ class GoalHandler:
 
         # goal_consultはgeneral_conversationと同様にLLMで回答するが、
         # 目標設定に関するコンテキストを追加する
+        # v10.56.0: 「次の一手」提示を必須化（設計書5.7.2）
         consult_context = f"""
 【相談テーマ】目標設定・優先順位について
 
@@ -842,6 +879,11 @@ class GoalHandler:
 4. 押し付けず、ユーザーの判断を尊重する
 
 相談内容: {consultation_topic}
+
+【必須】回答の最後に「次の一手」を必ず提示してください。
+例:
+─────────────────
+💡 次の一手: 目標に直結する行動を1つ決めようウル。
 """
 
         # このハンドラーはLLMベースの回答を行うため、
@@ -852,3 +894,469 @@ class GoalHandler:
             "fallback_to_general": True,
             "additional_context": consult_context
         }
+
+    # =========================================================================
+    # v10.56.0: 目標削除・整理フロー
+    # 設計書: docs/05_phase2-5_goal_achievement.md セクション5.6, 5.7
+    # =========================================================================
+
+    def handle_goal_delete(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        目標削除ハンドラー（v10.56.0）
+
+        番号指定による削除フロー:
+        1. 一覧表示 → 番号指定 → 確認 → 実行
+        2. 重複一括削除も選択可能
+
+        設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.1
+        """
+        print(f"🗑️ handle_goal_delete 開始: room_id={room_id}, account_id={account_id}")
+        log_persona_path(
+            path="goal_delete",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
+
+        # パラメータ取得
+        goal_numbers = params.get("goal_numbers", [])  # 番号リスト: [1, 2, 3]
+        delete_duplicates = params.get("delete_duplicates", False)  # 重複一括削除
+        confirmed = params.get("confirmed", False)  # 確認済みフラグ
+
+        try:
+            pool = self.get_pool()
+            with pool.connect() as conn:
+                # ユーザー情報を取得
+                user_result = conn.execute(
+                    text("""
+                        SELECT id, organization_id, name FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if not user_result:
+                    return {
+                        "success": False,
+                        "message": "🤔 まだ目標を登録していないみたいウル！"
+                    }
+
+                user_id = str(user_result[0])
+                org_id = str(user_result[1]) if user_result[1] else None
+                user_name = user_result[2] or sender_name or "ユーザー"
+
+                if not org_id:
+                    return {
+                        "success": False,
+                        "message": "🤔 組織情報が設定されていないみたいウル！"
+                    }
+
+                # アクティブな目標を取得
+                goals_result = conn.execute(
+                    text("""
+                        SELECT id, title, target_value, unit, period_end
+                        FROM goals
+                        WHERE user_id = :user_id AND organization_id = :organization_id
+                          AND status = 'active'
+                        ORDER BY created_at DESC
+                        LIMIT 50
+                    """),
+                    {"user_id": user_id, "organization_id": org_id}
+                ).fetchall()
+
+                if not goals_result:
+                    return {
+                        "success": False,
+                        "message": "🤔 アクティブな目標がないウル！"
+                    }
+
+                # 目標のマッピング（番号 → ID）
+                goal_map = {i + 1: {
+                    "id": str(row[0]),
+                    "title": row[1],
+                    "target_value": row[2],
+                    "unit": row[3] or "",
+                    "period_end": row[4],
+                } for i, row in enumerate(goals_result)}
+
+                # =====================================================
+                # フェーズ1: 一覧表示（番号が未指定の場合）
+                # =====================================================
+                if not goal_numbers and not delete_duplicates:
+                    response = "🗑️ 削除する目標を番号で教えてほしいウル。\n"
+                    response += "例: 1,3,5\n"
+                    response += "同じ内容の重複がある場合は『重複を全部削除』でもOKウル。\n\n"
+
+                    response += "【アクティブな目標】\n"
+                    for num, goal in goal_map.items():
+                        title = goal["title"][:35]
+                        if goal["target_value"]:
+                            response += f"  {num}. {title} ({goal['target_value']:,.0f}{goal['unit']})\n"
+                        else:
+                            response += f"  {num}. {title}\n"
+                        if goal["period_end"]:
+                            response += f"     📅 〜{goal['period_end'].strftime('%m/%d')}\n"
+
+                    return {
+                        "success": True,
+                        "message": response,
+                        "awaiting_input": "goal_delete_numbers",  # 番号入力待ち
+                    }
+
+                # =====================================================
+                # フェーズ2: 重複一括削除
+                # =====================================================
+                if delete_duplicates:
+                    from lib.goal import get_duplicate_goals, cancel_goals
+
+                    duplicates = get_duplicate_goals(pool, user_id, org_id)
+
+                    if not duplicates:
+                        return {
+                            "success": True,
+                            "message": "✨ 重複している目標はないウル！きれいに整理されてるウル🐺"
+                        }
+
+                    if not confirmed:
+                        # 確認メッセージ
+                        response = "🔍 以下の重複を整理するウル。\n\n"
+                        for dup in duplicates:
+                            response += f"【{dup['title'][:30]}】\n"
+                            response += f"  {dup['count']}件の重複 → 最新1件を残して削除\n"
+
+                        response += "\nOKなら『削除する』と返信してウル。"
+
+                        return {
+                            "success": True,
+                            "message": response,
+                            "awaiting_confirmation": "goal_delete_duplicates",
+                            "pending_data": {"duplicates": duplicates},
+                        }
+
+                    # 確認済み: 重複を削除（最新1件を残す）
+                    total_deleted = 0
+                    for dup in duplicates:
+                        # 最新1件（先頭）以外を削除
+                        ids_to_delete = dup["goal_ids"][1:]  # 2件目以降
+                        if ids_to_delete:
+                            count, _ = cancel_goals(pool, ids_to_delete, org_id, user_id, "duplicate", user_id=user_id)
+                            total_deleted += count
+
+                    return {
+                        "success": True,
+                        "message": f"✅ 重複を整理したウル！{total_deleted}件削除したウル🐺",
+                        "next_action": "目標の進捗を報告する"
+                    }
+
+                # =====================================================
+                # フェーズ3: 番号指定削除
+                # =====================================================
+                # 確認済みの場合、contextからpending_dataを取得
+                if confirmed:
+                    pending_data = context.get("pending_data", {}) if context else {}
+                    goal_ids = pending_data.get("goal_ids", [])
+
+                    if not goal_ids and not goal_numbers:
+                        return {
+                            "success": False,
+                            "message": "🤔 削除する目標を指定してほしいウル。"
+                        }
+
+                    # goal_idsがある場合はそれを使用、なければgoal_numbersから取得
+                    if not goal_ids:
+                        for num in goal_numbers:
+                            num_int = int(num) if isinstance(num, str) else num
+                            if num_int in goal_map:
+                                goal_ids.append(goal_map[num_int]["id"])
+
+                    from lib.goal import cancel_goals
+
+                    count, titles = cancel_goals(pool, goal_ids, org_id, user_id, "user_request", user_id=user_id)
+
+                    response = f"✅ 削除完了ウル！{count}件の目標を整理したウル🐺\n\n"
+                    response += "💡 次の一手: 新しい目標を設定する or 進捗を報告する"
+
+                    return {
+                        "success": True,
+                        "message": response,
+                        "next_action": "目標を設定する or 進捗を報告する"
+                    }
+
+                # 対象目標を特定（確認前）
+                target_goals = []
+                invalid_numbers = []
+                for num in goal_numbers:
+                    # 文字列・数値どちらも対応
+                    num_int = int(num) if isinstance(num, str) else num
+                    if num_int in goal_map:
+                        target_goals.append(goal_map[num_int])
+                    else:
+                        invalid_numbers.append(num)
+
+                if invalid_numbers:
+                    return {
+                        "success": False,
+                        "message": f"🤔 {invalid_numbers} は存在しない番号ウル。もう一度確認してウル🐺"
+                    }
+
+                if not target_goals:
+                    return {
+                        "success": False,
+                        "message": "🤔 削除する目標を指定してほしいウル。"
+                    }
+
+                # 確認メッセージ
+                response = "🗑️ 以下を削除するウル。間違いない？\n\n"
+                for i, goal in enumerate(target_goals, 1):
+                    response += f"  {i}. {goal['title'][:40]}\n"
+
+                response += "\nOKなら『削除する』と返信してウル。"
+
+                return {
+                    "success": True,
+                    "message": response,
+                    "awaiting_confirmation": "goal_delete",
+                    "pending_data": {"goal_ids": [g["id"] for g in target_goals]},
+                }
+
+        except Exception as e:
+            print(f"❌ handle_goal_delete エラー: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": "❌ 目標の削除に失敗したウル...もう一度試してほしいウル🐺"
+            }
+
+    def handle_goal_cleanup(
+        self,
+        params: Dict[str, Any],
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        context: Optional[Dict] = None
+    ) -> Dict[str, Any]:
+        """
+        目標整理ハンドラー（v10.56.0）
+
+        整理メニュー提示:
+        A) 重複している目標をまとめて整理
+        B) 期限切れをアーカイブ
+        C) 未定/相談中/新規整理
+
+        設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.2
+        """
+        print(f"🧹 handle_goal_cleanup 開始: room_id={room_id}, account_id={account_id}")
+        log_persona_path(
+            path="goal_cleanup",
+            injected=False,
+            addon=False,
+            account_id=account_id,
+            extra="direct_response",
+        )
+
+        cleanup_type = params.get("cleanup_type")  # A, B, C
+        confirmed = params.get("confirmed", False)
+
+        try:
+            pool = self.get_pool()
+            with pool.connect() as conn:
+                # ユーザー情報を取得
+                user_result = conn.execute(
+                    text("""
+                        SELECT id, organization_id, name FROM users
+                        WHERE chatwork_account_id = :account_id
+                        LIMIT 1
+                    """),
+                    {"account_id": str(account_id)}
+                ).fetchone()
+
+                if not user_result:
+                    return {
+                        "success": False,
+                        "message": "🤔 まだ目標を登録していないみたいウル！"
+                    }
+
+                user_id = str(user_result[0])
+                org_id = str(user_result[1]) if user_result[1] else None
+                user_name = user_result[2] or sender_name or "ユーザー"
+
+                if not org_id:
+                    return {
+                        "success": False,
+                        "message": "🤔 組織情報が設定されていないみたいウル！"
+                    }
+
+            from lib.goal import get_duplicate_goals, get_expired_goals, get_pending_goals, cancel_goals
+
+            # =====================================================
+            # フェーズ1: 整理メニュー表示
+            # =====================================================
+            if not cleanup_type:
+                # 各カテゴリの件数を取得
+                duplicates = get_duplicate_goals(pool, user_id, org_id)
+                expired = get_expired_goals(pool, user_id, org_id)
+                pending = get_pending_goals(pool, user_id, org_id)
+
+                dup_count = sum(d["count"] - 1 for d in duplicates)  # 重複分のみ
+                exp_count = len(expired)
+                pend_count = len(pending)
+
+                response = "🧹 整理方法を選んでほしいウル。\n\n"
+
+                if dup_count > 0:
+                    response += f"A) 重複している目標をまとめて整理 ({dup_count}件)\n"
+                else:
+                    response += f"A) 重複している目標をまとめて整理 (なし ✨)\n"
+
+                if exp_count > 0:
+                    response += f"B) 期限切れをアーカイブ ({exp_count}件)\n"
+                else:
+                    response += f"B) 期限切れをアーカイブ (なし ✨)\n"
+
+                if pend_count > 0:
+                    response += f"C) 未定/相談中/新規の仮置きを整理 ({pend_count}件)\n"
+                else:
+                    response += f"C) 未定/相談中/新規の仮置きを整理 (なし ✨)\n"
+
+                if dup_count == 0 and exp_count == 0 and pend_count == 0:
+                    response += "\n✨ 目標はきれいに整理されてるウル！すごいウル🐺"
+                else:
+                    response += "\nA/B/C どれからやるウル？"
+
+                return {
+                    "success": True,
+                    "message": response,
+                    "awaiting_input": "goal_cleanup_type",
+                }
+
+            # =====================================================
+            # フェーズ2A: 重複整理
+            # =====================================================
+            if cleanup_type.upper() == "A":
+                duplicates = get_duplicate_goals(pool, user_id, org_id)
+
+                if not duplicates:
+                    return {
+                        "success": True,
+                        "message": "✨ 重複している目標はないウル！"
+                    }
+
+                if not confirmed:
+                    response = "🔍 以下の重複を整理するウル。\n\n"
+                    for dup in duplicates:
+                        response += f"【{dup['title'][:30]}】\n"
+                        response += f"  {dup['count']}件 → 最新1件を残して削除\n"
+                    response += "\nOKなら『OK』と返信してウル。"
+
+                    return {
+                        "success": True,
+                        "message": response,
+                        "awaiting_confirmation": "goal_cleanup_duplicates",
+                    }
+
+                # 実行
+                total_deleted = 0
+                for dup in duplicates:
+                    ids_to_delete = dup["goal_ids"][1:]
+                    if ids_to_delete:
+                        count, _ = cancel_goals(pool, ids_to_delete, org_id, user_id, "duplicate", user_id=user_id)
+                        total_deleted += count
+
+                return {
+                    "success": True,
+                    "message": f"✅ 重複を整理したウル！{total_deleted}件削除したウル🐺\n\n💡 次の一手: 整理した目標の進捗を報告しようウル",
+                    "next_action": "進捗を報告する"
+                }
+
+            # =====================================================
+            # フェーズ2B: 期限切れ整理
+            # =====================================================
+            if cleanup_type.upper() == "B":
+                expired = get_expired_goals(pool, user_id, org_id)
+
+                if not expired:
+                    return {
+                        "success": True,
+                        "message": "✨ 期限切れの目標はないウル！"
+                    }
+
+                if not confirmed:
+                    response = "📅 以下の期限切れ目標をアーカイブするウル。\n\n"
+                    for exp in expired[:10]:
+                        days = exp["days_overdue"]
+                        response += f"• {exp['title'][:30]}\n"
+                        response += f"  期限: {exp['period_end']} ({days}日超過)\n"
+                    if len(expired) > 10:
+                        response += f"...他{len(expired) - 10}件\n"
+                    response += "\nOKなら『OK』と返信してウル。"
+
+                    return {
+                        "success": True,
+                        "message": response,
+                        "awaiting_confirmation": "goal_cleanup_expired",
+                    }
+
+                # 実行
+                goal_ids = [e["id"] for e in expired]
+                count, _ = cancel_goals(pool, goal_ids, org_id, user_id, "expired", user_id=user_id)
+
+                return {
+                    "success": True,
+                    "message": f"✅ 期限切れを整理したウル！{count}件アーカイブしたウル🐺\n\n💡 次の一手: 新しい目標を設定しようウル",
+                    "next_action": "目標を設定する"
+                }
+
+            # =====================================================
+            # フェーズ2C: 未定/相談中/新規整理
+            # =====================================================
+            if cleanup_type.upper() == "C":
+                pending = get_pending_goals(pool, user_id, org_id)
+
+                if not pending:
+                    return {
+                        "success": True,
+                        "message": "✨ 仮置きの目標はないウル！"
+                    }
+
+                # 未定/相談中は削除ではなく、一覧表示して選択を促す
+                response = "📝 まだ進捗がない目標があるウル。\n\n"
+                for i, p in enumerate(pending[:10], 1):
+                    response += f"  {i}. {p['title'][:35]}\n"
+                    if p["period_end"]:
+                        response += f"     📅 〜{p['period_end']}\n"
+
+                if len(pending) > 10:
+                    response += f"...他{len(pending) - 10}件\n"
+
+                response += "\n💡 次の一手:\n"
+                response += "• 進捗を報告する: 『1番の進捗は〇〇』\n"
+                response += "• 削除する: 『1,2を削除』\n"
+                response += "• 相談する: 『1番について相談したい』"
+
+                return {
+                    "success": True,
+                    "message": response,
+                    "awaiting_input": "goal_pending_action",
+                }
+
+            return {
+                "success": False,
+                "message": "🤔 A/B/C のどれかを選んでほしいウル。"
+            }
+
+        except Exception as e:
+            print(f"❌ handle_goal_cleanup エラー: {e}")
+            traceback.print_exc()
+            return {
+                "success": False,
+                "message": "❌ 目標の整理に失敗したウル...もう一度試してほしいウル🐺"
+            }

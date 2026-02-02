@@ -74,6 +74,8 @@ DANGEROUS_OPERATIONS: Dict[str, Dict[str, Any]] = {
     # 削除系
     "delete_task": {"risk": "medium", "action": "confirm"},
     "delete_goal": {"risk": "medium", "action": "confirm"},
+    "goal_delete": {"risk": "medium", "action": "confirm"},  # v10.56.0
+    "goal_cleanup": {"risk": "medium", "action": "confirm"},  # v10.56.0
     "delete_memory": {"risk": "high", "action": "confirm"},
     "forget_knowledge": {"risk": "medium", "action": "confirm"},
     "bulk_delete": {"risk": "critical", "action": "confirm", "double_confirm": True},

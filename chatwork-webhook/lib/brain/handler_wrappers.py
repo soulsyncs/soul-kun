@@ -588,6 +588,154 @@ def _brain_continue_task_pending(message, room_id, account_id, sender_name, stat
 
 
 # =====================================================
+# v10.56.2: LIST_CONTEXT継続ハンドラー
+# 一覧表示後の入力を処理（「X以外削除」「番号指定」等）
+# =====================================================
+
+def _brain_continue_list_context(message, room_id, account_id, sender_name, state_data):
+    """
+    一覧表示後の入力を処理
+
+    state_dataに保存されたlist_typeとactionに基づいて処理を継続。
+    - list_type: "goals" or "tasks"
+    - action: "goal_delete", "goal_cleanup", etc.
+
+    設計書: docs/05_phase2-5_goal_achievement.md セクション5.6
+    """
+    try:
+        import sys
+        from datetime import datetime
+
+        list_type = state_data.get("list_type", "goals")
+        action = state_data.get("action", "goal_delete")
+        pending_data = state_data.get("pending_data", {})
+        step = state_data.get("step", "")
+
+        # 有効期限チェック（main不要）
+        expires_at_str = state_data.get("expires_at")
+        if expires_at_str:
+            expires_at = datetime.fromisoformat(expires_at_str)
+            if datetime.utcnow() > expires_at:
+                return {
+                    "message": "⏰ 一覧が古くなったウル。もう一度「目標一覧」と言ってほしいウル🐺",
+                    "success": True,
+                    "session_completed": True,
+                    "new_state": "normal",
+                }
+
+        # キャンセルキーワードチェック（main不要）
+        cancel_keywords = ["やめ", "キャンセル", "取り消", "中止", "やっぱり"]
+        if any(kw in message for kw in cancel_keywords):
+            return {
+                "message": "✅ わかったウル！操作をキャンセルしたウル🐺",
+                "success": True,
+                "session_completed": True,
+                "new_state": "normal",
+            }
+
+        # 以降の処理にはmainモジュールが必要
+        main = sys.modules.get('main')
+        if not main:
+            return {"message": "システムエラーが発生したウル🐺", "success": False}
+
+        # 目標一覧の場合
+        if list_type == "goals":
+            # 確認待ち状態からの応答（「OK」「削除する」等）
+            if step in ["goal_delete", "goal_delete_duplicates", "goal_cleanup_duplicates", "goal_cleanup_expired"]:
+                approval_keywords = ["ok", "はい", "削除", "実行", "うん", "いいよ", "お願い"]
+                if any(kw in message.lower() for kw in approval_keywords):
+                    context = {
+                        "pending_data": pending_data,
+                        "original_message": message,
+                    }
+
+                    # v10.56.2: delete系とcleanup系で適切なハンドラーを呼び分け
+                    if step in ["goal_delete", "goal_delete_duplicates"]:
+                        handle_goal_delete = getattr(main, 'handle_goal_delete')
+                        result = handle_goal_delete(
+                            params={"confirmed": True, **pending_data},
+                            room_id=room_id,
+                            account_id=account_id,
+                            sender_name=sender_name,
+                            context=context
+                        )
+                    else:
+                        # goal_cleanup_duplicates, goal_cleanup_expired
+                        handle_goal_cleanup = getattr(main, 'handle_goal_cleanup')
+                        result = handle_goal_cleanup(
+                            params={"confirmed": True, **pending_data},
+                            room_id=room_id,
+                            account_id=account_id,
+                            sender_name=sender_name,
+                            context=context
+                        )
+
+                    return {
+                        "message": result.get("message", "処理を実行したウル🐺"),
+                        "success": result.get("success", True),
+                        "session_completed": True,
+                        "new_state": "normal",
+                    }
+
+            # 番号入力待ち状態からの応答
+            if step == "goal_delete_numbers":
+                # 入力をそのままgoal_deleteに渡す
+                handle_goal_delete = getattr(main, 'handle_goal_delete')
+
+                context = {
+                    "original_message": message,
+                    "pending_data": pending_data,
+                }
+                result = handle_goal_delete(
+                    params={},
+                    room_id=room_id,
+                    account_id=account_id,
+                    sender_name=sender_name,
+                    context=context
+                )
+
+                # awaiting_confirmationが返ってきた場合は続ける
+                if isinstance(result, dict):
+                    if result.get("awaiting_confirmation"):
+                        return {
+                            "message": result.get("message", ""),
+                            "success": result.get("success", True),
+                            "session_completed": False,  # セッション継続
+                            "new_state_data": {
+                                "list_type": "goals",
+                                "action": "goal_delete",
+                                "step": result.get("awaiting_confirmation"),
+                                "pending_data": result.get("pending_data", {}),
+                                "expires_at": state_data.get("expires_at"),
+                            },
+                        }
+                    return {
+                        "message": result.get("message", "処理を実行したウル🐺"),
+                        "success": result.get("success", True),
+                        "session_completed": True,
+                        "new_state": "normal",
+                    }
+
+        # フォールバック
+        return {
+            "message": "🤔 よくわからなかったウル。もう一度教えてほしいウル🐺",
+            "success": True,
+            "session_completed": False,
+        }
+
+    except Exception as e:
+        print(f"❌ _brain_continue_list_context error: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "message": "処理中にエラーが発生したウル🐺 もう一度試してほしいウル",
+            "success": False,
+            "session_completed": True,
+            "new_state": "normal",
+        }
+
+
+# =====================================================
 # v10.39.2: 目標設定中断・再開ハンドラー
 # 脳が意図を汲み取り、別の話題に対応するための仕組み
 # =====================================================
@@ -699,6 +847,7 @@ def build_session_handlers() -> Dict[str, Callable]:
         "announcement": _brain_continue_announcement,
         "task_pending": _brain_continue_task_pending,
         "goal_resume": _brain_resume_goal_setting,
+        "list_context": _brain_continue_list_context,  # v10.56.2: 一覧表示後の文脈保持
     }
 
 
@@ -1123,6 +1272,125 @@ async def _brain_handle_goal_consult(params, room_id, account_id, sender_name, c
         return HandlerResult(success=False, message=f"目標相談でエラーが発生したウル🐺")
 
 
+# v10.56.2: goal_delete ハンドラー（目標削除）
+async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, context):
+    """
+    目標削除ハンドラー
+
+    設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.1
+
+    v10.56.2: LIST_CONTEXT状態保存対応
+    - awaiting_inputが返された場合、LIST_CONTEXT状態を保存
+    - 次の入力は自動的にgoal_deleteとして処理される
+    """
+    try:
+        import sys
+        from datetime import datetime, timedelta
+
+        main = sys.modules.get('main')
+        if not main:
+            return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
+
+        handle_goal_delete = getattr(main, 'handle_goal_delete')
+        result = handle_goal_delete(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+
+        # awaiting_inputまたはawaiting_confirmationの場合は状態を保存
+        if isinstance(result, dict):
+            awaiting_input = result.get("awaiting_input")
+            awaiting_confirmation = result.get("awaiting_confirmation")
+            pending_data = result.get("pending_data", {})
+
+            # LIST_CONTEXT状態を保存（5分有効）
+            if awaiting_input or awaiting_confirmation:
+                try:
+                    from lib.brain.state_manager import BrainStateManager
+                    from lib.brain.models import StateType
+
+                    get_pool = getattr(main, 'get_pool')
+                    pool = get_pool()
+
+                    # ユーザーのorganization_idを取得
+                    from sqlalchemy import text
+                    with pool.connect() as conn:
+                        user_result = conn.execute(
+                            text("SELECT organization_id FROM users WHERE chatwork_account_id = :account_id LIMIT 1"),
+                            {"account_id": str(account_id)}
+                        ).fetchone()
+
+                    if user_result and user_result[0]:
+                        org_id = str(user_result[0])
+                        state_manager = BrainStateManager(pool=pool, org_id=org_id)
+
+                        # 有効期限を計算（5分）
+                        expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+                        import asyncio
+                        asyncio.create_task(state_manager.transition_to(
+                            room_id=room_id,
+                            user_id=str(account_id),
+                            state_type=StateType.LIST_CONTEXT,
+                            step=awaiting_input or awaiting_confirmation,
+                            data={
+                                "list_type": "goals",
+                                "action": "goal_delete",
+                                "pending_data": pending_data,
+                                "expires_at": expires_at.isoformat(),
+                            },
+                            timeout_minutes=5,
+                        ))
+                        print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step={awaiting_input or awaiting_confirmation}")
+
+                except Exception as state_err:
+                    print(f"⚠️ LIST_CONTEXT状態保存エラー（続行）: {state_err}")
+
+            return HandlerResult(
+                success=result.get("success", True),
+                message=result.get("message", ""),
+                metadata={
+                    "awaiting_input": awaiting_input,
+                    "awaiting_confirmation": awaiting_confirmation,
+                    "pending_data": pending_data,
+                }
+            )
+        return _extract_handler_result(result, "目標削除を処理したウル🐺")
+    except Exception as e:
+        print(f"goal_delete error: {e}")
+        return HandlerResult(success=False, message=f"目標削除でエラーが発生したウル🐺")
+
+
+# v10.56.2: goal_cleanup ハンドラー（目標整理）
+async def _brain_handle_goal_cleanup(params, room_id, account_id, sender_name, context):
+    """
+    目標整理ハンドラー
+
+    設計書: docs/05_phase2-5_goal_achievement.md セクション5.6.2
+    """
+    try:
+        import sys
+        main = sys.modules.get('main')
+        if not main:
+            return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
+
+        handle_goal_cleanup = getattr(main, 'handle_goal_cleanup')
+        result = handle_goal_cleanup(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+
+        # awaiting_inputまたはawaiting_confirmationの場合はそのまま返す
+        if isinstance(result, dict):
+            return HandlerResult(
+                success=result.get("success", True),
+                message=result.get("message", ""),
+                metadata={
+                    "awaiting_input": result.get("awaiting_input"),
+                    "awaiting_confirmation": result.get("awaiting_confirmation"),
+                    "pending_data": result.get("pending_data"),
+                }
+            )
+        return _extract_handler_result(result, "目標整理を処理したウル🐺")
+    except Exception as e:
+        print(f"goal_cleanup error: {e}")
+        return HandlerResult(success=False, message=f"目標整理でエラーが発生したウル🐺")
+
+
 async def _brain_handle_announcement_create(params, room_id, account_id, sender_name, context):
     """v10.33.0: USE_ANNOUNCEMENT_FEATUREフラグチェック削除, v10.33.1: ハンドラー必須化"""
     try:
@@ -1256,6 +1524,8 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "goal_status_check": _brain_handle_goal_status_check,
         "goal_review": _brain_handle_goal_review,
         "goal_consult": _brain_handle_goal_consult,
+        "goal_delete": _brain_handle_goal_delete,  # v10.56.2: 目標削除
+        "goal_cleanup": _brain_handle_goal_cleanup,  # v10.56.2: 目標整理
         "announcement_create": _brain_handle_announcement_create,
         "query_org_chart": _brain_handle_query_org_chart,
         "daily_reflection": _brain_handle_daily_reflection,
@@ -1719,6 +1989,8 @@ __all__ = [
     "_brain_handle_goal_status_check",
     "_brain_handle_goal_review",
     "_brain_handle_goal_consult",
+    "_brain_handle_goal_delete",  # v10.56.2: 目標削除
+    "_brain_handle_goal_cleanup",  # v10.56.2: 目標整理
     "_brain_handle_announcement_create",
     "_brain_handle_query_org_chart",
     "_brain_handle_daily_reflection",
@@ -1729,6 +2001,7 @@ __all__ = [
     "_brain_continue_goal_setting",
     "_brain_continue_announcement",
     "_brain_continue_task_pending",
+    "_brain_continue_list_context",  # v10.56.2: 一覧表示後
     # セッション管理
     "_brain_interrupt_goal_setting",
     "_brain_get_interrupted_goal_setting",

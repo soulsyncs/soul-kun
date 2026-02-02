@@ -103,6 +103,11 @@ class SessionOrchestrator:
             return await self._continue_task_pending(
                 message, state, context, room_id, account_id, sender_name, start_time
             )
+        elif state.state_type == StateType.LIST_CONTEXT:
+            # v10.56.2: 一覧表示後の文脈保持
+            return await self._continue_list_context(
+                message, state, context, room_id, account_id, sender_name, start_time
+            )
         else:
             # 未知の状態タイプの場合は状態をクリアして通常処理
             await self.state_manager.clear_state(room_id, account_id, "unknown_state_type")
@@ -776,5 +781,115 @@ class SessionOrchestrator:
         return BrainResponse(
             message=prompt,
             action_taken="continue_task_pending",
+            total_time_ms=self._elapsed_ms(start_time),
+        )
+
+    async def _continue_list_context(
+        self,
+        message: str,
+        state: ConversationState,
+        context: BrainContext,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        start_time: float,
+    ) -> BrainResponse:
+        """
+        一覧表示後の入力を処理（v10.56.2）
+
+        一覧表示後に「X以外削除」「番号指定」等の入力を受け付ける。
+        - 有効期限（5分）を超えている場合は状態をクリア
+        - キャンセルキーワードで状態をクリア
+        - 番号指定や「X以外削除」パターンを処理
+        """
+        handler = self.handlers.get("continue_list_context")
+
+        if handler:
+            try:
+                result = handler(
+                    message,
+                    room_id,
+                    account_id,
+                    sender_name,
+                    state.state_data if state else {},
+                )
+
+                if asyncio.iscoroutine(result):
+                    result = await result
+
+                if result is None:
+                    # ハンドラーがNoneを返した場合、状態をクリアして通常処理へ
+                    await self.state_manager.clear_state(room_id, account_id, "list_context_null")
+                    return BrainResponse(
+                        message="",  # 空のレスポンスで呼び出し元に通常処理を促す
+                        action_taken="list_context_fallback",
+                        success=True,
+                        state_changed=True,
+                        new_state="normal",
+                        total_time_ms=self._elapsed_ms(start_time),
+                        data={"fallback_to_general": True},
+                    )
+
+                if isinstance(result, dict):
+                    response_message = result.get("message", "")
+                    success = result.get("success", True)
+                    session_completed = result.get("session_completed", False)
+                    fallback_to_general = result.get("fallback_to_general", False)
+                    new_state_data = result.get("new_state_data")  # v10.56.2: 状態更新用データ
+
+                    if session_completed or fallback_to_general:
+                        await self.state_manager.clear_state(room_id, account_id, "list_context_completed")
+                    elif new_state_data:
+                        # v10.56.2: 状態データを更新（確認待ちへの遷移など）
+                        await self.state_manager.transition_to(
+                            room_id=room_id,
+                            user_id=account_id,
+                            state_type=StateType.LIST_CONTEXT,
+                            step=new_state_data.get("step"),
+                            data=new_state_data,
+                            timeout_minutes=5,
+                        )
+
+                    return BrainResponse(
+                        message=response_message,
+                        action_taken="continue_list_context",
+                        success=success,
+                        state_changed=session_completed or fallback_to_general,
+                        new_state="normal" if session_completed or fallback_to_general else "list_context",
+                        total_time_ms=self._elapsed_ms(start_time),
+                        data={"fallback_to_general": fallback_to_general} if fallback_to_general else None,
+                    )
+                elif isinstance(result, str):
+                    await self.state_manager.clear_state(room_id, account_id, "list_context_completed")
+                    return BrainResponse(
+                        message=result,
+                        action_taken="continue_list_context",
+                        success=True,
+                        state_changed=True,
+                        new_state="normal",
+                        total_time_ms=self._elapsed_ms(start_time),
+                    )
+
+            except Exception as e:
+                logger.warning(f"List context handler error: {e}")
+                await self.state_manager.clear_state(room_id, account_id, "list_context_error")
+                return BrainResponse(
+                    message="処理中にエラーが発生したウル... もう一度お願いするウル🐺",
+                    action_taken="continue_list_context",
+                    success=False,
+                    state_changed=True,
+                    new_state="normal",
+                    total_time_ms=self._elapsed_ms(start_time),
+                )
+
+        # ハンドラー未登録の場合
+        logger.warning("continue_list_context handler not registered, clearing state")
+        await self.state_manager.clear_state(room_id, account_id, "list_context_no_handler")
+        return BrainResponse(
+            message="一覧表示の状態がリセットされたウル。もう一度教えてほしいウル🐺",
+            action_taken="continue_list_context",
+            success=True,
+            state_changed=True,
+            new_state="normal",
             total_time_ms=self._elapsed_ms(start_time),
         )

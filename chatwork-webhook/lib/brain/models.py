@@ -44,6 +44,8 @@ class StateType(str, Enum):
     CONFIRMATION = "confirmation"    # 確認待ち
     TASK_PENDING = "task_pending"    # タスク作成待ち
     MULTI_ACTION = "multi_action"    # 複数アクション実行中
+    # v10.56.2: 一覧表示後の文脈保持
+    LIST_CONTEXT = "list_context"    # 一覧表示後（次の入力は番号指定と解釈）
 
 
 class UrgencyLevel(str, Enum):

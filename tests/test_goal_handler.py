@@ -1279,5 +1279,108 @@ class TestNextActionInHandlers:
         assert "next_action" in result
 
 
+class TestBrainContinueListContext:
+    """_brain_continue_list_context ハンドラーのテスト（v10.56.2）"""
+
+    @pytest.fixture(autouse=True)
+    def setup_module_path(self):
+        """テスト用のモジュールパスを設定"""
+        # キャッシュをクリアしてフレッシュインポートを保証
+        if 'handler_wrappers' in sys.modules:
+            del sys.modules['handler_wrappers']
+        if 'lib.brain.handler_wrappers' in sys.modules:
+            del sys.modules['lib.brain.handler_wrappers']
+        brain_path = os.path.join(os.path.dirname(__file__), '..', 'chatwork-webhook', 'lib', 'brain')
+        if brain_path not in sys.path:
+            sys.path.insert(0, brain_path)
+
+    def test_expiration_check(self):
+        """期限切れの場合はセッション完了"""
+        import importlib
+        handler_wrappers = importlib.import_module('handler_wrappers')
+        _brain_continue_list_context = handler_wrappers._brain_continue_list_context
+
+        # 過去の有効期限
+        past_time = (datetime.utcnow() - timedelta(minutes=10)).isoformat()
+        state_data = {
+            "list_type": "goals",
+            "action": "goal_delete",
+            "step": "goal_delete_numbers",
+            "expires_at": past_time,
+        }
+
+        result = _brain_continue_list_context(
+            message="1,2,3",
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テスト",
+            state_data=state_data
+        )
+
+        assert result["session_completed"] is True
+        assert "古くなった" in result["message"]
+
+    def test_cancel_keywords(self):
+        """キャンセルキーワードでセッション完了"""
+        import importlib
+        handler_wrappers = importlib.import_module('handler_wrappers')
+        _brain_continue_list_context = handler_wrappers._brain_continue_list_context
+
+        # 有効な期限
+        future_time = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+        state_data = {
+            "list_type": "goals",
+            "action": "goal_delete",
+            "step": "goal_delete_numbers",
+            "expires_at": future_time,
+        }
+
+        for cancel_word in ["やめて", "キャンセル", "取り消し"]:
+            result = _brain_continue_list_context(
+                message=cancel_word,
+                room_id="room_123",
+                account_id="account_456",
+                sender_name="テスト",
+                state_data=state_data
+            )
+
+            assert result["session_completed"] is True
+            assert "キャンセル" in result["message"]
+
+    def test_no_main_module_error(self):
+        """mainモジュールがない場合のエラーハンドリング"""
+        import importlib
+        # mainモジュールを一時的に削除
+        original_main = sys.modules.get('main')
+        if 'main' in sys.modules:
+            del sys.modules['main']
+
+        try:
+            handler_wrappers = importlib.import_module('handler_wrappers')
+            _brain_continue_list_context = handler_wrappers._brain_continue_list_context
+
+            state_data = {
+                "list_type": "goals",
+                "action": "goal_delete",
+                "step": "goal_delete_numbers",
+                "expires_at": (datetime.utcnow() + timedelta(minutes=5)).isoformat(),
+            }
+
+            result = _brain_continue_list_context(
+                message="1,2,3",
+                room_id="room_123",
+                account_id="account_456",
+                sender_name="テスト",
+                state_data=state_data
+            )
+
+            assert result["success"] is False
+            assert "システムエラー" in result["message"]
+        finally:
+            # 元に戻す
+            if original_main:
+                sys.modules['main'] = original_main
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

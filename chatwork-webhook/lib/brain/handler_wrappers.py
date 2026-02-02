@@ -640,6 +640,88 @@ def _brain_continue_list_context(message, room_id, account_id, sender_name, stat
 
         # 目標一覧の場合
         if list_type == "goals":
+            # 一覧直後の文脈（goal_list）
+            if step == "goal_list":
+                handle_goal_delete = getattr(main, 'handle_goal_delete')
+                handle_goal_cleanup = getattr(main, 'handle_goal_cleanup')
+
+                # 削除系の入力（番号 / 以外削除 / 全削除）
+                if any(kw in message for kw in ["削除", "消", "以外", "全部", "全削除"]) or any(ch.isdigit() for ch in message):
+                    context = {"original_message": message, "pending_data": pending_data}
+                    result = handle_goal_delete(
+                        params={},
+                        room_id=room_id,
+                        account_id=account_id,
+                        sender_name=sender_name,
+                        context=context
+                    )
+
+                    # v10.56.3: awaiting_confirmation または awaiting_input を処理
+                    if isinstance(result, dict) and (result.get("awaiting_confirmation") or result.get("awaiting_input")):
+                        return {
+                            "message": result.get("message", ""),
+                            "success": result.get("success", True),
+                            "session_completed": False,
+                            "new_state_data": {
+                                "list_type": "goals",
+                                "action": "goal_delete",
+                                "step": result.get("awaiting_confirmation") or result.get("awaiting_input"),
+                                "pending_data": result.get("pending_data", {}),
+                                "expires_at": state_data.get("expires_at"),
+                            },
+                        }
+
+                    return {
+                        "message": result.get("message", "処理を実行したウル🐺"),
+                        "success": result.get("success", True),
+                        "session_completed": True,
+                        "new_state": "normal",
+                    }
+
+                # 整理系の入力
+                if any(kw in message for kw in ["整理", "重複", "期限", "未定", "相談中", "新規"]):
+                    cleanup_type = None
+                    if any(kw in message for kw in ["重複"]):
+                        cleanup_type = "A"
+                    elif any(kw in message for kw in ["期限", "期限切れ"]):
+                        cleanup_type = "B"
+                    elif any(kw in message for kw in ["未定", "相談中", "新規"]):
+                        cleanup_type = "C"
+
+                    context = {"original_message": message, "pending_data": pending_data}
+                    params = {"cleanup_type": cleanup_type} if cleanup_type else {}
+                    result = handle_goal_cleanup(
+                        params=params,
+                        room_id=room_id,
+                        account_id=account_id,
+                        sender_name=sender_name,
+                        context=context
+                    )
+
+                    if isinstance(result, dict) and (result.get("awaiting_confirmation") or result.get("awaiting_input")):
+                        return {
+                            "message": result.get("message", ""),
+                            "success": result.get("success", True),
+                            "session_completed": False,
+                            "new_state_data": {
+                                "list_type": "goals",
+                                "action": "goal_cleanup",
+                                "step": result.get("awaiting_confirmation") or result.get("awaiting_input"),
+                                "pending_data": result.get("pending_data", {}),
+                                "expires_at": state_data.get("expires_at"),
+                            },
+                        }
+
+                    return {
+                        "message": result.get("message", "処理を実行したウル🐺"),
+                        "success": result.get("success", True),
+                        "session_completed": True,
+                        "new_state": "normal",
+                    }
+
+                # それ以外は文脈を解除して通常処理へ
+                return None
+
             # 確認待ち状態からの応答（「OK」「削除する」等）
             if step in ["goal_delete", "goal_delete_duplicates", "goal_cleanup_duplicates", "goal_cleanup_expired"]:
                 approval_keywords = ["ok", "はい", "削除", "実行", "うん", "いいよ", "お願い"]
@@ -1242,12 +1324,53 @@ async def _brain_handle_goal_status_check(params, room_id, account_id, sender_na
 async def _brain_handle_goal_review(params, room_id, account_id, sender_name, context):
     try:
         import sys
+        from datetime import datetime, timedelta
         main = sys.modules.get('main')
         if not main:
             return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
 
         handle_goal_review = getattr(main, 'handle_goal_review')
         result = handle_goal_review(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+
+        # v10.56.3: LIST_CONTEXT状態を保存（目標一覧表示後の文脈保持）
+        if isinstance(result, dict) and result.get("success", True):
+            try:
+                from lib.brain.state_manager import BrainStateManager
+                from lib.brain.models import StateType
+                from sqlalchemy import text
+
+                get_pool = getattr(main, 'get_pool')
+                pool = get_pool()
+
+                with pool.connect() as conn:
+                    user_result = conn.execute(
+                        text("SELECT organization_id FROM users WHERE chatwork_account_id = :account_id LIMIT 1"),
+                        {"account_id": str(account_id)}
+                    ).fetchone()
+
+                if user_result and user_result[0]:
+                    org_id = str(user_result[0])
+                    state_manager = BrainStateManager(pool=pool, org_id=org_id)
+                    expires_at = datetime.utcnow() + timedelta(minutes=5)
+
+                    import asyncio
+                    asyncio.create_task(state_manager.transition_to(
+                        room_id=room_id,
+                        user_id=str(account_id),
+                        state_type=StateType.LIST_CONTEXT,
+                        step="goal_list",
+                        data={
+                            "list_type": "goals",
+                            "action": "goal_list",
+                            "pending_data": {},
+                            "expires_at": expires_at.isoformat(),
+                        },
+                        timeout_minutes=5,
+                    ))
+                    print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step=goal_list")
+            except Exception as state_err:
+                print(f"⚠️ LIST_CONTEXT状態保存エラー（goal_review, 続行）: {state_err}")
+
         # v10.54.5: 辞書型の戻り値を正しく処理
         return _extract_handler_result(result, "目標一覧を表示したウル🐺")
     except Exception as e:

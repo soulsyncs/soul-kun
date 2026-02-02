@@ -1159,6 +1159,56 @@ class TestGoalDeleteHandler:
         assert result["success"] is True
         assert "1,2を残して" in result["message"]
 
+    def test_delete_all_pattern(self):
+        """「全部削除」パターン（v10.56.2）"""
+        goals_data = [
+            (str(uuid4()), "目標1", 100, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標2", 200, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標3", 300, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        # 「全部削除」でテスト
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー",
+            context={"original_message": "全部削除して"}
+        )
+
+        assert result["success"] is True
+        # 確認メッセージが出ること（形式: "1-3（全件）を削除"）
+        assert "（全件）を削除" in result["message"]
+        assert "実行していい？" in result["message"]
+        assert result.get("awaiting_confirmation") == "goal_delete"
+        assert len(result.get("pending_data", {}).get("goal_ids", [])) == 3
+
+    def test_delete_all_pattern_with_zensakujo(self):
+        """「全削除」パターン（v10.56.2）"""
+        goals_data = [
+            (str(uuid4()), "目標1", 100, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標2", 200, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        # 「全削除」でテスト
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー",
+            context={"original_message": "全削除"}
+        )
+
+        assert result["success"] is True
+        assert "（全件）を削除" in result["message"]
+        assert result.get("awaiting_confirmation") == "goal_delete"
+
 
 class TestGoalCleanupHandler:
     """handle_goal_cleanup のテスト"""

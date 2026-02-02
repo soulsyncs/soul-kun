@@ -260,14 +260,15 @@ class BrainLearning:
         """
         import sqlalchemy
         with self.pool.connect() as conn:
+            # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             conn.execute(
-                sqlalchemy.text("SET app.current_organization_id = :org_id"),
+                sqlalchemy.text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
             try:
                 yield conn
             finally:
-                conn.execute(sqlalchemy.text("RESET app.current_organization_id"))
+                conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     @contextmanager
     def _begin_with_org_context(self):
@@ -280,15 +281,16 @@ class BrainLearning:
         """
         import sqlalchemy
         with self.pool.begin() as conn:
+            # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             conn.execute(
-                sqlalchemy.text("SET app.current_organization_id = :org_id"),
+                sqlalchemy.text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
             try:
                 yield conn
             finally:
                 try:
-                    conn.execute(sqlalchemy.text("RESET app.current_organization_id"))
+                    conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', NULL, false)"))
                 except Exception:
                     pass  # トランザクション終了後は無視
 

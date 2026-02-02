@@ -298,14 +298,15 @@ class ProactiveMonitor:
             organization_id: 組織ID（UUID文字列）
         """
         async with self._pool.connect() as conn:
+            # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             await conn.execute(
-                text("SET app.current_organization_id = :org_id"),
+                text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": organization_id}
             )
             try:
                 yield conn
             finally:
-                await conn.execute(text("RESET app.current_organization_id"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     # --------------------------------------------------------
     # ヘルパーメソッド（型変換）

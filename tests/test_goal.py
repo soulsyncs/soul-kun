@@ -466,3 +466,137 @@ class TestGoalServiceEdgeCases:
         )
 
         assert goal.organization_id == org_id
+
+
+# =============================================================================
+# v10.56.0: 目標削除・整理機能のテスト
+# =============================================================================
+
+from lib.goal import cancel_goals, get_duplicate_goals, get_expired_goals, get_pending_goals
+
+
+class TestCancelGoals:
+    """cancel_goals のテスト"""
+
+    def test_cancel_goals_empty_list(self, mock_db_pool):
+        """空のリストを渡した場合は何もしない"""
+        mock_pool, mock_conn = mock_db_pool
+
+        count, titles = cancel_goals(mock_pool, [], "org-123", "user-123", "user_request")
+
+        assert count == 0
+        assert titles == []
+
+    def test_cancel_goals_updates_status(self, mock_db_pool):
+        """目標のステータスをcancelledに変更する"""
+        mock_pool, mock_conn = mock_db_pool
+
+        # モックの設定
+        goal_id = str(uuid.uuid4())
+        mock_conn.execute.return_value.fetchall.return_value = [
+            (goal_id, "テスト目標", "internal")
+        ]
+        mock_conn.execute.return_value.rowcount = 1
+
+        count, titles = cancel_goals(
+            mock_pool,
+            [goal_id],
+            "org-123",
+            "user-123",
+            "user_request"
+        )
+
+        # executeが呼ばれたことを確認
+        assert mock_conn.execute.called
+
+
+class TestGetDuplicateGoals:
+    """get_duplicate_goals のテスト"""
+
+    def test_get_duplicate_goals_no_duplicates(self, mock_db_pool):
+        """重複がない場合は空リストを返す"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        duplicates = get_duplicate_goals(mock_pool, "user-123", "org-123")
+
+        assert duplicates == []
+
+    def test_get_duplicate_goals_returns_grouped_data(self, mock_db_pool):
+        """重複がある場合はグループ化して返す"""
+        mock_pool, mock_conn = mock_db_pool
+
+        # 重複データのモック
+        mock_conn.execute.return_value.fetchall.return_value = [
+            ("粗利300万円", date(2026, 1, 1), date(2026, 1, 31),
+             [str(uuid.uuid4()), str(uuid.uuid4())],
+             [3000000, 3000000],
+             ["円", "円"],
+             2)
+        ]
+
+        duplicates = get_duplicate_goals(mock_pool, "user-123", "org-123")
+
+        assert len(duplicates) == 1
+        assert duplicates[0]["title"] == "粗利300万円"
+        assert duplicates[0]["count"] == 2
+
+
+class TestGetExpiredGoals:
+    """get_expired_goals のテスト"""
+
+    def test_get_expired_goals_no_expired(self, mock_db_pool):
+        """期限切れがない場合は空リストを返す"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        expired = get_expired_goals(mock_pool, "user-123", "org-123")
+
+        assert expired == []
+
+    def test_get_expired_goals_returns_expired_list(self, mock_db_pool):
+        """期限切れ目標のリストを返す"""
+        mock_pool, mock_conn = mock_db_pool
+
+        goal_id = str(uuid.uuid4())
+        expired_date = date(2026, 1, 1)  # 過去の日付
+
+        mock_conn.execute.return_value.fetchall.return_value = [
+            (goal_id, "期限切れ目標", expired_date, "numeric", 100, 50, "件")
+        ]
+
+        expired = get_expired_goals(mock_pool, "user-123", "org-123")
+
+        assert len(expired) == 1
+        assert expired[0]["id"] == goal_id
+        assert expired[0]["title"] == "期限切れ目標"
+
+
+class TestGetPendingGoals:
+    """get_pending_goals のテスト"""
+
+    def test_get_pending_goals_no_pending(self, mock_db_pool):
+        """未定目標がない場合は空リストを返す"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        pending = get_pending_goals(mock_pool, "user-123", "org-123")
+
+        assert pending == []
+
+    def test_get_pending_goals_returns_pending_list(self, mock_db_pool):
+        """進捗がない目標のリストを返す"""
+        mock_pool, mock_conn = mock_db_pool
+
+        goal_id = str(uuid.uuid4())
+
+        mock_conn.execute.return_value.fetchall.return_value = [
+            (goal_id, "新規目標", date(2026, 1, 1), date(2026, 1, 31),
+             "numeric", 100, 0, "件", datetime(2026, 1, 15))
+        ]
+
+        pending = get_pending_goals(mock_pool, "user-123", "org-123")
+
+        assert len(pending) == 1
+        assert pending[0]["id"] == goal_id
+        assert pending[0]["title"] == "新規目標"

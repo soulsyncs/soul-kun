@@ -42,6 +42,8 @@ DANGEROUS_ACTIONS: Set[str] = {
     "send_all",  # 全員への送信
     "cancel",
     "complete_all",
+    "goal_delete",  # v10.56.0: 目標削除
+    "goal_cleanup",  # v10.56.0: 目標整理（重複・期限切れ削除を含む）
 }
 
 # 確認不要のアクション（低確信度でも確認スキップ）
@@ -448,6 +450,11 @@ RISK_LEVELS: Dict[str, str] = {
     "chatwork_task_search": "low",
     "goal_registration": "low",  # v10.29.6: SYSTEM_CAPABILITIESと名前を統一
     "goal_progress_report": "low",
+    "goal_delete": "medium",  # v10.56.0: 目標削除（確認必須）
+    "goal_cleanup": "medium",  # v10.56.0: 目標整理（確認必須）
+    "goal_review": "low",
+    "goal_consult": "low",
+    "goal_status_check": "low",
     "save_memory": "low",
     "query_memory": "low",
     "delete_memory": "medium",

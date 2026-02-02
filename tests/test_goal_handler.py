@@ -1076,6 +1076,89 @@ class TestGoalDeleteHandler:
 
         assert result["success"] is False
 
+    def test_delete_exclude_numbers_pattern(self):
+        """「X以外削除」パターンのテスト（v10.56.1）"""
+        # 5件の目標を準備
+        goals_data = [
+            (str(uuid4()), "目標1", 100, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標2", 200, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標3", 300, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標4", 400, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標5", 500, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        # 「1,4,5以外削除」を original_message から解析
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー",
+            context={"original_message": "1,4,5以外削除して"}
+        )
+
+        assert result["success"] is True
+        # 確認メッセージのフォーマットをチェック
+        assert "1,4,5を残して" in result["message"]
+        assert "2,3を削除" in result["message"]
+        assert "実行していい？" in result["message"]
+        # 削除対象が2,3であることを確認
+        assert "目標2" in result["message"]
+        assert "目標3" in result["message"]
+        # 残す目標は削除対象に含まれない
+        assert "削除対象" in result["message"]
+
+    def test_delete_exclude_numbers_full_width(self):
+        """「X以外削除」パターン（全角数字対応）"""
+        goals_data = [
+            (str(uuid4()), "目標1", 100, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標2", 200, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標3", 300, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        # 全角数字でのテスト
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー",
+            context={"original_message": "１以外を全部消して"}
+        )
+
+        assert result["success"] is True
+        assert "1を残して" in result["message"]
+        # 2,3が削除対象
+        assert "2,3を削除" in result["message"]
+
+    def test_delete_exclude_with_various_separators(self):
+        """「X以外削除」パターン（様々な区切り文字）"""
+        goals_data = [
+            (str(uuid4()), "目標1", 100, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標2", 200, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標3", 300, "件", date(2026, 1, 31)),
+            (str(uuid4()), "目標4", 400, "件", date(2026, 1, 31)),
+        ]
+        mock_pool, _ = create_mock_pool_for_delete(goals_data=goals_data)
+
+        handler = GoalHandler(get_pool=lambda: mock_pool)
+
+        # 中黒・読点での区切り
+        result = handler.handle_goal_delete(
+            params={},
+            room_id="room_123",
+            account_id="account_456",
+            sender_name="テストユーザー",
+            context={"original_message": "1・2以外削除"}
+        )
+
+        assert result["success"] is True
+        assert "1,2を残して" in result["message"]
+
 
 class TestGoalCleanupHandler:
     """handle_goal_cleanup のテスト"""
@@ -1116,6 +1199,47 @@ class TestGoalCleanupHandler:
 
         assert result["success"] is False
         assert "組織情報" in result["message"]
+
+
+class TestFormatNumberRange:
+    """_format_number_range ヘルパーのテスト（v10.56.1）"""
+
+    def test_single_number(self):
+        """単一の番号"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([5]) == "5"
+
+    def test_non_consecutive_numbers(self):
+        """連続しない番号"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([1, 3, 5]) == "1,3,5"
+
+    def test_consecutive_two_numbers(self):
+        """2つの連続する番号（レンジ化しない）"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([1, 2]) == "1,2"
+
+    def test_consecutive_three_or_more(self):
+        """3つ以上の連続する番号（レンジ化する）"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([1, 2, 3]) == "1-3"
+
+    def test_mixed_ranges_and_singles(self):
+        """レンジと単独の混合"""
+        handler = GoalHandler(get_pool=lambda: None)
+        # [2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] -> "2,3,6-15"
+        numbers = [2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        assert handler._format_number_range(numbers) == "2,3,6-15"
+
+    def test_unordered_input(self):
+        """順不同の入力（ソートされる）"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([5, 1, 3]) == "1,3,5"
+
+    def test_empty_list(self):
+        """空のリスト"""
+        handler = GoalHandler(get_pool=lambda: None)
+        assert handler._format_number_range([]) == ""
 
 
 class TestNextActionInHandlers:

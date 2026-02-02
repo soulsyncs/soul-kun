@@ -49,6 +49,43 @@ class GoalHandler:
         self.process_goal_setting_message_func = process_goal_setting_message_func
         self.use_goal_setting_lib = use_goal_setting_lib
 
+    def _format_number_range(self, numbers: list) -> str:
+        """
+        番号リストを読みやすい形式にフォーマット
+
+        例: [2, 3, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] -> "2,3,6-15"
+        """
+        if not numbers:
+            return ""
+
+        sorted_nums = sorted(numbers)
+        ranges = []
+        start = sorted_nums[0]
+        end = start
+
+        for num in sorted_nums[1:]:
+            if num == end + 1:
+                end = num
+            else:
+                if start == end:
+                    ranges.append(str(start))
+                elif end == start + 1:
+                    ranges.append(f"{start},{end}")
+                else:
+                    ranges.append(f"{start}-{end}")
+                start = num
+                end = num
+
+        # 最後のレンジを追加
+        if start == end:
+            ranges.append(str(start))
+        elif end == start + 1:
+            ranges.append(f"{start},{end}")
+        else:
+            ranges.append(f"{start}-{end}")
+
+        return ",".join(ranges)
+
     def _check_dialogue_completed(self, room_id: str, account_id: str) -> bool:
         """
         v10.40.1: 対話フロー完了確認（神経接続修理 - brain_conversation_statesのみ参照）
@@ -928,8 +965,25 @@ class GoalHandler:
 
         # パラメータ取得
         goal_numbers = params.get("goal_numbers", [])  # 番号リスト: [1, 2, 3]
+        exclude_numbers = params.get("exclude_numbers", [])  # 「X以外削除」用: [1, 4, 5]
         delete_duplicates = params.get("delete_duplicates", False)  # 重複一括削除
         confirmed = params.get("confirmed", False)  # 確認済みフラグ
+
+        # v10.56.1: 「X以外削除」パターンの解析
+        # 入力例: 「1,4,5以外削除」「1・4・5以外を全部消したい」
+        original_message = context.get("original_message", "") if context else ""
+        if original_message and not goal_numbers and not exclude_numbers:
+            import re
+            # 「X以外」パターンを検出
+            exclude_pattern = r'([0-9０-９,、・\s]+)\s*以外'
+            match = re.search(exclude_pattern, original_message)
+            if match:
+                # 全角→半角変換、区切り文字正規化
+                nums_str = match.group(1)
+                nums_str = nums_str.translate(str.maketrans('０１２３４５６７８９', '0123456789'))
+                nums_str = re.sub(r'[,、・\s]+', ',', nums_str)
+                exclude_numbers = [int(n) for n in nums_str.split(',') if n.strip().isdigit()]
+                print(f"   📋 「以外削除」検出: exclude_numbers={exclude_numbers}")
 
         try:
             pool = self.get_pool()
@@ -989,11 +1043,51 @@ class GoalHandler:
                 } for i, row in enumerate(goals_result)}
 
                 # =====================================================
+                # v10.56.1: 「X以外削除」の処理
+                # =====================================================
+                if exclude_numbers:
+                    # 全件 - exclude_numbers = 削除対象
+                    all_numbers = set(goal_map.keys())
+                    keep_numbers = set(exclude_numbers) & all_numbers  # 有効な残す番号
+                    delete_numbers = all_numbers - keep_numbers
+                    goal_numbers = sorted(list(delete_numbers))
+                    print(f"   📋 「以外削除」計算: 残す={sorted(keep_numbers)}, 削除={goal_numbers}")
+
+                    if not goal_numbers:
+                        return {
+                            "success": True,
+                            "message": f"✨ {sorted(keep_numbers)} 以外に削除する目標はないウル！"
+                        }
+
+                    # 確認メッセージ（「X以外削除」用）
+                    # v10.56.1: ユーザー要件に合わせたフォーマット
+                    if not confirmed:
+                        keep_str = ",".join(map(str, sorted(keep_numbers)))
+                        delete_str = self._format_number_range(goal_numbers)
+
+                        response = f"{keep_str}を残して{delete_str}を削除。実行していい？\n\n"
+                        response += "【削除対象】\n"
+                        for num in goal_numbers:
+                            goal = goal_map[num]
+                            response += f"  {num}. {goal['title'][:35]}\n"
+
+                        return {
+                            "success": True,
+                            "message": response,
+                            "awaiting_confirmation": "goal_delete",
+                            "pending_data": {
+                                "goal_ids": [goal_map[n]["id"] for n in goal_numbers],
+                                "keep_numbers": sorted(keep_numbers),
+                                "delete_numbers": goal_numbers,
+                            },
+                        }
+
+                # =====================================================
                 # フェーズ1: 一覧表示（番号が未指定の場合）
                 # =====================================================
                 if not goal_numbers and not delete_duplicates:
                     response = "🗑️ 削除する目標を番号で教えてほしいウル。\n"
-                    response += "例: 1,3,5\n"
+                    response += "例: 1,3,5 または「1,4,5以外削除」\n"
                     response += "同じ内容の重複がある場合は『重複を全部削除』でもOKウル。\n\n"
 
                     response += "【アクティブな目標】\n"

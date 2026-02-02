@@ -972,6 +972,7 @@ class GoalHandler:
         # v10.56.1: 「X以外削除」パターンの解析
         # 入力例: 「1,4,5以外削除」「1・4・5以外を全部消したい」
         original_message = context.get("original_message", "") if context else ""
+        all_delete = False
         if original_message and not goal_numbers and not exclude_numbers:
             import re
             # 「X以外」パターンを検出
@@ -984,6 +985,11 @@ class GoalHandler:
                 nums_str = re.sub(r'[,、・\s]+', ',', nums_str)
                 exclude_numbers = [int(n) for n in nums_str.split(',') if n.strip().isdigit()]
                 print(f"   📋 「以外削除」検出: exclude_numbers={exclude_numbers}")
+            else:
+                # 「全部削除」パターン（確認前に全件を対象にする）
+                if "全部" in original_message or "全削除" in original_message:
+                    all_delete = True
+                    print("   📋 「全部削除」検出: all_delete=True")
 
         try:
             pool = self.get_pool()
@@ -1083,9 +1089,30 @@ class GoalHandler:
                         }
 
                 # =====================================================
+                # v10.56.2: 「全部削除」の処理
+                # =====================================================
+                if all_delete and not confirmed:
+                    goal_numbers = sorted(list(goal_map.keys()))
+                    delete_str = self._format_number_range(goal_numbers)
+                    response = f"🗑️ {delete_str}（全件）を削除。実行していい？\n\n"
+                    response += "【削除対象】\n"
+                    for num in goal_numbers:
+                        goal = goal_map[num]
+                        response += f"  {num}. {goal['title'][:35]}\n"
+                    return {
+                        "success": True,
+                        "message": response,
+                        "awaiting_confirmation": "goal_delete",
+                        "pending_data": {
+                            "goal_ids": [goal_map[n]["id"] for n in goal_numbers],
+                            "delete_numbers": goal_numbers,
+                        },
+                    }
+
+                # =====================================================
                 # フェーズ1: 一覧表示（番号が未指定の場合）
                 # =====================================================
-                if not goal_numbers and not delete_duplicates:
+                if not goal_numbers and not delete_duplicates and not all_delete:
                     response = "🗑️ 削除する目標を番号で教えてほしいウル。\n"
                     response += "例: 1,3,5 または「1,4,5以外削除」\n"
                     response += "同じ内容の重複がある場合は『重複を全部削除』でもOKウル。\n\n"

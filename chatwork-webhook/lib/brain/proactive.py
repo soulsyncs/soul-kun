@@ -306,7 +306,7 @@ class ProactiveMonitor:
             try:
                 yield conn
             finally:
-                await conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     # --------------------------------------------------------
     # ヘルパーメソッド（型変換）

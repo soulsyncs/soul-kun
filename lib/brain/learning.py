@@ -268,7 +268,7 @@ class BrainLearning:
             try:
                 yield conn
             finally:
-                conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', '', false)"))
+                conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     @contextmanager
     def _begin_with_org_context(self):
@@ -290,7 +290,7 @@ class BrainLearning:
                 yield conn
             finally:
                 try:
-                    conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', '', false)"))
+                    conn.execute(sqlalchemy.text("SELECT set_config('app.current_organization_id', NULL, false)"))
                 except Exception:
                     pass  # トランザクション終了後は無視
 

@@ -231,7 +231,7 @@ def get_db_session_with_org(organization_id: str):
     finally:
         # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
         try:
-            conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
+            conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
         except Exception:
             pass  # 接続が既に閉じられている場合は無視
         conn.close()
@@ -359,7 +359,7 @@ async def get_async_db_session_with_org(organization_id: str):
         finally:
             # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
             try:
-                await conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
             except Exception:
                 pass  # 接続が既に閉じられている場合は無視
 

@@ -159,7 +159,7 @@ class BrainStateManager:
             try:
                 yield conn
             finally:
-                conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
+                conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     @asynccontextmanager
     async def _connect_with_org_context_async(self):
@@ -179,7 +179,7 @@ class BrainStateManager:
             try:
                 yield conn
             finally:
-                await conn.execute(text("SELECT set_config('app.current_organization_id', '', false)"))
+                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
     def _execute_sync(self, query, params: dict):
         """同期的にクエリを実行"""

@@ -71,7 +71,7 @@ lib/brain/
 ### 設計書の定義（25章 5.2）
 
 ```
-役割: Claude Opus 4.5が常駐し、全ての判断を行う
+役割: OpenRouter 経由の `openai/gpt-5.2` が常駐し、全ての判断を行う
 入力: System Prompt、Context、メッセージ、Tool定義
 出力: tool_calls、text_response、reasoning、confidence
 ```

@@ -37,7 +37,7 @@
 
 ```bash
 # 1. 環境変数でLLM呼び出しを無効化
-export LLM_ENABLED=false
+export USE_BRAIN_ARCHITECTURE=false
 
 # 2. Cloud Runサービスを停止
 gcloud run services update soul-kun-api --no-traffic
@@ -51,7 +51,7 @@ gcloud run services update soul-kun-api --no-traffic
 
 ```bash
 # 1. 原因特定・修正完了後
-export LLM_ENABLED=true
+export USE_BRAIN_ARCHITECTURE=true
 
 # 2. ステージング環境で動作確認
 

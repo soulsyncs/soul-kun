@@ -1,8 +1,8 @@
 # 第25章：LLM常駐型脳アーキテクチャ設計書
 
-**バージョン:** v1.5.0
+**バージョン:** v1.5.3
 **作成日:** 2026-01-30
-**最終更新:** 2026-01-30（100%完成: エッジケース仕様追加 - 並行セッション競合、LLMストリーミング中断、DBプール枯渇）
+**最終更新:** 2026-02-02（モデル/環境変数表記の統一）
 **作成者:** Claude Code（経営参謀・SE・PM）
 **ステータス:** 設計完成（100%）
 **承認者:** カズさん（代表）
@@ -52,7 +52,7 @@
 
 ### 1.2 3行で要約
 
-1. **何をするか**: 脳の中核にClaude Opus 4.5を常駐させ、意図理解・文脈補完をLLMの推論に委ねる
+1. **何をするか**: 脳の中核に OpenRouter 経由の `openai/gpt-5.2` を常駐させ、意図理解・文脈補完をLLMの推論に委ねる
 2. **なぜ必要か**: 現在のキーワードマッチでは「汲み取り力」に限界があり、場当たり的改善の繰り返しになる
 3. **どう作るか**: Context Builder → LLM Brain → Guardian → AuthGate → Observability の6層構造に進化
 
@@ -1186,7 +1186,7 @@ class ConstitutionTest:
 ┃                                   │                                      ┃
 ┃                                   ▼                                      ┃
 ┃  ┌──────────────────────────────────────────────────────────────────┐  ┃
-┃  │                  ② LLM Brain（Claude Opus 4.5）                   │  ┃
+┃  │                ② LLM Brain（OpenRouter GPT-5.2）                  │  ┃
 ┃  │                                                                    │  ┃
 ┃  │  【入力】                                                          │  ┃
 ┃  │  ├─ System Prompt（ソウルくんの設計思想・人格・制約）              │  ┃
@@ -2001,7 +2001,7 @@ def _generate_pending_reminder(
 #### 5.2.1 目的
 
 ソウルくんの「思考」の中核。
-Claude Opus 4.5を使用して、ユーザーの意図を汲み取り、適切なToolを選択する。
+OpenRouter の `openai/gpt-5.2` を使用して、ユーザーの意図を汲み取り、適切なToolを選択する。
 
 #### 5.2.2 入力
 
@@ -5000,10 +5000,10 @@ CREATE INDEX idx_observability_confidence ON brain_observability_logs(llm_confid
 
 ```python
 # 環境変数
-USE_LLM_NATIVE_BRAIN = os.getenv("USE_LLM_NATIVE_BRAIN", "false").lower() == "true"
+USE_BRAIN_ARCHITECTURE = os.getenv("USE_BRAIN_ARCHITECTURE", "false").lower() == "true"
 
 # main.py
-if USE_LLM_NATIVE_BRAIN:
+if USE_BRAIN_ARCHITECTURE:
     brain = LLMNativeBrain(...)
     result = await brain.process(message, context)
 else:
@@ -5059,7 +5059,7 @@ if SHADOW_MODE:
 
 | 項目 | 月額見込み（5,000回会話） |
 |------|-------------------------|
-| Claude Opus 4.5 API | 約29,500円 |
+| OpenRouter GPT-5.2 API | 約29,500円 |
 | Cloud Run | 約7,500円 |
 | Supabase | 約5,500円 |
 | Pinecone | 約1,500円 |
@@ -5175,7 +5175,7 @@ async def check_daily_cost():
 
 ### Phase D: 本番
 
-- [ ] Feature Flag追加（USE_LLM_NATIVE_BRAIN）
+- [ ] Feature Flag追加（USE_BRAIN_ARCHITECTURE）
 - [ ] main.py分岐追加
 - [ ] シャドーモード実行
 - [ ] 10%ロールアウト
@@ -5601,6 +5601,7 @@ async def check_daily_cost():
 | v1.5.0 | 2026-01-30 | **100%完成**: エッジケース仕様追加 - 並行セッション競合処理（5.1.7）、LLMストリーミング中断処理（6.7.6）、DBコネクションプール枯渇処理（6.7.7） |
 | v1.5.1 | 2026-01-31 | **大規模修繕対応**: NO_CONFIRMATION_ACTIONS追加（17.8.1）、env_config.py追加（17.8.2）、Guardian Layer確信度チェックに例外規定追加 |
 | v1.5.2 | 2026-02-02 | **設計整合性改善**: System Prompt反映チェックリスト追加（17.10）、PII除去セクション追加（4.3.9） |
+| v1.5.3 | 2026-02-02 | **設計整合性改善**: LLMモデル表記とFeature Flagの表記を統一（GPT-5.2 / USE_BRAIN_ARCHITECTURE） |
 
 ### 17.10 System Prompt反映チェックリスト【v10.55追加】
 

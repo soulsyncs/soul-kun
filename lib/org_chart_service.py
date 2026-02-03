@@ -23,13 +23,10 @@ Created: 2026-01-26
 """
 
 import os
-import asyncio
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass, field
 import logging
 import httpx
-
-from lib.config import get_settings
 
 
 logger = logging.getLogger(__name__)

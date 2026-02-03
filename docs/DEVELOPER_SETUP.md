@@ -308,44 +308,42 @@ Claude Code 内で以下のコマンドを実行：
 
 ---
 
-## Step 8: Codexレビュー（pre-pushフック）
+## Step 8: Git Hooks + Codexレビュー
 
 git push 時に自動でCodex（OpenAI）がコードレビューを実行します。
 
-### 8-1. Codex CLI のインストール
+### 8-1. Git Hooks のインストール（重要）
+
+**Git hooksはcloneでは引き継がれないため、手動でセットアップが必要です：**
+
+```bash
+# セットアップスクリプトを実行
+./scripts/setup_hooks.sh
+```
+
+これにより以下のhooksがインストールされます：
+- **pre-commit**: コミット前にlib/の同期をチェック
+- **pre-push**: プッシュ前にCodexレビューを実行
+
+### 8-2. Codex CLI のインストール
 
 ```bash
 npm install -g codex-cli
 ```
 
-### 8-2. 動作の流れ
+### 8-3. 動作の流れ
 
 ```
 git push
     ↓
 pre-pushフック発動（.git/hooks/pre-push）
     ↓
-codex_review_loop スクリプト実行
+codex_review_loop スクリプト実行（リポジトリ内に含まれている）
     ↓
 Codex が CLAUDE.md + 設計書を参照してレビュー
     ↓
 PASS → push成功
 FAIL → pushブロック（修正が必要）
-```
-
-### 8-3. codex_review_loop スクリプトの配置
-
-カズさんから共有される `codex_review_loop` スクリプトを配置：
-
-```bash
-# スクリプトを ~/bin/ に配置
-mkdir -p ~/bin
-cp /path/to/codex_review_loop ~/bin/
-chmod +x ~/bin/codex_review_loop
-
-# PATHに追加（~/.zshrc または ~/.bashrc）
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
-source ~/.zshrc
 ```
 
 ### 8-4. レビュー観点

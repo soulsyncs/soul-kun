@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Codex review gate (pre-push)
+# Skip with: SKIP_CODEX_REVIEW=1 git push
+
+if [[ "${SKIP_CODEX_REVIEW:-}" == "1" ]]; then
+  echo "[pre-push] SKIP_CODEX_REVIEW=1 set; skipping Codex review."
+  exit 0
+fi
+
+# Prefer repo-local wrapper if present
+if [[ -x "./scripts/codex_review_loop.sh" ]]; then
+  PRE_PUSH_MODE=1 ./scripts/codex_review_loop.sh --full
+  exit 0
+fi
+
+# Fallback to shared script
+SHARED="$HOME/bin/codex_review_loop"
+if [[ ! -x "$SHARED" ]]; then
+  echo "[pre-push] Missing shared script: $SHARED" >&2
+  exit 1
+fi
+
+# Ensure codex binary is found even if PATH is missing
+export CODEX_BIN="$HOME/.npm-global/bin/codex"
+
+# Use CLAUDE.md as design reference if it exists
+if [[ -f "./CLAUDE.md" ]]; then
+  REVIEW_DOCS=$'CLAUDE.md' PRE_PUSH_MODE=1 "$SHARED" --full
+else
+  PRE_PUSH_MODE=1 "$SHARED" --full
+fi

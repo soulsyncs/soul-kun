@@ -724,7 +724,10 @@ def _brain_continue_list_context(message, room_id, account_id, sender_name, stat
 
             # 確認待ち状態からの応答（「OK」「削除する」等）
             if step in ["goal_delete", "goal_delete_duplicates", "goal_cleanup_duplicates", "goal_cleanup_expired"]:
-                approval_keywords = ["ok", "はい", "削除", "実行", "うん", "いいよ", "お願い"]
+                approval_keywords = [
+                    "ok", "はい", "削除", "実行", "うん", "いいよ", "お願い",
+                    "そうだよ", "全部ok", "全削除", "全消し", "全部消す", "全部消して", "消して",
+                ]
                 if any(kw in message.lower() for kw in approval_keywords):
                     context = {
                         "pending_data": pending_data,

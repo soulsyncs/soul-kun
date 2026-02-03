@@ -243,24 +243,211 @@ gcloud auth application-default login
 
 ---
 
-## Claude Code（推奨）
+## Step 7: Claude Code + プラグイン（推奨）
 
-開発にはClaude Codeの利用を推奨します。
+開発にはClaude Codeの利用を推奨します。プラグインにより、コードレビュー・セキュリティチェック・TDDなどが自動化されます。
 
-### インストール
+### 7-1. Claude Code のインストール
 
 ```bash
 npm install -g @anthropic-ai/claude-code
 ```
 
-### 使い方
+### 7-2. Claude Code の起動と認証
 
 ```bash
 cd soul-kun
 claude
 ```
 
-プロジェクトの `CLAUDE.md` が自動で読み込まれ、設計書に沿った開発ができます。
+初回起動時にAnthropicアカウントでの認証が求められます。
+
+### 7-3. プラグインのインストール
+
+Claude Code 内で以下のコマンドを実行：
+
+```
+/plugin marketplace add affaan-m/everything-claude-code
+/plugin install everything-claude-code@everything-claude-code
+```
+
+または、`~/.claude/settings.json` に以下を追加：
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "everything-claude-code": {
+      "source": {
+        "source": "github",
+        "repo": "affaan-m/everything-claude-code"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "everything-claude-code@everything-claude-code": true
+  }
+}
+```
+
+### 7-4. プラグインで使える機能
+
+| コマンド | 説明 |
+|---------|------|
+| `/plan` | 実装計画を立てる |
+| `/tdd` | テスト駆動開発 |
+| `/code-review` | コードレビュー |
+| `/security-review` | セキュリティチェック |
+| `/e2e` | E2Eテスト生成 |
+
+**専門エージェント（自動で呼び出される）:**
+- `code-reviewer`: コード品質チェック
+- `security-reviewer`: 脆弱性検出
+- `database-reviewer`: DB設計レビュー
+- `architect`: アーキテクチャ設計
+- `tdd-guide`: TDDガイド
+
+---
+
+## Step 8: Codexレビュー（pre-pushフック）
+
+git push 時に自動でCodex（OpenAI）がコードレビューを実行します。
+
+### 8-1. Codex CLI のインストール
+
+```bash
+npm install -g codex-cli
+```
+
+### 8-2. 動作の流れ
+
+```
+git push
+    ↓
+pre-pushフック発動（.git/hooks/pre-push）
+    ↓
+codex_review_loop スクリプト実行
+    ↓
+Codex が CLAUDE.md + 設計書を参照してレビュー
+    ↓
+PASS → push成功
+FAIL → pushブロック（修正が必要）
+```
+
+### 8-3. codex_review_loop スクリプトの配置
+
+カズさんから共有される `codex_review_loop` スクリプトを配置：
+
+```bash
+# スクリプトを ~/bin/ に配置
+mkdir -p ~/bin
+cp /path/to/codex_review_loop ~/bin/
+chmod +x ~/bin/codex_review_loop
+
+# PATHに追加（~/.zshrc または ~/.bashrc）
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+### 8-4. レビュー観点
+
+Codexは以下の観点でレビューします：
+
+1. **重大バグ**: ロジックエラー、クラッシュの可能性
+2. **セキュリティ**: 脆弱性、情報漏洩リスク
+3. **設計書との矛盾**: CLAUDE.mdの原則違反
+4. **テストカバレッジ**: テスト対象の全パスをカバーしているか
+
+### 8-5. レビューをスキップする場合（緊急時のみ）
+
+```bash
+SKIP_CODEX_REVIEW=1 git push
+```
+
+> **注意**: スキップした場合は、後で必ず手動レビューを実行してください。
+
+---
+
+## 開発フロー（まとめ）
+
+```
+1. ブランチ作成
+   git checkout -b feature/xxx
+
+2. コード実装
+   claude  # Claude Codeで開発
+
+3. テスト実行
+   pytest tests/ -v
+
+4. lib/ 同期（lib/を変更した場合）
+   ./scripts/sync_lib.sh
+
+5. コミット
+   git add .
+   git commit -m "feat: 説明"
+
+6. プッシュ（Codexレビュー自動実行）
+   git push -u origin feature/xxx
+
+7. PR作成
+   gh pr create
+```
+
+---
+
+## 便利なコマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `pytest tests/ -v` | 全テスト実行 |
+| `pytest tests/ -k "test_brain"` | 特定のテストだけ実行 |
+| `./scripts/sync_lib.sh` | lib/ を各サービスに同期 |
+| `./scripts/sync_lib.sh --check` | 同期状態をチェック |
+| `make sync` | lib/ 同期（Makefile経由） |
+| `claude` | Claude Code起動 |
+| `/plan` | 実装計画（Claude Code内） |
+| `/tdd` | TDD開発（Claude Code内） |
+
+---
+
+## よくあるトラブル
+
+### Q: `ModuleNotFoundError: No module named 'lib'`
+
+**A:** 仮想環境が有効化されていない可能性があります。
+```bash
+source venv/bin/activate
+```
+
+### Q: DB接続エラー
+
+**A:** Cloud SQL Auth Proxy が起動しているか確認してください。
+```bash
+cloud-sql-proxy soulkun-production:asia-northeast1:soulkun-db
+```
+
+### Q: `Permission denied` でGCPリソースにアクセスできない
+
+**A:** GCP認証を再実行してください。
+```bash
+gcloud auth login
+gcloud auth application-default login
+```
+
+### Q: Codexレビューでエラー
+
+**A:** codex CLIがインストールされているか確認：
+```bash
+which codex
+codex --version
+```
+
+### Q: プラグインが動かない
+
+**A:** Claude Codeを再起動して、プラグインを再インストール：
+```
+/plugin install everything-claude-code@everything-claude-code
+```
 
 ---
 

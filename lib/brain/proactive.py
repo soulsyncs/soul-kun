@@ -476,7 +476,7 @@ class ProactiveMonitor:
                         result.actions_taken.append(action)
 
             except Exception as e:
-                logger.warning(f"[Proactive] Error checking {trigger_type.value} for {user_ctx.user_id}: {e}")
+                logger.warning(f"[Proactive] Error checking {trigger_type.value}: {e}")
 
         return result
 

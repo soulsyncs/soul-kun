@@ -27,8 +27,11 @@ handlers = build_brain_handlers(main_module_functions)
 
 from typing import Dict, Any, Callable, Optional
 import re
+import logging
 
 from lib.brain.models import HandlerResult
+
+logger = logging.getLogger(__name__)
 
 
 # =====================================================
@@ -1370,7 +1373,7 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
 
                 if user_result and user_result[0]:
                     org_id = str(user_result[0])
-                    print(f"🔍 [LIST_CONTEXT保存/goal_review] org_id={org_id[:8]}..., room={room_id}, user={account_id}")
+                    logger.debug("[LIST_CONTEXT保存/goal_review] org_id取得成功")
 
                     state_manager = BrainStateManager(pool=pool, org_id=org_id)
                     expires_at = datetime.utcnow() + timedelta(minutes=5)
@@ -1388,9 +1391,9 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
                         },
                         timeout_minutes=5,
                     )
-                    print(f"✅ LIST_CONTEXT状態を保存完了: room={room_id}, user={account_id}, step=goal_list, org_id={org_id[:8]}...")
+                    logger.debug("[LIST_CONTEXT保存/goal_review] 状態保存完了")
                 else:
-                    print(f"⚠️ [LIST_CONTEXT保存/goal_review] ユーザーのorg_id取得失敗: account_id={account_id}")
+                    logger.debug("[LIST_CONTEXT保存/goal_review] ユーザーのorg_id取得失敗")
             except Exception as state_err:
                 print(f"❌ LIST_CONTEXT状態保存エラー（goal_review）: {state_err}")
 
@@ -1465,7 +1468,7 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
 
                     if user_result and user_result[0]:
                         org_id = str(user_result[0])
-                        print(f"🔍 [LIST_CONTEXT保存] org_id={org_id[:8]}..., room={room_id}, user={account_id}")
+                        logger.debug("[LIST_CONTEXT保存] org_id取得成功")
 
                         state_manager = BrainStateManager(pool=pool, org_id=org_id)
 
@@ -1485,9 +1488,9 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
                             },
                             timeout_minutes=5,
                         )
-                        print(f"✅ LIST_CONTEXT状態を保存完了: room={room_id}, user={account_id}, step={awaiting_input or awaiting_confirmation}, org_id={org_id[:8]}...")
+                        logger.debug("[LIST_CONTEXT保存] 状態保存完了")
                     else:
-                        print(f"⚠️ [LIST_CONTEXT保存] ユーザーのorg_id取得失敗: account_id={account_id}")
+                        logger.debug("[LIST_CONTEXT保存] ユーザーのorg_id取得失敗")
 
                 except Exception as state_err:
                     print(f"❌ LIST_CONTEXT状態保存エラー: {state_err}")
@@ -1720,14 +1723,14 @@ def validate_polling_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     body = msg.get("body")
     if body is None:
         body = ""
-        print(f"⚠️ bodyがNone: message_id={message_id}")
+        logger.debug("[バリデーション] bodyがNone")
     if not isinstance(body, str):
-        print(f"⚠️ bodyが文字列ではない: type={type(body)}, message_id={message_id}")
+        logger.debug(f"[バリデーション] bodyが文字列ではない: type={type(body)}")
         body = str(body) if body else ""
 
     account_data = msg.get("account")
     if account_data is None or not isinstance(account_data, dict):
-        print(f"⚠️ accountデータが不正: message_id={message_id}")
+        logger.debug("[バリデーション] accountデータが不正")
         account_id = None
         sender_name = "ゲスト"
     else:
@@ -1736,18 +1739,8 @@ def validate_polling_message(msg: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
     send_time = msg.get("send_time")
 
-    # デバッグログ
-    print(f"🔍 メッセージチェック: message_id={message_id}")
-    print(f"   body type: {type(body)}")
-    print(f"   body length: {len(body)}")
-
-    # 安全なbody表示
-    if body:
-        body_preview = body[:100] if len(body) > 100 else body
-        body_preview = body_preview.replace('\n', '\\n')
-        print(f"   body preview: {body_preview}")
-    else:
-        print(f"   body: (empty)")
+    # デバッグログ（PII除去）
+    logger.debug(f"[バリデーション] メッセージチェック: body_len={len(body)}")
 
     return {
         "message_id": message_id,
@@ -1823,10 +1816,10 @@ def should_skip_polling_message(
     # 処理済みならスキップ
     try:
         if is_processed and is_processed(message_id):
-            print(f"⏭️ すでに処理済み: message_id={message_id}")
+            logger.debug("[スキップ判定] すでに処理済み")
             return True
     except Exception as e:
-        print(f"⚠️ 処理済みチェックエラー（続行）: {e}")
+        logger.debug(f"[スキップ判定] 処理済みチェックエラー（続行）: {e}")
 
     return False
 
@@ -1876,12 +1869,12 @@ def process_polling_message(
     sender_name = data["sender_name"]
     send_time = data["send_time"]
 
-    print(f"✅ 検出成功！処理開始: room={room_id}, message_id={message_id}")
+    logger.debug("[ポーリング] メッセージ検出、処理開始")
 
     # ★★★ 2重処理防止: 即座にマーク ★★★
     if mark_as_processed:
         mark_as_processed(message_id, room_id)
-        print(f"🔒 処理開始マーク: message_id={message_id}")
+        logger.debug("[ポーリング] 処理開始マーク完了")
 
     # メッセージをDBに保存
     try:
@@ -1962,24 +1955,24 @@ def process_polling_message(
                         loop.close()
 
                     if result and result.success and result.message:
-                        print(f"🧠 ポーリング応答: brain={result.used_brain}, time={result.processing_time_ms}ms")
+                        logger.debug(f"[ポーリング] Brain応答成功: brain={result.used_brain}, time={result.processing_time_ms}ms")
                         if send_chatwork_message:
                             send_chatwork_message(room_id, result.message, None, False)
                     else:
-                        print(f"⚠️ Brain処理が応答なし: room_id={room_id}")
+                        logger.debug("[ポーリング] Brain処理が応答なし")
                 else:
-                    print(f"⚠️ Brain統合が無効: room_id={room_id}")
+                    logger.debug("[ポーリング] Brain統合が無効")
             except Exception as brain_e:
-                print(f"❌ Brain処理エラー: {brain_e}")
+                logger.error(f"[ポーリング] Brain処理エラー: {brain_e}")
                 import traceback
                 traceback.print_exc()
         else:
-            print(f"⚠️ USE_BRAIN_ARCHITECTURE=false, スキップ: room_id={room_id}")
+            logger.debug("[ポーリング] USE_BRAIN_ARCHITECTURE=false, スキップ")
 
         return 1
 
     except Exception as e:
-        print(f"❌ メッセージ処理エラー: message_id={message_id}, error={e}")
+        logger.error(f"[ポーリング] メッセージ処理エラー: {e}")
         import traceback
         traceback.print_exc()
         return 0
@@ -2041,40 +2034,40 @@ def process_polling_room(
 
         # room_idの検証
         if room_id is None:
-            print(f"⚠️ room_idがNone: {room}")
+            logger.debug("[ポーリング] room_idがNone")
             counts["error_rooms"] += 1
             return counts
 
-        print(f"🔍 ルームチェック開始: room_id={room_id}, type={room_type}, name={room_name}")
+        logger.debug(f"[ポーリング] ルームチェック開始: type={room_type}")
 
         # マイチャットをスキップ
         if room_type == "my":
             counts["skipped_my"] += 1
-            print(f"⏭️ マイチャットをスキップ: {room_id}")
+            logger.debug("[ポーリング] マイチャットをスキップ")
             return counts
 
         counts["processed_rooms"] += 1
 
         # メッセージを取得
-        print(f"📞 get_room_messages呼び出し: room_id={room_id}")
+        logger.debug("[ポーリング] get_room_messages呼び出し")
 
         try:
             messages = get_room_messages(room_id, force=True) if get_room_messages else []
         except Exception as e:
-            print(f"❌ メッセージ取得エラー: room_id={room_id}, error={e}")
+            logger.error(f"[ポーリング] メッセージ取得エラー: {e}")
             counts["error_rooms"] += 1
             return counts
 
         # messagesの検証
         if messages is None:
-            print(f"⚠️ messagesがNone: room_id={room_id}")
+            logger.debug("[ポーリング] messagesがNone")
             messages = []
 
         if not isinstance(messages, list):
-            print(f"⚠️ messagesが不正な型: {type(messages)}, room_id={room_id}")
+            logger.debug(f"[ポーリング] messagesが不正な型: {type(messages)}")
             messages = []
 
-        print(f"📨 ルーム {room_id} ({room_name}): {len(messages)}件のメッセージを取得")
+        logger.debug(f"[ポーリング] {len(messages)}件のメッセージを取得")
 
         # メッセージがない場合はスキップ
         if not messages:
@@ -2097,7 +2090,7 @@ def process_polling_room(
                 counts["processed_count"] += result
 
             except Exception as e:
-                print(f"❌ メッセージ処理中に予期しないエラー: {e}")
+                logger.error(f"[ポーリング] メッセージ処理中に予期しないエラー: {e}")
                 import traceback
                 traceback.print_exc()
                 counts["skipped_messages"] += 1
@@ -2105,7 +2098,7 @@ def process_polling_room(
 
     except Exception as e:
         counts["error_rooms"] += 1
-        print(f"❌ ルーム {room_id} の処理中にエラー: {e}")
+        logger.error(f"[ポーリング] ルーム処理中にエラー: {e}")
         import traceback
         traceback.print_exc()
 

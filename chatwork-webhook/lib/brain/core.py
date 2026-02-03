@@ -323,10 +323,10 @@ class SoulkunBrain:
         # 内部状態
         self._initialized = False
 
-        logger.info(f"SoulkunBrain initialized for org_id={org_id}, "
-                   f"chain_of_thought={self.use_chain_of_thought}, "
-                   f"self_critique={self.use_self_critique}, "
-                   f"execution_excellence={self.execution_excellence is not None}")
+        logger.debug(f"SoulkunBrain initialized: "
+                    f"chain_of_thought={self.use_chain_of_thought}, "
+                    f"self_critique={self.use_self_critique}, "
+                    f"execution_excellence={self.execution_excellence is not None}")
 
     # =========================================================================
     # メインエントリーポイント
@@ -1140,10 +1140,10 @@ class SoulkunBrain:
             # ユーザーのorganization_idを取得
             user_org_id = await self._get_user_organization_id(user_id)
             if not user_org_id:
-                logger.warning(f"⚠️ [状態取得] ユーザーのorg_id取得失敗: user_id={user_id}")
+                logger.debug("[状態取得] ユーザーのorg_id取得失敗")
                 return None
 
-            logger.info(f"🔍 [状態取得] ユーザーorg_id使用: org_id={user_org_id[:8]}..., room={room_id}, user={user_id}")
+            logger.debug("[状態取得] ユーザーorg_id使用")
 
             # ユーザーのorg_idで一時的なBrainStateManagerを作成
             user_state_manager = BrainStateManager(pool=self.pool, org_id=user_org_id)
@@ -1555,9 +1555,9 @@ class SoulkunBrain:
             current_state = await self._get_current_state_with_user_org(room_id, account_id)
             if current_state and current_state.is_active:
                 if current_state.state_type == StateType.LIST_CONTEXT:
-                    logger.info(
+                    logger.debug(
                         f"📋 LIST_CONTEXT状態検出 → セッション継続へルーティング: "
-                        f"room={room_id}, user={account_id}, step={current_state.state_step}"
+                        f"step={current_state.state_step}"
                     )
                     return await self.session_orchestrator.continue_session(
                         message=message,

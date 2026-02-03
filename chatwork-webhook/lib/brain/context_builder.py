@@ -294,7 +294,7 @@ class ContextBuilder:
         Returns:
             LLMContext: 構築されたコンテキスト
         """
-        logger.info(f"Building LLM context for user={user_id}, room={room_id}")
+        logger.debug("Building LLM context")
 
         # 並列で全ての情報を取得
         tasks = [
@@ -386,21 +386,21 @@ class ContextBuilder:
     ) -> Optional[SessionState]:
         """セッション状態を取得"""
         if not self.state_manager:
-            logger.info(f"🔍 [状態取得] state_manager is None, skipping")
+            logger.debug("[状態取得] state_manager is None, skipping")
             return None
 
         try:
-            # v10.56.6: 診断ログ追加
-            logger.info(f"🔍 [状態取得開始] room={room_id}, user={user_id}")
+            # v10.56.6: 診断ログ追加（debugレベル、PII非露出）
+            logger.debug("[状態取得開始]")
             state = await self.state_manager.get_current_state(room_id, user_id)
             if not state:
-                logger.info(f"🔍 [状態取得] 状態なし: room={room_id}, user={user_id}")
+                logger.debug("[状態取得] 状態なし")
                 return None
 
             # v10.56.6: 取得成功ログ
             state_type = state.state_type.value if hasattr(state, 'state_type') else "normal"
             state_step = state.state_step if hasattr(state, 'state_step') else None
-            logger.info(f"✅ [状態取得成功] type={state_type}, step={state_step}, room={room_id}, user={user_id}")
+            logger.debug(f"[状態取得成功] type={state_type}, step={state_step}")
 
             return SessionState(
                 mode=state_type,
@@ -408,7 +408,7 @@ class ContextBuilder:
                 last_intent=state_step,
             )
         except Exception as e:
-            logger.warning(f"❌ [状態取得エラー] room={room_id}, user={user_id}, error={e}")
+            logger.warning(f"[状態取得エラー] error={e}")
             return None
 
     async def _get_recent_messages(

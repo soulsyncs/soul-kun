@@ -203,7 +203,7 @@ class BrainMemoryAccess:
         # org_idがUUID形式かどうかをチェック（soulkun_insights等はUUID型を要求）
         self._org_id_is_uuid = self._check_is_uuid(org_id)
 
-        logger.info(f"BrainMemoryAccess initialized for org_id={org_id}, is_uuid={self._org_id_is_uuid}")
+        logger.debug(f"BrainMemoryAccess initialized: is_uuid={self._org_id_is_uuid}")
 
     @staticmethod
     def _check_is_uuid(value: str) -> bool:

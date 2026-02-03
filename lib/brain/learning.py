@@ -265,7 +265,7 @@ class BrainLearning:
                 sqlalchemy.text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
-            logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
+            logger.debug("[RLS] SET app.current_organization_id")
             try:
                 yield conn
             finally:
@@ -287,7 +287,7 @@ class BrainLearning:
                 sqlalchemy.text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
-            logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
+            logger.debug("[RLS] SET app.current_organization_id")
             try:
                 yield conn
             finally:

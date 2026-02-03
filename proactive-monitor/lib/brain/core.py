@@ -323,10 +323,10 @@ class SoulkunBrain:
         # 内部状態
         self._initialized = False
 
-        logger.info(f"SoulkunBrain initialized for org_id={org_id}, "
-                   f"chain_of_thought={self.use_chain_of_thought}, "
-                   f"self_critique={self.use_self_critique}, "
-                   f"execution_excellence={self.execution_excellence is not None}")
+        logger.debug(f"SoulkunBrain initialized: "
+                    f"chain_of_thought={self.use_chain_of_thought}, "
+                    f"self_critique={self.use_self_critique}, "
+                    f"execution_excellence={self.execution_excellence is not None}")
 
     # =========================================================================
     # メインエントリーポイント
@@ -1116,6 +1116,72 @@ class SoulkunBrain:
         # brain_conversation_statesのみをチェック（goal_setting_sessionsは参照しない）
         return await self.state_manager.get_current_state(room_id, user_id)
 
+    async def _get_current_state_with_user_org(
+        self,
+        room_id: str,
+        user_id: str,
+    ) -> Optional[ConversationState]:
+        """
+        ユーザーのorganization_idを使用して状態を取得（v10.56.6: マルチテナント対応）
+
+        状態保存時にユーザーのorg_idを使用しているため、
+        取得時も同じorg_idを使用する必要がある。
+
+        Args:
+            room_id: ChatWorkルームID
+            user_id: ユーザーのアカウントID
+
+        Returns:
+            ConversationState: 現在の状態（存在しない場合はNone）
+        """
+        try:
+            from lib.brain.state_manager import BrainStateManager
+
+            # ユーザーのorganization_idを取得
+            user_org_id = await self._get_user_organization_id(user_id)
+            if not user_org_id:
+                logger.debug("[状態取得] ユーザーのorg_id取得失敗")
+                return None
+
+            logger.debug("[状態取得] ユーザーorg_id使用")
+
+            # ユーザーのorg_idで一時的なBrainStateManagerを作成
+            user_state_manager = BrainStateManager(pool=self.pool, org_id=user_org_id)
+            return await user_state_manager.get_current_state(room_id, user_id)
+
+        except Exception as e:
+            logger.error(f"❌ [状態取得] エラー: {e}")
+            return None
+
+    async def _get_user_organization_id(self, user_id: str) -> Optional[str]:
+        """
+        ユーザーのorganization_idを取得（v10.56.6: マルチテナント対応）
+
+        Args:
+            user_id: ユーザーのアカウントID（ChatWork account_id）
+
+        Returns:
+            str: ユーザーのorganization_id（取得失敗時はNone）
+        """
+        try:
+            query = text("""
+                SELECT organization_id FROM users
+                WHERE chatwork_account_id = :account_id
+                LIMIT 1
+            """)
+
+            with self.pool.connect() as conn:
+                result = conn.execute(query, {"account_id": str(user_id)})
+                row = result.fetchone()
+
+            if row and row[0]:
+                return str(row[0])
+            return None
+
+        except Exception as e:
+            logger.warning(f"⚠️ [org_id取得] エラー: {e}")
+            return None
+
     async def _transition_to_state(
         self,
         room_id: str,
@@ -1476,6 +1542,32 @@ class SoulkunBrain:
                 f"🧠 LLM Brain processing: room={room_id}, user={sender_name}, "
                 f"message={message[:50]}..."
             )
+
+            # =================================================================
+            # v10.56.6: LIST_CONTEXT優先ルーティング（マルチテナント対応）
+            # LIST_CONTEXT状態（目標一覧表示後の文脈保持）がある場合は、
+            # LLM処理をスキップしてセッション継続へ直接ルーティングする。
+            # これにより「目標全部削除して」→「OK」が正しく処理される。
+            #
+            # 重要: 状態保存時にユーザーのorg_idを使用しているため、
+            # 取得時も同じorg_idを使用する必要がある。
+            # =================================================================
+            current_state = await self._get_current_state_with_user_org(room_id, account_id)
+            if current_state and current_state.is_active:
+                if current_state.state_type == StateType.LIST_CONTEXT:
+                    logger.debug(
+                        f"📋 LIST_CONTEXT状態検出 → セッション継続へルーティング: "
+                        f"step={current_state.state_step}"
+                    )
+                    return await self.session_orchestrator.continue_session(
+                        message=message,
+                        state=current_state,
+                        context=context,
+                        room_id=room_id,
+                        account_id=account_id,
+                        sender_name=sender_name,
+                        start_time=start_time,
+                    )
 
             # 1. LLMコンテキストを構築
             llm_context = await self.llm_context_builder.build(

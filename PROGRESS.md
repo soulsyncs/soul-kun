@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-01 08:30 JST**
+**最終更新: 2026-02-03 22:00 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,38 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ テストカバレッジ向上（2026-02-03 22:00）
+
+**PR #402** マージ完了
+
+**作業内容**: コアモジュールのテストカバレッジを向上
+
+**追加したテストファイル（6件、約4000行）:**
+
+| ファイル | 行数 | テスト数 | 対象モジュール |
+|---------|------|----------|---------------|
+| test_bottleneck_detector.py | 677 | ~40 | lib/detection/bottleneck_detector.py |
+| test_dalle_client.py | 552 | ~35 | lib/capabilities/generation/dalle_client.py |
+| test_pdf_processor.py | 868 | ~50 | lib/capabilities/multimodal/pdf_processor.py |
+| test_personalization_detector.py | 560 | ~30 | lib/detection/personalization_detector.py |
+| test_runway_client.py | 549 | ~35 | lib/capabilities/generation/runway_client.py |
+| test_url_processor.py | 724 | ~45 | lib/capabilities/multimodal/url_processor.py |
+
+**達成したカバレッジ（対象モジュール）:**
+- bottleneck_detector.py: 100%
+- personalization_detector.py: 100%
+- runway_client.py: 100%
+- dalle_client.py: 99%
+- url_processor.py: 87%
+- pdf_processor.py: 75%
+
+**テスト結果:** 5371 passed, 25 skipped
+**全体カバレッジ:** 74%（目標80%に向けて継続改善）
+
+**コードレビュー:** code-reviewer agent による確認済み（Critical/High issues: なし）
+
+---
 
 ### ✅ 技術的負債解消（2026-02-01 08:30）
 

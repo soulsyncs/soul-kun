@@ -830,7 +830,11 @@ class TestLogGoalTestModeStatus:
         with patch('lib.goal_notification.GOAL_TEST_MODE', True):
             with patch('lib.goal_notification.GOAL_TEST_ALLOWED_ROOM_IDS', {405315911}):
                 log_goal_test_mode_status()
-                assert "GOAL_TEST_MODE" in caplog.text or True  # ログレベル依存
+                # 警告ログにテストモードが有効であることが記録される
+                assert any(
+                    "GOAL_TEST_MODE" in record.message and record.levelno == logging.WARNING
+                    for record in caplog.records
+                )
 
     def test_logs_production_mode_info(self, caplog):
         """本番モードの情報ログ"""
@@ -839,7 +843,11 @@ class TestLogGoalTestModeStatus:
 
         with patch('lib.goal_notification.GOAL_TEST_MODE', False):
             log_goal_test_mode_status()
-            # ログが記録される（詳細は環境依存）
+            # INFOログに本番モードであることが記録される
+            assert any(
+                "GOAL_TEST_MODE=False" in record.message and record.levelno == logging.INFO
+                for record in caplog.records
+            )
 
 
 class TestFormatCurrency:

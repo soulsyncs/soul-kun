@@ -600,3 +600,553 @@ class TestGetPendingGoals:
         assert len(pending) == 1
         assert pending[0]["id"] == goal_id
         assert pending[0]["title"] == "新規目標"
+
+
+# =============================================================================
+# v10.56.5: GoalService メソッドの統合テスト（カバレッジ改善）
+# =============================================================================
+
+class TestGoalServiceGetGoal:
+    """GoalService.get_goal のテスト"""
+
+    def test_get_goal_returns_goal_when_found(self, mock_db_pool):
+        """目標が見つかった場合はGoalオブジェクトを返す"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        # _row_to_goalに必要なデータをモック（属性アクセス形式）
+        mock_row = MagicMock()
+        mock_row.id = str(goal_id)
+        mock_row.organization_id = str(org_id)
+        mock_row.user_id = str(user_id)
+        mock_row.department_id = None
+        mock_row.parent_goal_id = None
+        mock_row.goal_level = "individual"
+        mock_row.title = "テスト目標"
+        mock_row.description = "説明"
+        mock_row.goal_type = "numeric"
+        mock_row.target_value = 1000
+        mock_row.current_value = 500
+        mock_row.unit = "件"
+        mock_row.deadline = None
+        mock_row.period_type = "monthly"
+        mock_row.period_start = date(2026, 1, 1)
+        mock_row.period_end = date(2026, 1, 31)
+        mock_row.status = "active"
+        mock_row.classification = "internal"
+        mock_row.created_at = datetime(2026, 1, 1)
+        mock_row.updated_at = datetime(2026, 1, 1)
+        mock_row.created_by = str(user_id)
+        mock_row.updated_by = str(user_id)
+        mock_conn.execute.return_value.fetchone.return_value = mock_row
+
+        service = GoalService(pool=mock_pool)
+        goal = service.get_goal(goal_id, org_id)
+
+        assert goal is not None
+        assert goal.title == "テスト目標"
+
+    def test_get_goal_returns_none_when_not_found(self, mock_db_pool):
+        """目標が見つからない場合はNoneを返す"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchone.return_value = None
+
+        service = GoalService(pool=mock_pool)
+        goal = service.get_goal(uuid.uuid4(), uuid.uuid4())
+
+        assert goal is None
+
+
+class TestGoalServiceGetGoalsForUser:
+    """GoalService.get_goals_for_user のテスト"""
+
+    def test_get_goals_for_user_basic(self, mock_db_pool):
+        """基本的な目標一覧取得"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        goals = service.get_goals_for_user(uuid.uuid4(), uuid.uuid4())
+
+        assert goals == []
+        assert mock_conn.execute.called
+
+    def test_get_goals_for_user_with_status_filter(self, mock_db_pool):
+        """ステータスフィルター付きの目標一覧取得"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        goals = service.get_goals_for_user(
+            uuid.uuid4(),
+            uuid.uuid4(),
+            status=GoalStatus.ACTIVE
+        )
+
+        assert goals == []
+        # SQLクエリにstatusが含まれることを確認
+        call_args = mock_conn.execute.call_args
+        assert "status" in str(call_args)
+
+    def test_get_goals_for_user_with_period_filter(self, mock_db_pool):
+        """期間フィルター付きの目標一覧取得"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        goals = service.get_goals_for_user(
+            uuid.uuid4(),
+            uuid.uuid4(),
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31)
+        )
+
+        assert goals == []
+
+
+class TestGoalServiceGetActiveGoalsForUser:
+    """GoalService.get_active_goals_for_user のテスト"""
+
+    def test_get_active_goals_for_user(self, mock_db_pool):
+        """アクティブな目標一覧取得"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        goals = service.get_active_goals_for_user(uuid.uuid4(), uuid.uuid4())
+
+        assert goals == []
+
+
+class TestGoalServiceUpdateGoalCurrentValue:
+    """GoalService.update_goal_current_value のテスト"""
+
+    def test_update_goal_current_value_success(self, mock_db_pool):
+        """現在値の更新成功"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        # 最初のクエリ（目標取得）のモック
+        mock_conn.execute.return_value.fetchone.return_value = ("internal", "テスト目標", 100)
+        # 更新クエリのモック
+        mock_conn.execute.return_value.rowcount = 1
+
+        service = GoalService(pool=mock_pool)
+        result = service.update_goal_current_value(
+            goal_id=goal_id,
+            organization_id=org_id,
+            current_value=Decimal("200")
+        )
+
+        assert result is True
+        assert mock_conn.commit.called
+
+    def test_update_goal_current_value_with_audit_log(self, mock_db_pool):
+        """機密目標の更新時に監査ログを記録"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        # 機密目標のモック
+        mock_conn.execute.return_value.fetchone.return_value = ("confidential", "機密目標", 100)
+        mock_conn.execute.return_value.rowcount = 1
+
+        service = GoalService(pool=mock_pool)
+        result = service.update_goal_current_value(
+            goal_id=goal_id,
+            organization_id=org_id,
+            current_value=Decimal("200"),
+            updated_by=user_id
+        )
+
+        assert result is True
+
+    def test_update_goal_current_value_not_found(self, mock_db_pool):
+        """目標が見つからない場合"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchone.return_value = None
+        mock_conn.execute.return_value.rowcount = 0
+
+        service = GoalService(pool=mock_pool)
+        result = service.update_goal_current_value(
+            goal_id=uuid.uuid4(),
+            organization_id=uuid.uuid4(),
+            current_value=Decimal("200")
+        )
+
+        assert result is False
+
+
+class TestGoalServiceCompleteGoal:
+    """GoalService.complete_goal のテスト"""
+
+    def test_complete_goal_success(self, mock_db_pool):
+        """目標完了の成功"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchone.return_value = ("internal", "テスト目標")
+        mock_conn.execute.return_value.rowcount = 1
+
+        service = GoalService(pool=mock_pool)
+        result = service.complete_goal(goal_id=goal_id, organization_id=org_id)
+
+        assert result is True
+        assert mock_conn.commit.called
+
+    def test_complete_goal_with_audit_log(self, mock_db_pool):
+        """機密目標の完了時に監査ログを記録"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchone.return_value = ("restricted", "機密目標")
+        mock_conn.execute.return_value.rowcount = 1
+
+        service = GoalService(pool=mock_pool)
+        result = service.complete_goal(
+            goal_id=goal_id,
+            organization_id=org_id,
+            updated_by=user_id
+        )
+
+        assert result is True
+
+    def test_complete_goal_not_found(self, mock_db_pool):
+        """目標が見つからない場合"""
+        mock_pool, mock_conn = mock_db_pool
+        mock_conn.execute.return_value.fetchone.return_value = None
+        mock_conn.execute.return_value.rowcount = 0
+
+        service = GoalService(pool=mock_pool)
+        result = service.complete_goal(
+            goal_id=uuid.uuid4(),
+            organization_id=uuid.uuid4()
+        )
+
+        assert result is False
+
+
+class TestGoalServiceRecordProgress:
+    """GoalService.record_progress のテスト"""
+
+    def test_record_progress_with_value(self, mock_db_pool):
+        """数値付きの進捗記録"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+
+        # 複数のDB呼び出しに対応するモック
+        # 1回目: 目標の機密区分取得、2回目: 累積値計算、3回目以降: UPSERT等
+        mock_result_goal = MagicMock()
+        mock_result_goal.fetchone.return_value = ("internal", "テスト目標")
+
+        mock_result_sum = MagicMock()
+        mock_result_sum.fetchone.return_value = (Decimal("100"),)  # 前日までの累計
+
+        mock_conn.execute.side_effect = [mock_result_goal, mock_result_sum, MagicMock(), MagicMock(), MagicMock()]
+
+        service = GoalService(pool=mock_pool)
+        progress = service.record_progress(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            value=Decimal("50"),
+            daily_note="今日の進捗",
+            user_id=user_id
+        )
+
+        assert progress is not None
+        assert progress.value == Decimal("50")
+
+    def test_record_progress_without_value(self, mock_db_pool):
+        """数値なしの進捗記録（日報のみ）"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchone.return_value = ("internal", "テスト目標")
+
+        service = GoalService(pool=mock_pool)
+        progress = service.record_progress(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            daily_note="今日の振り返り",
+            daily_choice="順調"
+        )
+
+        assert progress is not None
+
+    def test_record_progress_confidential_goal_logs_audit(self, mock_db_pool):
+        """機密目標の進捗記録時に監査ログを記録"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        # 複数のDB呼び出しに対応するモック（機密目標）
+        mock_result_goal = MagicMock()
+        mock_result_goal.fetchone.return_value = ("confidential", "機密目標")
+
+        mock_result_sum = MagicMock()
+        mock_result_sum.fetchone.return_value = (Decimal("0"),)
+
+        mock_conn.execute.side_effect = [mock_result_goal, mock_result_sum, MagicMock(), MagicMock(), MagicMock(), MagicMock()]
+
+        service = GoalService(pool=mock_pool)
+        progress = service.record_progress(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            value=Decimal("100")
+        )
+
+        assert progress is not None
+
+
+class TestGoalServiceGetProgressForGoal:
+    """GoalService.get_progress_for_goal のテスト"""
+
+    def test_get_progress_for_goal_returns_list(self, mock_db_pool):
+        """目標の進捗一覧を取得"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        progress_list = service.get_progress_for_goal(
+            goal_id=goal_id,
+            organization_id=org_id
+        )
+
+        assert progress_list == []
+
+    def test_get_progress_for_goal_with_date_filter(self, mock_db_pool):
+        """日付フィルター付きの進捗取得"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        service = GoalService(pool=mock_pool)
+        progress_list = service.get_progress_for_goal(
+            goal_id=goal_id,
+            organization_id=org_id,
+            start_date=date(2026, 1, 1),
+            end_date=date(2026, 1, 31)
+        )
+
+        assert progress_list == []
+
+
+class TestGoalServiceGetTodayProgress:
+    """GoalService.get_today_progress のテスト"""
+
+    def test_get_today_progress_returns_progress(self, mock_db_pool):
+        """本日の進捗を取得"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        mock_conn.execute.return_value.fetchone.return_value = None
+
+        service = GoalService(pool=mock_pool)
+        progress = service.get_today_progress(
+            goal_id=goal_id,
+            organization_id=org_id
+        )
+
+        assert progress is None
+
+    def test_get_today_progress_found(self, mock_db_pool):
+        """本日の進捗が存在する場合"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        progress_id = uuid.uuid4()
+
+        # 進捗データのモック（属性アクセス形式）
+        mock_row = MagicMock()
+        mock_row.id = str(progress_id)
+        mock_row.goal_id = str(goal_id)
+        mock_row.organization_id = str(org_id)
+        mock_row.progress_date = date.today()
+        mock_row.value = Decimal("50")
+        mock_row.cumulative_value = Decimal("150")
+        mock_row.daily_note = "今日の進捗"
+        mock_row.daily_choice = "順調"
+        mock_row.ai_feedback = None
+        mock_row.ai_feedback_sent_at = None
+        mock_row.classification = "internal"
+        mock_row.created_at = datetime.now()
+        mock_row.updated_at = datetime.now()
+        mock_row.created_by = None
+        mock_row.updated_by = None
+        mock_conn.execute.return_value.fetchone.return_value = mock_row
+
+        service = GoalService(pool=mock_pool)
+        progress = service.get_today_progress(
+            goal_id=goal_id,
+            organization_id=org_id
+        )
+
+        assert progress is not None
+        assert progress.daily_note == "今日の進捗"
+
+
+class TestGoalServiceSaveAiFeedback:
+    """GoalService.save_ai_feedback のテスト"""
+
+    def test_save_ai_feedback_success(self, mock_db_pool):
+        """AIフィードバックの保存成功"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        progress_id = uuid.uuid4()
+
+        # 更新成功のモック
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+
+        # progress_idを取得するクエリのモック
+        mock_progress_result = MagicMock()
+        mock_progress_result.fetchone.return_value = (str(progress_id),)
+
+        mock_conn.execute.side_effect = [mock_result, mock_progress_result, MagicMock()]
+
+        service = GoalService(pool=mock_pool)
+        result = service.save_ai_feedback(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            ai_feedback="良い進捗です！"
+        )
+
+        assert result is True
+        assert mock_conn.commit.called
+
+    def test_save_ai_feedback_not_found(self, mock_db_pool):
+        """進捗が見つからない場合"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+
+        # 更新対象なしのモック
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_conn.execute.return_value = mock_result
+
+        service = GoalService(pool=mock_pool)
+        result = service.save_ai_feedback(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            ai_feedback="フィードバック"
+        )
+
+        assert result is False
+
+    def test_save_ai_feedback_with_user_id(self, mock_db_pool):
+        """user_idを指定してAIフィードバックを保存"""
+        mock_pool, mock_conn = mock_db_pool
+        goal_id = uuid.uuid4()
+        org_id = uuid.uuid4()
+        user_id = uuid.uuid4()
+        progress_id = uuid.uuid4()
+
+        # 更新成功のモック
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+
+        # progress_idを取得するクエリのモック
+        mock_progress_result = MagicMock()
+        mock_progress_result.fetchone.return_value = (str(progress_id),)
+
+        mock_conn.execute.side_effect = [mock_result, mock_progress_result, MagicMock()]
+
+        service = GoalService(pool=mock_pool)
+        result = service.save_ai_feedback(
+            goal_id=goal_id,
+            organization_id=org_id,
+            progress_date=date(2026, 1, 15),
+            ai_feedback="素晴らしい！",
+            user_id=user_id
+        )
+
+        assert result is True
+
+
+class TestGoalServiceRowConversion:
+    """GoalService._row_to_goal, _row_to_progress のテスト"""
+
+    def test_row_to_goal_with_attributes(self, mock_db_pool):
+        """属性アクセス形式のRowオブジェクトの変換"""
+        mock_pool, mock_conn = mock_db_pool
+        service = GoalService(pool=mock_pool)
+
+        mock_row = MagicMock()
+        mock_row.id = str(uuid.uuid4())
+        mock_row.organization_id = str(uuid.uuid4())
+        mock_row.user_id = str(uuid.uuid4())
+        mock_row.department_id = None
+        mock_row.parent_goal_id = None
+        mock_row.goal_level = "individual"
+        mock_row.title = "テスト目標"
+        mock_row.description = None
+        mock_row.goal_type = "numeric"
+        mock_row.target_value = 1000
+        mock_row.current_value = 500
+        mock_row.unit = "件"
+        mock_row.deadline = None
+        mock_row.period_type = "monthly"
+        mock_row.period_start = date(2026, 1, 1)
+        mock_row.period_end = date(2026, 1, 31)
+        mock_row.status = "active"
+        mock_row.classification = "internal"
+        mock_row.created_at = datetime(2026, 1, 1)
+        mock_row.updated_at = datetime(2026, 1, 1)
+        mock_row.created_by = None
+        mock_row.updated_by = None
+
+        goal = service._row_to_goal(mock_row)
+
+        assert goal.title == "テスト目標"
+        assert goal.goal_type == GoalType.NUMERIC
+        assert goal.status == GoalStatus.ACTIVE
+
+    def test_row_to_progress_with_attributes(self, mock_db_pool):
+        """属性アクセス形式のRowオブジェクトのProgress変換"""
+        mock_pool, mock_conn = mock_db_pool
+        service = GoalService(pool=mock_pool)
+
+        mock_row = MagicMock()
+        mock_row.id = str(uuid.uuid4())
+        mock_row.goal_id = str(uuid.uuid4())
+        mock_row.organization_id = str(uuid.uuid4())
+        mock_row.progress_date = date(2026, 1, 15)
+        mock_row.value = 50
+        mock_row.cumulative_value = 150
+        mock_row.daily_note = "進捗メモ"
+        mock_row.daily_choice = "順調"
+        mock_row.ai_feedback = None
+        mock_row.ai_feedback_sent_at = None
+        mock_row.classification = "internal"
+        mock_row.created_at = datetime(2026, 1, 15)
+        mock_row.updated_at = datetime(2026, 1, 15)
+        mock_row.created_by = None
+        mock_row.updated_by = None
+
+        progress = service._row_to_progress(mock_row)
+
+        assert progress.daily_note == "進捗メモ"
+        assert progress.daily_choice == "順調"

@@ -483,6 +483,7 @@ VALID_STATE_TYPES: Set[str] = {
     "confirmation",     # 確認待ち
     "task_pending",     # タスク作成待ち
     "multi_action",     # 複数アクション実行中
+    "list_context",     # v10.56.5: 一覧表示後の文脈保持（目標削除等）
 }
 
 # 状態ごとのデフォルトタイムアウト（分）
@@ -493,6 +494,7 @@ STATE_TIMEOUTS: Dict[str, int] = {
     "confirmation": CONFIRMATION_TIMEOUT_MINUTES,
     "task_pending": SESSION_TIMEOUT_MINUTES,
     "multi_action": SESSION_TIMEOUT_MINUTES,
+    "list_context": 5,  # v10.56.5: 一覧表示後の文脈保持（5分）
 }
 
 # =============================================================================

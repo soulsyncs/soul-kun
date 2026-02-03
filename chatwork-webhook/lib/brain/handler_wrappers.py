@@ -1353,8 +1353,7 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
                     state_manager = BrainStateManager(pool=pool, org_id=org_id)
                     expires_at = datetime.utcnow() + timedelta(minutes=5)
 
-                    import asyncio
-                    asyncio.create_task(state_manager.transition_to(
+                    await state_manager.transition_to(
                         room_id=room_id,
                         user_id=str(account_id),
                         state_type=StateType.LIST_CONTEXT,
@@ -1366,7 +1365,7 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
                             "expires_at": expires_at.isoformat(),
                         },
                         timeout_minutes=5,
-                    ))
+                    )
                     print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step=goal_list")
             except Exception as state_err:
                 print(f"⚠️ LIST_CONTEXT状態保存エラー（goal_review, 続行）: {state_err}")
@@ -1447,8 +1446,7 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
                         # 有効期限を計算（5分）
                         expires_at = datetime.utcnow() + timedelta(minutes=5)
 
-                        import asyncio
-                        asyncio.create_task(state_manager.transition_to(
+                        await state_manager.transition_to(
                             room_id=room_id,
                             user_id=str(account_id),
                             state_type=StateType.LIST_CONTEXT,
@@ -1460,7 +1458,7 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
                                 "expires_at": expires_at.isoformat(),
                             },
                             timeout_minutes=5,
-                        ))
+                        )
                         print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step={awaiting_input or awaiting_confirmation}")
 
                 except Exception as state_err:

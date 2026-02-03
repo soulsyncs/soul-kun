@@ -269,10 +269,13 @@ class BrainStateManager:
         Returns:
             ConversationState: 現在の状態（存在しない場合はNone）
         """
+        # v10.56.6: 診断ログ追加
+        logger.info(f"🔍 [StateManager.get_current_state] org_id={self.org_id[:8] if self.org_id else 'None'}..., room={room_id}, user={user_id}, is_uuid={self._org_id_is_uuid}")
+
         # org_idがUUID形式でない場合はスキップ
         # brain_conversation_statesテーブルはorganization_idがUUID型のため
         if not self._org_id_is_uuid:
-            logger.debug(f"Skipping brain_conversation_states query: org_id={self.org_id} is not UUID format")
+            logger.warning(f"⚠️ [StateManager] Skipping query: org_id={self.org_id} is not UUID format")
             return None
 
         try:
@@ -299,6 +302,7 @@ class BrainStateManager:
                 row = result.fetchone()
 
             if row is None:
+                logger.info(f"🔍 [StateManager] 状態なし: org_id={self.org_id[:8]}..., room={room_id}, user={user_id}")
                 return None
 
             # タイムアウト判定
@@ -328,8 +332,9 @@ class BrainStateManager:
                 updated_at=row.updated_at,
             )
 
-            logger.debug(
-                f"State retrieved: room={room_id}, user={user_id}, "
+            # v10.56.6: 診断ログをinfoレベルに変更
+            logger.info(
+                f"✅ [StateManager] 状態取得成功: room={room_id}, user={user_id}, "
                 f"type={state.state_type.value}, step={state.state_step}"
             )
 

@@ -1361,6 +1361,7 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
                 get_pool = getattr(main, 'get_pool')
                 pool = get_pool()
 
+                # v10.56.6: ユーザーのorganization_idを取得（マルチテナント対応）
                 with pool.connect() as conn:
                     user_result = conn.execute(
                         text("SELECT organization_id FROM users WHERE chatwork_account_id = :account_id LIMIT 1"),
@@ -1369,6 +1370,8 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
 
                 if user_result and user_result[0]:
                     org_id = str(user_result[0])
+                    print(f"🔍 [LIST_CONTEXT保存/goal_review] org_id={org_id[:8]}..., room={room_id}, user={account_id}")
+
                     state_manager = BrainStateManager(pool=pool, org_id=org_id)
                     expires_at = datetime.utcnow() + timedelta(minutes=5)
 
@@ -1385,9 +1388,11 @@ async def _brain_handle_goal_review(params, room_id, account_id, sender_name, co
                         },
                         timeout_minutes=5,
                     )
-                    print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step=goal_list")
+                    print(f"✅ LIST_CONTEXT状態を保存完了: room={room_id}, user={account_id}, step=goal_list, org_id={org_id[:8]}...")
+                else:
+                    print(f"⚠️ [LIST_CONTEXT保存/goal_review] ユーザーのorg_id取得失敗: account_id={account_id}")
             except Exception as state_err:
-                print(f"⚠️ LIST_CONTEXT状態保存エラー（goal_review, 続行）: {state_err}")
+                print(f"❌ LIST_CONTEXT状態保存エラー（goal_review）: {state_err}")
 
         # v10.54.5: 辞書型の戻り値を正しく処理
         return _extract_handler_result(result, "目標一覧を表示したウル🐺")
@@ -1446,12 +1451,12 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
                 try:
                     from lib.brain.state_manager import BrainStateManager
                     from lib.brain.models import StateType
+                    from sqlalchemy import text
 
                     get_pool = getattr(main, 'get_pool')
                     pool = get_pool()
 
-                    # ユーザーのorganization_idを取得
-                    from sqlalchemy import text
+                    # v10.56.6: ユーザーのorganization_idを取得（マルチテナント対応）
                     with pool.connect() as conn:
                         user_result = conn.execute(
                             text("SELECT organization_id FROM users WHERE chatwork_account_id = :account_id LIMIT 1"),
@@ -1460,6 +1465,8 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
 
                     if user_result and user_result[0]:
                         org_id = str(user_result[0])
+                        print(f"🔍 [LIST_CONTEXT保存] org_id={org_id[:8]}..., room={room_id}, user={account_id}")
+
                         state_manager = BrainStateManager(pool=pool, org_id=org_id)
 
                         # 有効期限を計算（5分）
@@ -1478,10 +1485,12 @@ async def _brain_handle_goal_delete(params, room_id, account_id, sender_name, co
                             },
                             timeout_minutes=5,
                         )
-                        print(f"📋 LIST_CONTEXT状態を保存: room={room_id}, user={account_id}, step={awaiting_input or awaiting_confirmation}")
+                        print(f"✅ LIST_CONTEXT状態を保存完了: room={room_id}, user={account_id}, step={awaiting_input or awaiting_confirmation}, org_id={org_id[:8]}...")
+                    else:
+                        print(f"⚠️ [LIST_CONTEXT保存] ユーザーのorg_id取得失敗: account_id={account_id}")
 
                 except Exception as state_err:
-                    print(f"⚠️ LIST_CONTEXT状態保存エラー（続行）: {state_err}")
+                    print(f"❌ LIST_CONTEXT状態保存エラー: {state_err}")
 
             return HandlerResult(
                 success=result.get("success", True),

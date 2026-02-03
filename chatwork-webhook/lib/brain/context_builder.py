@@ -386,20 +386,29 @@ class ContextBuilder:
     ) -> Optional[SessionState]:
         """セッション状態を取得"""
         if not self.state_manager:
+            logger.info(f"🔍 [状態取得] state_manager is None, skipping")
             return None
 
         try:
+            # v10.56.6: 診断ログ追加
+            logger.info(f"🔍 [状態取得開始] room={room_id}, user={user_id}")
             state = await self.state_manager.get_current_state(room_id, user_id)
             if not state:
+                logger.info(f"🔍 [状態取得] 状態なし: room={room_id}, user={user_id}")
                 return None
 
+            # v10.56.6: 取得成功ログ
+            state_type = state.state_type.value if hasattr(state, 'state_type') else "normal"
+            state_step = state.state_step if hasattr(state, 'state_step') else None
+            logger.info(f"✅ [状態取得成功] type={state_type}, step={state_step}, room={room_id}, user={user_id}")
+
             return SessionState(
-                mode=state.state_type.value if hasattr(state, 'state_type') else "normal",
+                mode=state_type,
                 pending_action=state.state_data if hasattr(state, 'state_data') else None,
-                last_intent=state.state_step if hasattr(state, 'state_step') else None,
+                last_intent=state_step,
             )
         except Exception as e:
-            logger.warning(f"Error getting session state: {e}")
+            logger.warning(f"❌ [状態取得エラー] room={room_id}, user={user_id}, error={e}")
             return None
 
     async def _get_recent_messages(

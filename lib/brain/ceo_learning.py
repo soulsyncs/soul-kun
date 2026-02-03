@@ -348,7 +348,7 @@ class CEOLearningService:
             # 2. ChatWorkアカウントIDからユーザーID（UUID）を取得
             user_id = self._get_user_id_from_account_id(account_id)
             if not user_id:
-                logger.warning(f"User not found for account_id: {account_id}")
+                logger.warning("User not found for account_id")
                 return ProcessingResult(
                     success=False,
                     message=f"ユーザーが見つかりません: account_id={account_id}",

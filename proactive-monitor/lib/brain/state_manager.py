@@ -163,7 +163,7 @@ class BrainStateManager:
                 text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
-            logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
+            logger.debug("[RLS] SET app.current_organization_id")
             try:
                 yield conn
             except Exception:
@@ -213,7 +213,7 @@ class BrainStateManager:
                 text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                 {"org_id": self.org_id}
             )
-            logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
+            logger.debug("[RLS] SET app.current_organization_id")
             try:
                 yield conn
             except Exception:
@@ -269,10 +269,13 @@ class BrainStateManager:
         Returns:
             ConversationState: 現在の状態（存在しない場合はNone）
         """
+        # v10.56.6: 診断ログ追加（debugレベル、PII非露出）
+        logger.debug(f"[StateManager.get_current_state] is_uuid={self._org_id_is_uuid}")
+
         # org_idがUUID形式でない場合はスキップ
         # brain_conversation_statesテーブルはorganization_idがUUID型のため
         if not self._org_id_is_uuid:
-            logger.debug(f"Skipping brain_conversation_states query: org_id={self.org_id} is not UUID format")
+            logger.debug("[StateManager] Skipping query: org_id is not UUID format")
             return None
 
         try:
@@ -299,13 +302,14 @@ class BrainStateManager:
                 row = result.fetchone()
 
             if row is None:
+                logger.debug("[StateManager] 状態なし")
                 return None
 
             # タイムアウト判定
             expires_at = row.expires_at
             if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
                 # タイムアウト → 自動クリア（同期的に実行）
-                logger.info(f"State expired, auto-clearing: room={room_id}, user={user_id}")
+                logger.debug("State expired, auto-clearing")
                 try:
                     self._clear_state_sync(room_id, user_id, reason="timeout")
                 except Exception as clear_err:
@@ -328,9 +332,9 @@ class BrainStateManager:
                 updated_at=row.updated_at,
             )
 
+            # v10.56.6: 診断ログ（debugレベル、PII非露出）
             logger.debug(
-                f"State retrieved: room={room_id}, user={user_id}, "
-                f"type={state.state_type.value}, step={state.state_step}"
+                f"[StateManager] 状態取得成功: type={state.state_type.value}, step={state.state_step}"
             )
 
             return state
@@ -529,7 +533,7 @@ class BrainStateManager:
             })
             conn.commit()
 
-        logger.info(f"State cleared: room={room_id}, user={user_id}, reason={reason}")
+        logger.debug(f"State cleared: reason={reason}")
             # クリアエラーは致命的ではないのでログのみ
 
     # =========================================================================
@@ -885,7 +889,7 @@ class BrainStateManager:
             # タイムアウト判定
             expires_at = row.expires_at
             if expires_at and datetime.utcnow() > expires_at.replace(tzinfo=None):
-                logger.info(f"State expired, will be auto-cleared: room={room_id}, user={user_id}")
+                logger.debug("State expired, will be auto-cleared")
                 # 同期版ではクリアは行わず、Noneを返すのみ
                 return None
 
@@ -1032,7 +1036,7 @@ class BrainStateManager:
                         "user_id": user_id,
                     })
 
-            logger.info(f"State cleared (sync): room={room_id}, user={user_id}, reason={reason}")
+            logger.debug(f"State cleared (sync): reason={reason}")
 
         except Exception as e:
             logger.error(f"Error clearing state (sync): {e}")

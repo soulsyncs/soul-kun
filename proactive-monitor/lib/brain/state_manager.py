@@ -146,11 +146,18 @@ class BrainStateManager:
         注意:
         - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
         - 終了時にRESETで値をクリア
+        - v10.56.4: エラー時は必ずrollbackしてからRESET（アボート状態対応）
 
         Yields:
             conn: organization_idが設定されたDB接続
         """
         with self.pool.connect() as conn:
+            # v10.56.4: プールから取得した接続がアボート状態の場合に備えて先にrollback
+            try:
+                conn.rollback()
+            except Exception:
+                pass  # 正常な接続ではrollbackは何もしないので無視
+
             # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             conn.execute(
                 text("SELECT set_config('app.current_organization_id', :org_id, false)"),
@@ -159,8 +166,30 @@ class BrainStateManager:
             logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
             try:
                 yield conn
+            except Exception:
+                # v10.56.4: エラー発生時はrollbackしてから再raise
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass  # rollback自体のエラーは無視
+                raise
             finally:
-                conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                # v10.56.4: finally内でもエラー時はrollbackしてからRESET
+                try:
+                    conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                except Exception as reset_err:
+                    # アボート状態の場合はrollbackしてから再試行
+                    logger.warning(f"[RLS] RESET failed, attempting rollback: {reset_err}")
+                    try:
+                        conn.rollback()
+                        conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                    except Exception as retry_err:
+                        # v10.56.4: RESET失敗時は接続を無効化（org_id残留によるデータ漏洩防止）
+                        logger.error(f"[RLS] RESET retry failed, invalidating connection: {retry_err}")
+                        try:
+                            conn.invalidate()
+                        except Exception:
+                            pass  # invalidate自体のエラーは無視（接続は破棄される）
 
     @asynccontextmanager
     async def _connect_with_org_context_async(self):
@@ -170,8 +199,15 @@ class BrainStateManager:
         注意:
         - 必ずSETを実行し、前の接続の値が残らないようにする（データ漏洩防止）
         - 終了時にRESETで値をクリア
+        - v10.56.4: エラー時は必ずrollbackしてからRESET（アボート状態対応）
         """
         async with self.pool.connect() as conn:
+            # v10.56.4: プールから取得した接続がアボート状態の場合に備えて先にrollback
+            try:
+                await conn.rollback()
+            except Exception:
+                pass  # 正常な接続ではrollbackは何もしないので無視
+
             # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
             await conn.execute(
                 text("SELECT set_config('app.current_organization_id', :org_id, false)"),
@@ -180,8 +216,30 @@ class BrainStateManager:
             logger.info(f"[RLS] SET app.current_organization_id = {(self.org_id or '')[:8]}...")
             try:
                 yield conn
+            except Exception:
+                # v10.56.4: エラー発生時はrollbackしてから再raise
+                try:
+                    await conn.rollback()
+                except Exception:
+                    pass  # rollback自体のエラーは無視
+                raise
             finally:
-                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                # v10.56.4: finally内でもエラー時はrollbackしてからRESET
+                try:
+                    await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                except Exception as reset_err:
+                    # アボート状態の場合はrollbackしてから再試行
+                    logger.warning(f"[RLS] RESET failed (async), attempting rollback: {reset_err}")
+                    try:
+                        await conn.rollback()
+                        await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                    except Exception as retry_err:
+                        # v10.56.4: RESET失敗時は接続を無効化（org_id残留によるデータ漏洩防止）
+                        logger.error(f"[RLS] RESET retry failed (async), invalidating connection: {retry_err}")
+                        try:
+                            await conn.invalidate()
+                        except Exception:
+                            pass  # invalidate自体のエラーは無視（接続は破棄される）
 
     def _execute_sync(self, query, params: dict):
         """同期的にクエリを実行"""

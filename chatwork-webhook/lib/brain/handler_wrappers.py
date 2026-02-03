@@ -724,11 +724,14 @@ def _brain_continue_list_context(message, room_id, account_id, sender_name, stat
 
             # 確認待ち状態からの応答（「OK」「削除する」等）
             if step in ["goal_delete", "goal_delete_duplicates", "goal_cleanup_duplicates", "goal_cleanup_expired"]:
+                msg_lc = message.lower()
                 approval_keywords = [
                     "ok", "はい", "削除", "実行", "うん", "いいよ", "お願い",
                     "そうだよ", "全部ok", "全削除", "全消し", "全部消す", "全部消して", "消して",
+                    "全件削除", "全件ok", "全件削除でok", "全部削除でok",
+                    "お願いいたします", "お願いします",
                 ]
-                if any(kw in message.lower() for kw in approval_keywords):
+                if any(kw in msg_lc for kw in approval_keywords):
                     context = {
                         "pending_data": pending_data,
                         "original_message": message,
@@ -761,6 +764,19 @@ def _brain_continue_list_context(message, room_id, account_id, sender_name, stat
                         "session_completed": True,
                         "new_state": "normal",
                     }
+                # 承認語句が不足している場合は確認を継続（文脈を維持）
+                return {
+                    "message": "✅ 了解ウル！全削除で進めていい？\n「はい」「全削除でOK」「お願いします」などで返してほしいウル🐺",
+                    "success": True,
+                    "session_completed": False,
+                    "new_state_data": {
+                        "list_type": "goals",
+                        "action": "goal_delete",
+                        "step": step,
+                        "pending_data": pending_data,
+                        "expires_at": state_data.get("expires_at"),
+                    },
+                }
 
             # 番号入力待ち状態からの応答
             if step == "goal_delete_numbers":

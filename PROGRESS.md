@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-03 22:00 JST**
+**最終更新: 2026-02-04 10:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,43 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ テストカバレッジ向上 - brain modules（2026-02-04 10:30）
+
+**コミット:** f7e64cc
+
+**作業内容**: brainモジュールとmodel_orchestratorのテストカバレッジを向上
+
+**追加したテストファイル（14件、約7000行）:**
+
+| ファイル | 対象モジュール | カバレッジ |
+|---------|---------------|-----------|
+| test_brain_exceptions.py | lib/brain/exceptions.py | 100% |
+| test_outcome_analyzer.py | lib/brain/outcome_learning/analyzer.py | 100% |
+| test_outcome_pattern_extractor.py | lib/brain/outcome_learning/pattern_extractor.py | 99% |
+| test_model_registry.py | lib/brain/model_orchestrator/registry.py | 94%（38%→） |
+| test_usage_logger.py | lib/brain/model_orchestrator/usage_logger.py | - |
+| test_applier.py | lib/brain/learning_foundation/applier.py | - |
+| test_auto_knowledge.py | lib/knowledge/auto_knowledge.py | - |
+| test_ceo_teaching_repository.py | lib/brain/ceo_teaching/repository.py | - |
+| test_conflict_detector.py | lib/brain/conflict_detector.py | - |
+| test_consistency_checker.py | lib/brain/consistency_checker.py | - |
+| test_conversation_summary.py | lib/brain/conversation_summary.py | - |
+| test_feedback_delivery.py | lib/brain/feedback_delivery.py | - |
+| test_insight_service.py | lib/brain/insight_service.py | - |
+| test_pattern_detector.py | lib/detection/pattern_detector.py | - |
+
+**削除したテストファイル:**
+- test_emotion_detector.py（実装とAPIが不一致のため削除）
+
+**修正したファイル:**
+- lib/brain/learning_foundation/applier.py（テスト対応の軽微修正）
+- lib/brain/learning_foundation/models.py（テスト対応の軽微修正）
+- tests/test_brain_outcome_learning.py（不要テスト削除）
+
+**全体カバレッジ:** 79%（目標80%まであと約426行）
+
+---
 
 ### ✅ テストカバレッジ向上（2026-02-03 22:00）
 

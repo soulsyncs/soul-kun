@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-03 22:00 JST**
+**最終更新: 2026-02-04 12:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,98 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ 型安全性インフラ追加（2026-02-04 12:30）
+
+**コミット:** 70cffea
+**PR:** #404
+
+**目的:** 過去の本番障害（型の不整合）の根本原因を解決
+
+**Phase 1: models.py 型安全化**
+- Confidenceクラス追加（バリデーション、from_value()で後方互換）
+- 25個のdataclass全てにto_dict()追加
+- Enum.value、datetime.isoformat()の統一処理
+
+**Phase 2: core.py 境界検証**
+- `_validate_llm_result_type()`: LLM結果の厳密な型チェック
+- `_extract_confidence_value()`: confidence値の安全な抽出
+- `_safe_confidence_to_dict()`: 安全なシリアライズ
+- 過去の障害箇所7箇所に適用
+
+**Phase 3: type_safety.py ユーティリティ**
+- `safe_to_dict()`: 任意オブジェクトを安全にJSON化
+- `validate_json_serializable()`: JSON化可能か検証
+- dataclass, Enum, datetime, UUID, Decimal, bytes等に対応
+
+**これで防げる障害:**
+- GoalInfoを辞書としてアクセス → 型エラーで即検出
+- confidenceオブジェクトを数値として保存 → 事前変換で防止
+- debug_infoにオブジェクト混入 → safe_to_dict()で安全化
+
+**Codexダブルチェック:** PASS
+
+---
+
+### ✅ テストカバレッジ80%達成！（2026-02-04 11:30）
+
+**コミット:** c7af534
+**PR:** #404
+
+**🎉 目標達成: 全体カバレッジ 79% → 81%**
+
+**追加したテストファイル（5件、352テスト、約7500行）:**
+
+| ファイル | 対象モジュール | カバレッジ向上 |
+|---------|---------------|---------------|
+| test_emotion_detector_v2.py | lib/detection/emotion_detector.py | 11% → 94% |
+| test_google_drive_v2.py | lib/google_drive.py | 43% → 89% |
+| test_fact_collector_v2.py | lib/capabilities/feedback/fact_collector.py | 41% → 97% |
+| test_google_docs_client_v2.py | lib/capabilities/generation/google_docs_client.py | 39% → 98% |
+| test_ceo_feedback_engine_v2.py | lib/capabilities/feedback/ceo_feedback_engine.py | 47% → 92% |
+
+**テスト結果:** 6524 passed, 25 skipped
+
+**Codexダブルチェック:** PASS
+
+---
+
+### ✅ テストカバレッジ向上 - brain modules（2026-02-04 10:30）
+
+**コミット:** f7e64cc
+
+**作業内容**: brainモジュールとmodel_orchestratorのテストカバレッジを向上
+
+**追加したテストファイル（14件、約7000行）:**
+
+| ファイル | 対象モジュール | カバレッジ |
+|---------|---------------|-----------|
+| test_brain_exceptions.py | lib/brain/exceptions.py | 100% |
+| test_outcome_analyzer.py | lib/brain/outcome_learning/analyzer.py | 100% |
+| test_outcome_pattern_extractor.py | lib/brain/outcome_learning/pattern_extractor.py | 99% |
+| test_model_registry.py | lib/brain/model_orchestrator/registry.py | 94%（38%→） |
+| test_usage_logger.py | lib/brain/model_orchestrator/usage_logger.py | - |
+| test_applier.py | lib/brain/learning_foundation/applier.py | - |
+| test_auto_knowledge.py | lib/knowledge/auto_knowledge.py | - |
+| test_ceo_teaching_repository.py | lib/brain/ceo_teaching/repository.py | - |
+| test_conflict_detector.py | lib/brain/conflict_detector.py | - |
+| test_consistency_checker.py | lib/brain/consistency_checker.py | - |
+| test_conversation_summary.py | lib/brain/conversation_summary.py | - |
+| test_feedback_delivery.py | lib/brain/feedback_delivery.py | - |
+| test_insight_service.py | lib/brain/insight_service.py | - |
+| test_pattern_detector.py | lib/detection/pattern_detector.py | - |
+
+**削除したテストファイル:**
+- test_emotion_detector.py（実装とAPIが不一致のため削除）
+
+**修正したファイル:**
+- lib/brain/learning_foundation/applier.py（テスト対応の軽微修正）
+- lib/brain/learning_foundation/models.py（テスト対応の軽微修正）
+- tests/test_brain_outcome_learning.py（不要テスト削除）
+
+**全体カバレッジ:** 79%（目標80%まであと約426行）
+
+---
 
 ### ✅ テストカバレッジ向上（2026-02-03 22:00）
 

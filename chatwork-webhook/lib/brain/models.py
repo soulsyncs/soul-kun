@@ -11,7 +11,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 
 
@@ -80,6 +80,124 @@ class ConfidenceLevel(str, Enum):
             return cls.VERY_HIGH
 
 
+@dataclass
+class Confidence:
+    """
+    確信度（統一版）
+
+    型安全な確信度表現。本番障害（型の不整合）を防ぐために導入。
+    floatとの互換性を維持しつつ、明示的な型として扱う。
+
+    SoT: このファイル（lib/brain/models.py）
+
+    使用例:
+        confidence = Confidence(0.85)
+        confidence = Confidence(0.85, "意図が明確")
+
+        # float として比較可能
+        if confidence.overall > 0.7:
+            ...
+
+        # 辞書化
+        data = confidence.to_dict()
+    """
+
+    overall: float = 0.0
+    """総合確信度（0.0 - 1.0）"""
+
+    reasoning: Optional[str] = None
+    """確信度の根拠（オプション）"""
+
+    intent_confidence: Optional[float] = None
+    """意図理解の確信度（オプション）"""
+
+    entity_confidence: Optional[float] = None
+    """エンティティ解決の確信度（オプション）"""
+
+    def __post_init__(self) -> None:
+        """バリデーション"""
+        if not isinstance(self.overall, (int, float)):
+            raise TypeError(f"overall must be a number, got {type(self.overall).__name__}")
+        if not 0.0 <= self.overall <= 1.0:
+            raise ValueError(f"overall must be between 0.0 and 1.0, got {self.overall}")
+
+    @property
+    def level(self) -> ConfidenceLevel:
+        """確信度レベルを取得"""
+        return ConfidenceLevel.from_score(self.overall)
+
+    @property
+    def is_high(self) -> bool:
+        """高確信度か（0.7以上）"""
+        return self.overall >= 0.7
+
+    @property
+    def is_low(self) -> bool:
+        """低確信度か（0.5未満）"""
+        return self.overall < 0.5
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "overall": self.overall,
+            "level": self.level.value,
+            "reasoning": self.reasoning,
+            "intent_confidence": self.intent_confidence,
+            "entity_confidence": self.entity_confidence,
+        }
+
+    @classmethod
+    def from_value(cls, value: Union[float, int, "Confidence", Dict[str, Any]]) -> "Confidence":
+        """
+        様々な型から Confidence を生成（後方互換性）
+
+        Args:
+            value: float, int, Confidence, または辞書
+
+        Returns:
+            Confidence インスタンス
+
+        Raises:
+            TypeError: サポートされていない型の場合
+        """
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, (int, float)):
+            return cls(overall=float(value))
+        if isinstance(value, dict):
+            return cls(
+                overall=float(value.get("overall", 0.0)),
+                reasoning=value.get("reasoning"),
+                intent_confidence=value.get("intent_confidence"),
+                entity_confidence=value.get("entity_confidence"),
+            )
+        raise TypeError(f"Cannot create Confidence from {type(value).__name__}")
+
+    def __float__(self) -> float:
+        """float への暗黙変換をサポート"""
+        return self.overall
+
+    def __lt__(self, other: Union[float, "Confidence"]) -> bool:
+        """比較演算子 <"""
+        other_val = other.overall if isinstance(other, Confidence) else float(other)
+        return self.overall < other_val
+
+    def __le__(self, other: Union[float, "Confidence"]) -> bool:
+        """比較演算子 <="""
+        other_val = other.overall if isinstance(other, Confidence) else float(other)
+        return self.overall <= other_val
+
+    def __gt__(self, other: Union[float, "Confidence"]) -> bool:
+        """比較演算子 >"""
+        other_val = other.overall if isinstance(other, Confidence) else float(other)
+        return self.overall > other_val
+
+    def __ge__(self, other: Union[float, "Confidence"]) -> bool:
+        """比較演算子 >="""
+        other_val = other.overall if isinstance(other, Confidence) else float(other)
+        return self.overall >= other_val
+
+
 # =============================================================================
 # 記憶層のモデル
 # =============================================================================
@@ -95,6 +213,16 @@ class ConversationMessage:
     message_id: Optional[str] = None
     sender_name: Optional[str] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "role": self.role,
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "message_id": self.message_id,
+            "sender_name": self.sender_name,
+        }
+
 
 @dataclass
 class SummaryData:
@@ -106,6 +234,16 @@ class SummaryData:
     mentioned_tasks: List[str]   # 言及されたタスク
     created_at: datetime
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "summary": self.summary,
+            "key_topics": self.key_topics,
+            "mentioned_persons": self.mentioned_persons,
+            "mentioned_tasks": self.mentioned_tasks,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
 
 @dataclass
 class PreferenceData:
@@ -115,6 +253,15 @@ class PreferenceData:
     feature_usage: Dict[str, int] = field(default_factory=dict)  # 機能使用状況
     preferred_times: List[str] = field(default_factory=list)     # 好みの時間帯
     custom_keywords: Dict[str, str] = field(default_factory=dict)  # カスタムキーワード
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "response_style": self.response_style,
+            "feature_usage": self.feature_usage,
+            "preferred_times": self.preferred_times,
+            "custom_keywords": self.custom_keywords,
+        }
 
 
 @dataclass
@@ -403,6 +550,16 @@ class GoalSessionInfo:
     created_at: datetime = field(default_factory=datetime.now)
     data: Dict[str, Any] = field(default_factory=dict)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "session_id": self.session_id,
+            "current_step": self.current_step,
+            "retry_count": self.retry_count,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "data": self.data,
+        }
+
 
 @dataclass
 class KnowledgeChunk:
@@ -413,6 +570,16 @@ class KnowledgeChunk:
     source: str                  # 出典
     relevance_score: float       # 関連度スコア
     metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "chunk_id": self.chunk_id,
+            "content": self.content,
+            "source": self.source,
+            "relevance_score": self.relevance_score,
+            "metadata": self.metadata,
+        }
 
 
 @dataclass
@@ -425,6 +592,17 @@ class InsightInfo:
     description: str
     severity: str                # critical, high, medium, low
     created_at: datetime
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "insight_id": self.insight_id,
+            "insight_type": self.insight_type,
+            "title": self.title,
+            "description": self.description,
+            "severity": self.severity,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 # =============================================================================
@@ -471,6 +649,25 @@ class ConversationState:
         now = datetime.now(timezone.utc)
         expires = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
         return now > expires
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "state_id": self.state_id,
+            "organization_id": self.organization_id,
+            "room_id": self.room_id,
+            "user_id": self.user_id,
+            "state_type": self.state_type.value if isinstance(self.state_type, StateType) else self.state_type,
+            "state_step": self.state_step,
+            "state_data": self.state_data,
+            "reference_type": self.reference_type,
+            "reference_id": self.reference_id,
+            "expires_at": self.expires_at.isoformat() if self.expires_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "is_active": self.is_active,
+            "is_expired": self.is_expired,
+        }
 
 
 # =============================================================================
@@ -718,6 +915,16 @@ class ResolvedEntity:
     source: str                  # 解決に使った情報源
     confidence: float = 1.0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "original": self.original,
+            "resolved": self.resolved,
+            "entity_type": self.entity_type,
+            "source": self.source,
+            "confidence": self.confidence,
+        }
+
 
 @dataclass
 class UnderstandingResult:
@@ -762,6 +969,22 @@ class UnderstandingResult:
         """確信度レベルを取得"""
         return ConfidenceLevel.from_score(self.intent_confidence)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "raw_message": self.raw_message,
+            "intent": self.intent,
+            "intent_confidence": self.intent_confidence,
+            "confidence_level": self.confidence_level.value,
+            "entities": self.entities,
+            "resolved_ambiguities": [e.to_dict() for e in self.resolved_ambiguities],
+            "needs_confirmation": self.needs_confirmation,
+            "confirmation_reason": self.confirmation_reason,
+            "confirmation_options": self.confirmation_options,
+            "reasoning": self.reasoning,
+            "processing_time_ms": self.processing_time_ms,
+        }
+
 
 # =============================================================================
 # 判断層のモデル
@@ -776,6 +999,15 @@ class ActionCandidate:
     score: float                 # マッチスコア
     params: Dict[str, Any] = field(default_factory=dict)
     reasoning: str = ""          # この候補を選んだ理由
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "action": self.action,
+            "score": self.score,
+            "params": self.params,
+            "reasoning": self.reasoning,
+        }
 
 
 @dataclass
@@ -806,6 +1038,20 @@ class DecisionResult:
 
     # 処理時間
     processing_time_ms: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "action": self.action,
+            "params": self.params,
+            "confidence": self.confidence,
+            "needs_confirmation": self.needs_confirmation,
+            "confirmation_question": self.confirmation_question,
+            "confirmation_options": self.confirmation_options,
+            "other_candidates": [c.to_dict() for c in self.other_candidates],
+            "reasoning": self.reasoning,
+            "processing_time_ms": self.processing_time_ms,
+        }
 
 
 # =============================================================================
@@ -840,6 +1086,20 @@ class HandlerResult:
     error_code: Optional[str] = None
     error_details: Optional[str] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "success": self.success,
+            "message": self.message,
+            "data": self.data,
+            "next_action": self.next_action,
+            "next_params": self.next_params,
+            "update_state": self.update_state,
+            "suggestions": self.suggestions,
+            "error_code": self.error_code,
+            "error_details": self.error_details,
+        }
+
 
 # =============================================================================
 # 確認リクエスト
@@ -871,6 +1131,17 @@ class ConfirmationRequest:
 {options_str}
 
 番号で教えてほしいウル🐺"""
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "question": self.question,
+            "options": self.options,
+            "default_option": self.default_option,
+            "timeout_seconds": self.timeout_seconds,
+            "on_confirm_action": self.on_confirm_action,
+            "on_confirm_params": self.on_confirm_params,
+        }
 
 
 # =============================================================================
@@ -911,6 +1182,21 @@ class BrainResponse:
 
     # 処理時間
     total_time_ms: int = 0
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "message": self.message,
+            "action_taken": self.action_taken,
+            "action_params": self.action_params,
+            "success": self.success,
+            "suggestions": self.suggestions,
+            "state_changed": self.state_changed,
+            "new_state": self.new_state,
+            "awaiting_confirmation": self.awaiting_confirmation,
+            "debug_info": self.debug_info,
+            "total_time_ms": self.total_time_ms,
+        }
 
 
 # =============================================================================
@@ -1092,6 +1378,35 @@ class CEOTeaching:
             parts.append(f"  対象: {self.target}")
         return "\n".join(parts)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "ceo_user_id": self.ceo_user_id,
+            "statement": self.statement,
+            "reasoning": self.reasoning,
+            "context": self.context,
+            "target": self.target,
+            "category": self.category.value if isinstance(self.category, TeachingCategory) else self.category,
+            "subcategory": self.subcategory,
+            "keywords": self.keywords,
+            "validation_status": self.validation_status.value if isinstance(self.validation_status, ValidationStatus) else self.validation_status,
+            "mvv_alignment_score": self.mvv_alignment_score,
+            "theory_alignment_score": self.theory_alignment_score,
+            "priority": self.priority,
+            "is_active": self.is_active,
+            "supersedes": self.supersedes,
+            "usage_count": self.usage_count,
+            "last_used_at": self.last_used_at.isoformat() if self.last_used_at else None,
+            "helpful_count": self.helpful_count,
+            "source_room_id": self.source_room_id,
+            "source_message_id": self.source_message_id,
+            "extracted_at": self.extracted_at.isoformat() if self.extracted_at else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
 
 @dataclass
 class ConflictInfo:
@@ -1131,6 +1446,21 @@ class ConflictInfo:
             Severity.LOW: "🟢"
         }
         return f"{severity_emoji.get(self.severity, '⚪')} [{self.conflict_type.value}] {self.description}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "teaching_id": self.teaching_id,
+            "conflict_type": self.conflict_type.value if isinstance(self.conflict_type, ConflictType) else self.conflict_type,
+            "conflict_subtype": self.conflict_subtype,
+            "description": self.description,
+            "reference": self.reference,
+            "severity": self.severity.value if isinstance(self.severity, Severity) else self.severity,
+            "conflicting_teaching_id": self.conflicting_teaching_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
 
 
 @dataclass
@@ -1225,6 +1555,29 @@ class GuardianAlert:
 
         return "\n".join(parts)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "id": self.id,
+            "organization_id": self.organization_id,
+            "teaching_id": self.teaching_id,
+            "conflict_summary": self.conflict_summary,
+            "alert_message": self.alert_message,
+            "alternative_suggestion": self.alternative_suggestion,
+            "conflicts": [c.to_dict() for c in self.conflicts],
+            "status": self.status.value if isinstance(self.status, AlertStatus) else self.status,
+            "ceo_response": self.ceo_response,
+            "ceo_reasoning": self.ceo_reasoning,
+            "resolved_at": self.resolved_at.isoformat() if self.resolved_at else None,
+            "notified_at": self.notified_at.isoformat() if self.notified_at else None,
+            "notification_room_id": self.notification_room_id,
+            "notification_message_id": self.notification_message_id,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "is_resolved": self.is_resolved,
+            "max_severity": self.max_severity.value,
+        }
+
 
 @dataclass
 class TeachingValidationResult:
@@ -1280,6 +1633,22 @@ class TeachingValidationResult:
             return high_conflicts[0].description
         return self.conflicts[0].description
 
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "teaching": self.teaching.to_dict() if self.teaching else None,
+            "is_valid": self.is_valid,
+            "validation_status": self.validation_status.value if isinstance(self.validation_status, ValidationStatus) else self.validation_status,
+            "conflicts": [c.to_dict() for c in self.conflicts],
+            "mvv_alignment_score": self.mvv_alignment_score,
+            "theory_alignment_score": self.theory_alignment_score,
+            "overall_score": self.overall_score,
+            "recommended_action": self.recommended_action,
+            "alternative_suggestion": self.alternative_suggestion,
+            "validation_time_ms": self.validation_time_ms,
+            "validated_at": self.validated_at.isoformat() if self.validated_at else None,
+        }
+
 
 @dataclass
 class TeachingUsageContext:
@@ -1308,6 +1677,22 @@ class TeachingUsageContext:
 
     # メタデータ
     used_at: datetime = field(default_factory=datetime.now)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "teaching_id": self.teaching_id,
+            "organization_id": self.organization_id,
+            "room_id": self.room_id,
+            "account_id": self.account_id,
+            "user_message": self.user_message,
+            "response_excerpt": self.response_excerpt,
+            "relevance_score": self.relevance_score,
+            "selection_reasoning": self.selection_reasoning,
+            "was_helpful": self.was_helpful,
+            "feedback": self.feedback,
+            "used_at": self.used_at.isoformat() if self.used_at else None,
+        }
 
 
 @dataclass
@@ -1352,6 +1737,17 @@ class CEOTeachingContext:
                 parts.append(f"  （{teaching.reasoning}）")
 
         return "\n".join(parts)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """辞書形式に変換"""
+        return {
+            "relevant_teachings": [t.to_dict() for t in self.relevant_teachings],
+            "pending_alerts": [a.to_dict() for a in self.pending_alerts],
+            "is_ceo_user": self.is_ceo_user,
+            "ceo_user_id": self.ceo_user_id,
+            "total_teachings_count": self.total_teachings_count,
+            "active_teachings_count": self.active_teachings_count,
+        }
 
 
 # =============================================================================

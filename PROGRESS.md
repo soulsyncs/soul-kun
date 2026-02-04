@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-04 11:30 JST**
+**最終更新: 2026-02-04 12:30 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,38 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ 型安全性インフラ追加（2026-02-04 12:30）
+
+**コミット:** 70cffea
+**PR:** #404
+
+**目的:** 過去の本番障害（型の不整合）の根本原因を解決
+
+**Phase 1: models.py 型安全化**
+- Confidenceクラス追加（バリデーション、from_value()で後方互換）
+- 25個のdataclass全てにto_dict()追加
+- Enum.value、datetime.isoformat()の統一処理
+
+**Phase 2: core.py 境界検証**
+- `_validate_llm_result_type()`: LLM結果の厳密な型チェック
+- `_extract_confidence_value()`: confidence値の安全な抽出
+- `_safe_confidence_to_dict()`: 安全なシリアライズ
+- 過去の障害箇所7箇所に適用
+
+**Phase 3: type_safety.py ユーティリティ**
+- `safe_to_dict()`: 任意オブジェクトを安全にJSON化
+- `validate_json_serializable()`: JSON化可能か検証
+- dataclass, Enum, datetime, UUID, Decimal, bytes等に対応
+
+**これで防げる障害:**
+- GoalInfoを辞書としてアクセス → 型エラーで即検出
+- confidenceオブジェクトを数値として保存 → 事前変換で防止
+- debug_infoにオブジェクト混入 → safe_to_dict()で安全化
+
+**Codexダブルチェック:** PASS
+
+---
 
 ### ✅ テストカバレッジ80%達成！（2026-02-04 11:30）
 

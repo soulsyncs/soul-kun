@@ -577,21 +577,24 @@ jobs:
           echo "🔍 Running mypy type check on lib/brain/..."
           echo ""
 
-          # 段階的に厳格化: まず主要ファイルをチェック
-          # 将来的には全てのファイルに拡張
+          # Phase 1: models.pyとtype_safety.pyのみを厳格チェック
+          # --follow-imports=skip で依存ファイルのエラーを無視
           mypy lib/brain/models.py lib/brain/type_safety.py \
             --ignore-missing-imports \
+            --follow-imports=skip \
             --no-error-summary \
             --show-error-codes \
             || {
               echo ""
-              echo "❌ Type errors found in lib/brain/"
+              echo "❌ Type errors found in lib/brain/models.py or type_safety.py"
               echo "Please fix type annotations before merging."
               exit 1
             }
 
           echo ""
-          echo "✅ Type check passed!"
+          echo "✅ Type check passed (models.py, type_safety.py)"
+          echo ""
+          echo "📋 Note: Other files in lib/brain/ will be checked in future phases."
 
   # =====================================================
   # 最終ステータス

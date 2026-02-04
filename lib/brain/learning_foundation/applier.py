@@ -136,17 +136,18 @@ class LearningApplier:
             applied_in_room_id=room_id,
             applied_for_account_id=account_id,
             trigger_message=message,
-            applied_result="applied",
+            was_successful=True,
+            result_description="applied",
         )
         self.repository.save_log(conn, log)
 
         # 適用結果を生成
+        modification = self._generate_modification(learning, message)
         return AppliedLearning(
             learning=learning,
-            applied_at=datetime.now(),
-            trigger_message=message,
-            modification=self._generate_modification(learning, message),
-            mention_text=self._generate_mention_text(learning),
+            application_type=learning.category or "unknown",
+            before_value=message,
+            after_value=modification,
         )
 
     def apply_all(
@@ -508,8 +509,8 @@ class LearningApplier:
 
         # 別名の初回使用時
         if category == LearningCategory.ALIAS.value:
-            # TODO: 初回かどうかの判定（apply_count == 1 の場合）
-            if learning.apply_count <= 1:
+            # 初回かどうかの判定（applied_count == 1 の場合）
+            if learning.applied_count <= 1:
                 template = MENTION_TEMPLATES.get("alias_first_use", "")
                 if template:
                     return template.format(

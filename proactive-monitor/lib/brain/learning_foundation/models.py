@@ -403,8 +403,12 @@ class ConflictInfo:
     # 矛盾タイプ
     conflict_type: str = ConflictType.CONTENT_MISMATCH.value
 
-    # 解決提案
+    # 解決提案（conflict_detector.pyとの互換性のため両方サポート）
     resolution_suggestion: str = ""
+    suggested_resolution: str = ""
+
+    # 矛盾の説明（conflict_detector.pyで使用）
+    description: str = ""
 
     # CEO教え（矛盾相手がCEO教えの場合）
     ceo_teaching_statement: Optional[str] = None
@@ -416,6 +420,8 @@ class ConflictInfo:
             "existing_learning": self.existing_learning.to_dict(),
             "conflict_type": self.conflict_type,
             "resolution_suggestion": self.resolution_suggestion,
+            "suggested_resolution": self.suggested_resolution,
+            "description": self.description,
             "ceo_teaching_statement": self.ceo_teaching_statement,
         }
 

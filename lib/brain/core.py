@@ -160,6 +160,177 @@ from lib.brain.observability import (
 logger = logging.getLogger(__name__)
 
 
+# =============================================================================
+# 境界型検証ヘルパー（LLM出力・APIレスポンスの型崩れ検出）
+# =============================================================================
+
+
+def _validate_llm_result_type(llm_result: Any, location: str) -> bool:
+    """
+    LLMBrainResultの型を検証する
+
+    Args:
+        llm_result: 検証対象のオブジェクト
+        location: 検証箇所（ログ出力用）
+
+    Returns:
+        bool: 検証成功ならTrue
+
+    Raises:
+        TypeError: 型が不正な場合
+    """
+    from lib.brain.llm_brain import LLMBrainResult, ToolCall, ConfidenceScores
+
+    if not isinstance(llm_result, LLMBrainResult):
+        logger.error(
+            f"[境界型検証エラー] {location}: "
+            f"LLMBrainResult expected, got {type(llm_result).__name__}"
+        )
+        raise TypeError(
+            f"LLMBrainResult expected at {location}, got {type(llm_result).__name__}"
+        )
+
+    # confidenceの型検証（オブジェクトか数値か）
+    if llm_result.confidence is not None:
+        if not isinstance(llm_result.confidence, ConfidenceScores):
+            logger.warning(
+                f"[境界型検証警告] {location}: "
+                f"confidence is not ConfidenceScores: {type(llm_result.confidence).__name__}"
+            )
+
+    # tool_callsの型検証
+    if llm_result.tool_calls is not None:
+        if not isinstance(llm_result.tool_calls, list):
+            logger.error(
+                f"[境界型検証エラー] {location}: "
+                f"tool_calls should be list, got {type(llm_result.tool_calls).__name__}"
+            )
+            raise TypeError(
+                f"tool_calls should be list at {location}, got {type(llm_result.tool_calls).__name__}"
+            )
+        for i, tc in enumerate(llm_result.tool_calls):
+            if not isinstance(tc, ToolCall):
+                logger.error(
+                    f"[境界型検証エラー] {location}: "
+                    f"tool_calls[{i}] is not ToolCall: {type(tc).__name__}"
+                )
+                raise TypeError(
+                    f"tool_calls[{i}] should be ToolCall at {location}, got {type(tc).__name__}"
+                )
+
+    return True
+
+
+def _extract_confidence_value(raw_confidence: Any, location: str) -> float:
+    """
+    confidenceから数値を安全に抽出する
+
+    LLMの出力やAPIレスポンスでconfidenceが以下の形式で来る可能性がある:
+    - ConfidenceScoresオブジェクト（.overall属性を持つ）
+    - 数値（int, float）
+    - 辞書（{"overall": 0.8}）
+    - None
+
+    Args:
+        raw_confidence: 生のconfidence値
+        location: 抽出箇所（ログ出力用）
+
+    Returns:
+        float: 確信度（0.0〜1.0）
+    """
+    from lib.brain.llm_brain import ConfidenceScores
+
+    if raw_confidence is None:
+        logger.debug(f"[境界型検証] {location}: confidence is None, using default 0.0")
+        return 0.0
+
+    # ConfidenceScoresオブジェクト
+    if isinstance(raw_confidence, ConfidenceScores):
+        return float(raw_confidence.overall)
+
+    # hasattr でoverall属性を持つオブジェクト（ダックタイピング）
+    if hasattr(raw_confidence, 'overall'):
+        overall = raw_confidence.overall
+        if isinstance(overall, (int, float)):
+            return float(overall)
+        else:
+            logger.warning(
+                f"[境界型検証警告] {location}: "
+                f"confidence.overall is not numeric: {type(overall).__name__}"
+            )
+            return 0.0
+
+    # 数値
+    if isinstance(raw_confidence, (int, float)):
+        return float(raw_confidence)
+
+    # 辞書
+    if isinstance(raw_confidence, dict) and 'overall' in raw_confidence:
+        overall = raw_confidence['overall']
+        if isinstance(overall, (int, float)):
+            return float(overall)
+        else:
+            logger.warning(
+                f"[境界型検証警告] {location}: "
+                f"confidence['overall'] is not numeric: {type(overall).__name__}"
+            )
+            return 0.0
+
+    # 予期しない型
+    logger.error(
+        f"[境界型検証エラー] {location}: "
+        f"unexpected confidence type: {type(raw_confidence).__name__}, value={raw_confidence}"
+    )
+    return 0.0
+
+
+def _safe_confidence_to_dict(raw_confidence: Any, location: str) -> Dict[str, Any]:
+    """
+    confidenceを辞書形式に安全に変換する
+
+    Args:
+        raw_confidence: 生のconfidence値
+        location: 変換箇所（ログ出力用）
+
+    Returns:
+        Dict: 確信度の辞書形式
+    """
+    from lib.brain.llm_brain import ConfidenceScores
+
+    if raw_confidence is None:
+        return {"overall": 0.0, "intent": 0.0, "parameters": 0.0}
+
+    # ConfidenceScoresオブジェクト（to_dictメソッドを持つ）
+    if isinstance(raw_confidence, ConfidenceScores):
+        return raw_confidence.to_dict()
+
+    # to_dictメソッドを持つオブジェクト（ダックタイピング）
+    if hasattr(raw_confidence, 'to_dict') and callable(raw_confidence.to_dict):
+        try:
+            return raw_confidence.to_dict()
+        except Exception as e:
+            logger.warning(
+                f"[境界型検証警告] {location}: "
+                f"to_dict() failed: {e}"
+            )
+            return {"overall": _extract_confidence_value(raw_confidence, location)}
+
+    # 数値
+    if isinstance(raw_confidence, (int, float)):
+        return {"overall": float(raw_confidence)}
+
+    # 辞書（そのまま返す）
+    if isinstance(raw_confidence, dict):
+        return raw_confidence
+
+    # 予期しない型
+    logger.warning(
+        f"[境界型検証警告] {location}: "
+        f"unexpected confidence type for dict conversion: {type(raw_confidence).__name__}"
+    )
+    return {"overall": 0.0}
+
+
 class SoulkunBrain:
     """
     ソウルくんの脳（中央処理装置）
@@ -1588,10 +1759,21 @@ class SoulkunBrain:
                 tools=tools,
             )
 
+            # =================================================================
+            # 境界型検証: LLM出力の型チェック
+            # =================================================================
+            _validate_llm_result_type(llm_result, "_process_with_llm_brain:llm_brain.process")
+
+            # confidenceを安全に抽出（オブジェクト/数値両対応）
+            confidence_value = _extract_confidence_value(
+                llm_result.confidence,
+                "_process_with_llm_brain:confidence"
+            )
+
             logger.info(
                 f"🧠 LLM Brain result: tool_calls={len(llm_result.tool_calls or [])}, "
                 f"has_text={llm_result.text_response is not None}, "
-                f"confidence={llm_result.confidence.overall:.2f}"
+                f"confidence={confidence_value:.2f}"
             )
 
             # 4. Guardian Layerで検証
@@ -1613,7 +1795,10 @@ class SoulkunBrain:
                     debug_info={
                         "llm_brain": {
                             "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
+                            "confidence": _safe_confidence_to_dict(
+                                llm_result.confidence,
+                                "_process_with_llm_brain:BLOCK:debug_info"
+                            ),
                             "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                         },
                         "guardian": {
@@ -1629,14 +1814,13 @@ class SoulkunBrain:
                 import uuid as uuid_mod
                 tool_call = llm_result.tool_calls[0] if llm_result.tool_calls else None
                 confirm_question = guardian_result.confirmation_question or guardian_result.reason or "確認させてほしいウル🐺"
-                # ConfidenceScoresオブジェクトをfloatに変換（シリアライズ対応）
-                raw_confidence = llm_result.confidence
-                if hasattr(raw_confidence, 'overall'):
-                    confidence_value = float(raw_confidence.overall)
-                elif isinstance(raw_confidence, (int, float)):
-                    confidence_value = float(raw_confidence)
-                else:
-                    confidence_value = 0.0
+                # =================================================================
+                # 境界型検証: confidenceを安全に抽出
+                # =================================================================
+                confirm_confidence_value = _extract_confidence_value(
+                    llm_result.confidence,
+                    "_process_with_llm_brain:CONFIRM:confidence"
+                )
                 pending_action = LLMPendingAction(
                     action_id=str(uuid_mod.uuid4()),
                     tool_name=tool_call.tool_name if tool_call else "",
@@ -1645,7 +1829,7 @@ class SoulkunBrain:
                     confirmation_type=guardian_result.risk_level or "ambiguous",
                     original_message=message,
                     original_reasoning=llm_result.reasoning or "",
-                    confidence=confidence_value,
+                    confidence=confirm_confidence_value,
                 )
                 await self.llm_state_manager.set_pending_action(
                     user_id=account_id,
@@ -1663,7 +1847,10 @@ class SoulkunBrain:
                     debug_info={
                         "llm_brain": {
                             "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
+                            "confidence": _safe_confidence_to_dict(
+                                llm_result.confidence,
+                                "_process_with_llm_brain:CONFIRM:debug_info"
+                            ),
                         },
                         "guardian": {
                             "action": guardian_result.action.value,
@@ -1692,7 +1879,10 @@ class SoulkunBrain:
                     success=True,
                     debug_info={
                         "llm_brain": {
-                            "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
+                            "confidence": _safe_confidence_to_dict(
+                                llm_result.confidence,
+                                "_process_with_llm_brain:text_response:debug_info"
+                            ),
                             "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                         },
                     },
@@ -1704,14 +1894,13 @@ class SoulkunBrain:
             tool_call = tool_calls_to_execute[0]
 
             # DecisionResultを構築して既存のexecution層に渡す
-            # ConfidenceScoresオブジェクトをfloatに変換
-            raw_decision_confidence = llm_result.confidence
-            if hasattr(raw_decision_confidence, 'overall'):
-                decision_confidence = float(raw_decision_confidence.overall)
-            elif isinstance(raw_decision_confidence, (int, float)):
-                decision_confidence = float(raw_decision_confidence)
-            else:
-                decision_confidence = 0.0
+            # =================================================================
+            # 境界型検証: confidenceを安全に抽出
+            # =================================================================
+            decision_confidence = _extract_confidence_value(
+                llm_result.confidence,
+                "_process_with_llm_brain:DecisionResult:confidence"
+            )
             decision = DecisionResult(
                 action=tool_call.tool_name,
                 params=tool_call.parameters,
@@ -1752,7 +1941,10 @@ class SoulkunBrain:
                 debug_info={
                     "llm_brain": {
                         "tool_calls": [tc.to_dict() for tc in tool_calls_to_execute],
-                        "confidence": llm_result.confidence.to_dict() if hasattr(llm_result.confidence, 'to_dict') else llm_result.confidence,
+                        "confidence": _safe_confidence_to_dict(
+                            llm_result.confidence,
+                            "_process_with_llm_brain:tool_execution:debug_info"
+                        ),
                         "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
                     },
                     "guardian": {

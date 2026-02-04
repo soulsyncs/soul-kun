@@ -355,8 +355,8 @@ class CEOLearningService:
                 )
 
             # 3. 各教えを処理
-            saved_teachings = []
-            pending_teachings = []
+            saved_teachings: List[CEOTeaching] = []
+            pending_teachings: List[CEOTeaching] = []
 
             for teaching_data in extracted:
                 teaching = self._create_teaching_from_extracted(
@@ -581,12 +581,14 @@ class CEOLearningService:
             関連する教えのリスト
         """
         if category:
-            return self._teaching_repo.get_teachings_by_category(
+            result: List[CEOTeaching] = self._teaching_repo.get_teachings_by_category(
                 [category],
                 limit=limit,
             )
+            return result
         else:
-            return self._teaching_repo.search_teachings(topic, limit=limit)
+            search_result: List[CEOTeaching] = self._teaching_repo.search_teachings(topic, limit=limit)
+            return search_result
 
     def get_all_active_teachings(
         self,
@@ -605,11 +607,12 @@ class CEOLearningService:
         Returns:
             教えのリスト
         """
-        return self._teaching_repo.get_active_teachings(
+        result: List[CEOTeaching] = self._teaching_repo.get_active_teachings(
             category=category,
             limit=limit,
             offset=offset,
         )
+        return result
 
     def _estimate_categories(self, query: str) -> List[TeachingCategory]:
         """クエリからカテゴリを推定"""
@@ -809,10 +812,11 @@ class CEOLearningService:
         superseded_by: Optional[str] = None,
     ) -> bool:
         """教えを無効化"""
-        return self._teaching_repo.deactivate_teaching(
+        result: bool = self._teaching_repo.deactivate_teaching(
             teaching_id,
             superseded_by=superseded_by,
         )
+        return result
 
 
 # =============================================================================

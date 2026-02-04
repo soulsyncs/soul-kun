@@ -290,7 +290,7 @@ class BrainObservability:
             execution_time_ms: 実行時間（ミリ秒）
             error_code: エラーコード（失敗時）
         """
-        details = {
+        details: Dict[str, Any] = {
             "success": success,
             "time_ms": execution_time_ms,
         }
@@ -428,7 +428,7 @@ def log_persona_path(
     """
     observability = get_observability()
 
-    details = {"addon": addon}
+    details: Dict[str, Any] = {"addon": addon}
     if extra:
         details["extra"] = extra
 

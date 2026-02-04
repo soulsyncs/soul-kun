@@ -473,7 +473,7 @@ class ToolMetadataRegistry:
         """Toolサマリーを取得"""
         self._ensure_loaded()
 
-        categories = {}
+        categories: Dict[str, List[str]] = {}
         for m in self._metadata.values():
             if m.category not in categories:
                 categories[m.category] = []
@@ -514,7 +514,8 @@ def get_tool_metadata(tool_name: str) -> Optional[Dict[str, Any]]:
     """
     from handlers.registry import SYSTEM_CAPABILITIES
 
-    return SYSTEM_CAPABILITIES.get(tool_name)
+    result: Optional[Dict[str, Any]] = SYSTEM_CAPABILITIES.get(tool_name)
+    return result
 
 
 def is_dangerous_operation(tool_name: str) -> tuple[bool, str]:
@@ -552,4 +553,5 @@ def requires_confirmation(tool_name: str) -> bool:
     if not metadata:
         return True  # 不明な場合は安全側に倒す
 
-    return metadata.get("requires_confirmation", False)
+    requires: bool = metadata.get("requires_confirmation", False)
+    return requires

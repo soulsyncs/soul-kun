@@ -186,7 +186,8 @@ def validate_brain_metadata(
             ))
 
         # 許可された値のチェック
-        allowed_values = field_schema.get("allowed_values")
+        allowed_values_raw = field_schema.get("allowed_values")
+        allowed_values: Optional[List[Any]] = allowed_values_raw if isinstance(allowed_values_raw, list) else None
         if allowed_values and value not in allowed_values:
             errors.append(ValidationError(
                 action=action,
@@ -197,8 +198,10 @@ def validate_brain_metadata(
 
         # 数値範囲のチェック
         if isinstance(value, (int, float)):
-            min_val = field_schema.get("min")
-            max_val = field_schema.get("max")
+            min_val_raw = field_schema.get("min")
+            max_val_raw = field_schema.get("max")
+            min_val: Optional[float] = float(min_val_raw) if isinstance(min_val_raw, (int, float)) else None
+            max_val: Optional[float] = float(max_val_raw) if isinstance(max_val_raw, (int, float)) else None
             if min_val is not None and value < min_val:
                 errors.append(ValidationError(
                     action=action,
@@ -215,7 +218,8 @@ def validate_brain_metadata(
                 ))
 
         # ネストされたフィールドのチェック
-        nested_fields = field_schema.get("fields")
+        nested_fields_raw = field_schema.get("fields")
+        nested_fields: Optional[Dict[str, Any]] = nested_fields_raw if isinstance(nested_fields_raw, dict) else None
         if nested_fields and isinstance(value, dict):
             for nested_name, nested_schema in nested_fields.items():
                 nested_value = value.get(nested_name)
@@ -240,22 +244,24 @@ def validate_brain_metadata(
 
                     # 数値範囲チェック（ネストされたフィールド用）
                     if isinstance(nested_value, (int, float)):
-                        min_val = nested_schema.get("min")
-                        max_val = nested_schema.get("max")
-                        if min_val is not None and nested_value < min_val:
+                        nested_min_raw = nested_schema.get("min")
+                        nested_max_raw = nested_schema.get("max")
+                        nested_min: Optional[float] = float(nested_min_raw) if isinstance(nested_min_raw, (int, float)) else None
+                        nested_max: Optional[float] = float(nested_max_raw) if isinstance(nested_max_raw, (int, float)) else None
+                        if nested_min is not None and nested_value < nested_min:
                             errors.append(ValidationError(
                                 action=action,
                                 error_type="value_out_of_range",
                                 message=f"Field '{field_name}.{nested_name}' value {nested_value} "
-                                        f"is less than minimum {min_val}",
+                                        f"is less than minimum {nested_min}",
                                 severity="warning",
                             ))
-                        if max_val is not None and nested_value > max_val:
+                        if nested_max is not None and nested_value > nested_max:
                             errors.append(ValidationError(
                                 action=action,
                                 error_type="value_out_of_range",
                                 message=f"Field '{field_name}.{nested_name}' value {nested_value} "
-                                        f"is greater than maximum {max_val}",
+                                        f"is greater than maximum {nested_max}",
                                 severity="warning",
                             ))
 

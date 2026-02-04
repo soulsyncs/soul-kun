@@ -25,7 +25,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 from lib.brain.core import SoulkunBrain
 from lib.brain.models import (
@@ -69,7 +69,7 @@ INTEGRATION_MAX_RETRIES: int = 2
 INTEGRATION_TIMEOUT_SECONDS: float = 60.0
 
 # フォールバックが必要なエラータイプ
-FALLBACK_ERROR_TYPES: Tuple[type, ...] = (
+FALLBACK_ERROR_TYPES: Tuple[Type[BaseException], ...] = (
     TimeoutError,
     asyncio.TimeoutError,
 )
@@ -119,7 +119,8 @@ class IntegrationResult:
     def to_chatwork_message(self) -> str:
         """ChatWork用のメッセージを取得"""
         if self.response:
-            return self.response.message
+            msg: str = self.response.message
+            return msg
         return self.message
 
 
@@ -777,7 +778,8 @@ class BrainIntegration:
                     message, room_id, account_id, sender_name, bypass_context
                 )
 
-            return result
+            str_result: Optional[str] = result
+            return str_result
 
         except Exception as e:
             logger.error(f"Error calling bypass handler: {e}")
@@ -925,7 +927,7 @@ class BrainIntegration:
         Returns:
             ヘルスチェック結果
         """
-        health = {
+        health: Dict[str, Any] = {
             "status": "healthy",
             "mode": self.config.mode.value,
             "brain_initialized": self.brain is not None,

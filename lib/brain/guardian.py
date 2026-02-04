@@ -507,7 +507,8 @@ overall_score >= 0.7 の場合は APPROVE、それ以外は ALERT を推奨し�
             else:
                 json_str = response
 
-            return json.loads(json_str)
+            parsed: Dict[str, Any] = json.loads(json_str)
+            return parsed
         except (json.JSONDecodeError, KeyError) as e:
             logger.error(f"Failed to parse LLM response: {e}")
             return {"overall_alignment": True, "overall_score": 0.8}
@@ -855,7 +856,8 @@ conflict_type:
 
     def get_pending_alerts(self) -> List[GuardianAlert]:
         """未解決のアラートを取得"""
-        return self._alert_repo.get_pending_alerts()
+        result: List[GuardianAlert] = self._alert_repo.get_pending_alerts()
+        return result
 
     def get_alert_by_teaching_id(self, teaching_id: str) -> Optional[GuardianAlert]:
         """教えIDでアラートを取得"""

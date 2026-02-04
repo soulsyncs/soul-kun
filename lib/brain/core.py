@@ -302,12 +302,14 @@ def _safe_confidence_to_dict(raw_confidence: Any, location: str) -> Dict[str, An
 
     # ConfidenceScoresオブジェクト（to_dictメソッドを持つ）
     if isinstance(raw_confidence, ConfidenceScores):
-        return raw_confidence.to_dict()
+        result: Dict[str, Any] = raw_confidence.to_dict()
+        return result
 
     # to_dictメソッドを持つオブジェクト（ダックタイピング）
     if hasattr(raw_confidence, 'to_dict') and callable(raw_confidence.to_dict):
         try:
-            return raw_confidence.to_dict()
+            duck_result: Dict[str, Any] = raw_confidence.to_dict()
+            return duck_result
         except Exception as e:
             logger.warning(
                 f"[境界型検証警告] {location}: "
@@ -1245,25 +1247,30 @@ class SoulkunBrain:
         """ユーザー嗜好を取得（BrainMemoryAccess経由）"""
         return await self.memory_access.get_user_preferences(user_id)
 
-    async def _get_person_info(self) -> List:
+    async def _get_person_info(self) -> List[Any]:
         """人物情報を取得（BrainMemoryAccess経由）"""
-        return await self.memory_access.get_person_info()
+        result: List[Any] = await self.memory_access.get_person_info()
+        return result
 
-    async def _get_recent_tasks(self, user_id: str) -> List:
+    async def _get_recent_tasks(self, user_id: str) -> List[Any]:
         """直近のタスクを取得（BrainMemoryAccess経由）"""
-        return await self.memory_access.get_recent_tasks(user_id)
+        result: List[Any] = await self.memory_access.get_recent_tasks(user_id)
+        return result
 
-    async def _get_active_goals(self, user_id: str) -> List:
+    async def _get_active_goals(self, user_id: str) -> List[Any]:
         """アクティブな目標を取得（BrainMemoryAccess経由）"""
-        return await self.memory_access.get_active_goals(user_id)
+        result: List[Any] = await self.memory_access.get_active_goals(user_id)
+        return result
 
-    async def _get_insights(self) -> List:
+    async def _get_insights(self) -> List[Any]:
         """インサイトを取得（BrainMemoryAccess経由）"""
-        return await self.memory_access.get_recent_insights()
+        result: List[Any] = await self.memory_access.get_recent_insights()
+        return result
 
-    async def _get_relevant_knowledge(self, query: str) -> List:
+    async def _get_relevant_knowledge(self, query: str) -> List[Any]:
         """関連知識を取得（BrainMemoryAccess経由）"""
-        return await self.memory_access.get_relevant_knowledge(query)
+        result: List[Any] = await self.memory_access.get_relevant_knowledge(query)
+        return result
 
     # =========================================================================
     # 状態管理層
@@ -1984,7 +1991,8 @@ class SoulkunBrain:
             "cancel": キャンセル
             None: 解析不能
         """
-        return self.session_orchestrator._parse_confirmation_response(message, options)
+        result: Union[int, str, None] = self.session_orchestrator._parse_confirmation_response(message, options)
+        return result
 
     async def _handle_confirmation_response(
         self,

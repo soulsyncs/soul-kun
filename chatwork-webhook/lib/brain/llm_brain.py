@@ -764,7 +764,8 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
                     f"OpenRouter API error: {response.status_code} - {error_text}"
                 )
 
-            return response.json()
+            result: Dict[str, Any] = response.json()
+            return result
 
     # =========================================================================
     # Anthropic API呼び出し
@@ -833,7 +834,8 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
                     f"Anthropic API error: {response.status_code} - {error_text}"
                 )
 
-            return response.json()
+            anthropic_result: Dict[str, Any] = response.json()
+            return anthropic_result
 
     # =========================================================================
     # レスポンス解析

@@ -115,7 +115,7 @@ DECISION_PROMPT = """あなたはソウルくんの脳の「判断層」です�
 #     "secondary": [...],
 #     "negative": [...],
 # }
-CAPABILITY_KEYWORDS: Dict[str, Dict[str, List[str]]] = {
+CAPABILITY_KEYWORDS: Dict[str, Dict[str, Any]] = {
     "chatwork_task_create": {
         "primary": ["タスク作成", "タスク追加", "タスク作って", "依頼して", "お願いして"],
         "secondary": ["タスク", "仕事", "やること", "依頼", "お願い"],
@@ -809,7 +809,8 @@ class BrainDecision:
             life_axis_score * weights.get("life_axis_alignment", 0.15)
         )
 
-        return min(1.0, total_score)
+        final_score: float = min(1.0, total_score)
+        return final_score
 
     def _calculate_keyword_score(
         self,
@@ -1146,7 +1147,8 @@ class BrainDecision:
     def _get_capability_name(self, action: str) -> str:
         """機能の表示名を取得"""
         capability = self.capabilities.get(action, {})
-        return capability.get("name", action)
+        name: str = capability.get("name", action)
+        return name
 
     # =========================================================================
     # ステップ5: MVV整合性チェック

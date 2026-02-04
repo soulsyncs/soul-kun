@@ -272,7 +272,8 @@ class ChainOfThought:
 
         clean_message = message.strip()
 
-        for input_type, patterns in INPUT_TYPE_PATTERNS.items():
+        for input_type, patterns_raw in INPUT_TYPE_PATTERNS.items():
+            patterns: Dict[str, List[str]] = patterns_raw  # type: ignore[assignment]
             score = 0.0
 
             # 末尾チェック
@@ -297,7 +298,7 @@ class ChainOfThought:
 
         # 最高スコアの入力タイプを選択
         if scores:
-            best_type = max(scores, key=scores.get)
+            best_type = max(scores, key=lambda x: scores.get(x, 0.0))
             best_score = scores[best_type]
 
             # スコアが低すぎる場合はUNKNOWN
@@ -328,7 +329,7 @@ class ChainOfThought:
         Returns:
             (StructureAnalysis, ThoughtStep)
         """
-        elements = {
+        elements: Dict[str, List[str]] = {
             "subject": [],
             "predicate": [],
             "object": [],
@@ -432,21 +433,25 @@ class ChainOfThought:
 
         clean_message = message.lower().strip()
 
-        for intent_name, config in INTENT_KEYWORDS.items():
+        for intent_name, config_raw in INTENT_KEYWORDS.items():
+            config: Dict[str, Any] = config_raw
             score = 0.0
-            matched_keywords = []
+            matched_keywords: List[str] = []
             negative_matched = False
 
             # ポジティブキーワードのマッチング
-            for keyword in config["positive"]:
+            positive_keywords: List[str] = config["positive"]
+            weight: float = config["weight"]
+            for keyword in positive_keywords:
                 if keyword.lower() in clean_message:
-                    score += config["weight"]
+                    score += weight
                     matched_keywords.append(keyword)
 
             # ネガティブキーワードのマッチング（減点）
-            for keyword in config["negative"]:
+            negative_keywords: List[str] = config["negative"]
+            for keyword in negative_keywords:
                 if keyword.lower() in clean_message:
-                    score -= config["weight"] * 1.5  # 強めの減点
+                    score -= weight * 1.5  # 強めの減点
                     negative_matched = True
                     reasoning_parts.append(
                         f"「{keyword}」検出 → {intent_name}の可能性を下げる"

@@ -245,7 +245,7 @@ class ValueAuthority:
                 "principles": ["原則1"],
             }
         """
-        parsed = {
+        parsed: Dict[str, List[str]] = {
             "life_why": [],
             "values": [],
             "long_term_goals": [],

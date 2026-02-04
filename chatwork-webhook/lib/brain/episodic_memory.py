@@ -270,7 +270,8 @@ class EpisodicMemory:
         try:
             # DB保存は実装時に追加
             # 現時点ではキャッシュのみ
-            self._memory_cache[episode.id] = episode
+            if episode.id is not None:
+                self._memory_cache[episode.id] = episode
             return True
         except Exception as e:
             logger.error(f"Failed to save episode: {e}")
@@ -402,7 +403,7 @@ class EpisodicMemory:
         days_range: int = 7,
     ) -> List[RecallResult]:
         """時間的関連で想起"""
-        results = []
+        results: List[RecallResult] = []
         if not reference_time:
             return results
 
@@ -438,6 +439,8 @@ class EpisodicMemory:
         episode_best: Dict[str, RecallResult] = {}
         for result in results:
             episode_id = result.episode.id
+            if episode_id is None:
+                continue
             if episode_id not in episode_best or result.relevance_score > episode_best[episode_id].relevance_score:
                 episode_best[episode_id] = result
 
@@ -637,7 +640,7 @@ class EpisodicMemory:
     def get_stats(self) -> Dict[str, Any]:
         """統計情報を取得"""
         total = len(self._memory_cache)
-        by_type = {}
+        by_type: Dict[str, int] = {}
         total_recalls = 0
         avg_importance = 0.0
 

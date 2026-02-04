@@ -13,6 +13,8 @@ Phase 2E: 学習基盤モジュール
 
 __version__ = "2.0.0"  # Phase 2E
 
+from typing import Any, Dict, List, Optional
+
 # ============================================================================
 # 定数
 # ============================================================================
@@ -190,8 +192,8 @@ class BrainLearning:
     def __init__(
         self,
         organization_id: str,
-        ceo_account_ids: list = None,
-        manager_account_ids: list = None,
+        ceo_account_ids: Optional[List[str]] = None,
+        manager_account_ids: Optional[List[str]] = None,
     ):
         """初期化
 
@@ -280,11 +282,11 @@ class BrainLearning:
         self,
         detection_result: FeedbackDetectionResult,
         message: str,
-        context: ConversationContext = None,
+        context: Optional[ConversationContext] = None,
         taught_by_account_id: str = "",
-        taught_by_name: str = None,
-        taught_by_authority: str = None,
-        room_id: str = None,
+        taught_by_name: Optional[str] = None,
+        taught_by_authority: Optional[str] = None,
+        room_id: Optional[str] = None,
     ) -> Learning:
         """学習オブジェクトを抽出
 
@@ -351,12 +353,12 @@ class BrainLearning:
 
     def find_applicable(
         self,
-        conn,
+        conn: Any,
         message: str,
-        context: ConversationContext = None,
-        user_id: str = None,
-        room_id: str = None,
-    ) -> list:
+        context: Optional[ConversationContext] = None,
+        user_id: Optional[str] = None,
+        room_id: Optional[str] = None,
+    ) -> List[Any]:
         """適用可能な学習を検索
 
         Args:
@@ -375,12 +377,12 @@ class BrainLearning:
 
     def apply(
         self,
-        conn,
+        conn: Any,
         learning: Learning,
         message: str,
-        context: ConversationContext = None,
-        room_id: str = None,
-        account_id: str = None,
+        context: Optional[ConversationContext] = None,
+        room_id: Optional[str] = None,
+        account_id: Optional[str] = None,
     ) -> AppliedLearning:
         """学習を適用
 

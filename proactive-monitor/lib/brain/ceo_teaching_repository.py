@@ -309,7 +309,7 @@ class CEOTeachingRepository:
     async def search_relevant(
         self,
         query: str,
-        organization_id: str = None,
+        organization_id: Optional[str] = None,
         limit: int = 10,
     ) -> List[CEOTeaching]:
         """
@@ -890,7 +890,8 @@ class ConflictRepository:
             })
             conn.commit()
 
-        return result.rowcount
+        rowcount: int = result.rowcount
+        return rowcount
 
     def _row_to_conflict(self, row) -> ConflictInfo:
         """DBの行をConflictInfoに変換"""

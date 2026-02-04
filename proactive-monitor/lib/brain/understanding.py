@@ -608,9 +608,11 @@ class BrainUnderstanding:
                 # get_ai_responseは同期関数の可能性があるため
                 import asyncio
                 if asyncio.iscoroutinefunction(self.get_ai_response):
-                    return await self.get_ai_response(prompt)
+                    result: Optional[str] = await self.get_ai_response(prompt)
+                    return result
                 else:
-                    return self.get_ai_response(prompt)
+                    sync_result: Optional[str] = self.get_ai_response(prompt)
+                    return sync_result
             return None
         except Exception as e:
             logger.error(f"Error calling LLM: {e}")
@@ -627,7 +629,8 @@ class BrainUnderstanding:
             json_match = re.search(r'\{[\s\S]*\}', response)
             if json_match:
                 json_str = json_match.group()
-                return json.loads(json_str)
+                parsed: Dict[str, Any] = json.loads(json_str)
+                return parsed
             return None
         except json.JSONDecodeError as e:
             logger.warning(f"Failed to parse LLM response as JSON: {e}")
@@ -1015,7 +1018,8 @@ class BrainUnderstanding:
         """
         for keyword, level in URGENCY_KEYWORDS.items():
             if keyword in message:
-                return level
+                urgency_level: str = str(level)
+                return urgency_level
         return "low"
 
     def _detect_emotion(self, message: str) -> str:

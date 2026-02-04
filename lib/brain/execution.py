@@ -129,7 +129,7 @@ REQUIRED_PARAMETERS: Dict[str, List[str]] = {
 }
 
 # パラメータ型定義
-PARAMETER_TYPES: Dict[str, Dict[str, type]] = {
+PARAMETER_TYPES: Dict[str, Dict[str, Any]] = {
     "chatwork_task_create": {
         "body": str,
         "assignee_ids": list,

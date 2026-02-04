@@ -151,10 +151,13 @@ class LearningInsight:
     """
     insight_type: str  # "low_confidence", "frequent_error", "pattern_detected"
     description: str
-    action: str
-    confidence: float
-    sample_count: int
+    action: str = ""  # 後方互換性のためデフォルト値
+    confidence: float = 0.0  # 後方互換性のためデフォルト値
+    sample_count: int = 0  # 後方互換性のためデフォルト値
+    affected_action: Optional[str] = None  # 影響を受けるアクション
+    severity: str = "medium"  # "low", "medium", "high"
     recommendation: Optional[str] = None
+    data: Optional[Dict[str, Any]] = None  # 追加データ
     created_at: datetime = field(default_factory=datetime.now)
 
 

@@ -979,7 +979,7 @@ class OrganizationGraph:
                 connection_counts[rel.person_b_id] = connection_counts.get(rel.person_b_id, 0) + 1
 
         if connection_counts:
-            stats.most_connected_person_id = max(connection_counts, key=connection_counts.get)
+            stats.most_connected_person_id = max(connection_counts, key=lambda x: connection_counts.get(x, 0))
 
         # 最も影響力のある人物を見つける
         if persons:
@@ -1153,8 +1153,8 @@ class OrganizationGraph:
             return None
 
         # 最も影響力のある人物を選択
-        best_introducer = None
-        best_influence = -1
+        best_introducer: Optional[str] = None
+        best_influence: float = -1.0
 
         for person_id in common:
             person = await self.get_person(person_id)

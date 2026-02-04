@@ -44,7 +44,7 @@ def mock_credentials():
         "type": "service_account",
         "project_id": "test-project",
         "private_key_id": "test-key-id",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQC7...\n-----END PRIVATE KEY-----\n",
+        "private_key": "DUMMY_PRIVATE_KEY_FOR_TESTING",
         "client_email": "test@test-project.iam.gserviceaccount.com",
         "client_id": "123456789012345678901",
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",

@@ -446,7 +446,7 @@ class TestGoogleDriveClientInitialization:
             "type": "service_account",
             "project_id": "test-project",
             "private_key_id": "key123",
-            "private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n",
+            "private_key": "DUMMY_PRIVATE_KEY_FOR_TESTING",
             "client_email": "test@test-project.iam.gserviceaccount.com",
         }
 

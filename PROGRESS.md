@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-04 22:45 JST**
+**最終更新: 2026-02-05 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,37 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ mypy追加修正 + データ整合性バグ修正（2026-02-05）
+
+**PR:** #409
+**コミット:** 703c6ee
+
+**目的:** mypyエラー追加修正 + Codexが検出した`id or ""`パターンのデータ整合性バグを修正
+
+**修正内容:**
+
+1. **mypyエラー修正（222件 → 125件、44%削減）**
+   - 型アノテーション追加: `Optional`, `List`, `Dict`, `cast`
+   - dataclassフィールド追加: `priority`, `outcome_score`
+   - 属性名修正: `user_account_id` → `user_id`
+
+2. **データ整合性バグ修正（Codex検出）**
+   - `id or ""` パターンを適切なNullチェック + ValueErrorに変更
+   - DBに空文字列が保存される参照整合性違反を防止
+
+**修正ファイル（17件）:**
+- guardian.py（3箇所）
+- ceo_learning.py（1箇所）
+- applier.py（1箇所）
+- conflict_detector.py（3箇所）
+- effectiveness_tracker.py（6箇所）
+- その他: consistency_checker.py, models.py, registry.py, usage_logger.py等
+
+**Codexダブルチェック:** PASS
+**全テスト:** 6524 passed
+
+---
 
 ### ✅ mypy型アノテーション拡大（2026-02-04 22:45）
 

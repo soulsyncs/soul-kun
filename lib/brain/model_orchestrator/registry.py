@@ -12,7 +12,7 @@ AI モデルの情報をDBから取得・管理するリポジトリ層
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, cast
 from uuid import UUID
 import logging
 
@@ -131,7 +131,7 @@ class ModelRegistry:
         cache_key = "all_models"
 
         if self._is_cache_valid() and cache_key in self._cache:
-            return self._cache[cache_key]
+            return cast(List[ModelInfo], self._cache[cache_key])
 
         query = text("""
             SELECT
@@ -185,7 +185,7 @@ class ModelRegistry:
         cache_key = f"model:{model_id}"
 
         if self._is_cache_valid() and cache_key in self._cache:
-            return self._cache[cache_key]
+            return cast(Optional[ModelInfo], self._cache[cache_key])
 
         query = text("""
             SELECT
@@ -241,7 +241,7 @@ class ModelRegistry:
         cache_key = f"tier:{tier.value}"
 
         if self._is_cache_valid() and cache_key in self._cache:
-            return self._cache[cache_key]
+            return cast(List[ModelInfo], self._cache[cache_key])
 
         query = text("""
             SELECT
@@ -295,7 +295,7 @@ class ModelRegistry:
         cache_key = f"default:{tier.value}"
 
         if self._is_cache_valid() and cache_key in self._cache:
-            return self._cache[cache_key]
+            return cast(Optional[ModelInfo], self._cache[cache_key])
 
         query = text("""
             SELECT
@@ -412,22 +412,23 @@ class ModelRegistry:
         """
         models = self.get_all_models()
 
-        stats = {
-            "total_models": len(models),
-            "by_tier": {},
-            "by_provider": {},
-        }
+        by_tier: Dict[str, int] = {}
+        by_provider: Dict[str, int] = {}
 
         for model in models:
             # ティア別カウント
             tier_key = model.tier.value
-            if tier_key not in stats["by_tier"]:
-                stats["by_tier"][tier_key] = 0
-            stats["by_tier"][tier_key] += 1
+            if tier_key not in by_tier:
+                by_tier[tier_key] = 0
+            by_tier[tier_key] += 1
 
             # プロバイダー別カウント
-            if model.provider not in stats["by_provider"]:
-                stats["by_provider"][model.provider] = 0
-            stats["by_provider"][model.provider] += 1
+            if model.provider not in by_provider:
+                by_provider[model.provider] = 0
+            by_provider[model.provider] += 1
 
-        return stats
+        return {
+            "total_models": len(models),
+            "by_tier": by_tier,
+            "by_provider": by_provider,
+        }

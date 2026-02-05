@@ -360,7 +360,7 @@ class ConsistencyChecker:
         past_judgments: List[PastJudgment],
     ) -> List[ConsistencyIssue]:
         """先例との整合性をチェック"""
-        issues = []
+        issues: List[ConsistencyIssue] = []
 
         if not past_judgments or not recommendation:
             return issues
@@ -407,7 +407,7 @@ class ConsistencyChecker:
         recommendation: Optional[JudgmentRecommendation],
     ) -> List[ConsistencyIssue]:
         """価値観との整合性をチェック"""
-        issues = []
+        issues: List[ConsistencyIssue] = []
 
         if not self.organization_values:
             return issues
@@ -459,7 +459,7 @@ class ConsistencyChecker:
         recommendation: Optional[JudgmentRecommendation],
     ) -> List[ConsistencyIssue]:
         """方針との整合性をチェック"""
-        issues = []
+        issues: List[ConsistencyIssue] = []
 
         if not self.organization_values:
             return issues
@@ -720,7 +720,7 @@ class ConsistencyChecker:
         issues: List[ConsistencyIssue],
     ) -> Dict[str, float]:
         """次元別の整合性スコアを計算"""
-        scores = {}
+        scores: Dict[str, float] = {}
 
         # 全次元を初期化
         for dim in ConsistencyDimension:
@@ -728,10 +728,10 @@ class ConsistencyChecker:
 
         # 各問題の深刻度をスコアに反映
         for issue in issues:
-            dim = issue.dimension
-            current_score = scores.get(dim, 1.0)
+            issue_dim = issue.dimension
+            current_score = scores.get(issue_dim, 1.0)
             # 深刻度をスコアから引く（ただし0未満にはならない）
-            scores[dim] = max(0.0, current_score - issue.severity)
+            scores[issue_dim] = max(0.0, current_score - issue.severity)
 
         return scores
 

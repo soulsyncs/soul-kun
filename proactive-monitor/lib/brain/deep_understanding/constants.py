@@ -16,7 +16,7 @@ Created: 2026-01-27
 """
 
 from enum import Enum, auto
-from typing import Dict, List, Set
+from typing import Any, Dict, List, Set
 
 
 # =============================================================================
@@ -126,7 +126,7 @@ PERSONAL_PRONOUNS: Dict[str, Dict[str, str]] = {
 }
 
 # 曖昧な時間表現
-VAGUE_TIME_EXPRESSIONS: Dict[str, Dict[str, any]] = {
+VAGUE_TIME_EXPRESSIONS: Dict[str, Dict[str, Any]] = {
     # 相対的な時間
     "あとで": {"type": "relative", "urgency": "low", "range_hours": (1, 24)},
     "後ほど": {"type": "relative", "urgency": "low", "range_hours": (1, 8)},
@@ -227,7 +227,7 @@ class VocabularyCategory(Enum):
 
 
 # デフォルトの組織語彙（ソウルシンクス固有）
-DEFAULT_ORGANIZATION_VOCABULARY: Dict[str, Dict[str, str]] = {
+DEFAULT_ORGANIZATION_VOCABULARY: Dict[str, Dict[str, Any]] = {
     # 例：ソウルシンクス固有の語彙
     "ソウルくん": {
         "category": VocabularyCategory.PRODUCT_NAME.value,

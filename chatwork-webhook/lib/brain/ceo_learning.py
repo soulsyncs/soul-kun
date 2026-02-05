@@ -698,8 +698,13 @@ class CEOLearningService:
             relevance_score: 関連度スコア
             selection_reasoning: 選択理由
         """
+        if not teaching.id:
+            logger.warning("Teaching ID is required for usage logging, skipping")
+            return
+
+        teaching_id = teaching.id
         usage = TeachingUsageContext(
-            teaching_id=teaching.id,
+            teaching_id=teaching_id,
             organization_id=self._organization_id,
             room_id=room_id,
             account_id=account_id,
@@ -711,7 +716,7 @@ class CEOLearningService:
 
         try:
             self._usage_repo.log_usage(usage)
-            self._teaching_repo.increment_usage(teaching.id)
+            self._teaching_repo.increment_usage(teaching_id)
         except Exception as e:
             logger.error(f"Failed to log teaching usage: {e}")
 

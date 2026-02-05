@@ -209,7 +209,13 @@ class UsageLogger:
                 conn.commit()
 
                 row = result.fetchone()
-                log_id = row[0] if row else None
+                log_id: Optional[UUID] = None
+                if row:
+                    try:
+                        log_id = UUID(str(row[0]))
+                    except (ValueError, TypeError):
+                        # Handle cases where row[0] is not a valid UUID string
+                        log_id = row[0] if isinstance(row[0], UUID) else None
 
                 logger.debug(
                     f"Logged usage: model={model_id}, tier={tier.value}, "
@@ -287,36 +293,39 @@ class UsageLogger:
                     "org_id": self._organization_id,
                     "target_date": target_date.isoformat(),
                 })
-                row = result.fetchone()
+                stats_row = result.fetchone()
 
                 # ティア別
                 tier_result = conn.execute(tier_query, {
                     "org_id": self._organization_id,
                     "target_date": target_date.isoformat(),
                 })
-                by_tier = {row[0]: row[1] for row in tier_result.fetchall()}
+                by_tier = {r[0]: r[1] for r in tier_result.fetchall()}
 
                 # モデル別
                 model_result = conn.execute(model_query, {
                     "org_id": self._organization_id,
                     "target_date": target_date.isoformat(),
                 })
-                by_model = {row[0]: row[1] for row in model_result.fetchall()}
+                by_model = {r[0]: r[1] for r in model_result.fetchall()}
 
                 # タスクタイプ別
                 task_result = conn.execute(task_query, {
                     "org_id": self._organization_id,
                     "target_date": target_date.isoformat(),
                 })
-                by_task_type = {row[0]: row[1] for row in task_result.fetchall()}
+                by_task_type = {r[0]: r[1] for r in task_result.fetchall()}
+
+                if stats_row is None:
+                    raise ValueError("No stats row returned")
 
                 return UsageStats(
-                    total_requests=row[0] or 0,
-                    total_cost_jpy=Decimal(str(row[1] or 0)),
-                    total_input_tokens=row[2] or 0,
-                    total_output_tokens=row[3] or 0,
-                    success_rate=float(row[4] or 0),
-                    average_latency_ms=float(row[5] or 0),
+                    total_requests=stats_row[0] or 0,
+                    total_cost_jpy=Decimal(str(stats_row[1] or 0)),
+                    total_input_tokens=stats_row[2] or 0,
+                    total_output_tokens=stats_row[3] or 0,
+                    success_rate=float(stats_row[4] or 0),
+                    average_latency_ms=float(stats_row[5] or 0),
                     by_tier=by_tier,
                     by_model=by_model,
                     by_task_type=by_task_type,

@@ -179,7 +179,7 @@ class Learning:
             return f"{content.get('subject', '')}: {content.get('preference', '')}"
 
         elif self.category == LearningCategory.FACT.value:
-            return content.get('description', str(content))
+            return str(content.get('description', str(content)))
 
         elif self.category == LearningCategory.RULE.value:
             condition = content.get('condition', '')
@@ -192,7 +192,7 @@ class Learning:
             return f"「{wrong}」→「{correct}」"
 
         elif self.category == LearningCategory.CONTEXT.value:
-            return content.get('description', str(content))
+            return str(content.get('description', str(content)))
 
         elif self.category == LearningCategory.RELATIONSHIP.value:
             p1 = content.get('person1', '')
@@ -201,7 +201,7 @@ class Learning:
             return f"{p1}と{p2}は{rel}"
 
         elif self.category == LearningCategory.PROCEDURE.value:
-            return content.get('description', str(content))
+            return str(content.get('description', str(content)))
 
         return str(content)
 
@@ -546,6 +546,9 @@ class ImprovementSuggestion:
     description: str = ""
     reason: str = ""
 
+    # 優先度
+    priority: str = "medium"  # 'high', 'medium', 'low'
+
     # 提案内容
     suggested_changes: Dict[str, Any] = field(default_factory=dict)
 
@@ -556,5 +559,6 @@ class ImprovementSuggestion:
             "suggestion_type": self.suggestion_type,
             "description": self.description,
             "reason": self.reason,
+            "priority": self.priority,
             "suggested_changes": self.suggested_changes,
         }

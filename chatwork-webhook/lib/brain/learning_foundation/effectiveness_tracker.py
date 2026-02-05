@@ -108,6 +108,9 @@ class EffectivenessTracker:
         # 推奨アクションを決定
         recommendation = self._determine_recommendation(score, metrics)
 
+        if not learning.id:
+            raise ValueError("learning.id is required for effectiveness calculation")
+
         return EffectivenessResult(
             learning_id=learning.id,
             total_applications=metrics.apply_count,
@@ -270,13 +273,15 @@ class EffectivenessTracker:
         """
         suggestions = []
 
+        learning_id = learning.id or ""
+
         # フィードバック比率が低い
         if metrics.feedback_ratio < 0.5 and metrics.negative_feedback_count >= 3:
             suggestions.append(ImprovementSuggestion(
                 suggestion_type="review_content",
                 description=f"ネガティブフィードバックが多いです（{metrics.negative_feedback_count}件）。内容を見直すことをお勧めします。",
                 priority="high",
-                learning_id=learning.id,
+                learning_id=learning_id,
             ))
 
         # 長期間使用されていない
@@ -285,7 +290,7 @@ class EffectivenessTracker:
                 suggestion_type="check_relevance",
                 description=f"{metrics.days_since_last_apply}日間適用されていません。まだ必要な学習か確認してください。",
                 priority="medium",
-                learning_id=learning.id,
+                learning_id=learning_id,
             ))
 
         # 一度も使用されていない
@@ -294,7 +299,7 @@ class EffectivenessTracker:
                 suggestion_type="unused",
                 description="30日以上経過していますが一度も適用されていません。トリガー条件を見直すか、削除を検討してください。",
                 priority="medium",
-                learning_id=learning.id,
+                learning_id=learning_id,
             ))
 
         # 確信度が低下
@@ -303,7 +308,7 @@ class EffectivenessTracker:
                 suggestion_type="refresh",
                 description="時間経過により確信度が低下しています。内容が現在も正しいか確認してください。",
                 priority="low",
-                learning_id=learning.id,
+                learning_id=learning_id,
             ))
 
         return suggestions
@@ -356,7 +361,7 @@ class EffectivenessTracker:
             suggestions.append("トリガー条件を見直してください")
 
         return LearningHealth(
-            learning_id=learning.id,
+            learning_id=learning.id or "",  # Empty string fallback for health check display
             category=learning.category,
             status=status,
             metrics=metrics,
@@ -381,7 +386,7 @@ class EffectivenessTracker:
         if learnings is None:
             learnings, _ = self.repository.find_all(conn, active_only=True)
 
-        result = {
+        result: Dict[str, List[LearningHealth]] = {
             "healthy": [],
             "warning": [],
             "critical": [],
@@ -472,9 +477,11 @@ class EffectivenessTracker:
         updated = 0
 
         for learning in learnings:
+            if not learning.id:
+                continue
             result = self.calculate_effectiveness(learning)
             success = self.repository.update_effectiveness_score(
-                conn, learning.id, result.score
+                conn, learning.id, result.effectiveness_score
             )
             if success:
                 updated += 1
@@ -510,12 +517,12 @@ class EffectivenessTracker:
         learnings, _ = self.repository.find_all(conn, active_only=True)
         if learnings:
             scores = [
-                self.calculate_effectiveness(l).score
+                self.calculate_effectiveness(l).effectiveness_score
                 for l in learnings
             ]
             avg_score = sum(scores) / len(scores)
         else:
-            avg_score = 0
+            avg_score = 0.0
 
         return {
             "total_learnings": total,

@@ -313,20 +313,20 @@ class OutcomePattern:
                 return f"{hour_range[0]}時〜{hour_range[1]}時の連絡が効果的"
 
         elif self.pattern_type == PatternType.COMMUNICATION_STYLE.value:
-            return content.get("description", "コミュニケーションスタイルパターン")
+            return str(content.get("description", "コミュニケーションスタイルパターン"))
 
         elif self.pattern_type == PatternType.TASK_TYPE.value:
-            return content.get("description", "タスクタイプパターン")
+            return str(content.get("description", "タスクタイプパターン"))
 
         elif self.pattern_type == PatternType.USER_PREFERENCE.value:
-            return content.get("description", "ユーザー好みパターン")
+            return str(content.get("description", "ユーザー好みパターン"))
 
         elif self.pattern_type == PatternType.DAY_OF_WEEK.value:
             days = content.get("condition", {}).get("days", [])
             if days:
                 return f"{', '.join(days)}の連絡が効果的"
 
-        return content.get("description", str(content))
+        return str(content.get("description", str(content)))
 
     @property
     def is_promotable(self) -> bool:

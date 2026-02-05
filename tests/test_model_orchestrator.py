@@ -595,7 +595,8 @@ class TestUsageLogger:
         pool = Mock()
         conn = Mock()
         result = Mock()
-        result.fetchone.return_value = ("test-uuid",)
+        # Use a valid UUID format for the mock
+        result.fetchone.return_value = ("550e8400-e29b-41d4-a716-446655440000",)
         conn.execute.return_value = result
         pool.connect.return_value.__enter__ = Mock(return_value=conn)
         pool.connect.return_value.__exit__ = Mock(return_value=False)

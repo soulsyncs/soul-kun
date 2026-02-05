@@ -163,6 +163,8 @@ class ConflictDetector:
 
         if strategy == ConflictResolutionStrategy.NEWER_WINS:
             # 新しい学習を優先
+            if not new_learning.id or not existing_learning.id:
+                raise ValueError("Learning IDs are required for supersede operation")
             self.repository.update_supersedes(
                 conn, new_learning.id, existing_learning.id
             )
@@ -181,6 +183,8 @@ class ConflictDetector:
 
             if new_priority < existing_priority:
                 # 新しい方が権限が高い
+                if not new_learning.id or not existing_learning.id:
+                    raise ValueError("Learning IDs are required for supersede operation")
                 self.repository.update_supersedes(
                     conn, new_learning.id, existing_learning.id
                 )
@@ -203,6 +207,8 @@ class ConflictDetector:
         if strategy == ConflictResolutionStrategy.CONFIRM_USER:
             # ユーザーに確認
             if user_choice == "new":
+                if not new_learning.id or not existing_learning.id:
+                    raise ValueError("Learning IDs are required for supersede operation")
                 self.repository.update_supersedes(
                     conn, new_learning.id, existing_learning.id
                 )
@@ -367,7 +373,7 @@ class ConflictDetector:
         Returns:
             検出された矛盾のリスト
         """
-        conflicts = []
+        conflicts: List[ConflictInfo] = []
 
         # 新規がCEO教えの場合はチェック不要
         if new_learning.authority_level == AuthorityLevel.CEO.value:

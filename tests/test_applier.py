@@ -291,11 +291,7 @@ def sample_procedure_learning():
 
 @pytest.fixture
 def sample_conversation_context():
-    """Sample conversation context
-
-    Note: applier.py uses context.user_account_id but ConversationContext
-    model only has user_id. We add user_account_id as an attribute for testing.
-    """
+    """Sample conversation context"""
     context = ConversationContext(
         previous_messages=[
             {"role": "user", "content": "タスクを教えて"},
@@ -309,8 +305,6 @@ def sample_conversation_context():
         user_id="user456",
         user_name="田中さん",
     )
-    # Add user_account_id for applier.py compatibility (applier uses user_account_id)
-    context.user_account_id = "account456"
     return context
 
 
@@ -387,7 +381,7 @@ class TestLearningApplierFindApplicable:
 
         # Check that repository was called with context values
         call_kwargs = mock_repository.find_applicable.call_args[1]
-        assert call_kwargs.get("user_id") == sample_conversation_context.user_account_id
+        assert call_kwargs.get("user_id") == sample_conversation_context.user_id
         assert call_kwargs.get("room_id") == sample_conversation_context.room_id
 
     def test_find_applicable_with_explicit_user_and_room_id(
@@ -424,7 +418,7 @@ class TestLearningApplierFindApplicable:
         )
 
         call_kwargs = mock_repository.find_applicable.call_args[1]
-        assert call_kwargs.get("user_id") == sample_conversation_context.user_account_id
+        assert call_kwargs.get("user_id") == sample_conversation_context.user_id
         assert call_kwargs.get("room_id") == sample_conversation_context.room_id
 
 
@@ -663,7 +657,7 @@ class TestLearningApplierApply:
         # Verify LearningLog was saved with context values
         saved_log = mock_repository.save_log.call_args[0][1]
         assert saved_log.applied_in_room_id == sample_conversation_context.room_id
-        assert saved_log.applied_for_account_id == sample_conversation_context.user_account_id
+        assert saved_log.applied_for_account_id == sample_conversation_context.user_id
 
 
 # =============================================================================

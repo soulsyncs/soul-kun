@@ -436,7 +436,7 @@ class BrainLearning:
     def list_all(
         self,
         conn,
-        user_id: str = None,
+        user_id: Optional[str] = None,
     ) -> dict:
         """全学習を一覧表示
 
@@ -454,7 +454,7 @@ class BrainLearning:
         conn,
         learning_id: str,
         requester_account_id: str,
-        requester_authority: str = None,
+        requester_authority: Optional[str] = None,
     ) -> tuple:
         """学習を削除
 
@@ -556,8 +556,8 @@ class BrainLearning:
 
 def create_brain_learning(
     organization_id: str,
-    ceo_account_ids: list = None,
-    manager_account_ids: list = None,
+    ceo_account_ids: Optional[List[Any]] = None,
+    manager_account_ids: Optional[List[Any]] = None,
 ) -> BrainLearning:
     """脳学習統合クラスを作成
 

@@ -189,6 +189,9 @@ class CEOTeachingRepository:
             row = result.fetchone()
             conn.commit()
 
+        if row is None:
+            raise ValueError("Failed to create teaching: no row returned")
+
         teaching.id = str(row[0])
         teaching.organization_id = self._organization_id
         teaching.created_at = row[1]
@@ -832,6 +835,9 @@ class ConflictRepository:
             row = result.fetchone()
             conn.commit()
 
+        if row is None:
+            raise ValueError("Failed to create conflict: no row returned")
+
         conflict.id = str(row[0])
         conflict.organization_id = self._organization_id
         conflict.created_at = row[1]
@@ -971,6 +977,9 @@ class GuardianAlertRepository:
             result = conn.execute(query, params)
             row = result.fetchone()
             conn.commit()
+
+        if row is None:
+            raise ValueError("Failed to create alert: no row returned")
 
         alert.id = str(row[0])
         alert.organization_id = self._organization_id

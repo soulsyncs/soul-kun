@@ -797,7 +797,7 @@ class BrainLearning:
                 f"[Phase2E] Feedback detected: "
                 f"pattern={detection_result.pattern_name}, "
                 f"confidence={detection_result.confidence:.2f}, "
-                f"category={detection_result.category}"
+                f"category={detection_result.pattern_category}"
             )
 
             # 2. 自動学習すべきか判定
@@ -823,14 +823,14 @@ class BrainLearning:
                 return False
 
             with self._connect_with_org_context() as conn:
-                saved_learning = self._phase2e_learning.save(conn, learning)
+                saved_learning_id = self._phase2e_learning.save(conn, learning)
                 conn.commit()
 
             logger.info(
                 f"[Phase2E] Learning saved: "
-                f"id={saved_learning.id}, "
-                f"category={saved_learning.category}, "
-                f"trigger={saved_learning.trigger_value}"
+                f"id={saved_learning_id}, "
+                f"category={learning.category}, "
+                f"trigger={learning.trigger_value}"
             )
 
             return True

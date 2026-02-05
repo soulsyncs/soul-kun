@@ -344,11 +344,16 @@ class GuardianService:
         conflicts: List[ConflictInfo] = []
 
         try:
+            # 0. teaching.idが必須
+            if not teaching.id:
+                raise ValueError("teaching.id is required for validation")
+            teaching_id = teaching.id
+
             # 1. LLMによる包括的検証
             llm_result = await self._validate_with_llm(teaching)
 
             # 2. 結果を解析
-            conflicts = self._parse_llm_validation_result(llm_result, teaching.id)
+            conflicts = self._parse_llm_validation_result(llm_result, teaching_id)
 
             # 3. 既存教えとの矛盾チェック
             existing_conflicts = await self._check_existing_teachings(teaching)
@@ -361,7 +366,7 @@ class GuardianService:
 
             # 5. 矛盾をDBに保存
             for conflict in conflicts:
-                conflict.teaching_id = teaching.id
+                conflict.teaching_id = teaching_id
                 conflict.organization_id = self._organization_id
                 self._conflict_repo.create_conflict(conflict)
 
@@ -625,6 +630,9 @@ conflict_type:
             result = self._parse_llm_response(response)
 
             if result.get("has_conflict") and result.get("conflict_type") != "none":
+                if not new_teaching.id or not existing_teaching.id:
+                    logger.warning("Teaching ID is required for conflict detection")
+                    return None
                 return ConflictInfo(
                     teaching_id=new_teaching.id,
                     conflict_type=ConflictType.EXISTING,
@@ -667,6 +675,9 @@ conflict_type:
             validation_result.conflicts,
             validation_result.alternative_suggestion,
         )
+
+        if not teaching.id:
+            raise ValueError("teaching.id is required for alert generation")
 
         alert = GuardianAlert(
             organization_id=self._organization_id,
@@ -779,7 +790,7 @@ conflict_type:
             )
 
             # 通知情報を更新
-            if result:
+            if result and alert.id:
                 message_id = result.get("message_id", "")
                 self._alert_repo.update_notification_info(
                     alert_id=alert.id,
@@ -894,7 +905,7 @@ conflict_type:
             from lib.mvv_context import detect_ng_pattern, RiskLevel, AlertType
         except ImportError:
             try:
-                from mvv_context import detect_ng_pattern, RiskLevel, AlertType
+                from mvv_context import detect_ng_pattern, RiskLevel, AlertType  # type: ignore[no-redef]
             except ImportError:
                 # フォールバック: 常にAPPROVE
                 logger.warning("mvv_context not available, guardian gate bypassed")

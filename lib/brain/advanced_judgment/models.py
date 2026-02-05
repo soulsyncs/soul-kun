@@ -579,6 +579,9 @@ class PastJudgment:
     # 結果（後から記録）
     outcome: Optional[str] = None
 
+    # 結果スコア（0.0-1.0、後から記録）
+    outcome_score: Optional[float] = None
+
     # 判断日時
     judged_at: datetime = field(default_factory=datetime.now)
 

@@ -83,7 +83,7 @@ class LearningApplier:
         """
         # コンテキストからuser_id, room_idを補完
         if context:
-            user_id = user_id or context.user_account_id
+            user_id = user_id or context.user_id
             room_id = room_id or context.room_id
 
         # リポジトリから検索
@@ -122,16 +122,19 @@ class LearningApplier:
         # コンテキストから補完
         if context:
             room_id = room_id or context.room_id
-            account_id = account_id or context.user_account_id
+            account_id = account_id or context.user_id
 
         # 適用回数をインクリメント
-        self.repository.increment_apply_count(conn, learning.id)
+        if not learning.id:
+            raise ValueError("learning.id is required for apply operation")
+        learning_id = learning.id
+        self.repository.increment_apply_count(conn, learning_id)
 
         # ログを記録
         log = LearningLog(
             id=str(uuid4()),
             organization_id=self.organization_id,
-            learning_id=learning.id,
+            learning_id=learning_id,
             applied_at=datetime.now(),
             applied_in_room_id=room_id,
             applied_for_account_id=account_id,
@@ -199,7 +202,7 @@ class LearningApplier:
         Returns:
             コンテキスト追加情報の辞書
         """
-        additions = {
+        additions: Dict[str, List[str]] = {
             "aliases": [],        # 別名マッピング
             "preferences": [],    # ユーザー嗜好
             "facts": [],          # 事実情報
@@ -471,8 +474,8 @@ class LearningApplier:
 
         # 別名の場合：置換を適用
         if category == LearningCategory.ALIAS.value:
-            from_value = content.get("from", "")
-            to_value = content.get("to", "")
+            from_value = str(content.get("from", ""))
+            to_value = str(content.get("to", ""))
             if from_value and from_value.lower() in message.lower():
                 # 大文字小文字を保持した置換
                 pattern = re.compile(re.escape(from_value), re.IGNORECASE)
@@ -480,8 +483,8 @@ class LearningApplier:
 
         # 修正の場合：パターン置換
         if category == LearningCategory.CORRECTION.value:
-            wrong_pattern = content.get("wrong_pattern", "")
-            correct_pattern = content.get("correct_pattern", "")
+            wrong_pattern = str(content.get("wrong_pattern", ""))
+            correct_pattern = str(content.get("correct_pattern", ""))
             if wrong_pattern and wrong_pattern.lower() in message.lower():
                 pattern = re.compile(re.escape(wrong_pattern), re.IGNORECASE)
                 return pattern.sub(correct_pattern, message)

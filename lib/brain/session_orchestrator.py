@@ -544,10 +544,24 @@ class SessionOrchestrator:
 
         v10.43.3: P5対話フロー無限ループバグ修正
         """
-        pending_action = state.state_data.get("pending_action")
+        pending_action: Optional[str] = state.state_data.get("pending_action")
         pending_params = state.state_data.get("pending_params", {})
         options = state.state_data.get("confirmation_options", [])
         retry_count = state.state_data.get("confirmation_retry_count", 0)
+
+        # pending_actionがNoneの場合はフォールバック
+        if not pending_action:
+            logger.warning(
+                f"[CONFIRMATION] No pending_action found in state, room={room_id}"
+            )
+            await self.state_manager.clear_state(room_id, account_id, "no_pending_action")
+            return BrainResponse(
+                message="確認中のアクションが見つからなかったウル🙏\nもう一度お願いできるウル？",
+                action_taken="confirmation_no_action",
+                state_changed=True,
+                new_state="normal",
+                total_time_ms=self._elapsed_ms(start_time),
+            )
 
         # P5安全装置①: 空オプション検知
         if not options:
@@ -630,7 +644,7 @@ class SessionOrchestrator:
             pending_params["confirmed_option"] = options[selected_option]
 
         decision = DecisionResult(
-            action=pending_action or "",
+            action=pending_action,
             params=pending_params,
             confidence=1.0,
         )
@@ -645,7 +659,7 @@ class SessionOrchestrator:
 
         return BrainResponse(
             message=result.message,
-            action_taken=pending_action or "",
+            action_taken=pending_action,
             action_params=pending_params,
             success=result.success,
             suggestions=result.suggestions,

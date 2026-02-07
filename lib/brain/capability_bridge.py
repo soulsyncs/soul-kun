@@ -749,19 +749,20 @@ class CapabilityBridge:
                 recipient_name=sender_name,
             )
 
-            # フィードバックエンジンを初期化
-            engine = CEOFeedbackEngine(
-                conn=self.pool,
-                organization_id=org_uuid,
-                settings=settings,
-            )
+            # フィードバックエンジンを初期化（Poolからconnectionを取得）
+            with self.pool.connect() as conn:
+                engine = CEOFeedbackEngine(
+                    conn=conn,
+                    organization_id=org_uuid,
+                    settings=settings,
+                )
 
-            # フィードバックを生成（オンデマンド分析を使用）
-            query = f"{period}のフィードバック"
-            feedback, _delivery_result = await engine.analyze_on_demand(
-                query=query,
-                deliver=False,
-            )
+                # フィードバックを生成（オンデマンド分析を使用）
+                query = f"{period}のフィードバック"
+                feedback, _delivery_result = await engine.analyze_on_demand(
+                    query=query,
+                    deliver=False,
+                )
 
             return HandlerResult(
                 success=True,

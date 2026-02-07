@@ -37,34 +37,16 @@ class SafeJSONEncoder(json.JSONEncoder):
     """
     安全なJSONエンコーダー
 
-    シリアライズ不可能なオブジェクト（dataclass、datetime等）を
+    type_safety.safe_to_dict() に委譲して、シリアライズ不可能なオブジェクトを
     安全にJSON形式に変換する。
 
     v10.54.1: ConfidenceScoresシリアライズエラー対策
+    v10.57: type_safety.py をSoTとして統合
     """
 
-    def default(self, obj):
-        # to_dict()メソッドを持つオブジェクト（dataclass等）
-        if hasattr(obj, 'to_dict'):
-            return obj.to_dict()
-
-        # datetime
-        if isinstance(obj, datetime):
-            return obj.isoformat()
-
-        # UUID
-        if isinstance(obj, UUID):
-            return str(obj)
-
-        # Enum
-        if hasattr(obj, 'value'):
-            return obj.value
-
-        # その他のオブジェクトは文字列化
-        try:
-            return str(obj)
-        except Exception:
-            return f"<non-serializable: {type(obj).__name__}>"
+    def default(self, obj: Any) -> Any:
+        from lib.brain.type_safety import safe_to_dict
+        return safe_to_dict(obj)
 
 
 def _safe_json_dumps(data: Any) -> str:

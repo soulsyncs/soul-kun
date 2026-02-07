@@ -857,43 +857,25 @@ class BrainContext:
         """
         辞書形式に変換（シリアライズ用）
 
+        type_safety.safe_to_dict() を使用して安全にJSON化可能な形式に変換する。
+
         Returns:
             BrainContextの内容を辞書として返す
         """
-        def _safe_to_dict(obj):
-            """オブジェクトを安全に辞書化（すでに辞書ならそのまま返す）"""
-            if isinstance(obj, dict):
-                return obj
-            if hasattr(obj, 'to_dict'):
-                return obj.to_dict()
-            return {}
-
-        def _safe_list_to_dict(items, fallback_key=None):
-            """リスト内の各要素を安全に辞書化"""
-            result = []
-            for item in items:
-                if isinstance(item, dict):
-                    result.append(item)
-                elif hasattr(item, 'to_dict'):
-                    result.append(item.to_dict())
-                elif fallback_key and hasattr(item, fallback_key):
-                    result.append({fallback_key: getattr(item, fallback_key)})
-                else:
-                    result.append({})
-            return result
+        from lib.brain.type_safety import safe_to_dict
 
         return {
-            "current_state": _safe_to_dict(self.current_state) if self.current_state else None,
-            "recent_conversation": _safe_list_to_dict(self.recent_conversation, "content"),
-            "conversation_summary": _safe_to_dict(self.conversation_summary) if self.conversation_summary else None,
-            "user_preferences": _safe_to_dict(self.user_preferences) if self.user_preferences else None,
+            "current_state": safe_to_dict(self.current_state) if self.current_state else None,
+            "recent_conversation": safe_to_dict(self.recent_conversation),
+            "conversation_summary": safe_to_dict(self.conversation_summary) if self.conversation_summary else None,
+            "user_preferences": safe_to_dict(self.user_preferences) if self.user_preferences else None,
             "sender_name": self.sender_name,
             "sender_account_id": self.sender_account_id,
-            "person_info": _safe_list_to_dict(self.person_info, "name"),
-            "recent_tasks": _safe_list_to_dict(self.recent_tasks, "task_id"),
-            "active_goals": _safe_list_to_dict(self.active_goals, "goal_id"),
-            "goal_session": _safe_to_dict(self.goal_session) if self.goal_session else None,
-            "insights": _safe_list_to_dict(self.insights),
+            "person_info": safe_to_dict(self.person_info),
+            "recent_tasks": safe_to_dict(self.recent_tasks),
+            "active_goals": safe_to_dict(self.active_goals),
+            "goal_session": safe_to_dict(self.goal_session) if self.goal_session else None,
+            "insights": safe_to_dict(self.insights),
             "organization_id": self.organization_id,
             "room_id": self.room_id,
             "timestamp": self.timestamp.isoformat() if self.timestamp else None,

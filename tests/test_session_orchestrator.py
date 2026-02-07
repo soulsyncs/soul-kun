@@ -205,12 +205,29 @@ async def test_continue_task_pending_missing_items_prompts():
 
 
 @pytest.mark.asyncio
-async def test_handle_confirmation_response_empty_options_fallback():
+async def test_handle_confirmation_response_no_pending_action():
+    """pending_actionがない場合はconfirmation_no_actionを返す"""
     orch = _make_orchestrator()
     state = ConversationState(
         state_type=StateType.CONFIRMATION,
         state_step="confirmation",
         state_data={"confirmation_options": []},
+    )
+    ctx = _base_context()
+
+    response = await orch._handle_confirmation_response("msg", state, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert response.action_taken == "confirmation_no_action"
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_handle_confirmation_response_empty_options_fallback():
+    """pending_actionはあるがoptionsが空の場合はconfirmation_fallbackを返す"""
+    orch = _make_orchestrator()
+    state = ConversationState(
+        state_type=StateType.CONFIRMATION,
+        state_step="confirmation",
+        state_data={"pending_action": "do_something", "confirmation_options": []},
     )
     ctx = _base_context()
 
@@ -225,7 +242,7 @@ async def test_handle_confirmation_response_retry_then_fallback():
     state = ConversationState(
         state_type=StateType.CONFIRMATION,
         state_step="confirmation",
-        state_data={"confirmation_options": ["A", "B"], "confirmation_retry_count": 1},
+        state_data={"pending_action": "do_something", "confirmation_options": ["A", "B"], "confirmation_retry_count": 1},
     )
     ctx = _base_context()
 
@@ -406,7 +423,7 @@ async def test_handle_confirmation_response_retry_path():
     state = ConversationState(
         state_type=StateType.CONFIRMATION,
         state_step="confirmation",
-        state_data={"confirmation_options": ["A", "B"], "confirmation_retry_count": 0},
+        state_data={"pending_action": "do_something", "confirmation_options": ["A", "B"], "confirmation_retry_count": 0},
     )
     ctx = _base_context()
 

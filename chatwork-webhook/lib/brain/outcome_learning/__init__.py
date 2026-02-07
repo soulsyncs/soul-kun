@@ -205,11 +205,11 @@ class BrainOutcomeLearning:
                 # 暗黙フィードバックを検出
                 feedback = self._detector.detect(conn, event)
 
-                if feedback:
+                if feedback and event.id is not None:
                     # 結果を更新
                     success = self._tracker.update_outcome(
                         conn=conn,
-                        event_id=event.id or "",
+                        event_id=event.id,
                         outcome_type=feedback.outcome_type,
                         outcome_details={
                             "feedback_signal": feedback.feedback_signal,

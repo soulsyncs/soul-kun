@@ -309,16 +309,19 @@ class PatternExtractor:
             if matching:
                 # 統計を更新
                 existing_pattern = matching[0]
+                if existing_pattern.id is None:
+                    logger.warning("Existing pattern has no ID, skipping update")
+                    continue
                 self.repository.update_pattern_stats(
                     conn,
-                    pattern_id=existing_pattern.id or "",
+                    pattern_id=existing_pattern.id,
                     sample_count=pattern.sample_count,
                     success_count=pattern.success_count,
                     failure_count=pattern.failure_count,
                     success_rate=pattern.success_rate or 0.0,
                     confidence_score=pattern.confidence_score or 0.0,
                 )
-                saved_ids.append(existing_pattern.id or "")
+                saved_ids.append(existing_pattern.id)
             else:
                 # 新規保存
                 pattern_id = self.repository.save_pattern(conn, pattern)

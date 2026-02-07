@@ -146,7 +146,7 @@ class ImplicitFeedbackDetector:
             elapsed = datetime.now() - (event.event_timestamp or datetime.now())
             if elapsed.total_seconds() / 3600 > IGNORED_THRESHOLD_HOURS:
                 return ImplicitFeedback(
-                    event_id=event.id,
+                    event_id=event.id or "",
                     feedback_signal=FeedbackSignal.GOAL_STALLED.value,
                     outcome_type=OutcomeType.IGNORED.value,
                     confidence=0.7,
@@ -167,7 +167,7 @@ class ImplicitFeedbackDetector:
         # daily_noteが記録されている = 採用
         if daily_note:
             return ImplicitFeedback(
-                event_id=event.id,
+                event_id=event.id or "",
                 feedback_signal=FeedbackSignal.GOAL_PROGRESS_MADE.value,
                 outcome_type=OutcomeType.ADOPTED.value,
                 confidence=0.85,
@@ -181,7 +181,7 @@ class ImplicitFeedbackDetector:
 
         # daily_noteなし = 遅延または部分採用
         return ImplicitFeedback(
-            event_id=event.id,
+            event_id=event.id or "",
             feedback_signal=FeedbackSignal.READ_BUT_NO_ACTION.value,
             outcome_type=OutcomeType.PARTIAL.value,
             confidence=0.6,
@@ -237,7 +237,7 @@ class ImplicitFeedbackDetector:
         # タスク完了 = 採用
         if status == "done":
             return ImplicitFeedback(
-                event_id=event.id,
+                event_id=event.id or "",
                 feedback_signal=FeedbackSignal.TASK_COMPLETED.value,
                 outcome_type=OutcomeType.ADOPTED.value,
                 confidence=0.9,
@@ -253,7 +253,7 @@ class ImplicitFeedbackDetector:
         limit_time = row[2]
         if limit_time and datetime.now() > limit_time:
             return ImplicitFeedback(
-                event_id=event.id,
+                event_id=event.id or "",
                 feedback_signal=FeedbackSignal.TASK_OVERDUE.value,
                 outcome_type=OutcomeType.IGNORED.value,
                 confidence=0.7,
@@ -354,7 +354,7 @@ class ImplicitFeedbackDetector:
                 confidence = 0.6
 
             return ImplicitFeedback(
-                event_id=event.id,
+                event_id=event.id or "",
                 feedback_signal=FeedbackSignal.REPLY_RECEIVED.value,
                 outcome_type=outcome_type,
                 confidence=confidence,
@@ -369,7 +369,7 @@ class ImplicitFeedbackDetector:
         # 反応なしの場合、無視判定の閾値を超えるまで待つ
         if elapsed_hours >= IGNORED_THRESHOLD_HOURS:
             return ImplicitFeedback(
-                event_id=event.id,
+                event_id=event.id or "",
                 feedback_signal=FeedbackSignal.NO_RESPONSE.value,
                 outcome_type=OutcomeType.IGNORED.value,
                 confidence=0.7,

@@ -4,7 +4,7 @@
 
 ---
 
-## 🚀 現在のステータス（2026-02-04 22:10 更新）
+## 🚀 現在のステータス（2026-02-07 更新）
 
 | 項目 | 状態 |
 |------|------|
@@ -16,6 +16,7 @@
 | **Lazy Import** | ✅ 完了（lib/: 283エントリ、lib/brain/: 619エントリ） |
 | **CI/CD** | ✅ テスト実行+mypy+sync-check+type-check |
 | **型安全性** | ✅ type_safety.py + CI必須化（v10.56） |
+| **mypy** | ✅ **lib/brain/ 全109ファイル エラー0件達成** |
 | **テストカバレッジ** | ✅ **81%達成**（目標80%クリア、6524テスト） |
 | **本番デプロイ** | ✅ Build c02828e2（2026-02-04 22:02） |
 | **主軸設計書** | `docs/25_llm_native_brain_architecture.md` |
@@ -49,20 +50,34 @@
 | 古いPRの整理 | ✅ 完了 | 全7件クローズ（#181, #138, #332, #362, #321, #294, #285） |
 | 設計書整合性修正PR | ✅ 完了 | PR #383 マージ済み |
 
+### ✅ mypy lib/brain/ 全ファイル エラー0件達成（2026-02-07）
+
+**258件のmypyエラーを55ファイルで修正し、109ソースファイル全てでエラー0を達成。**
+
+| 修正前 | 修正後 |
+|--------|--------|
+| 258 errors in 55 files | **0 errors in 109 files** |
+| 全テスト: 6524 passed | 全テスト: **6524 passed**（回帰なし） |
+
+**主な発見:**
+- `type_safety.py` の `safe_to_dict` 等が本番コード未使用（models.py, state_manager.py が独自実装）
+- `memory_enhancement/__init__.py` のファサードが実装クラスとメソッド名/引数名の不一致（26件）
+- `capability_bridge.py` のコンストラクタ/メソッドシグネチャのドリフト（24件）
+
 ### 次回やること
 
 ```
-1. 本番モニタリング継続
-   - type_safety.pyの効果検証（型関連エラー減少の確認）
+1. type_safety.py の本番統合
+   - models.py の _safe_to_dict() → type_safety.safe_to_dict() に統一
+   - state_manager.py の SafeJsonEncoder → type_safety 利用に統一
+   - 重複コード削除でSoT統一
+2. 本番モニタリング継続
+   - 型関連エラー減少の確認
    - ログ監視で新たな型不整合パターンを検出
-2. mypy対象範囲拡大
-   - lib/brain/ 全体へ段階的に適用
-   - 現在: models.py, type_safety.py のみ
-   - 次: core.py, guardian.py, ceo_learning.py
 3. 新機能開発（Phase 4以降）
 ```
 
-> **続きのキーワード:** 「mypy拡大」「型安全性強化」「新機能」
+> **続きのキーワード:** 「type_safety統合」「本番モニタリング」「新機能」
 
 ---
 

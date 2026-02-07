@@ -191,7 +191,7 @@ class ExecutionResult:
         return HandlerResult(
             success=self.success,
             message=self.message,
-            data=self.data,
+            data=self.data if self.data is not None else {},
             error_code=self.error_code,
             error_details=self.error_details,
             next_action=self.next_action,

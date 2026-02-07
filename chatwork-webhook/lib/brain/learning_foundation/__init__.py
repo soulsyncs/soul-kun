@@ -233,8 +233,8 @@ class BrainLearning:
     def detect(
         self,
         message: str,
-        context: ConversationContext = None,
-    ) -> FeedbackDetectionResult:
+        context: Optional[ConversationContext] = None,
+    ) -> Optional[FeedbackDetectionResult]:
         """フィードバックを検出
 
         Args:

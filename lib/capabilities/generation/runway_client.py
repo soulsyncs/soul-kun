@@ -12,7 +12,7 @@ Created: 2026-01-28
 import os
 import logging
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 import httpx
 
 from .constants import (
@@ -297,7 +297,7 @@ class RunwayClient:
         task_id: str,
         poll_interval: float = RUNWAY_POLL_INTERVAL_SECONDS,
         max_attempts: int = RUNWAY_MAX_POLL_ATTEMPTS,
-        progress_callback: Optional[callable] = None,
+        progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> Dict[str, Any]:
         """
         タスクの完了を待つ
@@ -321,7 +321,7 @@ class RunwayClient:
             logger.debug(f"Task {task_id}: status={status}, progress={progress}%")
 
             if progress_callback:
-                progress_callback(progress, status)
+                progress_callback(int(progress or 0), str(status or ""))
 
             if status == "SUCCEEDED":
                 logger.info(f"Task {task_id} completed successfully")

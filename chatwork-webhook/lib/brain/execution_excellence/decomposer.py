@@ -272,7 +272,7 @@ class ParameterExtractor:
         Returns:
             抽出されたパラメータ
         """
-        params = {}
+        params: Dict[str, Any] = {}
 
         # 日時抽出
         datetime_value = self._extract_datetime(request)
@@ -528,6 +528,7 @@ JSON形式で回答してください:
 }}
 """
 
+            assert self.llm_client is not None
             response = await self.llm_client.generate(prompt)
             return self._parse_llm_response(response)
 

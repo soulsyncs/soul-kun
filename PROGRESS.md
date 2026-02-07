@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-05 JST**
+**最終更新: 2026-02-07 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -18,6 +18,45 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ mypy lib/brain/ 全109ファイル エラー0件達成（2026-02-07）
+
+**目的:** lib/brain/ 全体のmypyエラーを完全に解消し、型安全性を確立
+
+**結果:**
+- **258件 → 0件**（55ファイルで修正、109ソースファイル全てPASS）
+- **全テスト:** 6524 passed, 25 skipped（回帰なし）
+
+**主な修正カテゴリ:**
+
+| エラー種別 | 件数（概算） | 修正方法 |
+|-----------|-------------|---------|
+| no-any-return | ~40 | 明示的な型ラップ（str(), int(), bool()） |
+| arg-type | ~35 | 引数型の不一致修正 |
+| var-annotated | ~30 | 空リスト/辞書への型アノテーション追加 |
+| assignment | ~30 | implicit Optional修正、型ナロウイング |
+| call-arg | ~25 | メソッドシグネチャとの整合性修正 |
+| attr-defined | ~20 | 存在しない属性/メソッドの参照修正 |
+| return-value | ~15 | cast()追加、戻り値型修正 |
+| override | ~10 | type: ignore[override]（意図的シグネチャ変更） |
+| dict-item | ~10 | Dict型アノテーション修正 |
+
+**修正ファイル（主要55件）:**
+- memory_enhancement/__init__.py（26件）: ファサードと実装クラスのメソッド名/引数名不一致
+- capability_bridge.py（24件）: コンストラクタ/メソッドシグネチャのドリフト
+- capabilities/generation/（9ファイル）: image_generator, video_generator等のコスト計算型
+- capabilities/multimodal/（8ファイル）: URLプロセッサ、PDFプロセッサ等
+- capabilities/feedback/（5ファイル）: ロガー型、空リストアノテーション
+- logging.py + handlers/（3ファイル）: Logger override、import fallback
+- mvv_context.py, chatwork.py, secrets.py: 外部API周辺の型修正
+
+**発見事項:**
+- `type_safety.py` の関数群（safe_to_dict等）が本番コードで未使用
+  - models.py が独自 `_safe_to_dict()` を持つ
+  - state_manager.py が独自 `SafeJsonEncoder` を持つ
+  - → 次回タスク: type_safety.py への統合でSoT統一
+
+---
 
 ### ✅ mypy追加修正 + データ整合性バグ修正（2026-02-05）
 

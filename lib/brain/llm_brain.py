@@ -815,7 +815,7 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             response = await client.post(
                 self.api_url,
                 headers={
-                    "x-api-key": self.api_key,
+                    "x-api-key": self.api_key or "",
                     "Content-Type": "application/json",
                     "anthropic-version": "2023-06-01",
                 },

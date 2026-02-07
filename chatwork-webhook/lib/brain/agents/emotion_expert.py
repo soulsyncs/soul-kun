@@ -420,7 +420,7 @@ class EmotionExpert(BaseAgent):
         """
         message_lower = message.lower()
         detected_keywords = []
-        emotions = []
+        emotions: List[EmotionType] = []
 
         # 緊急キーワードチェック
         urgency = UrgencyLevel.LOW

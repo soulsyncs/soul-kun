@@ -149,6 +149,7 @@ class URLProcessor(BaseMultimodalProcessor):
             # Step 1: 入力検証
             self.validate(input_data)
             url = input_data.url
+            assert url is not None  # validate() ensures url is not None
 
             # Step 2: URLセキュリティチェック
             self._check_url_security(url)
@@ -515,16 +516,16 @@ class URLProcessor(BaseMultimodalProcessor):
         for selector in main_selectors:
             main = soup.select_one(selector)
             if main:
-                text = main.get_text(separator='\n', strip=True)
+                text = str(main.get_text(separator='\n', strip=True))
                 if len(text) > 200:  # 有意なコンテンツ
                     return text
 
         # フォールバック: body全体
         body = soup.find('body')
         if body:
-            return body.get_text(separator='\n', strip=True)
+            return str(body.get_text(separator='\n', strip=True))
 
-        return soup.get_text(separator='\n', strip=True)
+        return str(soup.get_text(separator='\n', strip=True))
 
     def _extract_headings(self, soup) -> List[str]:
         """見出しを抽出"""
@@ -679,19 +680,21 @@ class URLProcessor(BaseMultimodalProcessor):
             )
             response.raise_for_status()
             data = response.json()
-            return data["choices"][0]["message"]["content"]
+            return str(data["choices"][0]["message"]["content"])
 
     def _parse_analysis_result(self, content: str) -> Dict[str, Any]:
         """分析結果をパース"""
         try:
             json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group(1))
+                parsed: Dict[str, Any] = json.loads(json_match.group(1))
+                return parsed
 
             start = content.find('{')
             end = content.rfind('}')
             if start != -1 and end != -1:
-                return json.loads(content[start:end + 1])
+                parsed2: Dict[str, Any] = json.loads(content[start:end + 1])
+                return parsed2
 
         except Exception:
             pass

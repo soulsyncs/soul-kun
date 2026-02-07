@@ -537,7 +537,8 @@ class PersonServiceAdapter:
 
     def search_by_name(self, name: str) -> List[str]:
         """名前で人物を検索"""
-        return self._service.search_person_by_partial_name(name)
+        result: List[str] = self._service.search_person_by_partial_name(name)
+        return result
 
     def get_all_names(self) -> List[str]:
         """全人物名を取得（キャッシュあり）"""

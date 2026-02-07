@@ -563,7 +563,7 @@ class EmotionReader:
                     emotion_counts[emotion_value] = emotion_counts.get(emotion_value, 0) + 1
 
         if emotion_counts:
-            return max(emotion_counts, key=emotion_counts.get)
+            return max(emotion_counts, key=lambda k: emotion_counts.get(k, 0))
 
         return None
 

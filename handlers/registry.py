@@ -26,7 +26,7 @@ Author: Claude Opus 4.5
 Created: 2026-01-29
 """
 
-from typing import Dict, Callable, Any
+from typing import Dict, Callable, Any, Optional
 
 # =============================================================================
 # SYSTEM_CAPABILITIES: AIが認識する機能カタログ
@@ -1299,7 +1299,7 @@ def get_enabled_capabilities() -> Dict[str, Dict[str, Any]]:
     }
 
 
-def get_capability_info(action_name: str) -> Dict[str, Any]:
+def get_capability_info(action_name: str) -> Optional[Dict[str, Any]]:
     """
     指定されたアクションの機能情報を取得
 
@@ -1326,7 +1326,7 @@ def get_handler_name(capability_id: str) -> str:
     """
     cap = SYSTEM_CAPABILITIES.get(capability_id)
     if cap:
-        return cap.get("handler", capability_id)
+        return str(cap.get("handler", capability_id))
     return capability_id
 
 
@@ -1344,9 +1344,9 @@ def resolve_handler_alias(handler_name: str) -> str:
 
 
 def generate_capabilities_prompt(
-    capabilities: Dict[str, Dict[str, Any]] = None,
-    chatwork_users: list = None,
-    sender_name: str = None
+    capabilities: Optional[Dict[str, Dict[str, Any]]] = None,
+    chatwork_users: Optional[list] = None,
+    sender_name: Optional[str] = None
 ) -> str:
     """
     機能カタログからAI司令塔用のプロンプトを自動生成する

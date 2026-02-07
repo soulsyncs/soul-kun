@@ -202,7 +202,7 @@ class LearningApplier:
         Returns:
             コンテキスト追加情報の辞書
         """
-        additions: Dict[str, List[str]] = {
+        additions: Dict[str, List[Any]] = {
             "aliases": [],        # 別名マッピング
             "preferences": [],    # ユーザー嗜好
             "facts": [],          # 事実情報

@@ -442,7 +442,7 @@ class RiskAssessor:
         options: List[JudgmentOption],
     ) -> List[RiskFactor]:
         """リスク分析のLLMレスポンスをパース"""
-        risks = []
+        risks: List[RiskFactor] = []
 
         try:
             json_match = re.search(r'\{[\s\S]*\}', response)
@@ -450,7 +450,7 @@ class RiskAssessor:
                 return risks
 
             data = json.loads(json_match.group())
-            option_name_map = {o.name: o.id for o in options}
+            option_name_map: Dict[str, str] = {o.name: o.id for o in options}
 
             for r_data in data.get("risks", []):
                 # 関連する選択肢のIDを取得
@@ -541,12 +541,12 @@ class RiskAssessor:
                 break
 
         # カテゴリ別カウント
-        risks_by_category = {}
+        risks_by_category: Dict[str, int] = {}
         for risk in risks:
             risks_by_category[risk.category] = risks_by_category.get(risk.category, 0) + 1
 
         # レベル別カウント
-        risks_by_level = {}
+        risks_by_level: Dict[str, int] = {}
         for risk in risks:
             risks_by_level[risk.risk_level] = risks_by_level.get(risk.risk_level, 0) + 1
 
@@ -731,7 +731,7 @@ class RiskAssessor:
         options: List[JudgmentOption],
     ) -> List[ReturnFactor]:
         """リターン分析のLLMレスポンスをパース"""
-        returns = []
+        returns: List[ReturnFactor] = []
 
         try:
             json_match = re.search(r'\{[\s\S]*\}', response)
@@ -739,7 +739,7 @@ class RiskAssessor:
                 return returns
 
             data = json.loads(json_match.group())
-            option_name_map = {o.name: o.id for o in options}
+            option_name_map: Dict[str, str] = {o.name: o.id for o in options}
 
             for r_data in data.get("returns", []):
                 related_ids = []
@@ -806,14 +806,14 @@ class RiskAssessor:
         total_return = sum(r.adjusted_value for r in returns)
 
         # タイプ別リターン
-        returns_by_type = {}
+        returns_by_type: Dict[str, float] = {}
         for ret in returns:
             returns_by_type[ret.return_type] = (
                 returns_by_type.get(ret.return_type, 0) + ret.adjusted_value
             )
 
         # 時間軸別リターン
-        returns_by_timeframe = {}
+        returns_by_timeframe: Dict[str, float] = {}
         for ret in returns:
             returns_by_timeframe[ret.timeframe] = (
                 returns_by_timeframe.get(ret.timeframe, 0) + ret.adjusted_value

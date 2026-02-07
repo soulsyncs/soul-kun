@@ -418,7 +418,7 @@ class Orchestrator(BaseAgent):
             )
 
         primary = sorted_scores[0]
-        secondary = []
+        secondary: List[AgentType] = []
 
         # セカンダリエージェントの選択
         for score in sorted_scores[1:]:

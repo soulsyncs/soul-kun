@@ -324,7 +324,7 @@ class TradeoffAnalyzer:
         criteria: List[EvaluationCriterion],
     ) -> List[Tradeoff]:
         """選択肢間のトレードオフを検出"""
-        tradeoffs = []
+        tradeoffs: List[Tradeoff] = []
 
         if len(evaluations) < 2:
             return tradeoffs
@@ -379,7 +379,7 @@ class TradeoffAnalyzer:
         criteria: List[EvaluationCriterion],
     ) -> List[Tradeoff]:
         """スコアパターンからトレードオフを検出"""
-        tradeoffs = []
+        tradeoffs: List[Tradeoff] = []
 
         if not evaluations:
             return tradeoffs
@@ -678,7 +678,7 @@ class TradeoffAnalyzer:
         tradeoffs: List[Tradeoff],
     ) -> List[Tradeoff]:
         """トレードオフの重複を除去"""
-        unique = []
+        unique: List[Tradeoff] = []
         for tradeoff in tradeoffs:
             is_duplicate = False
             for existing in unique:

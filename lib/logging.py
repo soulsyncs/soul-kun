@@ -30,7 +30,7 @@ import logging
 import json
 import sys
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 from functools import lru_cache
 
 from lib.config import get_settings
@@ -98,40 +98,40 @@ class StructuredLogger(logging.Logger):
         level: int,
         msg: str,
         args: tuple,
-        exc_info=None,
-        **kwargs
-    ):
+        exc_info: Any = None,
+        **kwargs: Any
+    ) -> None:
         """追加フィールド付きでログを記録"""
 
         # extra_fields として追加データを渡す
         extra = {"extra_fields": kwargs}
         super()._log(level, msg, args, exc_info=exc_info, extra=extra)
 
-    def debug(self, msg: str, *args, **kwargs):
+    def debug(self, msg: str, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         if self.isEnabledFor(logging.DEBUG):
             self._log_with_extra(logging.DEBUG, msg, args, **kwargs)
 
-    def info(self, msg: str, *args, **kwargs):
+    def info(self, msg: str, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         if self.isEnabledFor(logging.INFO):
             self._log_with_extra(logging.INFO, msg, args, **kwargs)
 
-    def warning(self, msg: str, *args, **kwargs):
+    def warning(self, msg: str, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         if self.isEnabledFor(logging.WARNING):
             self._log_with_extra(logging.WARNING, msg, args, **kwargs)
 
-    def error(self, msg: str, *args, exc_info=None, **kwargs):
+    def error(self, msg: str, *args: Any, exc_info: Any = None, **kwargs: Any) -> None:  # type: ignore[override]
         if self.isEnabledFor(logging.ERROR):
             self._log_with_extra(
                 logging.ERROR, msg, args, exc_info=exc_info, **kwargs
             )
 
-    def critical(self, msg: str, *args, exc_info=None, **kwargs):
+    def critical(self, msg: str, *args: Any, exc_info: Any = None, **kwargs: Any) -> None:  # type: ignore[override]
         if self.isEnabledFor(logging.CRITICAL):
             self._log_with_extra(
                 logging.CRITICAL, msg, args, exc_info=exc_info, **kwargs
             )
 
-    def exception(self, msg: str, *args, **kwargs):
+    def exception(self, msg: str, *args: Any, **kwargs: Any) -> None:  # type: ignore[override]
         """例外情報付きでエラーログを記録"""
         self.error(msg, *args, exc_info=True, **kwargs)
 
@@ -161,7 +161,7 @@ def get_logger(name: str) -> StructuredLogger:
 
     # 既にハンドラーが設定されている場合はスキップ
     if logger.handlers:
-        return logger
+        return cast(StructuredLogger, logger)
 
     # ログレベル設定
     level = logging.DEBUG if settings.DEBUG else logging.INFO
@@ -185,7 +185,7 @@ def get_logger(name: str) -> StructuredLogger:
     # 親ロガーへの伝播を防止
     logger.propagate = False
 
-    return logger
+    return cast(StructuredLogger, logger)
 
 
 # =============================================================================

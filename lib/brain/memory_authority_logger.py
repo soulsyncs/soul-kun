@@ -33,7 +33,7 @@ try:
     CLOUD_LOGGING_AVAILABLE = True
 except ImportError:
     CLOUD_LOGGING_AVAILABLE = False
-    Logger = None
+    Logger = None  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 

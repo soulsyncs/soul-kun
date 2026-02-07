@@ -52,32 +52,34 @@
 
 ### ✅ mypy lib/brain/ 全ファイル エラー0件達成（2026-02-07）
 
-**258件のmypyエラーを55ファイルで修正し、109ソースファイル全てでエラー0を達成。**
+**258件のmypyエラーを55ファイルで修正し、109ソースファイル全てでエラー0を達成。**（PR #411 マージ済み）
+
+### ✅ 軽微バグ修正 + type_safety統合 完了（2026-02-07）
+
+| # | 修正内容 | 対象ファイル |
+|---|---------|-------------|
+| 1 | `id or ""` パターン除去（Noneガード追加） | manager.py, effectiveness_tracker.py, implicit_detector.py, pattern_extractor.py, outcome_learning/__init__.py |
+| 2 | `pending_action or ""` 修正（早期リターン追加） | session_orchestrator.py |
+| 3 | `find_episodes_by_entity()` entity_typeフィルタ修正 | episode_repository.py, memory_enhancement/__init__.py |
+| 4 | `get_related_nodes()` directionパラメータ実装 | memory_enhancement/__init__.py |
+| 5 | `CEOFeedbackEngine` Pool→Connection修正 | capability_bridge.py |
+| 6 | type_safety.py SoT統合 | models.py, state_manager.py |
 
 | 修正前 | 修正後 |
 |--------|--------|
-| 258 errors in 55 files | **0 errors in 109 files** |
-| 全テスト: 6524 passed | 全テスト: **6524 passed**（回帰なし） |
-
-**主な発見:**
-- `type_safety.py` の `safe_to_dict` 等が本番コード未使用（models.py, state_manager.py が独自実装）
-- `memory_enhancement/__init__.py` のファサードが実装クラスとメソッド名/引数名の不一致（26件）
-- `capability_bridge.py` のコンストラクタ/メソッドシグネチャのドリフト（24件）
+| 全テスト: 6524 passed | 全テスト: **6534 passed**（+10 回帰テスト追加） |
+| type_safety.py 未使用 | **SoTとして統合** |
 
 ### 次回やること
 
 ```
-1. type_safety.py の本番統合
-   - models.py の _safe_to_dict() → type_safety.safe_to_dict() に統一
-   - state_manager.py の SafeJsonEncoder → type_safety 利用に統一
-   - 重複コード削除でSoT統一
-2. 本番モニタリング継続
+1. 本番デプロイ + モニタリング
    - 型関連エラー減少の確認
    - ログ監視で新たな型不整合パターンを検出
-3. 新機能開発（Phase 4以降）
+2. 新機能開発（Phase 4以降）
 ```
 
-> **続きのキーワード:** 「type_safety統合」「本番モニタリング」「新機能」
+> **続きのキーワード:** 「本番デプロイ」「モニタリング」「新機能」
 
 ---
 

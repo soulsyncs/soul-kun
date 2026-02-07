@@ -7,8 +7,11 @@ Phase 2E: 学習基盤 - 学習管理層
 ユーザーが学習を管理するためのインターフェースを提供する。
 """
 
+import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy.engine import Connection
 
@@ -330,8 +333,10 @@ class LearningManager:
 
         # 1件のみの場合は削除
         learning = matches[0]
+        if learning.id is None:
+            return False, "学習のIDが見つからないウル🐺", None
         success, message = self.delete(
-            conn, learning.id or "", requester_account_id, requester_authority
+            conn, learning.id, requester_account_id, requester_authority
         )
         return success, message, learning if success else None
 
@@ -436,7 +441,10 @@ class LearningManager:
         new_id = self.repository.save(conn, new_learning)
 
         # 置き換え関係を設定
-        self.repository.update_supersedes(conn, new_id, learning.id or "")
+        if learning.id is None:
+            logger.warning("Cannot set supersedes: original learning has no ID")
+        else:
+            self.repository.update_supersedes(conn, new_id, learning.id)
 
         # 成功メッセージ
         new_description = new_content.get("description", "")

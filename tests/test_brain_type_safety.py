@@ -230,3 +230,129 @@ class TestBackwardCompatibility:
         """PersonInfo.idがperson_idのエイリアスとして機能すること"""
         person = PersonInfo(person_id="person_001")
         assert person.id == "person_001"
+
+
+class TestTypeSafetyIntegration:
+    """type_safety.py のSoT統合テスト（v10.57）"""
+
+    def test_safe_to_dict_handles_dataclass(self):
+        """safe_to_dictがdataclassを正しく変換すること"""
+        from lib.brain.type_safety import safe_to_dict
+
+        person = PersonInfo(name="田中", department="営業")
+        result = safe_to_dict(person)
+        assert isinstance(result, dict)
+        assert result["name"] == "田中"
+
+    def test_safe_to_dict_handles_datetime(self):
+        """safe_to_dictがdatetimeをISO文字列に変換すること"""
+        from lib.brain.type_safety import safe_to_dict
+
+        dt = datetime(2026, 2, 7, 10, 30)
+        result = safe_to_dict(dt)
+        assert result == "2026-02-07T10:30:00"
+
+    def test_safe_to_dict_handles_enum(self):
+        """safe_to_dictがEnumをvalueに変換すること"""
+        from lib.brain.type_safety import safe_to_dict
+        from lib.brain.models import MemoryType
+
+        result = safe_to_dict(MemoryType.PERSON_INFO)
+        assert result == "person_info"
+
+    def test_safe_to_dict_handles_uuid(self):
+        """safe_to_dictがUUIDを文字列に変換すること"""
+        from lib.brain.type_safety import safe_to_dict
+        from uuid import UUID
+
+        u = UUID("12345678-1234-5678-1234-567812345678")
+        result = safe_to_dict(u)
+        assert result == "12345678-1234-5678-1234-567812345678"
+
+    def test_safe_to_dict_handles_nested(self):
+        """safe_to_dictがネストされた構造を再帰的に変換すること"""
+        from lib.brain.type_safety import safe_to_dict
+
+        data = {
+            "person": PersonInfo(name="田中"),
+            "time": datetime(2026, 1, 1),
+            "items": [GoalInfo(goal_id="1", title="目標")],
+        }
+        result = safe_to_dict(data)
+        assert result["person"]["name"] == "田中"
+        assert result["time"] == "2026-01-01T00:00:00"
+        assert result["items"][0]["goal_id"] == "1"
+
+    def test_brain_context_to_dict_uses_type_safety(self):
+        """BrainContext.to_dict()がtype_safety.safe_to_dictを使用すること"""
+        ctx = BrainContext()
+        ctx.person_info = [PersonInfo(name="田中")]
+        ctx.recent_tasks = [TaskInfo(task_id="1", body="test")]
+        ctx.active_goals = [GoalInfo(goal_id="g1", title="目標")]
+        ctx.timestamp = datetime(2026, 2, 7)
+
+        result = ctx.to_dict()
+
+        # dataclassが正しく辞書化されること
+        assert result["person_info"][0]["name"] == "田中"
+        assert result["recent_tasks"][0]["task_id"] == "1"
+        assert result["active_goals"][0]["goal_id"] == "g1"
+        assert result["timestamp"] == "2026-02-07T00:00:00"
+
+    def test_safe_json_encoder_uses_type_safety(self):
+        """SafeJSONEncoderがtype_safety.safe_to_dictに委譲すること"""
+        import json
+        from lib.brain.state_manager import SafeJSONEncoder
+
+        data = {
+            "person": PersonInfo(name="テスト"),
+            "time": datetime(2026, 1, 1),
+        }
+        result = json.loads(json.dumps(data, cls=SafeJSONEncoder, ensure_ascii=False))
+        assert result["person"]["name"] == "テスト"
+        assert result["time"] == "2026-01-01T00:00:00"
+
+
+class TestIdNoneGuard:
+    """id が None の場合の安全なガードのテスト（v10.57）"""
+
+    def test_learning_manager_none_id_returns_error(self):
+        """learning.id が None の場合、delete_by_descriptionがエラーを返すこと"""
+        from lib.brain.learning_foundation.manager import LearningManager
+        from lib.brain.learning_foundation.models import Learning
+        from unittest.mock import MagicMock
+
+        manager = LearningManager.__new__(LearningManager)
+        manager.repository = MagicMock()
+
+        # id=Noneの学習を返す
+        learning = Learning(
+            id=None,
+            organization_id="org-1",
+            category="rule",
+            learned_content={"description": "テスト"},
+            authority_level="normal",
+        )
+        manager.repository.find_all.return_value = ([learning], 1)
+        manager.repository.search = MagicMock(return_value=[learning])
+
+        success, message, result = manager.delete_by_description(
+            MagicMock(), "テスト", "acc-1", "manager"
+        )
+        assert success is False
+        assert "ID" in message
+
+    def test_implicit_detector_skips_none_id_event(self):
+        """event.id が None の場合、detect()がNoneを返すこと"""
+        from lib.brain.outcome_learning.implicit_detector import ImplicitFeedbackDetector
+        from lib.brain.outcome_learning.models import OutcomeEvent
+
+        detector = ImplicitFeedbackDetector("org-1")
+        event = OutcomeEvent(
+            id=None,
+            organization_id="org-1",
+            event_type="goal_reminder",
+        )
+
+        result = detector.detect(MagicMock(), event)
+        assert result is None

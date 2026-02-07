@@ -21,6 +21,7 @@ from sqlalchemy.engine import Connection
 from .constants import (
     BASE_IMPORTANCE,
     DECAY_RATE_PER_DAY,
+    EntityType,
     FORGET_THRESHOLD,
     IMPORTANT_KEYWORDS,
     KEYWORD_PATTERNS,
@@ -407,6 +408,7 @@ class EpisodeRepository:
         conn: Connection,
         entity_ids: List[str],
         user_id: Optional[str] = None,
+        entity_type: Optional[EntityType] = None,
         limit: int = 50,
     ) -> List[Episode]:
         """関連エンティティでエピソードを検索
@@ -415,6 +417,7 @@ class EpisodeRepository:
             conn: DB接続
             entity_ids: エンティティIDリスト
             user_id: ユーザーID
+            entity_type: エンティティタイプ（指定時はフィルタ）
             limit: 最大件数
 
         Returns:
@@ -426,6 +429,10 @@ class EpisodeRepository:
         user_clause = ""
         if user_id:
             user_clause = "AND (e.user_id = :user_id OR e.user_id IS NULL)"
+
+        type_clause = ""
+        if entity_type:
+            type_clause = "AND ee.entity_type = :entity_type"
 
         query = text(f"""
             SELECT DISTINCT
@@ -440,6 +447,7 @@ class EpisodeRepository:
             WHERE e.organization_id = CAST(:organization_id AS uuid)
               AND ee.entity_id = ANY(:entity_ids)
               {user_clause}
+              {type_clause}
             ORDER BY e.importance_score * e.decay_factor DESC
             LIMIT :limit
         """)
@@ -452,6 +460,8 @@ class EpisodeRepository:
             }
             if user_id:
                 params["user_id"] = user_id
+            if entity_type:
+                params["entity_type"] = entity_type.value if hasattr(entity_type, 'value') else entity_type
 
             result = conn.execute(query, params)
             return [self._row_to_episode(row) for row in result.fetchall()]

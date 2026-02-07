@@ -273,7 +273,9 @@ class EffectivenessTracker:
         """
         suggestions = []
 
-        learning_id = learning.id or ""
+        if learning.id is None:
+            return []
+        learning_id = learning.id
 
         # フィードバック比率が低い
         if metrics.feedback_ratio < 0.5 and metrics.negative_feedback_count >= 3:
@@ -360,8 +362,10 @@ class EffectivenessTracker:
             issues.append("一度も使用されていない")
             suggestions.append("トリガー条件を見直してください")
 
+        if learning.id is None:
+            raise ValueError("Learning must have an ID for health check")
         return LearningHealth(
-            learning_id=learning.id or "",  # Empty string fallback for health check display
+            learning_id=learning.id,
             category=learning.category,
             status=status,
             metrics=metrics,

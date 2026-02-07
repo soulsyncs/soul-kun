@@ -261,6 +261,7 @@ class BrainMemoryEnhancement:
             conn=conn,
             entity_ids=[entity_id],
             user_id=user_id,
+            entity_type=entity_type,
             limit=limit,
         )
 
@@ -522,14 +523,41 @@ class BrainMemoryEnhancement:
         Returns:
             関連ノードリスト
         """
-        results: List[Tuple[KnowledgeNode, KnowledgeEdge]] = (
-            self._knowledge_graph.find_related_nodes(
-                conn=conn,
-                node_id=node_id,
-                relation_types=edge_types,
+        if direction == "both":
+            results: List[Tuple[KnowledgeNode, KnowledgeEdge]] = (
+                self._knowledge_graph.find_related_nodes(
+                    conn=conn,
+                    node_id=node_id,
+                    relation_types=edge_types,
+                )
             )
-        )
-        return [node for node, _edge in results]
+            return [node for node, _edge in results]
+
+        # direction-specific: use edge query + resolve nodes
+        if direction == "outgoing":
+            edges = self._knowledge_graph.find_edges_from(conn, node_id)
+        else:  # "incoming"
+            edges = self._knowledge_graph.find_edges_to(conn, node_id)
+
+        # Filter by edge_types if specified
+        if edge_types:
+            edges = [e for e in edges if e.relation_type in edge_types]
+
+        # Resolve target nodes
+        nodes: List[KnowledgeNode] = []
+        seen: set = set()
+        for edge in edges:
+            target_id = edge.target_node_id if direction == "outgoing" else edge.source_node_id
+            if target_id == node_id:
+                # bidirectional edge - use the other end
+                target_id = edge.source_node_id if direction == "outgoing" else edge.target_node_id
+            if target_id == node_id or target_id in seen:
+                continue
+            seen.add(target_id)
+            node = self._knowledge_graph.find_node_by_id(conn, target_id)
+            if node:
+                nodes.append(node)
+        return nodes
 
     # ========================================================================
     # 便利メソッド

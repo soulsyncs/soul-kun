@@ -71,6 +71,10 @@ class ImplicitFeedbackDetector:
         Returns:
             検出されたフィードバック（検出できない場合はNone）
         """
+        if event.id is None:
+            logger.warning("Event has no ID, skipping detection")
+            return None
+
         if event.outcome_detected:
             logger.debug(f"Event already has outcome: {event.id}")
             return None
@@ -106,11 +110,12 @@ class ImplicitFeedbackDetector:
 
         Args:
             conn: DB接続
-            event: イベント
+            event: イベント（event.idは非None保証: detect()で検証済み）
 
         Returns:
             フィードバック
         """
+        assert event.id is not None  # detect()で検証済み
         goal_id = event.related_resource_id
         if not goal_id:
             return self._detect_from_time_elapsed(conn, event)
@@ -146,7 +151,7 @@ class ImplicitFeedbackDetector:
             elapsed = datetime.now() - (event.event_timestamp or datetime.now())
             if elapsed.total_seconds() / 3600 > IGNORED_THRESHOLD_HOURS:
                 return ImplicitFeedback(
-                    event_id=event.id or "",
+                    event_id=event.id,
                     feedback_signal=FeedbackSignal.GOAL_STALLED.value,
                     outcome_type=OutcomeType.IGNORED.value,
                     confidence=0.7,
@@ -167,7 +172,7 @@ class ImplicitFeedbackDetector:
         # daily_noteが記録されている = 採用
         if daily_note:
             return ImplicitFeedback(
-                event_id=event.id or "",
+                event_id=event.id,
                 feedback_signal=FeedbackSignal.GOAL_PROGRESS_MADE.value,
                 outcome_type=OutcomeType.ADOPTED.value,
                 confidence=0.85,
@@ -181,7 +186,7 @@ class ImplicitFeedbackDetector:
 
         # daily_noteなし = 遅延または部分採用
         return ImplicitFeedback(
-            event_id=event.id or "",
+            event_id=event.id,
             feedback_signal=FeedbackSignal.READ_BUT_NO_ACTION.value,
             outcome_type=OutcomeType.PARTIAL.value,
             confidence=0.6,
@@ -202,11 +207,12 @@ class ImplicitFeedbackDetector:
 
         Args:
             conn: DB接続
-            event: イベント
+            event: イベント（event.idは非None保証: detect()で検証済み）
 
         Returns:
             フィードバック
         """
+        assert event.id is not None  # detect()で検証済み
         task_id = event.related_resource_id
         if not task_id:
             return self._detect_from_time_elapsed(conn, event)
@@ -237,7 +243,7 @@ class ImplicitFeedbackDetector:
         # タスク完了 = 採用
         if status == "done":
             return ImplicitFeedback(
-                event_id=event.id or "",
+                event_id=event.id,
                 feedback_signal=FeedbackSignal.TASK_COMPLETED.value,
                 outcome_type=OutcomeType.ADOPTED.value,
                 confidence=0.9,
@@ -253,7 +259,7 @@ class ImplicitFeedbackDetector:
         limit_time = row[2]
         if limit_time and datetime.now() > limit_time:
             return ImplicitFeedback(
-                event_id=event.id or "",
+                event_id=event.id,
                 feedback_signal=FeedbackSignal.TASK_OVERDUE.value,
                 outcome_type=OutcomeType.IGNORED.value,
                 confidence=0.7,
@@ -278,11 +284,12 @@ class ImplicitFeedbackDetector:
 
         Args:
             conn: DB接続
-            event: イベント
+            event: イベント（event.idは非None保証: detect()で検証済み）
 
         Returns:
             フィードバック
         """
+        assert event.id is not None  # detect()で検証済み
         # notification_logsから反応を確認
         query = text("""
             SELECT
@@ -326,11 +333,12 @@ class ImplicitFeedbackDetector:
 
         Args:
             conn: DB接続
-            event: イベント
+            event: イベント（event.idは非None保証: detect()で検証済み）
 
         Returns:
             フィードバック
         """
+        assert event.id is not None  # detect()で検証済み
         if not event.event_timestamp:
             return None
 
@@ -354,7 +362,7 @@ class ImplicitFeedbackDetector:
                 confidence = 0.6
 
             return ImplicitFeedback(
-                event_id=event.id or "",
+                event_id=event.id,
                 feedback_signal=FeedbackSignal.REPLY_RECEIVED.value,
                 outcome_type=outcome_type,
                 confidence=confidence,
@@ -369,7 +377,7 @@ class ImplicitFeedbackDetector:
         # 反応なしの場合、無視判定の閾値を超えるまで待つ
         if elapsed_hours >= IGNORED_THRESHOLD_HOURS:
             return ImplicitFeedback(
-                event_id=event.id or "",
+                event_id=event.id,
                 feedback_signal=FeedbackSignal.NO_RESPONSE.value,
                 outcome_type=OutcomeType.IGNORED.value,
                 confidence=0.7,

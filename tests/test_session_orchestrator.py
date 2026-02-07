@@ -430,3 +430,570 @@ async def test_handle_confirmation_response_retry_path():
     response = await orch._handle_confirmation_response("わからない", state, ctx, "room-1", "acc-1", "テスト", 0.0)
     assert response.action_taken == "confirmation_retry"
     orch.state_manager.update_step.assert_awaited()
+
+
+# =============================================================================
+# 追加テスト: 未カバー行を網羅
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_continue_session_routes_to_list_context():
+    """LINE 108: LIST_CONTEXT でルーティング"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(
+        return_value={"message": "list ok", "success": True, "session_completed": True}
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch.continue_session("1", state, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert response.action_taken == "continue_list_context"
+    assert response.message == "list ok"
+
+
+@pytest.mark.asyncio
+async def test_continue_goal_setting_different_intent_interrupt():
+    """LINES 156-162: 目標設定中に別の意図を検出して中断"""
+    orch = _make_orchestrator()
+    understanding = UnderstandingResult(
+        raw_message="一覧表示して", intent="chatwork_task_search", intent_confidence=0.9
+    )
+    orch._understand = AsyncMock(return_value=understanding)
+    orch._decide = AsyncMock(return_value=DecisionResult(action="chatwork_task_search"))
+    orch._execute = AsyncMock(return_value=HandlerResult(success=True, message="タスク一覧"))
+    orch.handlers["continue_goal_setting"] = MagicMock(return_value={"message": "x"})
+
+    state = ConversationState(
+        state_type=StateType.GOAL_SETTING,
+        state_step="why",
+        state_data={"why_answer": "成長のため"},
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_goal_setting(
+        "一覧見せて", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert "interrupted_goal_setting" in response.action_taken
+    assert response.state_changed is True
+
+
+@pytest.mark.asyncio
+async def test_continue_goal_setting_understanding_exception():
+    """LINE 162: 意図理解で例外が出ても継続"""
+    orch = _make_orchestrator()
+    orch._understand = AsyncMock(side_effect=RuntimeError("LLM timeout"))
+    orch.handlers["continue_goal_setting"] = MagicMock(
+        return_value={"message": "continue", "success": True}
+    )
+
+    state = ConversationState(
+        state_type=StateType.GOAL_SETTING, state_step="why", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_goal_setting(
+        "回答", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "continue"
+    assert response.success is True
+
+
+@pytest.mark.asyncio
+async def test_continue_goal_setting_handler_coroutine():
+    """LINE 181: ハンドラーがコルーチンの場合に await される"""
+    async def async_goal_handler(msg, room, acc, sender, data):
+        return {"message": "async goal result", "success": True}
+
+    orch = _make_orchestrator()
+    orch.handlers["continue_goal_setting"] = async_goal_handler
+
+    state = ConversationState(
+        state_type=StateType.GOAL_SETTING, state_step="why", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_goal_setting(
+        "msg", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "async goal result"
+
+
+def test_is_different_intent_goal_in_action_name():
+    """LINE 317: inferred_actionに'goal'が含まれる場合は is_goal_action=True"""
+    orch = _make_orchestrator()
+    # 長文 + question ending → would be different intent,
+    # but action has 'goal' so is_goal_action=True → returns False
+    msg = "目標のチェック項目を確認させてほしいのですが、何をすればいいですか？"
+    result = orch._is_different_intent_from_goal_setting(msg, None, "goal_detailed_check")
+    assert result is False
+
+
+def test_is_different_intent_non_goal_actions():
+    """LINES 326-332: non_goal_actions リスト内の各アクション"""
+    orch = _make_orchestrator()
+    non_goal_actions = [
+        "chatwork_task_search",
+        "chatwork_task_create",
+        "query_knowledge",
+        "save_memory",
+        "query_memory",
+        "announcement_create",
+        "daily_reflection",
+    ]
+    for action in non_goal_actions:
+        # 21文字以上で、stop wordなし、continuation intentでもない
+        # goal_response_keywords / other_action_keywords / question_words を含まない
+        msg = "よろしくおねがいいたしますぜひともおねがいいたします"
+        result = orch._is_different_intent_from_goal_setting(msg, None, action)
+        assert result is True, f"Expected True for action={action}"
+
+
+@pytest.mark.asyncio
+async def test_interrupt_goal_setting_handler_called_and_error():
+    """LINES 376-377: interrupt_goal_setting ハンドラーが呼ばれる + エラー時もログだけ"""
+    # Success case
+    interrupt_handler = MagicMock()
+    orch = _make_orchestrator()
+    orch.handlers["interrupt_goal_setting"] = interrupt_handler
+    orch._decide = AsyncMock(return_value=DecisionResult(action="general"))
+    orch._execute = AsyncMock(return_value=HandlerResult(success=True, message="ok"))
+
+    state = ConversationState(
+        state_type=StateType.GOAL_SETTING,
+        state_step="what",
+        state_data={"why_answer": "x", "what_answer": "y"},
+    )
+    ctx = _base_context()
+    understanding = UnderstandingResult(raw_message="t", intent="g", intent_confidence=0.5)
+
+    await orch._handle_interrupted_goal_setting(
+        "test", state, ctx, understanding, "room-1", "acc-1", "テスト", 0.0
+    )
+    interrupt_handler.assert_called_once()
+
+    # Error case: handler raises but should not propagate
+    interrupt_handler_err = MagicMock(side_effect=RuntimeError("save failed"))
+    orch2 = _make_orchestrator()
+    orch2.handlers["interrupt_goal_setting"] = interrupt_handler_err
+    orch2._decide = AsyncMock(return_value=DecisionResult(action="general"))
+    orch2._execute = AsyncMock(return_value=HandlerResult(success=True, message="ok"))
+
+    response = await orch2._handle_interrupted_goal_setting(
+        "test", state, ctx, understanding, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.success is True
+
+
+@pytest.mark.asyncio
+async def test_interrupt_goal_setting_outer_exception():
+    """LINES 429-432: 外部例外時のフォールバック"""
+    orch = _make_orchestrator()
+    orch._decide = AsyncMock(side_effect=RuntimeError("catastrophic error"))
+
+    state = ConversationState(
+        state_type=StateType.GOAL_SETTING, state_step="why", state_data={}
+    )
+    ctx = _base_context()
+    understanding = UnderstandingResult(raw_message="t", intent="g", intent_confidence=0.5)
+
+    response = await orch._handle_interrupted_goal_setting(
+        "test", state, ctx, understanding, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.action_taken == "goal_setting_interrupted"
+    assert response.success is True
+    assert response.new_state == "normal"
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_announcement_handler_coroutine():
+    """LINE 485: アナウンスハンドラーがコルーチンの場合"""
+    async def async_announce_handler(msg, room, acc, sender, data):
+        return {"message": "async announce", "success": True}
+
+    orch = _make_orchestrator()
+    orch.handlers["continue_announcement"] = async_announce_handler
+
+    state = ConversationState(
+        state_type=StateType.ANNOUNCEMENT, state_step="x", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_announcement(
+        "msg", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "async announce"
+
+
+@pytest.mark.asyncio
+async def test_continue_announcement_handler_returns_string():
+    """LINES 505-511: ハンドラーが文字列を返した場合"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_announcement"] = MagicMock(return_value="確認中ウル")
+
+    state = ConversationState(
+        state_type=StateType.ANNOUNCEMENT, state_step="x", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_announcement(
+        "test", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "確認中ウル"
+    assert response.action_taken == "continue_announcement"
+    assert response.success is True
+
+
+@pytest.mark.asyncio
+async def test_continue_announcement_handler_exception():
+    """LINES 513-523: ハンドラーが例外を投げた場合"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_announcement"] = MagicMock(
+        side_effect=RuntimeError("announce error")
+    )
+
+    state = ConversationState(
+        state_type=StateType.ANNOUNCEMENT, state_step="x", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_announcement(
+        "test", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.success is False
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    assert "エラー" in response.message
+
+
+@pytest.mark.asyncio
+async def test_continue_announcement_no_handler_fallback():
+    """LINES 525-530: ハンドラー未登録のフォールバック"""
+    orch = _make_orchestrator()
+    state = ConversationState(
+        state_type=StateType.ANNOUNCEMENT, state_step="x", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_announcement(
+        "test", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.action_taken == "continue_announcement"
+    assert "アナウンス" in response.message
+
+
+@pytest.mark.asyncio
+async def test_continue_task_pending_handler_coroutine():
+    """LINE 723: タスク保留ハンドラーがコルーチンの場合"""
+    async def async_task_handler(msg, room, acc, sender, data):
+        return {"message": "async task", "success": True, "task_created": True}
+
+    orch = _make_orchestrator()
+    orch.handlers["continue_task_pending"] = async_task_handler
+
+    state = ConversationState(
+        state_type=StateType.TASK_PENDING, state_step="x", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_task_pending(
+        "明日", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "async task"
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_task_pending_none_result_missing_items():
+    """LINES 729-734: ハンドラーがNoneを返し、各種missing_items"""
+    orch = _make_orchestrator()
+
+    # limit_date
+    orch.handlers["continue_task_pending"] = MagicMock(return_value=None)
+    state = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["limit_date"]},
+    )
+    ctx = _base_context()
+    resp = await orch._continue_task_pending("x", state, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "期限" in resp.message
+
+    # task_body
+    state2 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["task_body"]},
+    )
+    resp2 = await orch._continue_task_pending("x", state2, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "内容" in resp2.message
+
+    # assigned_to
+    state3 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["assigned_to"]},
+    )
+    resp3 = await orch._continue_task_pending("x", state3, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "担当" in resp3.message
+
+    # empty (default)
+    state4 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": []},
+    )
+    resp4 = await orch._continue_task_pending("x", state4, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "詳細" in resp4.message
+
+
+@pytest.mark.asyncio
+async def test_continue_task_pending_no_handler_fallback_all_missing_items():
+    """LINES 784-795: ハンドラー未登録 + 各種missing_itemsのフォールバック"""
+    orch = _make_orchestrator()
+    ctx = _base_context()
+
+    # limit_date
+    state1 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["limit_date"]},
+    )
+    resp1 = await orch._continue_task_pending("x", state1, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "期限" in resp1.message
+    assert resp1.action_taken == "continue_task_pending"
+
+    # task_body
+    state2 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["task_body"]},
+    )
+    resp2 = await orch._continue_task_pending("x", state2, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "内容" in resp2.message
+
+    # assigned_to
+    state3 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={"missing_items": ["assigned_to"]},
+    )
+    resp3 = await orch._continue_task_pending("x", state3, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "担当" in resp3.message
+
+    # empty (default)
+    state4 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+        state_data={},
+    )
+    resp4 = await orch._continue_task_pending("x", state4, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "詳細" in resp4.message
+
+    # state_data is None (edge case)
+    state5 = ConversationState(
+        state_type=StateType.TASK_PENDING,
+        state_step="x",
+    )
+    state5.state_data = None
+    resp5 = await orch._continue_task_pending("x", state5, ctx, "room-1", "acc-1", "テスト", 0.0)
+    assert "詳細" in resp5.message
+
+
+# =============================================================================
+# _continue_list_context テスト (LINES 819-902)
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_dict_session_completed():
+    """LINES 819-875: ハンドラーが session_completed=True を返す"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(
+        return_value={"message": "削除完了", "success": True, "session_completed": True}
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1番削除", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "削除完了"
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_dict_fallback_to_general():
+    """LINES 851-854: fallback_to_general=True"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(
+        return_value={"message": "", "success": True, "fallback_to_general": True}
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "別のこと", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    assert response.debug_info.get("fallback_to_general") is True
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_dict_new_state_data():
+    """LINES 856-865: new_state_data がある場合に transition_to が呼ばれる"""
+    orch = _make_orchestrator()
+    orch.state_manager.transition_to = AsyncMock()
+    orch.handlers["continue_list_context"] = MagicMock(
+        return_value={
+            "message": "本当に削除しますか？",
+            "success": True,
+            "new_state_data": {"step": "confirm_delete", "target_ids": [1, 2]},
+        }
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1以外削除", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "本当に削除しますか？"
+    assert response.new_state == "list_context"
+    assert response.state_changed is False
+    orch.state_manager.transition_to.assert_awaited_once()
+    # Verify transition_to call parameters
+    call_kwargs = orch.state_manager.transition_to.call_args.kwargs
+    assert call_kwargs["state_type"] == StateType.LIST_CONTEXT
+    assert call_kwargs["timeout_minutes"] == 5
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_dict_ongoing():
+    """LINES 867-875: session_completed/fallback/new_state_data なし"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(
+        return_value={"message": "選択しました", "success": True}
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "選択しました"
+    assert response.new_state == "list_context"
+    assert response.state_changed is False
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_handler_returns_none():
+    """LINES 834-845: ハンドラーがNoneを返す → フォールバック"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(return_value=None)
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "abc", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.action_taken == "list_context_fallback"
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    assert response.debug_info.get("fallback_to_general") is True
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_handler_returns_string():
+    """LINES 876-885: ハンドラーが文字列を返す"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(return_value="操作完了テキスト")
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "操作完了テキスト"
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_handler_coroutine():
+    """LINES 831-832: ハンドラーがコルーチンの場合"""
+    async def async_list_handler(msg, room, acc, sender, data):
+        return {"message": "async list ok", "success": True, "session_completed": True}
+
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = async_list_handler
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.message == "async list ok"
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_handler_exception():
+    """LINES 887-897: ハンドラーが例外を投げた場合"""
+    orch = _make_orchestrator()
+    orch.handlers["continue_list_context"] = MagicMock(
+        side_effect=RuntimeError("list error")
+    )
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.success is False
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    assert "エラー" in response.message
+    orch.state_manager.clear_state.assert_awaited()
+
+
+@pytest.mark.asyncio
+async def test_continue_list_context_no_handler_fallback():
+    """LINES 899-909: ハンドラー未登録のフォールバック"""
+    orch = _make_orchestrator()
+    state = ConversationState(
+        state_type=StateType.LIST_CONTEXT, state_step="list", state_data={}
+    )
+    ctx = _base_context()
+
+    response = await orch._continue_list_context(
+        "1", state, ctx, "room-1", "acc-1", "テスト", 0.0
+    )
+    assert response.action_taken == "continue_list_context"
+    assert response.state_changed is True
+    assert response.new_state == "normal"
+    assert "リセット" in response.message
+    orch.state_manager.clear_state.assert_awaited()

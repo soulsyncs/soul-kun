@@ -105,6 +105,41 @@ async def create_brain_for_proactive(pool):
         return None
 
 
+async def _try_generate_daily_log(pool) -> str:
+    """
+    日次レポートを生成（JST 9:00台の最初の1回のみ実行）
+
+    Phase 2-B: 毎朝、前日の活動サマリーを生成してログに記録する。
+    CLAUDE.md鉄則1b: 脳の活動記録の透明性向上。
+
+    Note: DailyLogGeneratorは同期poolを使用するため、
+    get_db_pool()で同期版コネクションプールを取得する。
+    """
+    from datetime import timezone, timedelta
+    jst_now = datetime.now(timezone(timedelta(hours=9)))
+
+    if jst_now.hour != 9:
+        return "skipped_not_9am"
+
+    try:
+        from lib.brain.daily_log import DailyLogGenerator
+        from lib.db import get_db_pool
+
+        org_id = os.environ.get("SOULKUN_ORG_ID", "soulsyncs")
+        sync_pool = get_db_pool()  # 同期プール（DailyLogGeneratorは同期DB操作）
+        generator = DailyLogGenerator(pool=sync_pool, org_id=org_id)
+        activity = await asyncio.to_thread(generator.generate)  # 同期処理をスレッドで実行
+        logger.info(
+            f"[DailyLog] Generated: {activity.target_date} "
+            f"conversations={activity.total_conversations} "
+            f"users={activity.unique_users}"
+        )
+        return "generated"
+    except Exception as e:
+        logger.warning(f"[DailyLog] Generation failed (non-critical): {e}")
+        return "error"
+
+
 async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
@@ -129,6 +164,9 @@ async def run_proactive_monitor():
     logger.info(f"[ProactiveMonitor] Starting check (dry_run={PROACTIVE_DRY_RUN})")
     results = await monitor.check_and_act()
 
+    # Phase 2-B: 日次レポート生成（JST 9:00台のみ）
+    daily_log_result = await _try_generate_daily_log(pool)
+
     # 統計
     total_users = len(results)
     total_triggers = sum(len(r.triggers_found) for r in results)
@@ -143,6 +181,7 @@ async def run_proactive_monitor():
         "timestamp": datetime.now().isoformat(),
         "dry_run": PROACTIVE_DRY_RUN,
         "brain_used": brain is not None,  # CLAUDE.md鉄則1b準拠状況
+        "daily_log": daily_log_result,
         "users_checked": total_users,
         "triggers_found": total_triggers,
         "actions_taken": total_actions,

@@ -78,6 +78,9 @@ from lib.brain.exceptions import (
     HandlerNotFoundError,
     HandlerTimeoutError,
 )
+from lib.brain.memory_flush import AutoMemoryFlusher
+from lib.brain.hybrid_search import HybridSearcher
+from lib.brain.memory_sanitizer import mask_pii
 from lib.brain.state_manager import BrainStateManager
 from lib.brain.memory_access import (
     BrainMemoryAccess,
@@ -375,11 +378,29 @@ class SoulkunBrain:
         self.get_ai_response = get_ai_response_func
         self.firestore_db = firestore_db
 
+        # Phase 1-A: 自動メモリフラッシュ
+        memory_flusher = AutoMemoryFlusher(
+            pool=pool,
+            org_id=org_id,
+            ai_client=get_ai_response_func,
+        )
+
+        # Phase 1-B: ハイブリッド検索（Pinecone/Embeddingは後から設定可能）
+        hybrid_searcher = HybridSearcher(
+            pool=pool,
+            org_id=org_id,
+        )
+
+        # Phase 1-C: PIIマスキング関数（ログ出力時に使用）
+        self.mask_pii = mask_pii
+
         # 記憶アクセス層の初期化
         self.memory_access = BrainMemoryAccess(
             pool=pool,
             org_id=org_id,
             firestore_db=firestore_db,
+            memory_flusher=memory_flusher,
+            hybrid_searcher=hybrid_searcher,
         )
 
         # 状態管理層の初期化
@@ -615,9 +636,11 @@ class SoulkunBrain:
                         "topic": getattr(context, "topic", None),
                     }
                 )
+                # Phase 1-C: CoTログのPIIマスキング（CLAUDE.md 8-4準拠）
+                sanitized_intent, _ = self.mask_pii(str(thought_chain.final_intent))
                 logger.info(
                     f"🔗 Chain-of-Thought: input_type={thought_chain.input_type.value}, "
-                    f"intent={thought_chain.final_intent}, "
+                    f"intent={sanitized_intent}, "
                     f"confidence={thought_chain.confidence:.2f}"
                 )
 

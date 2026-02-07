@@ -7,14 +7,19 @@
 - キー・値抽出（extract_persona_key_value）
 - v10.40.10: ホワイトリスト方式の個人情報ガード（is_valid_bot_persona）
 - v10.40.10: 補助判定（is_personal_information）
+- BotPersonaMemoryManager クラス（CRUD操作 + エラーハンドリング）
+- 便利関数（save_bot_persona, get_bot_persona, scan系関数）
 
 実行方法:
     pytest tests/test_bot_persona_memory.py -v
 """
 
+import json
 import pytest
 import sys
 import os
+from unittest.mock import Mock, MagicMock, patch
+from datetime import datetime
 
 # libディレクトリをパスに追加
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
@@ -26,6 +31,7 @@ from lib.bot_persona_memory import (
     PersonaCategory,
     BOT_PERSONA_PATTERNS,
     BOT_SETTING_KEYWORDS,
+    PERSONA_CATEGORY_LABELS,
     # v10.40.10: ホワイトリスト方式の個人情報ガード
     is_valid_bot_persona,
     is_personal_information,
@@ -35,7 +41,41 @@ from lib.bot_persona_memory import (
     FAMILY_PATTERNS,
     PERSONAL_THOUGHT_PATTERNS,
     PERSONAL_EXPERIENCE_PATTERNS,
+    REDIRECT_MESSAGE,
+    # クラス・便利関数
+    BotPersonaMemoryManager,
+    save_bot_persona,
+    get_bot_persona,
+    scan_bot_persona_for_personal_info,
+    scan_all_organizations_bot_persona,
 )
+
+
+# =============================================================================
+# フィクスチャ
+# =============================================================================
+
+
+@pytest.fixture
+def mock_pool():
+    """データベース接続プールのモック"""
+    pool = Mock()
+    conn = MagicMock()
+    conn.__enter__ = Mock(return_value=conn)
+    conn.__exit__ = Mock(return_value=False)
+    pool.connect.return_value = conn
+    return pool
+
+
+@pytest.fixture
+def manager(mock_pool):
+    """BotPersonaMemoryManagerインスタンス"""
+    return BotPersonaMemoryManager(pool=mock_pool, org_id="org_test")
+
+
+# =============================================================================
+# パターン検出テスト（既存）
+# =============================================================================
 
 
 class TestBotPersonaPatternDetection:
@@ -424,8 +464,6 @@ class TestSaveWithPersonalInfoGuard:
 
     def test_redirect_response_format(self):
         """リダイレクト時のレスポンス形式"""
-        from lib.bot_persona_memory import REDIRECT_MESSAGE
-
         # テンプレートが正しく置換されることを確認
         formatted = REDIRECT_MESSAGE.format(
             reason="特定の個人の発言・意見",
@@ -440,126 +478,956 @@ class TestSaveWithPersonalInfoGuard:
 class TestV10_40_11_BotPersonaEntryPoint:
     """
     v10.40.11: is_bot_persona_setting() のエントリーポイントテスト
-
-    これらのテストケースは、bot_persona_memoryへの保存パスに入る前の
-    ゲートキーパーとして機能するis_bot_persona_setting()をテストする。
-
-    期待される動作:
-    - True → bot_persona保存パスに入る（その後ホワイトリストでフィルタ）
-    - False → bot_persona保存パスに入らない（「覚えた」とは返さない）
     """
 
     @pytest.mark.parametrize("message,expected,reason", [
-        # ========================================
         # 拒否されるべきケース（False）
-        # ========================================
-        # 二人称 + 述語形式（「君は〜」）→ ボット設定と認識しない
         ("君は明るい性格だね", False, "「君は」形式はボット設定パターンに該当しない"),
         ("きみは優しいね", False, "「きみは」形式はボット設定パターンに該当しない"),
         ("お前は頭がいい", False, "「お前は」形式はボット設定パターンに該当しない"),
-
-        # 役職者への言及 → ボット設定ではない
         ("社長は努力家", False, "役職者への言及はボット設定ではない"),
         ("部長は厳しい人だ", False, "役職者への言及はボット設定ではない"),
         ("マネージャーは優秀", False, "役職者への言及はボット設定ではない"),
-
-        # 一人称の人生軸 → 長期記憶として処理すべき
         ("俺の人生軸は挑戦", False, "一人称の人生軸はボット設定ではない"),
         ("私の人生の軸は家族", False, "一人称の人生軸はボット設定ではない"),
         ("僕の価値観は誠実さ", False, "一人称の価値観はボット設定ではない"),
-
-        # 一般的な文章（キーワードを含まない）
         ("今日はいい天気だね", False, "一般的な文章はボット設定ではない"),
         ("タスクを追加して", False, "タスク依頼はボット設定ではない"),
         ("会議の予定を教えて", False, "情報照会はボット設定ではない"),
 
-        # ========================================
         # 許可されるべきケース（True）
-        # ========================================
-        # 明示的なソウルくん設定
         ("ソウルくんの好物は10円パン", True, "明示的なソウルくん設定は許可"),
         ("ソウルくんの性格は明るい", True, "明示的なソウルくん設定は許可"),
-
-        # 二人称 + 「の」形式（「君の〜は」）→ ボット設定として認識
         ("君の好物は10円パン", True, "「君の好物は」形式は許可"),
         ("君の口調はウルウル", True, "「君の口調は」形式は許可"),
         ("君の性格は元気", True, "「君の性格は」形式は許可"),
-
-        # 主語なし + キーワード + は
         ("好物は10円パン", True, "主語なし「好物は」形式は許可"),
         ("口調はウル", True, "主語なし「口調は」形式は許可"),
         ("性格は明るい", True, "主語なし「性格は」形式は許可"),
     ])
     def test_entry_point_gating(self, message, expected, reason):
-        """
-        is_bot_persona_setting() のゲーティング動作を検証
-
-        このテストが失敗する場合:
-        - True期待でFalse → 正当なボット設定がbot_personaパスに入らない
-        - False期待でTrue → 不適切なメッセージがbot_personaパスに入る
-        """
+        """is_bot_persona_setting() のゲーティング動作を検証"""
         result = is_bot_persona_setting(message)
         assert result == expected, f"Message: '{message}' - Expected: {expected}, Got: {result}. Reason: {reason}"
 
 
 class TestV10_40_11_IntegrationScenarios:
-    """
-    v10.40.11: 統合シナリオテスト
-
-    実際のユーザーが送信しそうなメッセージに対する
-    期待される動作を検証する。
-    """
+    """v10.40.11: 統合シナリオテスト"""
 
     @pytest.mark.parametrize("message,should_enter_bot_persona,should_pass_whitelist", [
-        # ========================================
-        # シナリオ1: 曖昧な二人称表現
-        # ========================================
-        # 「君は明るい性格だね」
-        # → is_bot_persona_setting() = False → bot_personaパスに入らない
-        # → ホワイトリストチェックは行われない
         ("君は明るい性格だね", False, None),
-
-        # ========================================
-        # シナリオ2: 役職者への言及
-        # ========================================
-        # 「社長は努力家」
-        # → is_bot_persona_setting() = False → bot_personaパスに入らない
         ("社長は努力家", False, None),
-
-        # ========================================
-        # シナリオ3: 個人の人生軸
-        # ========================================
-        # 「俺の人生軸は挑戦」
-        # → is_bot_persona_setting() = False → bot_personaパスに入らない
-        # → is_long_term_memory_request() で処理されるべき
         ("俺の人生軸は挑戦", False, None),
-
-        # ========================================
-        # シナリオ4: 正当なボット設定（ホワイトリスト通過）
-        # ========================================
         ("ソウルくんの好物は10円パン", True, True),
         ("好物は10円パン", True, True),
         ("君の好物は10円パン", True, True),
-
-        # ========================================
-        # シナリオ5: ボット設定パスに入るがホワイトリストで拒否
-        # ========================================
-        # 「君の性格は明るい」 → パスに入る → ホワイトリスト通過
         ("君の性格は明るい", True, True),
     ])
     def test_integration_flow(self, message, should_enter_bot_persona, should_pass_whitelist):
         """統合フローのテスト"""
-        # Step 1: エントリーポイント判定
         enters_bot_persona = is_bot_persona_setting(message)
         assert enters_bot_persona == should_enter_bot_persona, \
             f"Message: '{message}' - Entry point check failed"
 
-        # Step 2: ホワイトリスト判定（bot_personaパスに入る場合のみ）
         if should_enter_bot_persona and should_pass_whitelist is not None:
             kv = extract_persona_key_value(message)
             is_valid, reason = is_valid_bot_persona(message, kv.get("key", ""), kv.get("value", ""))
             assert is_valid == should_pass_whitelist, \
                 f"Message: '{message}' - Whitelist check failed. Reason: {reason}"
+
+
+# =============================================================================
+# 定数テスト
+# =============================================================================
+
+
+class TestConstants:
+    """定数・カテゴリ定義のテスト"""
+
+    def test_persona_category_values(self):
+        """PersonaCategoryの値が期待通り"""
+        assert PersonaCategory.CHARACTER == "character"
+        assert PersonaCategory.PERSONALITY == "personality"
+        assert PersonaCategory.PREFERENCE == "preference"
+
+    def test_persona_category_labels_cover_all(self):
+        """全カテゴリにラベルがある"""
+        assert PersonaCategory.CHARACTER in PERSONA_CATEGORY_LABELS
+        assert PersonaCategory.PERSONALITY in PERSONA_CATEGORY_LABELS
+        assert PersonaCategory.PREFERENCE in PERSONA_CATEGORY_LABELS
+
+    def test_allowed_keywords_flat_not_empty(self):
+        """許可キーワードリストが空でない"""
+        assert len(ALLOWED_KEYWORDS_FLAT) > 0
+
+    def test_bot_setting_keywords_not_empty(self):
+        """設定キーワードリストが空でない"""
+        assert len(BOT_SETTING_KEYWORDS) > 0
+
+    def test_redirect_message_has_placeholders(self):
+        """リダイレクトメッセージにプレースホルダがある"""
+        assert "{reason}" in REDIRECT_MESSAGE
+        assert "{user_name}" in REDIRECT_MESSAGE
+
+
+# =============================================================================
+# BotPersonaMemoryManager.save テスト
+# =============================================================================
+
+
+class TestManagerSave:
+    """save メソッドのテスト"""
+
+    def test_save_success(self, manager, mock_pool):
+        """保存成功"""
+        result = manager.save(key="好物", value="10円パン")
+        assert result["success"] is True
+        assert "覚えたウル" in result["message"]
+        assert result["key"] == "好物"
+        assert result["value"] == "10円パン"
+
+    def test_save_calls_execute_and_commit(self, manager, mock_pool):
+        """executeとcommitが呼ばれる"""
+        manager.save(key="好物", value="10円パン")
+        conn = mock_pool.connect.return_value
+        conn.execute.assert_called_once()
+        conn.commit.assert_called_once()
+
+    def test_save_with_personality_category(self, manager, mock_pool):
+        """personalityカテゴリで保存"""
+        result = manager.save(
+            key="性格", value="明るい",
+            category=PersonaCategory.PERSONALITY,
+        )
+        assert result["success"] is True
+        assert "性格" in result["message"]
+
+    def test_save_with_creator_info(self, manager, mock_pool):
+        """作成者情報付きで保存"""
+        result = manager.save(
+            key="口調", value="ウル",
+            created_by_account_id="user_123",
+            created_by_name="カズさん",
+        )
+        assert result["success"] is True
+
+    def test_save_with_metadata(self, manager, mock_pool):
+        """メタデータ付きで保存"""
+        result = manager.save(
+            key="好物", value="10円パン",
+            metadata={"source": "chat"},
+        )
+        assert result["success"] is True
+
+    def test_save_metadata_default_none_becomes_empty(self, manager, mock_pool):
+        """metadata=Noneの場合はsaved_at付きの辞書になる"""
+        manager.save(key="好物", value="10円パン", metadata=None)
+        conn = mock_pool.connect.return_value
+        call_args = conn.execute.call_args
+        params = call_args[0][1]
+        meta = json.loads(params["metadata"])
+        assert "saved_at" in meta
+
+    def test_save_category_label_character(self, manager, mock_pool):
+        """characterカテゴリのラベルが正しい"""
+        result = manager.save(key="名前", value="ソウルくん", category=PersonaCategory.CHARACTER)
+        assert "キャラ設定" in result["message"]
+
+    def test_save_category_label_preference(self, manager, mock_pool):
+        """preferenceカテゴリのラベルが正しい"""
+        result = manager.save(key="好物", value="10円パン", category=PersonaCategory.PREFERENCE)
+        assert "好み・趣味" in result["message"]
+
+    def test_save_category_label_personality(self, manager, mock_pool):
+        """personalityカテゴリのラベルが正しい"""
+        result = manager.save(key="性格", value="明るい", category=PersonaCategory.PERSONALITY)
+        assert "性格" in result["message"]
+
+    def test_save_db_error(self, manager, mock_pool):
+        """DB保存エラー"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB connection failed")
+        result = manager.save(key="好物", value="10円パン")
+        assert result["success"] is False
+        assert "エラー" in result["message"]
+        assert "error" in result
+        assert "DB connection failed" in result["error"]
+
+    def test_save_params_include_org_id(self, manager, mock_pool):
+        """パラメータにorg_idが含まれる"""
+        manager.save(key="好物", value="10円パン")
+        conn = mock_pool.connect.return_value
+        call_args = conn.execute.call_args
+        params = call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["key"] == "好物"
+        assert params["value"] == "10円パン"
+
+
+# =============================================================================
+# BotPersonaMemoryManager.get テスト
+# =============================================================================
+
+
+class TestManagerGet:
+    """get メソッドのテスト"""
+
+    def test_get_found(self, manager, mock_pool):
+        """値が見つかった場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("10円パン",)
+        conn.execute.return_value = mock_result
+
+        value = manager.get("好物")
+        assert value == "10円パン"
+
+    def test_get_not_found(self, manager, mock_pool):
+        """値が見つからない場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        conn.execute.return_value = mock_result
+
+        value = manager.get("不明なキー")
+        assert value is None
+
+    def test_get_db_error(self, manager, mock_pool):
+        """DBエラー時はNone"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB error")
+
+        value = manager.get("好物")
+        assert value is None
+
+    def test_get_uses_correct_params(self, manager, mock_pool):
+        """org_idとkeyでフィルタ"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        conn.execute.return_value = mock_result
+
+        manager.get("好物")
+
+        call_args = conn.execute.call_args
+        params = call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["key"] == "好物"
+
+
+# =============================================================================
+# BotPersonaMemoryManager.get_all テスト
+# =============================================================================
+
+
+class TestManagerGetAll:
+    """get_all メソッドのテスト"""
+
+    def test_get_all_no_category_filter(self, manager, mock_pool):
+        """カテゴリなしで全件取得"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_dt = datetime(2026, 2, 7, 12, 0, 0)
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", mock_dt),
+            ("口調", "ウル", "character", mock_dt),
+        ]
+        conn.execute.return_value = mock_result
+
+        results = manager.get_all()
+        assert len(results) == 2
+        assert results[0]["key"] == "好物"
+        assert results[0]["value"] == "10円パン"
+        assert results[0]["category"] == "preference"
+        assert results[0]["created_at"] is not None
+        assert results[1]["key"] == "口調"
+
+    def test_get_all_with_category(self, manager, mock_pool):
+        """カテゴリ指定で取得"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        results = manager.get_all(category=PersonaCategory.PREFERENCE)
+        assert len(results) == 1
+
+        call_args = conn.execute.call_args
+        params = call_args[0][1]
+        assert params["category"] == PersonaCategory.PREFERENCE
+
+    def test_get_all_empty_result(self, manager, mock_pool):
+        """レコードなし"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        conn.execute.return_value = mock_result
+
+        results = manager.get_all()
+        assert results == []
+
+    def test_get_all_db_error(self, manager, mock_pool):
+        """DBエラー時は空リスト"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB error")
+
+        results = manager.get_all()
+        assert results == []
+
+    def test_get_all_none_created_at(self, manager, mock_pool):
+        """created_atがNoneの場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", None),
+        ]
+        conn.execute.return_value = mock_result
+
+        results = manager.get_all()
+        assert results[0]["created_at"] is None
+
+    def test_get_all_isoformat_conversion(self, manager, mock_pool):
+        """created_atがisoformat変換される"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        dt = datetime(2026, 2, 7, 15, 30, 0)
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", dt),
+        ]
+        conn.execute.return_value = mock_result
+
+        results = manager.get_all()
+        assert results[0]["created_at"] == "2026-02-07T15:30:00"
+
+
+# =============================================================================
+# BotPersonaMemoryManager.delete テスト
+# =============================================================================
+
+
+class TestManagerDelete:
+    """delete メソッドのテスト"""
+
+    def test_delete_success(self, manager, mock_pool):
+        """削除成功"""
+        result = manager.delete("好物")
+        assert result is True
+
+    def test_delete_calls_execute_and_commit(self, manager, mock_pool):
+        """executeとcommitが呼ばれる"""
+        manager.delete("好物")
+        conn = mock_pool.connect.return_value
+        conn.execute.assert_called_once()
+        conn.commit.assert_called_once()
+
+    def test_delete_db_error(self, manager, mock_pool):
+        """DBエラー時はFalse"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB error")
+
+        result = manager.delete("好物")
+        assert result is False
+
+    def test_delete_uses_correct_params(self, manager, mock_pool):
+        """org_idとkeyでフィルタ"""
+        manager.delete("口調")
+        conn = mock_pool.connect.return_value
+        call_args = conn.execute.call_args
+        params = call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["key"] == "口調"
+
+
+# =============================================================================
+# BotPersonaMemoryManager.format_for_display テスト
+# =============================================================================
+
+
+class TestManagerFormatForDisplay:
+    """format_for_display メソッドのテスト"""
+
+    def test_no_settings(self, manager, mock_pool):
+        """設定なしの場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        conn.execute.return_value = mock_result
+
+        text = manager.format_for_display()
+        assert "まだないウル" in text
+
+    def test_with_settings(self, manager, mock_pool):
+        """設定ありの場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+            ("口調", "ウル", "character", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        text = manager.format_for_display()
+        assert "好物" in text
+        assert "10円パン" in text
+        assert "口調" in text
+        assert "ウル" in text
+
+    def test_grouped_by_category(self, manager, mock_pool):
+        """カテゴリごとにグループ化"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+            ("趣味", "散歩", "preference", datetime(2026, 2, 7)),
+            ("口調", "ウル", "character", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        text = manager.format_for_display()
+        assert "好み・趣味" in text
+        assert "キャラ設定" in text
+
+    def test_unknown_category_uses_raw_name(self, manager, mock_pool):
+        """不明なカテゴリは生のカテゴリ名を表示"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("テスト", "値", "unknown_cat", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        text = manager.format_for_display()
+        assert "unknown_cat" in text
+
+    def test_display_format_has_bullet_points(self, manager, mock_pool):
+        """各設定が「・key: value」形式で表示される"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        text = manager.format_for_display()
+        assert "・好物: 10円パン" in text
+
+
+# =============================================================================
+# save_bot_persona 便利関数テスト
+# =============================================================================
+
+
+class TestSaveBotPersonaFunction:
+    """save_bot_persona 便利関数のテスト"""
+
+    def test_save_valid_persona(self, mock_pool):
+        """有効なペルソナ設定を保存"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="ソウルくんの好物は10円パン",
+            account_id="user_123",
+            sender_name="カズさん",
+        )
+        assert result["success"] is True
+        assert "覚えたウル" in result["message"]
+
+    def test_save_no_key_value_extracted(self, mock_pool):
+        """キーと値が抽出できない場合"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="ただの会話です",
+        )
+        assert result["success"] is False
+        assert "理解できなかった" in result["message"]
+
+    def test_save_blocked_personal_info_no_user_id(self, mock_pool):
+        """個人情報がブロックされた場合（user_idなし）"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト",
+        )
+        assert result["success"] is False
+        assert result.get("blocked") is True
+        assert "reason" in result
+
+    def test_save_blocked_message_includes_guidance(self, mock_pool):
+        """ブロック時のメッセージにガイダンスが含まれる"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+        )
+        assert "ソウルくんの設定として保存できない" in result["message"]
+
+    def test_save_persona_personality_category(self, mock_pool):
+        """性格カテゴリが自動推定される"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="ソウルくんの性格は明るい",
+        )
+        assert result["success"] is True
+
+    def test_save_empty_key(self, mock_pool):
+        """キーが空文字の場合"""
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="覚えて",
+        )
+        assert result["success"] is False
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_to_long_term_memory_success(self, mock_save_ltm, mock_pool):
+        """個人情報をuser_long_term_memoryにリダイレクト成功"""
+        mock_save_ltm.return_value = {"success": True}
+
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト太郎",
+            user_id=123,
+        )
+        assert result["success"] is True
+        assert result.get("redirected_to") == "user_long_term_memory"
+        assert "reason" in result
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_message_contains_user_name(self, mock_save_ltm, mock_pool):
+        """リダイレクト成功時のメッセージにユーザー名が含まれる"""
+        mock_save_ltm.return_value = {"success": True}
+
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト太郎",
+            user_id=123,
+        )
+        assert "テスト太郎" in result["message"]
+        assert "長期記憶" in result["message"]
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_default_sender_name(self, mock_save_ltm, mock_pool):
+        """sender_nameがNoneの場合「あなた」が使われる"""
+        mock_save_ltm.return_value = {"success": True}
+
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name=None,
+            user_id=123,
+        )
+        assert "あなた" in result["message"]
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_saves_formatted_key_value(self, mock_save_ltm, mock_pool):
+        """リダイレクト時に「キーは値」形式で保存"""
+        mock_save_ltm.return_value = {"success": True}
+
+        save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト",
+            user_id=123,
+        )
+
+        mock_save_ltm.assert_called_once()
+        call_kwargs = mock_save_ltm.call_args
+        # message keyword argument should contain "好物はカレー"
+        assert "好物" in str(call_kwargs)
+        assert "カレー" in str(call_kwargs)
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_ltm_save_failed(self, mock_save_ltm, mock_pool):
+        """リダイレクト先の保存失敗"""
+        mock_save_ltm.return_value = {"success": False, "message": "保存失敗"}
+
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト",
+            user_id=123,
+        )
+        assert result["success"] is False
+
+    @patch("lib.long_term_memory.save_long_term_memory")
+    def test_redirect_exception(self, mock_save_ltm, mock_pool):
+        """リダイレクト中に例外"""
+        mock_save_ltm.side_effect = Exception("DB error")
+
+        result = save_bot_persona(
+            pool=mock_pool,
+            org_id="org_test",
+            message="社長の好物はカレー",
+            sender_name="テスト",
+            user_id=123,
+        )
+        assert result["success"] is False
+        assert "エラー" in result["message"]
+        assert "error" in result
+
+
+# =============================================================================
+# get_bot_persona 便利関数テスト
+# =============================================================================
+
+
+class TestGetBotPersonaFunction:
+    """get_bot_persona 便利関数のテスト"""
+
+    def test_get_found(self, mock_pool):
+        """値が見つかった場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ("10円パン",)
+        conn.execute.return_value = mock_result
+
+        value = get_bot_persona(mock_pool, "org_test", "好物")
+        assert value == "10円パン"
+
+    def test_get_not_found(self, mock_pool):
+        """値が見つからない場合"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        conn.execute.return_value = mock_result
+
+        value = get_bot_persona(mock_pool, "org_test", "不明")
+        assert value is None
+
+
+# =============================================================================
+# scan_bot_persona_for_personal_info テスト
+# =============================================================================
+
+
+class TestScanBotPersonaForPersonalInfo:
+    """bot_persona_memory 内の個人情報スキャン"""
+
+    def test_scan_no_warnings(self, mock_pool):
+        """個人情報なし → 空リスト"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert warnings == []
+
+    def test_scan_with_personal_info(self, mock_pool):
+        """個人情報あり → 警告リスト"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+            ("社長の趣味", "社長はゴルフが好きと言っていた", "preference", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert len(warnings) >= 1
+
+    def test_scan_warning_fields(self, mock_pool):
+        """警告レコードに必要なフィールドが含まれる"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("家族構成", "母は教師です", "character", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert len(warnings) == 1
+        w = warnings[0]
+        assert "key" in w
+        assert "value" in w
+        assert "category" in w
+        assert "reason" in w
+        assert "created_at" in w
+
+    def test_scan_db_error(self, mock_pool):
+        """DBエラー時は空リスト"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB error")
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert warnings == []
+
+    def test_scan_long_value_no_crash(self, mock_pool):
+        """長い値でもクラッシュしない"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        long_value = "社長が言った" + "あ" * 100
+        mock_result.fetchall.return_value = [
+            ("メモ", long_value, "character", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert len(warnings) == 1
+
+    def test_scan_empty_records(self, mock_pool):
+        """レコードなし → 空リスト"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert warnings == []
+
+    def test_scan_multiple_personal_info(self, mock_pool):
+        """複数の個人情報レコード"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("家族", "母は教師", "character", datetime(2026, 2, 7)),
+            ("メモ", "父の思い出", "character", datetime(2026, 2, 7)),
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+        conn.execute.return_value = mock_result
+
+        warnings = scan_bot_persona_for_personal_info(mock_pool, "org_test")
+        assert len(warnings) == 2  # 2件が個人情報
+
+
+# =============================================================================
+# scan_all_organizations_bot_persona テスト
+# =============================================================================
+
+
+class TestScanAllOrganizations:
+    """全組織スキャンのテスト"""
+
+    def test_scan_all_no_orgs(self, mock_pool):
+        """組織なし → 空辞書"""
+        conn = mock_pool.connect.return_value
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        conn.execute.return_value = mock_result
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        assert result == {}
+
+    def test_scan_all_with_orgs_no_warnings(self, mock_pool):
+        """組織あり・個人情報なし → 空辞書"""
+        conn = mock_pool.connect.return_value
+
+        # 1回目: org_idsの取得
+        org_result = MagicMock()
+        org_result.fetchall.return_value = [("org_1",), ("org_2",)]
+
+        # 2回目以降: 各orgのget_all
+        clean_result = MagicMock()
+        clean_result.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+
+        conn.execute.side_effect = [org_result, clean_result, clean_result]
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        assert result == {}
+
+    def test_scan_all_with_warnings(self, mock_pool):
+        """組織あり・個人情報あり → 警告付き辞書"""
+        conn = mock_pool.connect.return_value
+
+        # 1回目: org_idsの取得
+        org_result = MagicMock()
+        org_result.fetchall.return_value = [("org_1",)]
+
+        # 2回目: org_1のget_all（個人情報あり）
+        personal_result = MagicMock()
+        personal_result.fetchall.return_value = [
+            ("家族", "母は教師", "character", datetime(2026, 2, 7)),
+        ]
+
+        conn.execute.side_effect = [org_result, personal_result]
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        assert "org_1" in result
+        assert len(result["org_1"]) >= 1
+
+    def test_scan_all_db_error(self, mock_pool):
+        """DBエラー時は空辞書"""
+        conn = mock_pool.connect.return_value
+        conn.execute.side_effect = Exception("DB error")
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        assert result == {}
+
+    def test_scan_all_org_ids_converted_to_str(self, mock_pool):
+        """org_idが文字列に変換される"""
+        conn = mock_pool.connect.return_value
+
+        org_result = MagicMock()
+        org_result.fetchall.return_value = [(123,)]  # 数値のorg_id
+
+        clean_result = MagicMock()
+        clean_result.fetchall.return_value = []
+
+        conn.execute.side_effect = [org_result, clean_result]
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        assert isinstance(result, dict)
+
+    def test_scan_all_multiple_orgs_mixed(self, mock_pool):
+        """複数組織で一部に警告あり"""
+        conn = mock_pool.connect.return_value
+
+        # 1回目: org_idsの取得（3組織）
+        org_result = MagicMock()
+        org_result.fetchall.return_value = [("org_a",), ("org_b",), ("org_c",)]
+
+        # org_a: 個人情報あり
+        result_a = MagicMock()
+        result_a.fetchall.return_value = [
+            ("メモ", "社長は偉大と言っていた", "character", datetime(2026, 2, 7)),
+        ]
+
+        # org_b: 個人情報なし
+        result_b = MagicMock()
+        result_b.fetchall.return_value = [
+            ("好物", "10円パン", "preference", datetime(2026, 2, 7)),
+        ]
+
+        # org_c: 個人情報あり
+        result_c = MagicMock()
+        result_c.fetchall.return_value = [
+            ("家族", "母の思い出", "character", datetime(2026, 2, 7)),
+        ]
+
+        conn.execute.side_effect = [org_result, result_a, result_b, result_c]
+
+        result = scan_all_organizations_bot_persona(mock_pool)
+        # org_aとorg_cに警告あり
+        assert "org_a" in result
+        assert "org_b" not in result
+        assert "org_c" in result
+
+
+# =============================================================================
+# エッジケーステスト
+# =============================================================================
+
+
+class TestEdgeCases:
+    """エッジケース・境界値テスト"""
+
+    def test_empty_message_is_valid_bot_persona(self):
+        """空メッセージ → 拒否"""
+        is_valid, reason = is_valid_bot_persona("")
+        assert is_valid is False
+
+    def test_empty_message_is_personal_information(self):
+        """空メッセージ → 個人情報でない"""
+        is_personal, reason = is_personal_information("")
+        assert is_personal is False
+
+    def test_empty_message_is_bot_persona_setting(self):
+        """空メッセージ → False"""
+        assert is_bot_persona_setting("") is False
+
+    def test_empty_message_extract(self):
+        """空メッセージから抽出 → 空"""
+        result = extract_persona_key_value("")
+        assert result["key"] == ""
+        assert result["value"] == ""
+
+    def test_very_long_message(self):
+        """非常に長いメッセージでもクラッシュしない"""
+        long_msg = "ソウルくんの好物は" + "あ" * 10000
+        is_valid, reason = is_valid_bot_persona(long_msg)
+        assert isinstance(is_valid, bool)
+
+    def test_special_chars_in_message(self):
+        """特殊文字を含むメッセージ"""
+        msg = "ソウルくんの好物は10円パン"
+        is_valid, reason = is_valid_bot_persona(msg)
+        assert is_valid is True
+
+    def test_is_valid_with_all_three_args(self):
+        """message, key, value 全て指定"""
+        is_valid, reason = is_valid_bot_persona(
+            "ソウルくんの好物は10円パン", key="好物", value="10円パン"
+        )
+        assert is_valid is True
+
+    def test_multiple_keywords_in_message(self):
+        """複数キーワードを含むメッセージ"""
+        msg = "ソウルくんの性格は明るくて好物は10円パン"
+        is_valid, reason = is_valid_bot_persona(msg)
+        assert is_valid is True
+
+    def test_case_insensitive_soulkun(self):
+        """SOUL-KUN大文字でもマッチ"""
+        is_valid, reason = is_valid_bot_persona("SOUL-KUNの好物は10円パン")
+        assert is_valid is True
+
+    def test_soulkun_with_space(self):
+        """soul kun（スペースあり）でもマッチ"""
+        is_valid, reason = is_valid_bot_persona("soul kunの好物は10円パン")
+        assert is_valid is True
+
+    def test_detect_category_for_personality(self):
+        """性格キーワードのカテゴリ推定"""
+        result = detect_persona_category("ソウルくんの性格は明るい")
+        assert result == PersonaCategory.PERSONALITY
+
+    def test_extract_ga_particle(self):
+        """「が」助詞でも抽出"""
+        result = extract_persona_key_value("好物が10円パン")
+        assert result["key"] == "好物"
+        assert result["value"] == "10円パン"
+
+    def test_extract_wo_particle(self):
+        """「を」助詞でも抽出"""
+        result = extract_persona_key_value("口調をウルにして")
+        assert result["key"] == "口調"
+
+    def test_extract_dauru_suffix(self):
+        """末尾「だウル」を除去"""
+        result = extract_persona_key_value("好物は10円パンだウル")
+        assert result["value"] == "10円パン"
+
+    def test_extract_soulkun_hiragana(self):
+        """そうるくんの〜パターン"""
+        result = extract_persona_key_value("そうるくんの好物は10円パン")
+        assert result["key"] == "好物"
+        assert result["value"] == "10円パン"
+
+    def test_extract_ichininshyou(self):
+        """一人称の抽出"""
+        result = extract_persona_key_value("一人称はウル")
+        assert result["key"] == "一人称"
+        assert result["value"] == "ウル"
+
+    def test_extract_nigate(self):
+        """苦手の抽出"""
+        result = extract_persona_key_value("苦手は数学")
+        assert result["key"] == "苦手"
+        assert result["value"] == "数学"
+
+    def test_is_bot_persona_setting_kuchou_wo(self):
+        """「口調を変えて」パターン"""
+        assert is_bot_persona_setting("口調を変えて") is True
+
+    def test_is_bot_persona_setting_sourkun_english(self):
+        """「soul-kunの名前」パターン"""
+        assert is_bot_persona_setting("soul-kunの名前") is True
 
 
 if __name__ == "__main__":

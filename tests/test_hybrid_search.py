@@ -5,6 +5,8 @@
 Phase 1-B: OpenClawから学んだ「Hybrid Search」のsoul-kun実装テスト
 """
 
+import asyncio
+
 import pytest
 from unittest.mock import Mock, AsyncMock, MagicMock, patch
 
@@ -20,6 +22,7 @@ from lib.brain.hybrid_search import (
     MIN_VECTOR_SCORE,
     DEFAULT_TOP_K,
     MAX_QUERY_LENGTH,
+    SEARCH_TIMEOUT_SECONDS,
     escape_ilike,
 )
 
@@ -487,3 +490,30 @@ class TestHybridSearch:
         # ベクトル失敗でもキーワード結果は返る
         assert result.total_count >= 1
         assert result.keyword_count >= 1
+
+    @pytest.mark.asyncio
+    async def test_timeout_falls_back_to_keyword(self, searcher_full, mock_pool, mock_pinecone, mock_embedding):
+        """タイムアウト時はキーワード検索にフォールバック"""
+        # gather全体がタイムアウト
+        with patch("lib.brain.hybrid_search.asyncio.wait_for") as mock_wait_for:
+            # 1回目: gather全体がタイムアウト → 2回目: キーワードフォールバック成功
+            keyword_fallback = [{"id": "k1", "title": "fb", "content": "fallback", "source_table": "soulkun_knowledge"}]
+            mock_wait_for.side_effect = [
+                asyncio.TimeoutError(),  # gather全体
+                keyword_fallback,        # キーワードフォールバック
+            ]
+
+            result = await searcher_full.search("テスト")
+            assert result.total_count >= 0  # フォールバックが動いた
+            assert mock_wait_for.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_timeout_both_stages_returns_empty(self, searcher_full, mock_pool, mock_pinecone, mock_embedding):
+        """gather + フォールバック両方タイムアウトで空結果"""
+        with patch("lib.brain.hybrid_search.asyncio.wait_for") as mock_wait_for:
+            mock_wait_for.side_effect = asyncio.TimeoutError()
+
+            result = await searcher_full.search("テスト")
+            assert result.total_count == 0
+            assert result.vector_count == 0
+            assert result.keyword_count == 0

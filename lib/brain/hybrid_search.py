@@ -396,11 +396,13 @@ class HybridSearcher:
         # ILIKEメタキャラクタをエスケープ（CRITICAL-2: パターンインジェクション防止）
         escaped_query = escape_ilike(query)
 
+        # org_idプレフィックスで組織スコープ（soulkun_knowledgeにはorg_idカラムがない）
+        escaped_org = escape_ilike(self.org_id)
+
         try:
             with self.pool.connect() as conn:
                 # soulkun_knowledge（会社知識）からの検索
-                # 注意: このテーブルにはorganization_idがない（Phase 4前の設計）
-                # 暫定対応: Phase 4のマイグレーションでorg_idカラム追加予定
+                # org_idスコープ: keyが "[{org_id}:" で始まるレコードのみ（鉄則#1準拠）
                 knowledge_results = conn.execute(
                     sql_text("""
                         SELECT
@@ -409,8 +411,11 @@ class HybridSearcher:
                             value AS content,
                             category
                         FROM soulkun_knowledge
-                        WHERE key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
-                           OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                        WHERE key LIKE :key_prefix ESCAPE '\\'
+                        AND (
+                            key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                            OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                        )
                         ORDER BY
                             CASE
                                 WHEN key ILIKE CAST(:query AS TEXT) ESCAPE '\\' THEN 1
@@ -421,7 +426,11 @@ class HybridSearcher:
                             id DESC
                         LIMIT :limit
                     """),
-                    {"query": escaped_query, "limit": limit},
+                    {
+                        "key_prefix": f"[{escaped_org}:%",
+                        "query": escaped_query,
+                        "limit": limit,
+                    },
                 )
 
                 for row in knowledge_results.fetchall():

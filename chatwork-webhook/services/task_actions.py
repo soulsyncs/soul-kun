@@ -280,7 +280,10 @@ def generate_deadline_alert_message(
     if not clean_task_name:
         clean_task_name = "（タスク内容なし）"
     else:
-        clean_task_name = prepare_task_display_text(clean_task_name, max_length=30)
+        if USE_TEXT_UTILS_LIB and prepare_task_display_text:
+            clean_task_name = prepare_task_display_text(clean_task_name, max_length=30)
+        else:
+            clean_task_name = _fallback_truncate_text(clean_task_name, max_length=30)
 
     # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
@@ -651,7 +654,10 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
         )
         
         # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
-        task_display = prepare_task_display_text(clean_chatwork_tags(task_body), max_length=30)
+        if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
+            task_display = prepare_task_display_text(clean_chatwork_tags(task_body), max_length=30)
+        else:
+            task_display = _fallback_truncate_text(task_body, max_length=30)
         return f"✅ タスク「{task_display}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
     else:
         return f"❌ タスクの完了に失敗したウル...\nもう一度試してみてほしいウル！"
@@ -797,8 +803,11 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                         print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
 
                 if not body_short:
-                    clean_body = clean_chatwork_tags(body)
-                    body_short = prepare_task_display_text(clean_body, max_length=40)
+                    if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
+                        clean_body = clean_chatwork_tags(body)
+                        body_short = prepare_task_display_text(clean_body, max_length=40)
+                    else:
+                        body_short = _fallback_truncate_text(body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -827,8 +836,11 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                     print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
 
             if not body_short:
-                clean_body = clean_chatwork_tags(body)
-                body_short = prepare_task_display_text(clean_body, max_length=40)
+                if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
+                    clean_body = clean_chatwork_tags(body)
+                    body_short = prepare_task_display_text(clean_body, max_length=40)
+                else:
+                    body_short = _fallback_truncate_text(body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"

@@ -17,6 +17,59 @@
 
 ---
 
+## CLAUDE.mdから移動した完了記録（2026-02-07整理）
+
+### ✅ 設計書整合性レビュー・全10課題完了（2026-02-02）
+
+**Codexからの設計整合性レビュー指摘（10件）を全て修正完了。**
+
+| # | Issue | 修正内容 | 対象ファイル |
+|---|-------|---------|-------------|
+| 1 | RLS要件明確化 | 実装段階定義を追加 | CLAUDE.md セクション5-1 |
+| 2 | Chain-of-Thought vs PII | PII除去セクション追加 | 25章 4.3.9 |
+| 3 | DB設計SoT統一 | テーブル定義を03章への参照に変更 | 06章、DESIGN_COVERAGE_MATRIX |
+| 4 | セキュリティ文言修正 | 出典と四半期見直し追加 | security_and_bcp_guide.md |
+| 5 | 同期APIリカバリ設計 | Staged Commit方式追加 | 04章 |
+| 6 | 会議録PII保護設計 | 同意・保持・削除ルール追加 | 07章 |
+| 7 | tenant_id統一 | 移行ガイドライン追加 | 01章 |
+| 8 | Google Drive誤配置検知 | 検知ジョブ・アラート設計追加 | 06章 13.5 |
+| 9 | 設計書導線改善 | クイックスタート・最短ルート追加 | 00_README.md |
+| 10 | System Prompt反映チェックリスト | チェックリスト追加 | 25章 17.10 |
+
+**提案書**: `docs/DESIGN_INTEGRITY_REVIEW_PROPOSAL.md`
+
+### ✅ CLAUDE.mdタスク全完了（2026-02-02）
+
+| タスク | 状態 | 詳細 |
+|--------|------|------|
+| 本番動作確認 | 完了 | 目標表示・タスク表示が正常動作 |
+| カバレッジ向上 | 着手 | lib/person_service.py: 26テスト追加（tests/test_person_service.py） |
+| 古いPRの整理 | 完了 | 全7件クローズ（#181, #138, #332, #362, #321, #294, #285） |
+| 設計書整合性修正PR | 完了 | PR #383 マージ済み |
+
+### ✅ CIテスト全パス・PR #376 マージ完了（2026-02-01 18:30）
+
+**PR #376:** マージ済み（edf56d2）
+**CI結果:** 4354 passed, 23 skipped, 0 failed
+
+### ✅ 技術的負債解消完了（2026-02-01 08:30）
+
+**GoalInfo/TaskInfo/PersonInfo のクラス定義統一**
+4箇所にバラバラに存在していた同名クラスを `lib/brain/models.py` に統一。
+
+### ✅ 軽微バグ修正 + type_safety統合 完了（2026-02-07）
+
+| # | 修正内容 | 対象ファイル |
+|---|---------|-------------|
+| 1 | `id or ""` パターン除去（Noneガード追加） | manager.py, effectiveness_tracker.py, implicit_detector.py, pattern_extractor.py, outcome_learning/__init__.py |
+| 2 | `pending_action or ""` 修正（早期リターン追加） | session_orchestrator.py |
+| 3 | `find_episodes_by_entity()` entity_typeフィルタ修正 | episode_repository.py, memory_enhancement/__init__.py |
+| 4 | `get_related_nodes()` directionパラメータ実装 | memory_enhancement/__init__.py |
+| 5 | `CEOFeedbackEngine` Pool→Connection修正 | capability_bridge.py |
+| 6 | type_safety.py SoT統合 | models.py, state_manager.py |
+
+---
+
 ## 🚨 次回やること
 
 ### ✅ mypy lib/brain/ 全109ファイル エラー0件達成（2026-02-07）

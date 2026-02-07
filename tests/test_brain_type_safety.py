@@ -356,3 +356,230 @@ class TestIdNoneGuard:
 
         result = detector.detect(MagicMock(), event)
         assert result is None
+
+    def test_effectiveness_tracker_none_id_health_check_no_crash(self):
+        """learning.id が None でも check_health() がクラッシュしないこと"""
+        from lib.brain.learning_foundation.effectiveness_tracker import EffectivenessTracker
+        from lib.brain.learning_foundation.models import Learning
+
+        tracker = EffectivenessTracker.__new__(EffectivenessTracker)
+        tracker.organization_id = "org-1"
+        tracker.repository = MagicMock()
+        tracker.confidence_decay_rate = 0.001
+
+        learning = Learning(
+            id=None,
+            organization_id="org-1",
+            category="rule",
+            learned_content={"description": "テスト"},
+            authority_level="normal",
+        )
+
+        # ValueError ではなく、critical ステータスを返すこと
+        health = tracker.check_health(learning)
+        assert health.status == "critical"
+        assert health.learning_id == ""
+
+    def test_effectiveness_tracker_none_id_calculate_no_crash(self):
+        """learning.id が None でも calculate_effectiveness() がクラッシュしないこと"""
+        from lib.brain.learning_foundation.effectiveness_tracker import EffectivenessTracker
+        from lib.brain.learning_foundation.models import Learning
+
+        tracker = EffectivenessTracker.__new__(EffectivenessTracker)
+        tracker.organization_id = "org-1"
+        tracker.repository = MagicMock()
+        tracker.confidence_decay_rate = 0.001
+
+        learning = Learning(
+            id=None,
+            organization_id="org-1",
+            category="rule",
+            learned_content={"description": "テスト"},
+            authority_level="normal",
+        )
+
+        # ValueError ではなく、デフォルト結果を返すこと
+        result = tracker.calculate_effectiveness(learning)
+        assert result.learning_id == ""
+        assert result.recommendation == "review"
+
+    def test_effectiveness_tracker_batch_survives_none_id(self):
+        """バッチ処理中に learning.id=None があっても全体がクラッシュしないこと"""
+        from lib.brain.learning_foundation.effectiveness_tracker import EffectivenessTracker
+        from lib.brain.learning_foundation.models import Learning
+
+        tracker = EffectivenessTracker.__new__(EffectivenessTracker)
+        tracker.organization_id = "org-1"
+        tracker.repository = MagicMock()
+        tracker.confidence_decay_rate = 0.001
+
+        learnings = [
+            Learning(id="valid-1", organization_id="org-1", category="rule",
+                     learned_content={}, authority_level="normal"),
+            Learning(id=None, organization_id="org-1", category="rule",
+                     learned_content={}, authority_level="normal"),
+            Learning(id="valid-2", organization_id="org-1", category="fact",
+                     learned_content={}, authority_level="normal"),
+        ]
+
+        # バッチ全体がクラッシュしないこと
+        results = tracker.calculate_effectiveness_batch(MagicMock(), learnings)
+        assert len(results) == 3
+
+
+class TestDirectionAndFilterPaths:
+    """get_related_nodes direction / find_episodes_by_entity entity_type テスト"""
+
+    def test_get_related_nodes_outgoing_direction(self):
+        """outgoing方向で関連ノードを取得できること"""
+        from lib.brain.memory_enhancement import BrainMemoryEnhancement
+        from lib.brain.memory_enhancement.models import KnowledgeNode, KnowledgeEdge
+
+        mem = BrainMemoryEnhancement.__new__(BrainMemoryEnhancement)
+        mem._knowledge_graph = MagicMock()
+
+        # outgoing edges from node-A
+        edge = KnowledgeEdge(
+            organization_id="org-1",
+            source_node_id="node-A",
+            target_node_id="node-B",
+            relation_type="belongs_to",
+        )
+        mem._knowledge_graph.find_edges_from.return_value = [edge]
+        target_node = KnowledgeNode(
+            organization_id="org-1", name="Node B", node_type="person",
+        )
+        mem._knowledge_graph.find_node_by_id.return_value = target_node
+
+        result = mem.get_related_nodes(MagicMock(), "node-A", direction="outgoing")
+        assert len(result) == 1
+        assert result[0].name == "Node B"
+        mem._knowledge_graph.find_edges_from.assert_called_once()
+
+    def test_get_related_nodes_incoming_direction(self):
+        """incoming方向で関連ノードを取得できること"""
+        from lib.brain.memory_enhancement import BrainMemoryEnhancement
+        from lib.brain.memory_enhancement.models import KnowledgeNode, KnowledgeEdge
+
+        mem = BrainMemoryEnhancement.__new__(BrainMemoryEnhancement)
+        mem._knowledge_graph = MagicMock()
+
+        # incoming edge to node-B
+        edge = KnowledgeEdge(
+            organization_id="org-1",
+            source_node_id="node-A",
+            target_node_id="node-B",
+            relation_type="belongs_to",
+        )
+        mem._knowledge_graph.find_edges_to.return_value = [edge]
+        source_node = KnowledgeNode(
+            organization_id="org-1", name="Node A", node_type="person",
+        )
+        mem._knowledge_graph.find_node_by_id.return_value = source_node
+
+        result = mem.get_related_nodes(MagicMock(), "node-B", direction="incoming")
+        assert len(result) == 1
+        assert result[0].name == "Node A"
+        mem._knowledge_graph.find_edges_to.assert_called_once()
+
+    def test_get_related_nodes_self_loop_skipped(self):
+        """自己参照エッジがスキップされること"""
+        from lib.brain.memory_enhancement import BrainMemoryEnhancement
+        from lib.brain.memory_enhancement.models import KnowledgeEdge
+
+        mem = BrainMemoryEnhancement.__new__(BrainMemoryEnhancement)
+        mem._knowledge_graph = MagicMock()
+
+        # self-loop edge
+        edge = KnowledgeEdge(
+            organization_id="org-1",
+            source_node_id="node-A",
+            target_node_id="node-A",
+            relation_type="relates_to",
+        )
+        mem._knowledge_graph.find_edges_from.return_value = [edge]
+
+        result = mem.get_related_nodes(MagicMock(), "node-A", direction="outgoing")
+        assert len(result) == 0
+
+    def test_get_related_nodes_edge_type_filter(self):
+        """edge_typesフィルタが効くこと"""
+        from lib.brain.memory_enhancement import BrainMemoryEnhancement
+        from lib.brain.memory_enhancement.models import KnowledgeNode, KnowledgeEdge
+
+        mem = BrainMemoryEnhancement.__new__(BrainMemoryEnhancement)
+        mem._knowledge_graph = MagicMock()
+
+        edge1 = KnowledgeEdge(
+            organization_id="org-1",
+            source_node_id="node-A", target_node_id="node-B",
+            relation_type="belongs_to",
+        )
+        edge2 = KnowledgeEdge(
+            organization_id="org-1",
+            source_node_id="node-A", target_node_id="node-C",
+            relation_type="manages",
+        )
+        mem._knowledge_graph.find_edges_from.return_value = [edge1, edge2]
+        node_b = KnowledgeNode(organization_id="org-1", name="B", node_type="org")
+        mem._knowledge_graph.find_node_by_id.return_value = node_b
+
+        # manages のみフィルタ
+        result = mem.get_related_nodes(
+            MagicMock(), "node-A", edge_types=["manages"], direction="outgoing",
+        )
+        assert len(result) == 1
+
+    def test_find_episodes_by_entity_passes_entity_type(self):
+        """find_episodes_by_entity が entity_type を渡すこと"""
+        from lib.brain.memory_enhancement import BrainMemoryEnhancement
+        from lib.brain.memory_enhancement.constants import EntityType
+
+        mem = BrainMemoryEnhancement.__new__(BrainMemoryEnhancement)
+        mem._episode_repo = MagicMock()
+        mem._episode_repo.find_by_entities.return_value = []
+
+        mem.find_episodes_by_entity(
+            MagicMock(), entity_type=EntityType.PERSON, entity_id="person-1",
+        )
+
+        call_kwargs = mem._episode_repo.find_by_entities.call_args
+        assert call_kwargs.kwargs.get("entity_type") == EntityType.PERSON
+
+
+class TestPatternExtractorNoneIdSkip:
+    """pattern_extractor の None id スキップテスト"""
+
+    def test_save_patterns_skips_none_id_existing(self):
+        """既存パターンの id が None の場合、update をスキップすること"""
+        from lib.brain.outcome_learning.pattern_extractor import PatternExtractor
+        from lib.brain.outcome_learning.models import OutcomePattern
+        from lib.brain.outcome_learning.repository import OutcomeRepository
+
+        extractor = PatternExtractor.__new__(PatternExtractor)
+        extractor.organization_id = "org-1"
+        extractor.repository = MagicMock(spec=OutcomeRepository)
+
+        # 既存パターン（id=None）
+        existing = OutcomePattern(
+            id=None,
+            organization_id="org-1",
+            pattern_type="timing",
+            pattern_category="time_slot",
+            scope="global",
+        )
+        extractor.repository.find_patterns.return_value = [existing]
+
+        new_pattern = OutcomePattern(
+            organization_id="org-1",
+            pattern_type="timing",
+            pattern_category="time_slot",
+            scope="global",
+            confidence_score=0.8,
+            sample_count=10,
+        )
+
+        extractor.save_patterns(MagicMock(), [new_pattern])
+
+        # update_pattern_stats は呼ばれないこと（id=None でスキップ）
+        extractor.repository.update_pattern_stats.assert_not_called()

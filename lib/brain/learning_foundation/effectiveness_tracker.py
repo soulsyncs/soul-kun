@@ -8,11 +8,14 @@ Phase 2E: 学習基盤 - 有効性追跡層
 Phase 2Nで本格実装予定の機能の基盤を提供する。
 """
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.engine import Connection
+
+logger = logging.getLogger(__name__)
 
 from .constants import (
     AuthorityLevel,
@@ -96,6 +99,19 @@ class EffectivenessTracker:
         Returns:
             有効性結果
         """
+        if learning.id is None:
+            logger.warning("Learning has no ID, skipping effectiveness calculation")
+            return EffectivenessResult(
+                learning_id="",
+                total_applications=0,
+                successful_applications=0,
+                failed_applications=0,
+                positive_feedbacks=0,
+                negative_feedbacks=0,
+                effectiveness_score=0.0,
+                recommendation="review",
+            )
+
         # メトリクスを計算
         metrics = self._calculate_metrics(learning)
 
@@ -107,9 +123,6 @@ class EffectivenessTracker:
 
         # 推奨アクションを決定
         recommendation = self._determine_recommendation(score, metrics)
-
-        if not learning.id:
-            raise ValueError("learning.id is required for effectiveness calculation")
 
         return EffectivenessResult(
             learning_id=learning.id,
@@ -363,7 +376,15 @@ class EffectivenessTracker:
             suggestions.append("トリガー条件を見直してください")
 
         if learning.id is None:
-            raise ValueError("Learning must have an ID for health check")
+            logger.warning("Learning has no ID, returning critical health status")
+            return LearningHealth(
+                learning_id="",
+                category=learning.category,
+                status="critical",
+                metrics=metrics,
+                issues=["学習にIDが設定されていない"],
+                suggestions=["データ整合性を確認してください"],
+            )
         return LearningHealth(
             learning_id=learning.id,
             category=learning.category,

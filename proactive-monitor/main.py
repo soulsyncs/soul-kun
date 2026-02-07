@@ -107,10 +107,13 @@ async def create_brain_for_proactive(pool):
 
 async def _try_generate_daily_log(pool) -> str:
     """
-    日次レポートを生成（JST 9:00台のみ実行）
+    日次レポートを生成（JST 9:00台の最初の1回のみ実行）
 
     Phase 2-B: 毎朝、前日の活動サマリーを生成してログに記録する。
     CLAUDE.md鉄則1b: 脳の活動記録の透明性向上。
+
+    Note: DailyLogGeneratorは同期poolを使用するため、
+    get_db_pool()で同期版コネクションプールを取得する。
     """
     from datetime import timezone, timedelta
     jst_now = datetime.now(timezone(timedelta(hours=9)))
@@ -120,10 +123,12 @@ async def _try_generate_daily_log(pool) -> str:
 
     try:
         from lib.brain.daily_log import DailyLogGenerator
+        from lib.db import get_db_pool
 
         org_id = os.environ.get("SOULKUN_ORG_ID", "soulsyncs")
-        generator = DailyLogGenerator(pool=pool, org_id=org_id)
-        activity = generator.generate()  # 前日分を生成
+        sync_pool = get_db_pool()  # 同期プール（DailyLogGeneratorは同期DB操作）
+        generator = DailyLogGenerator(pool=sync_pool, org_id=org_id)
+        activity = await asyncio.to_thread(generator.generate)  # 同期処理をスレッドで実行
         logger.info(
             f"[DailyLog] Generated: {activity.target_date} "
             f"conversations={activity.total_conversations} "

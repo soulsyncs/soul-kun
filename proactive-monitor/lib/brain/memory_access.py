@@ -190,16 +190,24 @@ class BrainMemoryAccess:
         pool,
         org_id: str,
         firestore_db=None,
+        memory_flusher=None,
+        hybrid_searcher=None,
     ):
         """
         Args:
             pool: SQLAlchemyデータベース接続プール
             org_id: 組織ID
             firestore_db: Firestore クライアント（オプション）
+            memory_flusher: AutoMemoryFlusher インスタンス（オプション、v10.57.0追加）
+            hybrid_searcher: HybridSearcher インスタンス（オプション、v10.57.1追加）
         """
         self.pool = pool
         self.org_id = org_id
         self.firestore_db = firestore_db
+        self.memory_flusher = memory_flusher
+        self.hybrid_searcher = hybrid_searcher
+        # フラッシュ重複防止用: (user_id, room_id) → 最終フラッシュ時刻
+        self._flush_last_run: Dict[str, datetime] = {}
         # org_idがUUID形式かどうかをチェック（soulkun_insights等はUUID型を要求）
         self._org_id_is_uuid = self._check_is_uuid(org_id)
 
@@ -285,11 +293,76 @@ class BrainMemoryAccess:
             else:
                 context[field_names[i]] = result
 
+        # v10.57.0: 自動メモリフラッシュ
+        # 会話履歴が閾値に達したら、重要情報を永続化してから返す
+        await self._try_auto_flush(context, user_id, room_id)
+
         return context
 
     async def _empty_list(self) -> List:
         """空リストを返す（awaitable版）"""
         return []
+
+    # フラッシュのデバウンス間隔（秒）
+    FLUSH_DEBOUNCE_SECONDS: int = 300  # 5分
+
+    async def _try_auto_flush(
+        self,
+        context: Dict[str, Any],
+        user_id: str,
+        room_id: str,
+    ) -> None:
+        """
+        自動メモリフラッシュの実行判定と実行（v10.57.0追加）
+
+        会話履歴が閾値に達した場合、重要情報を抽出して永続化する。
+        フラッシュはfire-and-forgetで実行し、get_all_context()をブロックしない。
+        デバウンス機構により、同一(user_id, room_id)で5分以内の重複フラッシュを防止。
+        """
+        if not self.memory_flusher:
+            return
+
+        conversation = context.get("recent_conversation", [])
+        if not self.memory_flusher.should_flush(len(conversation)):
+            return
+
+        # デバウンス: 同一(user_id, room_id)で直近5分以内にフラッシュ済みならスキップ
+        flush_key = f"{user_id}:{room_id}"
+        now = datetime.now(timezone.utc)
+        last_run = self._flush_last_run.get(flush_key)
+        if last_run and (now - last_run).total_seconds() < self.FLUSH_DEBOUNCE_SECONDS:
+            logger.debug("Skipping auto flush (debounce): %s", flush_key)
+            return
+
+        self._flush_last_run[flush_key] = now
+
+        try:
+            history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in conversation
+                if hasattr(msg, "role") and hasattr(msg, "content")
+            ]
+            # fire-and-forget: フラッシュをバックグラウンドタスクとして起動
+            asyncio.ensure_future(self._run_flush_background(history, user_id, room_id))
+        except Exception as e:
+            logger.warning(f"Auto memory flush scheduling failed: {e}")
+
+    async def _run_flush_background(
+        self,
+        history: List[Dict[str, str]],
+        user_id: str,
+        room_id: str,
+    ) -> None:
+        """バックグラウンドでフラッシュを実行（non-blocking）"""
+        try:
+            flush_result = await self.memory_flusher.flush(history, user_id, room_id)
+            if flush_result.flushed_count > 0:
+                logger.info(
+                    f"Auto memory flush: {flush_result.flushed_count} items saved "
+                    f"for user={user_id} room={room_id}"
+                )
+        except Exception as e:
+            logger.warning(f"Auto memory flush failed (background): {e}")
 
     # =========================================================================
     # 会話履歴（Firestore）
@@ -701,6 +774,9 @@ class BrainMemoryAccess:
         """
         クエリに関連する会社知識を取得
 
+        v10.57.1: HybridSearcherが設定されている場合はハイブリッド検索を使用。
+        未設定の場合はILIKEフォールバック（後方互換性維持）。
+
         Args:
             query: 検索クエリ（ユーザーのメッセージ）
             limit: 最大取得件数
@@ -711,17 +787,47 @@ class BrainMemoryAccess:
         if not query:
             return []
 
+        # ハイブリッド検索が利用可能な場合
+        if self.hybrid_searcher:
+            return await self._hybrid_knowledge_search(query, limit)
+
+        # フォールバック: ILIKEベースの検索
+        return await self._ilike_knowledge_search(query, limit)
+
+    async def _hybrid_knowledge_search(
+        self,
+        query: str,
+        limit: int = 5,
+    ) -> List[KnowledgeInfo]:
+        """ハイブリッド検索を使った知識検索"""
+        try:
+            response = await self.hybrid_searcher.search(query, top_k=limit)
+
+            return [
+                KnowledgeInfo(
+                    keyword=r.title,
+                    answer=r.content,
+                    category=r.category,
+                    relevance_score=r.hybrid_score,
+                )
+                for r in response.results
+            ]
+
+        except Exception as e:
+            logger.warning("Hybrid search failed, falling back to ILIKE: %s", e)
+            return await self._ilike_knowledge_search(query, limit)
+
+    async def _ilike_knowledge_search(
+        self,
+        query: str,
+        limit: int = 5,
+    ) -> List[KnowledgeInfo]:
+        """ILIKEベースの知識検索（フォールバック）"""
+        from lib.brain.hybrid_search import escape_ilike
+        escaped_query = escape_ilike(query)
+
         try:
             with self.pool.connect() as conn:
-                # soulkun_knowledge テーブルの実際のカラム名:
-                # - key (NOT keyword)
-                # - value (NOT answer)
-                # - category
-                # 注意: このテーブルにはorganization_idがない（Phase 4前の設計）
-                # 注意: pg8000ドライバでCONCATのパラメータ型推論が失敗するため、
-                #       || 演算子と明示的CASTを使用
-                # 注意: pg_trgm拡張がない場合はsimilarity関数が使えないため、
-                #       単純なILIKEマッチングのみ使用
                 result = conn.execute(
                     text("""
                         SELECT
@@ -730,29 +836,28 @@ class BrainMemoryAccess:
                             value,
                             category
                         FROM soulkun_knowledge
-                        WHERE key ILIKE '%' || CAST(:query AS TEXT) || '%'
-                           OR value ILIKE '%' || CAST(:query AS TEXT) || '%'
+                        WHERE key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                           OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
                         ORDER BY id DESC
                         LIMIT :limit
                     """),
-                    {"query": query, "limit": limit},
+                    {"query": escaped_query, "limit": limit},
                 )
                 rows = result.fetchall()
 
                 return [
                     KnowledgeInfo(
                         id=row[0],
-                        keyword=row[1] or "",  # key → keyword (データクラスのフィールド名)
-                        answer=row[2] or "",   # value → answer (データクラスのフィールド名)
+                        keyword=row[1] or "",
+                        answer=row[2] or "",
                         category=row[3],
-                        relevance_score=1.0,   # similarity関数なしのため固定値
+                        relevance_score=1.0,
                     )
                     for row in rows
                 ]
 
         except Exception as e:
-            # pg_trgm拡張がない場合などはログして空で返す
-            logger.warning(f"Error fetching relevant knowledge: {e}")
+            logger.warning("Error fetching relevant knowledge: %s", e)
             return []
 
     # =========================================================================

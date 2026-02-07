@@ -262,7 +262,7 @@ class GoogleSheetsClient:
                 valueRenderOption=value_render_option,
             ).execute()
 
-            values = result.get("values", [])
+            values: List[List[Any]] = result.get("values", [])
             logger.info(
                 f"Read {len(values)} rows from spreadsheet {spreadsheet_id}"
             )
@@ -379,7 +379,7 @@ class GoogleSheetsClient:
                         }
                     })
 
-            body = {
+            body: Dict[str, Any] = {
                 "properties": {"title": title},
             }
             if sheets:
@@ -585,9 +585,9 @@ class GoogleSheetsClient:
                 body={"requests": [request]},
             ).execute()
 
-            sheet_id = result.get("replies", [{}])[0].get(
+            sheet_id: int = result.get("replies", [{}])[0].get(
                 "addSheet", {}
-            ).get("properties", {}).get("sheetId")
+            ).get("properties", {}).get("sheetId", 0)
 
             logger.info(f"Added sheet '{sheet_name}' to {spreadsheet_id}")
             return sheet_id

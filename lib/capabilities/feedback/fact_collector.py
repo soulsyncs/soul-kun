@@ -133,7 +133,7 @@ class FactCollector:
             self._logger = get_logger("feedback.fact_collector")
         except ImportError:
             import logging
-            self._logger = logging.getLogger("feedback.fact_collector")
+            self._logger = logging.getLogger("feedback.fact_collector")  # type: ignore[assignment]
 
     # =========================================================================
     # プロパティ

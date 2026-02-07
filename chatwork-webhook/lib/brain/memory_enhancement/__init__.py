@@ -46,7 +46,7 @@ Phase 2G: 記憶の強化（Memory Enhancement）モジュール
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy.engine import Connection
 
@@ -203,13 +203,14 @@ class BrainMemoryEnhancement:
         Returns:
             想起結果リスト
         """
-        return self._episode_repo.recall(
+        results: List[RecallResult] = self._episode_repo.recall(
             conn=conn,
             message=message,
             user_id=user_id,
-            limit=limit,
-            min_relevance=min_relevance,
+            max_results=limit,
         )
+        # Filter by min_relevance
+        return [r for r in results if r.relevance_score >= min_relevance]
 
     def find_episodes_by_keywords(
         self,
@@ -256,10 +257,9 @@ class BrainMemoryEnhancement:
         Returns:
             エピソードリスト
         """
-        return self._episode_repo.find_by_entity(
+        return self._episode_repo.find_by_entities(
             conn=conn,
-            entity_type=entity_type,
-            entity_id=entity_id,
+            entity_ids=[entity_id],
             user_id=user_id,
             limit=limit,
         )
@@ -278,7 +278,7 @@ class BrainMemoryEnhancement:
         Returns:
             エピソード（見つからない場合はNone）
         """
-        return self._episode_repo.get(conn, episode_id)
+        return self._episode_repo.find_by_id(conn, episode_id)
 
     def update_episode_importance(
         self,
@@ -286,53 +286,66 @@ class BrainMemoryEnhancement:
         episode_id: str,
         importance_delta: float = RECALL_IMPORTANCE_BOOST,
     ) -> bool:
-        """エピソードの重要度を更新（想起時）
+        """エピソードの重要度を更新（想起時にブースト）
+
+        想起統計（recall_count）を更新し、importance_delta > 0 の場合は
+        重要度もブーストする。
+
+        注意: 重要度の減衰はdecay_episodes()で行う。このメソッドは
+        正のdeltaのみ対応。負のdeltaは無視される（no-op）。
 
         Args:
             conn: DB接続
             episode_id: エピソードID
-            importance_delta: 重要度の増分
+            importance_delta: 重要度の増分（正の値のみ有効）
 
         Returns:
             更新成功したかどうか
         """
-        return self._episode_repo.boost_importance(
+        if importance_delta <= 0:
+            # 負のdeltaはdecay_episodes()で処理する
+            return True
+
+        return self._episode_repo.update_recall_stats(
             conn=conn,
             episode_id=episode_id,
-            delta=importance_delta,
+            boost_importance=True,
         )
 
     def decay_episodes(
         self,
         conn: Connection,
-        decay_rate: float = DECAY_RATE_PER_DAY,
+        days: int = 1,
     ) -> int:
         """エピソードの重要度を減衰（バッチ処理用）
 
+        減衰率はapply_decay内部でDECAY_RATE_PER_DAY定数を使用する。
+
         Args:
             conn: DB接続
-            decay_rate: 減衰率
+            days: 経過日数（デフォルト1日）
 
         Returns:
             処理件数
         """
-        return self._episode_repo.apply_decay(conn, decay_rate)
+        return self._episode_repo.apply_decay(conn, days)
 
     def forget_episodes(
         self,
         conn: Connection,
-        threshold: float = FORGET_THRESHOLD,
     ) -> int:
         """閾値以下のエピソードを削除（忘却）
 
+        内部でFORGET_THRESHOLDとMIN_IMPORTANCE_FOR_RETENTION定数を使用して
+        削除対象を決定する。
+
         Args:
             conn: DB接続
-            threshold: 忘却閾値
 
         Returns:
             削除件数
         """
-        return self._episode_repo.forget_below_threshold(conn, threshold)
+        return self._episode_repo.delete_forgotten(conn)
 
     # ========================================================================
     # 知識グラフ
@@ -422,7 +435,7 @@ class BrainMemoryEnhancement:
         Returns:
             ノード（見つからない場合はNone）
         """
-        return self._knowledge_graph.get_node(conn, node_id)
+        return self._knowledge_graph.find_node_by_id(conn, node_id)
 
     def find_knowledge_nodes_by_name(
         self,
@@ -440,7 +453,7 @@ class BrainMemoryEnhancement:
         Returns:
             ノードリスト
         """
-        return self._knowledge_graph.find_nodes_by_name(conn, name, fuzzy)
+        return self._knowledge_graph.search_nodes(conn, name)
 
     def query_subgraph(
         self,
@@ -463,8 +476,7 @@ class BrainMemoryEnhancement:
         return self._knowledge_graph.get_subgraph(
             conn=conn,
             center_node_id=center_node_id,
-            max_depth=max_depth,
-            edge_types=edge_types,
+            depth=max_depth,
         )
 
     def find_path(
@@ -473,7 +485,7 @@ class BrainMemoryEnhancement:
         source_node_id: str,
         target_node_id: str,
         max_depth: int = 5,
-    ) -> Optional[List[KnowledgeEdge]]:
+    ) -> Optional[List[Tuple[KnowledgeNode, Optional[KnowledgeEdge]]]]:
         """2つのノード間のパスを探索
 
         Args:
@@ -483,12 +495,12 @@ class BrainMemoryEnhancement:
             max_depth: 最大深度
 
         Returns:
-            パス（エッジリスト）。見つからない場合はNone
+            パス（ノードとエッジのタプルリスト）。見つからない場合はNone
         """
         return self._knowledge_graph.find_path(
             conn=conn,
-            source_node_id=source_node_id,
-            target_node_id=target_node_id,
+            from_node_id=source_node_id,
+            to_node_id=target_node_id,
             max_depth=max_depth,
         )
 
@@ -510,12 +522,14 @@ class BrainMemoryEnhancement:
         Returns:
             関連ノードリスト
         """
-        return self._knowledge_graph.get_related_nodes(
-            conn=conn,
-            node_id=node_id,
-            edge_types=edge_types,
-            direction=direction,
+        results: List[Tuple[KnowledgeNode, KnowledgeEdge]] = (
+            self._knowledge_graph.find_related_nodes(
+                conn=conn,
+                node_id=node_id,
+                relation_types=edge_types,
+            )
         )
+        return [node for node, _edge in results]
 
     # ========================================================================
     # 便利メソッド
@@ -677,11 +691,16 @@ class BrainMemoryEnhancement:
         Returns:
             エピソード数
         """
-        return self._episode_repo.count(
+        stats: Dict[str, Any] = self._episode_repo.get_statistics(
             conn=conn,
             user_id=user_id,
-            episode_type=episode_type,
         )
+        total: int = stats.get("total_episodes", 0)
+        if episode_type is not None:
+            by_type = stats.get("by_type", {})
+            type_key = episode_type.value if isinstance(episode_type, EpisodeType) else episode_type
+            return int(by_type.get(type_key, 0))
+        return total
 
     def get_knowledge_stats(
         self,
@@ -695,7 +714,7 @@ class BrainMemoryEnhancement:
         Returns:
             統計情報
         """
-        return self._knowledge_graph.get_stats(conn)
+        return self._knowledge_graph.get_statistics(conn)
 
 
 # ============================================================================

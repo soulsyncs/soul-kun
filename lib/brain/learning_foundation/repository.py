@@ -149,7 +149,7 @@ class LearningRepository:
         if row is None:
             raise ValueError("学習の保存に失敗しました")
 
-        return row[0]
+        return str(row[0])
 
     def save_log(
         self,
@@ -210,7 +210,7 @@ class LearningRepository:
         })
 
         row = result.fetchone()
-        return row[0] if row else ""
+        return str(row[0]) if row else ""
 
     # ========================================================================
     # 検索系メソッド
@@ -1002,7 +1002,7 @@ class LearningRepository:
             authority_level=data["authority_level"],
             valid_from=data.get("valid_from"),
             valid_until=data.get("valid_until"),
-            taught_by_account_id=data.get("taught_by_account_id"),
+            taught_by_account_id=data.get("taught_by_account_id", ""),
             taught_by_name=data.get("taught_by_name"),
             taught_in_room_id=data.get("taught_in_room_id"),
             source_message=data.get("source_message"),

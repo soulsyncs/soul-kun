@@ -492,7 +492,7 @@ class GoogleSlidesClient:
             import uuid
             slide_id = f"slide_{uuid.uuid4().hex[:8]}"
 
-            create_slide_request = {
+            create_slide_request: Dict[str, Any] = {
                 "createSlide": {
                     "objectId": slide_id,
                     "slideLayoutReference": {},

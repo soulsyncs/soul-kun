@@ -630,7 +630,7 @@ class SessionOrchestrator:
             pending_params["confirmed_option"] = options[selected_option]
 
         decision = DecisionResult(
-            action=pending_action,
+            action=pending_action or "",
             params=pending_params,
             confidence=1.0,
         )
@@ -645,7 +645,7 @@ class SessionOrchestrator:
 
         return BrainResponse(
             message=result.message,
-            action_taken=pending_action,
+            action_taken=pending_action or "",
             action_params=pending_params,
             success=result.success,
             suggestions=result.suggestions,
@@ -827,7 +827,7 @@ class SessionOrchestrator:
                         state_changed=True,
                         new_state="normal",
                         total_time_ms=self._elapsed_ms(start_time),
-                        data={"fallback_to_general": True},
+                        debug_info={"fallback_to_general": True},
                     )
 
                 if isinstance(result, dict):
@@ -857,7 +857,7 @@ class SessionOrchestrator:
                         state_changed=session_completed or fallback_to_general,
                         new_state="normal" if session_completed or fallback_to_general else "list_context",
                         total_time_ms=self._elapsed_ms(start_time),
-                        data={"fallback_to_general": fallback_to_general} if fallback_to_general else None,
+                        debug_info={"fallback_to_general": fallback_to_general} if fallback_to_general else {},
                     )
                 elif isinstance(result, str):
                     await self.state_manager.clear_state(room_id, account_id, "list_context_completed")

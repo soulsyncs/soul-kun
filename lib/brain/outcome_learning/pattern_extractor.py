@@ -83,7 +83,7 @@ class PatternExtractor:
         Returns:
             パターンリスト
         """
-        patterns = []
+        patterns: List[OutcomePattern] = []
 
         # 時間帯別統計を取得
         hourly_stats = self.repository.get_hourly_statistics(
@@ -155,7 +155,7 @@ class PatternExtractor:
         Returns:
             パターンリスト
         """
-        patterns = []
+        patterns: List[OutcomePattern] = []
 
         # 曜日別統計を取得
         dow_stats = self.repository.get_day_of_week_statistics(
@@ -311,14 +311,14 @@ class PatternExtractor:
                 existing_pattern = matching[0]
                 self.repository.update_pattern_stats(
                     conn,
-                    pattern_id=existing_pattern.id,
+                    pattern_id=existing_pattern.id or "",
                     sample_count=pattern.sample_count,
                     success_count=pattern.success_count,
                     failure_count=pattern.failure_count,
                     success_rate=pattern.success_rate or 0.0,
                     confidence_score=pattern.confidence_score or 0.0,
                 )
-                saved_ids.append(existing_pattern.id)
+                saved_ids.append(existing_pattern.id or "")
             else:
                 # 新規保存
                 pattern_id = self.repository.save_pattern(conn, pattern)
@@ -433,7 +433,7 @@ class PatternExtractor:
         content1 = pattern1.pattern_content.get("condition", {})
         content2 = pattern2.pattern_content.get("condition", {})
 
-        return content1 == content2
+        return bool(content1 == content2)
 
     def _get_active_users(
         self,

@@ -700,7 +700,8 @@ class EpisodeRepository:
 
         # 想起統計を更新
         for result in top_results:
-            self.update_recall_stats(conn, result.episode.id)
+            if result.episode.id is not None:
+                self.update_recall_stats(conn, result.episode.id)
 
         logger.debug(f"Recalled {len(top_results)} episodes for: {message[:50]}...")
         return top_results
@@ -793,6 +794,8 @@ class EpisodeRepository:
         best_by_episode: Dict[str, RecallResult] = {}
         for result in results:
             episode_id = result.episode.id
+            if episode_id is None:
+                continue
             if episode_id not in best_by_episode:
                 best_by_episode[episode_id] = result
             elif result.relevance_score > best_by_episode[episode_id].relevance_score:

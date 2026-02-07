@@ -209,7 +209,7 @@ class BrainOutcomeLearning:
                     # 結果を更新
                     success = self._tracker.update_outcome(
                         conn=conn,
-                        event_id=event.id,
+                        event_id=event.id or "",
                         outcome_type=feedback.outcome_type,
                         outcome_details={
                             "feedback_signal": feedback.feedback_signal,

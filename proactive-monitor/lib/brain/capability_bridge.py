@@ -41,6 +41,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
+from uuid import UUID
 
 from lib.brain.models import HandlerResult
 
@@ -142,6 +143,33 @@ class CapabilityBridge:
             f"CapabilityBridge initialized for org_id={org_id}, "
             f"flags={self.feature_flags}"
         )
+
+    @staticmethod
+    def _safe_parse_uuid(value: Optional[str]) -> Optional[UUID]:
+        """文字列をUUIDに安全に変換するヘルパー
+
+        ChatworkのアカウントIDなど、UUID形式でない場合はuuid5で変換する。
+        """
+        if not value:
+            return None
+        try:
+            return UUID(str(value))
+        except (ValueError, TypeError, AttributeError):
+            import uuid as uuid_mod
+            return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(value))
+
+    def _parse_org_uuid(self) -> UUID:
+        """org_id文字列をUUIDに変換するヘルパー
+
+        UUID形式でない場合（例: "org_soulsyncs"）はuuid5で決定論的に変換する。
+        """
+        if isinstance(self.org_id, UUID):
+            return self.org_id
+        try:
+            return UUID(self.org_id)
+        except (ValueError, TypeError, AttributeError):
+            import uuid as uuid_mod
+            return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(self.org_id))
 
     # =========================================================================
     # Multimodal 前処理
@@ -369,11 +397,20 @@ class CapabilityBridge:
         """
         try:
             from lib.capabilities.generation import DocumentGenerator
+            from lib.capabilities.generation.models import (
+                DocumentRequest,
+                GenerationInput,
+            )
+            from lib.capabilities.generation.constants import (
+                DocumentType,
+                GenerationType,
+                OutputFormat,
+            )
 
-            document_type = params.get("document_type", "report")
+            document_type_str = params.get("document_type", "report")
             topic = params.get("topic", "")
             outline = params.get("outline")
-            output_format = params.get("output_format", "google_docs")
+            output_format_str = params.get("output_format", "google_docs")
 
             if not topic:
                 return HandlerResult(
@@ -381,31 +418,61 @@ class CapabilityBridge:
                     message="何について文書を作成すればいいか教えてほしいウル🐺",
                 )
 
+            org_uuid = self._parse_org_uuid()
+
+            # 文書タイプのマッピング
+            doc_type_map: Dict[str, DocumentType] = {
+                "report": DocumentType.REPORT,
+                "summary": DocumentType.SUMMARY,
+                "proposal": DocumentType.PROPOSAL,
+                "minutes": DocumentType.MINUTES,
+            }
+            doc_type = doc_type_map.get(document_type_str, DocumentType.REPORT)
+
+            # 出力形式のマッピング
+            format_map: Dict[str, OutputFormat] = {
+                "google_docs": OutputFormat.GOOGLE_DOCS,
+                "markdown": OutputFormat.MARKDOWN,
+            }
+            out_format = format_map.get(output_format_str, OutputFormat.GOOGLE_DOCS)
+
             # 文書生成器を初期化
             generator = DocumentGenerator(
                 pool=self.pool,
-                org_id=self.org_id,
-                llm_caller=self.llm_caller,
+                organization_id=org_uuid,
+            )
+
+            # リクエスト作成
+            instruction = topic
+            if outline:
+                instruction = f"{topic}\n\nアウトライン:\n{outline}"
+            doc_request = DocumentRequest(
+                title=topic,
+                organization_id=org_uuid,
+                document_type=doc_type,
+                output_format=out_format,
+                instruction=instruction,
+                require_confirmation=False,
             )
 
             # 文書を生成
-            result = await generator.generate(
-                document_type=document_type,
-                topic=topic,
-                outline=outline,
-                output_format=output_format,
-                user_id=account_id,
-                room_id=room_id,
-            )
+            result = await generator.generate(GenerationInput(
+                generation_type=GenerationType.DOCUMENT,
+                organization_id=org_uuid,
+                document_request=doc_request,
+            ))
 
             if result.success:
                 message = f"文書を作成したウル！🐺\n\n"
-                if result.url:
-                    message += f"📄 {result.url}"
+                doc_result = result.document_result
+                doc_url = doc_result.document_url if doc_result else None
+                doc_id = doc_result.document_id if doc_result else None
+                if doc_url:
+                    message += f"📄 {doc_url}"
                 return HandlerResult(
                     success=True,
                     message=message,
-                    data={"document_url": result.url, "document_id": result.document_id},
+                    data={"document_url": doc_url, "document_id": doc_id},
                 )
             else:
                 return HandlerResult(
@@ -450,6 +517,11 @@ class CapabilityBridge:
         """
         try:
             from lib.capabilities.generation import ImageGenerator
+            from lib.capabilities.generation.models import (
+                ImageRequest,
+                GenerationInput,
+            )
+            from lib.capabilities.generation.constants import GenerationType
 
             prompt = params.get("prompt", "")
             style = params.get("style")
@@ -461,29 +533,59 @@ class CapabilityBridge:
                     message="どんな画像を作ればいいか教えてほしいウル🐺",
                 )
 
+            org_uuid = self._parse_org_uuid()
+
             # 画像生成器を初期化
             generator = ImageGenerator(
                 pool=self.pool,
-                org_id=self.org_id,
+                organization_id=org_uuid,
+            )
+
+            # スタイル・サイズのマッピング
+            from lib.capabilities.generation.constants import ImageStyle, ImageSize
+
+            style_map: Dict[str, ImageStyle] = {
+                "vivid": ImageStyle.VIVID,
+                "natural": ImageStyle.NATURAL,
+                "anime": ImageStyle.ANIME,
+                "photorealistic": ImageStyle.PHOTOREALISTIC,
+                "illustration": ImageStyle.ILLUSTRATION,
+                "minimalist": ImageStyle.MINIMALIST,
+                "corporate": ImageStyle.CORPORATE,
+            }
+            size_map: Dict[str, ImageSize] = {
+                "1024x1024": ImageSize.SQUARE_1024,
+                "1792x1024": ImageSize.LANDSCAPE_1792,
+                "1024x1792": ImageSize.PORTRAIT_1024,
+            }
+
+            # リクエスト作成
+            image_request = ImageRequest(
+                organization_id=org_uuid,
+                prompt=prompt,
+                style=style_map.get(style, ImageStyle.VIVID) if style else ImageStyle.VIVID,
+                size=size_map.get(size, ImageSize.SQUARE_1024),
+                send_to_chatwork=True,
+                chatwork_room_id=room_id,
             )
 
             # 画像を生成
-            result = await generator.generate(
-                prompt=prompt,
-                style=style,
-                size=size,
-                user_id=account_id,
-                room_id=room_id,
-            )
+            result = await generator.generate(GenerationInput(
+                generation_type=GenerationType.IMAGE,
+                organization_id=org_uuid,
+                image_request=image_request,
+            ))
 
             if result.success:
                 message = f"画像を作成したウル！🐺\n\n"
-                if result.url:
-                    message += f"🖼️ {result.url}"
+                img_result = result.image_result
+                img_url = img_result.image_url if img_result else None
+                if img_url:
+                    message += f"🖼️ {img_url}"
                 return HandlerResult(
                     success=True,
                     message=message,
-                    data={"image_url": result.url},
+                    data={"image_url": img_url},
                 )
             else:
                 return HandlerResult(
@@ -528,6 +630,11 @@ class CapabilityBridge:
         """
         try:
             from lib.capabilities.generation import VideoGenerator
+            from lib.capabilities.generation.models import (
+                VideoRequest,
+                GenerationInput,
+            )
+            from lib.capabilities.generation.constants import GenerationType
 
             prompt = params.get("prompt", "")
             duration = params.get("duration", 5)
@@ -538,28 +645,46 @@ class CapabilityBridge:
                     message="どんな動画を作ればいいか教えてほしいウル🐺",
                 )
 
+            org_uuid = self._parse_org_uuid()
+
             # 動画生成器を初期化
             generator = VideoGenerator(
                 pool=self.pool,
-                org_id=self.org_id,
+                organization_id=org_uuid,
+            )
+
+            # Duration マッピング
+            from lib.capabilities.generation.constants import VideoDuration
+
+            duration_map: Dict[int, VideoDuration] = {
+                5: VideoDuration.SHORT_5S,
+                10: VideoDuration.STANDARD_10S,
+            }
+
+            # リクエスト作成
+            video_request = VideoRequest(
+                organization_id=org_uuid,
+                prompt=prompt,
+                duration=duration_map.get(int(duration), VideoDuration.SHORT_5S),
             )
 
             # 動画を生成
-            result = await generator.generate(
-                prompt=prompt,
-                duration=duration,
-                user_id=account_id,
-                room_id=room_id,
-            )
+            result = await generator.generate(GenerationInput(
+                generation_type=GenerationType.VIDEO,
+                organization_id=org_uuid,
+                video_request=video_request,
+            ))
 
             if result.success:
                 message = f"動画を作成したウル！🐺\n\n"
-                if result.url:
-                    message += f"🎬 {result.url}"
+                vid_result = result.video_result
+                vid_url = vid_result.video_url if vid_result else None
+                if vid_url:
+                    message += f"🎬 {vid_url}"
                 return HandlerResult(
                     success=True,
                     message=message,
-                    data={"video_url": result.url},
+                    data={"video_url": vid_url},
                 )
             else:
                 return HandlerResult(
@@ -603,35 +728,46 @@ class CapabilityBridge:
         """
         try:
             from lib.capabilities.feedback import CEOFeedbackEngine
+            from lib.capabilities.feedback.ceo_feedback_engine import CEOFeedbackSettings
 
             target_user_id = params.get("target_user_id")
             period = params.get("period", "week")
 
-            # フィードバックエンジンを初期化
-            engine = CEOFeedbackEngine(
-                pool=self.pool,
-                org_id=self.org_id,
-                llm_caller=self.llm_caller,
-            )
+            org_uuid = self._parse_org_uuid()
 
-            # フィードバックを生成
-            result = await engine.generate_feedback(
-                user_id=target_user_id or account_id,
-                period=period,
-                requester_id=account_id,
-            )
-
-            if result.success:
-                return HandlerResult(
-                    success=True,
-                    message=result.feedback_text,
-                    data={"feedback_id": result.feedback_id},
-                )
-            else:
+            # account_idはChatwork数値IDの場合があるため、安全にUUID変換
+            recipient_id = self._safe_parse_uuid(target_user_id or account_id)
+            if recipient_id is None:
                 return HandlerResult(
                     success=False,
-                    message=f"フィードバックの生成に失敗したウル🐺 {result.error_message}",
+                    message="対象ユーザーを特定できなかったウル🐺",
                 )
+
+            # フィードバック設定を作成
+            settings = CEOFeedbackSettings(
+                recipient_user_id=recipient_id,
+                recipient_name=sender_name,
+            )
+
+            # フィードバックエンジンを初期化
+            engine = CEOFeedbackEngine(
+                conn=self.pool,
+                organization_id=org_uuid,
+                settings=settings,
+            )
+
+            # フィードバックを生成（オンデマンド分析を使用）
+            query = f"{period}のフィードバック"
+            feedback, _delivery_result = await engine.analyze_on_demand(
+                query=query,
+                deliver=False,
+            )
+
+            return HandlerResult(
+                success=True,
+                message=feedback.summary or "フィードバックを生成したウル🐺",
+                data={"feedback_id": feedback.feedback_id},
+            )
 
         except ImportError:
             return HandlerResult(
@@ -681,7 +817,6 @@ class CapabilityBridge:
                 GenerationInput,
                 GenerationType,
             )
-            from uuid import UUID
 
             query = params.get("query", "")
             depth_str = params.get("depth", "standard")
@@ -704,26 +839,28 @@ class CapabilityBridge:
 
             # タイプのマッピング
             type_map = {
-                "general": ResearchType.GENERAL,
+                "general": ResearchType.TOPIC,
                 "competitor": ResearchType.COMPETITOR,
                 "market": ResearchType.MARKET,
                 "technology": ResearchType.TECHNOLOGY,
             }
-            research_type = type_map.get(research_type_str, ResearchType.GENERAL)
+            research_type = type_map.get(research_type_str, ResearchType.TOPIC)
+
+            org_uuid = self._parse_org_uuid()
 
             # リサーチエンジンを初期化
             engine = ResearchEngine(
                 pool=self.pool,
-                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+                organization_id=org_uuid,
             )
 
             # リクエスト作成
             request = ResearchRequest(
-                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+                organization_id=org_uuid,
                 query=query,
                 depth=depth,
                 research_type=research_type,
-                user_id=account_id,
+                user_id=self._safe_parse_uuid(account_id),
                 chatwork_room_id=room_id,
                 save_to_drive=True,
             )
@@ -731,7 +868,7 @@ class CapabilityBridge:
             # リサーチ実行
             result = await engine.generate(GenerationInput(
                 generation_type=GenerationType.RESEARCH,
-                organization_id=UUID(self.org_id) if isinstance(self.org_id, str) else self.org_id,
+                organization_id=org_uuid,
                 research_request=request,
             ))
 
@@ -816,7 +953,7 @@ class CapabilityBridge:
             client = GoogleSheetsClient()
             data = await client.read_sheet(
                 spreadsheet_id=spreadsheet_id,
-                range_name=range_name or None,
+                range_notation=range_name or "Sheet1",
             )
 
             if data:
@@ -889,7 +1026,7 @@ class CapabilityBridge:
             client = GoogleSheetsClient()
             result = await client.write_sheet(
                 spreadsheet_id=spreadsheet_id,
-                range_name=range_name,
+                range_notation=range_name,
                 values=data,
             )
 
@@ -942,12 +1079,12 @@ class CapabilityBridge:
                 sheet_names=sheets,
             )
 
-            spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{result['spreadsheetId']}"
+            spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{result['spreadsheet_id']}"
             return HandlerResult(
                 success=True,
                 message=f"スプレッドシートを作成したウル！🐺\n\n📊 {spreadsheet_url}",
                 data={
-                    "spreadsheet_id": result["spreadsheetId"],
+                    "spreadsheet_id": result["spreadsheet_id"],
                     "url": spreadsheet_url,
                 },
             )
@@ -1147,14 +1284,16 @@ class CapabilityBridge:
                 room_id=room_id,
             )
 
-            return HandlerResult(
-                success=True,
-                message=result.message,
-                data={
+            data: Dict[str, Any] = {
                     "allowed": result.allowed,
                     "total_count": result.total_count,
                     "truncated": result.truncated,
-                } if result.allowed else None,
+                } if result.allowed else {}
+
+            return HandlerResult(
+                success=True,
+                message=result.message,
+                data=data,
             )
 
         except ImportError as e:

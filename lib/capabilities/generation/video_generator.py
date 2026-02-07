@@ -112,6 +112,7 @@ class VideoGenerator(BaseGenerator):
             organization_id=organization_id,
             api_key=api_key,
         )
+        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self._runway_api_key = runway_api_key or os.environ.get("RUNWAY_API_KEY")
         self._runway_client = create_runway_client(api_key=self._runway_api_key)
 
@@ -183,9 +184,9 @@ class VideoGenerator(BaseGenerator):
             gen_result = await self._runway_client.generate(
                 prompt=prompt_to_use,
                 model=model,
-                duration=request.duration,
-                resolution=request.resolution,
-                aspect_ratio=request.aspect_ratio,
+                duration=request.duration or DEFAULT_VIDEO_DURATION,
+                resolution=request.resolution or DEFAULT_VIDEO_RESOLUTION,
+                aspect_ratio=request.aspect_ratio or DEFAULT_VIDEO_ASPECT_RATIO,
                 source_image_url=request.source_image_url,
             )
 
@@ -193,6 +194,11 @@ class VideoGenerator(BaseGenerator):
             result.runway_task_id = task_id
 
             # 完了を待つ
+            if not task_id:
+                raise VideoGenerationError(
+                    message="No task_id returned from Runway API",
+                    error_code="MISSING_TASK_ID",
+                )
             completion_result = await self._runway_client.wait_for_completion(
                 task_id=task_id,
                 progress_callback=lambda p, s: logger.debug(f"Progress: {p}%, Status: {s}"),
@@ -263,7 +269,7 @@ class VideoGenerator(BaseGenerator):
 
         # 解像度検証
         provider_key = request.provider.value if request.provider else DEFAULT_VIDEO_PROVIDER.value
-        supported_resolutions = SUPPORTED_RESOLUTIONS_BY_PROVIDER.get(provider_key, set())
+        supported_resolutions: frozenset[str] = SUPPORTED_RESOLUTIONS_BY_PROVIDER.get(provider_key, frozenset())
         resolution_value = request.resolution.value if request.resolution else DEFAULT_VIDEO_RESOLUTION.value
 
         if resolution_value not in supported_resolutions:
@@ -274,7 +280,7 @@ class VideoGenerator(BaseGenerator):
             )
 
         # 動画長検証
-        supported_durations = SUPPORTED_DURATIONS_BY_PROVIDER.get(provider_key, set())
+        supported_durations: frozenset[str] = SUPPORTED_DURATIONS_BY_PROVIDER.get(provider_key, frozenset())
         duration_value = request.duration.value if request.duration else DEFAULT_VIDEO_DURATION.value
 
         if duration_value not in supported_durations:
@@ -288,7 +294,7 @@ class VideoGenerator(BaseGenerator):
     # コスト計算
     # =========================================================================
 
-    def _calculate_cost(self, request: VideoRequest) -> float:
+    def _calculate_cost(self, request: VideoRequest) -> float:  # type: ignore[override]
         """コストを計算"""
         provider = request.provider or DEFAULT_VIDEO_PROVIDER
         duration = request.duration or DEFAULT_VIDEO_DURATION

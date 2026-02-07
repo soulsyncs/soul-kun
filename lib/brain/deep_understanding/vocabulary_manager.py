@@ -440,7 +440,7 @@ class VocabularyManager:
             for task in context.recent_tasks:
                 body = task.get("body", "")
                 if subject in body:
-                    return body[:50]
+                    return str(body[:50])
 
         return None
 
@@ -454,9 +454,9 @@ class VocabularyManager:
         """
         if context.recent_conversation:
             for msg in reversed(context.recent_conversation):
-                content = msg.get("content", "")
-                if subject in content:
-                    return content[:50]
+                msg_content = msg.get("content", "")
+                if subject in msg_content:
+                    return str(msg_content[:50])
 
         return None
 

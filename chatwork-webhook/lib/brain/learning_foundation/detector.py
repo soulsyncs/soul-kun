@@ -557,7 +557,7 @@ class FeedbackDetector:
             names = re.findall(r"([^\s、。]+さん)", last_response)
             for name in names:
                 if name != correct and name != correct + "さん":
-                    return name
+                    return str(name)
 
         # 数値の場合：応答に含まれる数値を探す
         if correct.isdigit():
@@ -565,7 +565,7 @@ class FeedbackDetector:
             numbers = re.findall(r"(\d+)", last_response)
             for num in numbers:
                 if num != correct:
-                    return num
+                    return str(num)
 
         return ""
 

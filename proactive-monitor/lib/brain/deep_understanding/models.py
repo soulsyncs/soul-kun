@@ -424,7 +424,7 @@ class DeepUnderstandingOutput:
     深い理解層からの出力
     """
     # 元の入力
-    input: DeepUnderstandingInput = field(default_factory=DeepUnderstandingInput)
+    input: DeepUnderstandingInput = field(default_factory=lambda: DeepUnderstandingInput(message="", organization_id=""))
 
     # 意図推測結果
     intent_inference: Optional[IntentInferenceResult] = None

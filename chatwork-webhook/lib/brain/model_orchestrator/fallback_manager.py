@@ -194,7 +194,7 @@ class FallbackManager:
             遅延秒数
         """
         delay = RETRY_DELAY_BASE_SECONDS * (2 ** attempt)
-        return min(delay, RETRY_DELAY_MAX_SECONDS)
+        return float(min(delay, RETRY_DELAY_MAX_SECONDS))
 
     def get_timeout_for_model(self, model: ModelInfo) -> float:
         """
@@ -251,7 +251,7 @@ class FallbackManager:
             attempts,
         )
 
-        if success:
+        if success and result is not None:
             response_text, input_tokens, output_tokens, latency_ms = result
             return FallbackResult(
                 success=True,
@@ -280,7 +280,7 @@ class FallbackManager:
                 attempts=attempts,
             )
 
-            if success:
+            if success and result is not None:
                 response_text, input_tokens, output_tokens, latency_ms = result
                 total_latency_ms = sum(
                     a.latency_ms or 0 for a in attempts

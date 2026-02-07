@@ -225,7 +225,7 @@ class VisionAPIClient:
         Raises:
             VisionAPIError: 全てのモデルで失敗した場合
         """
-        last_error = None
+        last_error: Optional[VisionAPIError] = None
 
         for model_info in VISION_MODELS:
             model_id = model_info["model_id"]

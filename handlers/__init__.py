@@ -10,6 +10,8 @@ v10.47.0: handlers/registry.py 追加
   - 「新機能追加 = handlers/xxx_handler.py作成 + registry.pyに追加」
 """
 
+from typing import Any, Callable, Dict, Optional
+
 __version__ = "1.2.0"  # v10.47.0: registry.py追加
 
 # Registry（v10.47.0追加）- 機能カタログの一元管理
@@ -24,9 +26,9 @@ try:
 except ImportError:
     SYSTEM_CAPABILITIES = {}
     HANDLER_ALIASES = {}
-    get_enabled_capabilities = None
-    get_capability_info = None
-    generate_capabilities_prompt = None
+    get_enabled_capabilities = None  # type: ignore[assignment]
+    get_capability_info = None  # type: ignore[assignment]
+    generate_capabilities_prompt = None  # type: ignore[assignment]
 
 # AnnouncementHandler（v10.26.0追加）
 try:

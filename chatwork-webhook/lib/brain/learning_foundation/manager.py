@@ -331,7 +331,7 @@ class LearningManager:
         # 1件のみの場合は削除
         learning = matches[0]
         success, message = self.delete(
-            conn, learning.id, requester_account_id, requester_authority
+            conn, learning.id or "", requester_account_id, requester_authority
         )
         return success, message, learning if success else None
 
@@ -436,7 +436,7 @@ class LearningManager:
         new_id = self.repository.save(conn, new_learning)
 
         # 置き換え関係を設定
-        self.repository.update_supersedes(conn, new_id, learning.id)
+        self.repository.update_supersedes(conn, new_id, learning.id or "")
 
         # 成功メッセージ
         new_description = new_content.get("description", "")

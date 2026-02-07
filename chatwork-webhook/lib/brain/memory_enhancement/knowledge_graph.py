@@ -580,7 +580,7 @@ class KnowledgeGraph:
         Returns:
             (ノード, エッジ)のリスト
         """
-        results = []
+        results: List[Tuple[KnowledgeNode, KnowledgeEdge]] = []
         visited = {node_id}
 
         # BFS
@@ -635,7 +635,8 @@ class KnowledgeGraph:
 
         # BFS
         visited = {from_node_id}
-        queue = deque([(from_node_id, [(from_node_id, None)])])
+        initial_path: List[Tuple[str, Optional[KnowledgeEdge]]] = [(from_node_id, None)]
+        queue: deque[Tuple[str, List[Tuple[str, Optional[KnowledgeEdge]]]]] = deque([(from_node_id, initial_path)])
 
         while queue:
             current_id, path = queue.popleft()
@@ -650,12 +651,14 @@ class KnowledgeGraph:
 
                 if target_id == to_node_id:
                     # パス発見
-                    result_path = []
+                    result_path: List[Tuple[KnowledgeNode, Optional[KnowledgeEdge]]] = []
                     for node_id, edge_in_path in path:
                         node = self.find_node_by_id(conn, node_id)
-                        result_path.append((node, edge_in_path))
+                        if node:
+                            result_path.append((node, edge_in_path))
                     target_node = self.find_node_by_id(conn, target_id)
-                    result_path.append((target_node, edge))
+                    if target_node:
+                        result_path.append((target_node, edge))
                     return result_path
 
                 if target_id not in visited:
@@ -687,8 +690,8 @@ class KnowledgeGraph:
         if not center_node:
             raise ValueError(f"Center node not found: {center_node_id}")
 
-        nodes = []
-        edges = []
+        nodes: List[KnowledgeNode] = []
+        edges: List[KnowledgeEdge] = []
         visited_nodes = {center_node_id}
         visited_edges = set()
 

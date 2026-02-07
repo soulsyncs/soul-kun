@@ -648,7 +648,7 @@ class DecompositionPattern:
         """
         params = extracted_params or {}
         subtasks = []
-        name_to_id = {}
+        name_to_id: Dict[str, str] = {}
 
         for template in self.subtask_templates:
             # パラメータをマッピング

@@ -825,6 +825,7 @@ class BrainMemoryAccess:
         """ILIKEベースの知識検索（フォールバック）"""
         from lib.brain.hybrid_search import escape_ilike
         escaped_query = escape_ilike(query)
+        escaped_org = escape_ilike(self.org_id)
 
         try:
             with self.pool.connect() as conn:
@@ -836,12 +837,15 @@ class BrainMemoryAccess:
                             value,
                             category
                         FROM soulkun_knowledge
-                        WHERE key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
-                           OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                        WHERE key LIKE :key_prefix ESCAPE '\\'
+                        AND (
+                            key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                            OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                        )
                         ORDER BY id DESC
                         LIMIT :limit
                     """),
-                    {"query": escaped_query, "limit": limit},
+                    {"key_prefix": f"[{escaped_org}:%", "query": escaped_query, "limit": limit},
                 )
                 rows = result.fetchall()
 

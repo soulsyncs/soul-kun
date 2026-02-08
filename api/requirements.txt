@@ -38,3 +38,6 @@ jpholiday>=0.1.9
 # ★ v10.25.0: google-generativeai → google-genai に移行（非推奨SDK廃止対応）
 google-genai>=1.0.0
 pinecone>=5.0.0
+
+# Authentication (JWT)
+python-jose[cryptography]>=3.3.0,<4.0

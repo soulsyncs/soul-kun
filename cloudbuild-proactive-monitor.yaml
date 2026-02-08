@@ -55,7 +55,7 @@ steps:
       - '--region=asia-northeast1'
       - '--memory=512MB'
       - '--timeout=540s'
-      - '--allow-unauthenticated'
+      - '--no-allow-unauthenticated'
       - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true'
     waitFor: ['sync-check']
 

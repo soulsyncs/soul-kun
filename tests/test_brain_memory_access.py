@@ -246,9 +246,9 @@ class TestBrainMemoryAccessInit:
         assert brain_memory.validate_org_id() is True
 
     def test_validate_org_id_empty(self, mock_pool):
-        """空のorganization_id"""
-        memory = BrainMemoryAccess(pool=mock_pool, org_id="")
-        assert memory.validate_org_id() is False
+        """空のorganization_idでValueError"""
+        with pytest.raises(ValueError, match="org_id is required"):
+            BrainMemoryAccess(pool=mock_pool, org_id="")
 
 
 # =============================================================================

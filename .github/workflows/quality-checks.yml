@@ -287,11 +287,23 @@ jobs:
                 fi
               done
 
-              # 認証設定（--no-allow-unauthenticated がないこと）
-              if grep -q "\-\-no-allow-unauthenticated" "$file"; then
-                echo "  ❌ --no-allow-unauthenticated found (causes auth errors)"
-                ERRORS_FOUND=1
-              fi
+              # 認証設定: chatwork-webhookは公開（HMAC検証済み）、それ以外は認証必須
+              case "$file" in
+                cloudbuild.yaml|chatwork-webhook/*)
+                  # Webhook受信サービスは--allow-unauthenticated必須
+                  if grep -q "\-\-no-allow-unauthenticated" "$file"; then
+                    echo "  ❌ Webhook service should use --allow-unauthenticated"
+                    ERRORS_FOUND=1
+                  fi
+                  ;;
+                *)
+                  # 内部サービスは--no-allow-unauthenticated必須（Task 1-2: JWT認証統一）
+                  if grep -q "\-\-allow-unauthenticated" "$file" && ! grep -q "\-\-no-allow-unauthenticated" "$file"; then
+                    echo "  ❌ Internal service should use --no-allow-unauthenticated"
+                    ERRORS_FOUND=1
+                  fi
+                  ;;
+              esac
             fi
           done
 
@@ -323,7 +335,7 @@ jobs:
             echo ""
             echo "Fix:"
             echo "  1. Use '$EXPECTED_VAR' (not ENABLE_LLM_BRAIN)"
-            echo "  2. Use --allow-unauthenticated (not --no-allow-unauthenticated)"
+            echo "  2. Webhook services: --allow-unauthenticated / Internal services: --no-allow-unauthenticated"
             echo "  3. feature_flags.py must use '$EXPECTED_VAR' for enable_llm_brain"
             echo ""
             echo "Reference: lib/brain/env_config.py is the Single Source of Truth"

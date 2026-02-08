@@ -145,7 +145,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "    --region=asia-northeast1 \\"
     echo "    --memory=512MB \\"
     echo "    --timeout=540s \\"
-    echo "    --allow-unauthenticated \\"
+    echo "    --no-allow-unauthenticated \\"
     echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -164,7 +164,7 @@ gcloud functions deploy proactive-monitor \
     --region=asia-northeast1 \
     --memory=512MB \
     --timeout=540s \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
 
 echo ""

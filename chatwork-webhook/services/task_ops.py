@@ -5,6 +5,7 @@ Phase 11-4a: main.pyから抽出されたタスク関連のDB操作・API連携�
 依存: infra/db.py (get_pool, get_secret), infra/chatwork_api.py (call_chatwork_api_with_retry)
 """
 
+import os
 import re
 import sqlalchemy
 
@@ -24,7 +25,15 @@ from lib import (
 
 from handlers.task_handler import TaskHandler as _NewTaskHandler
 
-MEMORY_DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
+
+def _escape_ilike(value: str) -> str:
+    """ILIKEメタキャラクタをエスケープ"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+# テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
+_ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+MEMORY_DEFAULT_ORG_ID = _ORGANIZATION_ID
 _task_handler = None
 
 
@@ -42,7 +51,8 @@ def _get_task_handler():
             prepare_task_display_text=prepare_task_display_text,
             validate_summary=validate_summary,
             get_user_primary_department=lib_get_user_primary_department,
-            use_text_utils=True
+            use_text_utils=True,
+            organization_id=_ORGANIZATION_ID
         )
     return _task_handler
 
@@ -119,10 +129,10 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
         result = conn.execute(
             sqlalchemy.text("""
                 SELECT account_id, name FROM chatwork_users
-                WHERE organization_id = :org_id AND name ILIKE :pattern
+                WHERE organization_id = :org_id AND name ILIKE :pattern ESCAPE '\\'
                 LIMIT 1
             """),
-            {"org_id": organization_id, "pattern": f"%{clean_name}%"}
+            {"org_id": organization_id, "pattern": f"%{_escape_ilike(clean_name)}%"}
         ).fetchone()
         if result:
             print(f"✅ 部分一致で発見: {clean_name} → {result[0]} ({result[1]})")
@@ -134,10 +144,10 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
             sqlalchemy.text("""
                 SELECT account_id, name FROM chatwork_users
                 WHERE organization_id = :org_id
-                  AND REPLACE(REPLACE(name, ' ', ''), '　', '') ILIKE :pattern
+                  AND REPLACE(REPLACE(name, ' ', ''), '　', '') ILIKE :pattern ESCAPE '\\'
                 LIMIT 1
             """),
-            {"org_id": organization_id, "pattern": f"%{normalized_name}%"}
+            {"org_id": organization_id, "pattern": f"%{_escape_ilike(normalized_name)}%"}
         ).fetchone()
         if result:
             print(f"✅ 正規化検索で発見: {normalized_name} → {result[0]} ({result[1]})")
@@ -148,10 +158,10 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
             result = conn.execute(
                 sqlalchemy.text("""
                     SELECT account_id, name FROM chatwork_users
-                    WHERE organization_id = :org_id AND name ILIKE :pattern
+                    WHERE organization_id = :org_id AND name ILIKE :pattern ESCAPE '\\'
                     LIMIT 1
                 """),
-                {"org_id": organization_id, "pattern": f"%{name}%"}
+                {"org_id": organization_id, "pattern": f"%{_escape_ilike(name)}%"}
             ).fetchone()
             if result:
                 print(f"✅ 元の名前で部分一致: {name} → {result[0]} ({result[1]})")

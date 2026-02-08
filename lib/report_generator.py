@@ -572,11 +572,13 @@ class DailyReportGenerator:
                 FROM chatwork_tasks t
                 LEFT JOIN chatwork_rooms r ON t.room_id = r.room_id
                 WHERE t.assigned_account_id = :account_id
+                  AND t.organization_id = :org_id
                   AND t.status = 'done'
                   AND DATE(t.updated_at) = :target_date
                 ORDER BY t.updated_at DESC
             """), {
                 "account_id": account_id,
+                "org_id": self.organization_id,
                 "target_date": target_date
             })
 

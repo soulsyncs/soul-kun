@@ -7,7 +7,7 @@ Phase 3.5: 組織階層連携（アクセス制御）
 
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional, List
-from fastapi import APIRouter, HTTPException, Header, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from sqlalchemy import text
 
@@ -27,15 +27,14 @@ from app.services.access_control import (
     compute_accessible_departments_sync,
     get_user_role_level_sync,
 )
+from app.services.knowledge_search import UserContext
+from app.deps.auth import get_current_user
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 logger = get_logger(__name__)
 
 # JST タイムゾーン
 JST = timezone(timedelta(hours=9))
-
-# 組織IDデフォルト（Phase 3.5: 社内専用）
-DEFAULT_ORG_ID = DEFAULT_TENANT_ID
 
 
 def classify_severity(days_overdue: int) -> tuple[str, str]:
@@ -79,15 +78,18 @@ def classify_severity(days_overdue: int) -> tuple[str, str]:
 - 🟠 moderate（中度）: 3-6日超過
 - 🟡 mild（軽度）: 1-2日超過
 
+## 認証
+- JWT Bearer token必須（Authorization: Bearer <token>）
+- organization_idはJWTのorg_idクレームから取得
+
 ## アクセス制御（Phase 3.5）
-- X-User-ID ヘッダーが指定された場合、ユーザーの権限に基づきフィルタ
+- JWTのユーザーIDに基づき、権限レベルでフィルタ
 - Level 5-6: 全タスク閲覧可能
 - Level 3-4: 自部署＋配下部署のタスクのみ
 - Level 1-2: 自部署のタスクのみ
 - department_id未設定タスクは全員閲覧可能（後方互換性）
 
 ## パラメータ
-- **organization_id**: 組織ID（必須）
 - **grace_days**: 猶予日数（デフォルト0、1を指定すると翌日から超過とみなす）
 - **severity**: 重度フィルタ（severe/moderate/mild）
 - **assigned_to_account_id**: 担当者でフィルタ
@@ -97,11 +99,6 @@ def classify_severity(days_overdue: int) -> tuple[str, str]:
     """,
 )
 async def get_overdue_tasks(
-    organization_id: str = Query(
-        ...,
-        description="組織ID",
-        example="org_soulsyncs",
-    ),
     grace_days: int = Query(
         0,
         ge=0,
@@ -136,8 +133,7 @@ async def get_overdue_tasks(
         ge=0,
         description="オフセット",
     ),
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID"),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     期限超過タスク一覧を取得
@@ -160,13 +156,15 @@ async def get_overdue_tasks(
     Returns:
         期限超過タスクのリスト
     """
+    organization_id = user.organization_id
+
     logger.info(
         "Get overdue tasks started",
         organization_id=organization_id,
         grace_days=grace_days,
         severity=severity,
         department_id=department_id,
-        user_id=x_user_id,
+        user_id=user.user_id,
         limit=limit,
         offset=offset,
     )
@@ -191,19 +189,19 @@ async def get_overdue_tasks(
             accessible_departments: Optional[List[str]] = None
             user_role_level = 2  # デフォルト: 一般社員
 
-            if x_user_id:
+            if user.user_id:
                 try:
-                    user_role_level = get_user_role_level_sync(conn, x_user_id)
-                    logger.info(f"User role level: {user_role_level}", user_id=x_user_id)
+                    user_role_level = get_user_role_level_sync(conn, user.user_id)
+                    logger.info(f"User role level: {user_role_level}", user_id=user.user_id)
 
                     # Level 5以上は全部署アクセス可能
                     if user_role_level < 5:
                         accessible_departments = compute_accessible_departments_sync(
-                            conn, x_user_id, organization_id
+                            conn, user.user_id, organization_id
                         )
                         logger.info(
                             f"Accessible departments: {len(accessible_departments) if accessible_departments else 0}",
-                            user_id=x_user_id,
+                            user_id=user.user_id,
                         )
                 except Exception as e:
                     logger.warning(f"Failed to compute accessible departments: {e}")
@@ -230,8 +228,9 @@ async def get_overdue_tasks(
                   AND skip_tracking = FALSE
                   AND limit_time IS NOT NULL
                   AND limit_time < :cutoff_timestamp
+                  AND organization_id = :org_id
             """
-            params = {"cutoff_timestamp": cutoff_timestamp}
+            params = {"cutoff_timestamp": cutoff_timestamp, "org_id": organization_id}
 
             # 担当者フィルタ
             if assigned_to_account_id:
@@ -279,8 +278,9 @@ async def get_overdue_tasks(
                   AND skip_tracking = FALSE
                   AND limit_time IS NOT NULL
                   AND limit_time < :cutoff_timestamp
+                  AND organization_id = :org_id
             """
-            count_params = {"cutoff_timestamp": cutoff_timestamp}
+            count_params = {"cutoff_timestamp": cutoff_timestamp, "org_id": organization_id}
 
             if assigned_to_account_id:
                 count_query += " AND assigned_to_account_id = :assigned_to_account_id"
@@ -389,7 +389,7 @@ async def get_overdue_tasks(
             action="get_overdue_tasks",
             resource_type="task",
             resource_id=organization_id,
-            user_id=x_user_id,
+            user_id=user.user_id,
             details={
                 "total_count": total_count,
                 "returned_count": len(tasks),
@@ -447,23 +447,21 @@ async def get_overdue_tasks(
     description="期限超過タスクの件数サマリーのみを取得します（軽量API）",
 )
 async def get_overdue_tasks_summary(
-    organization_id: str = Query(
-        ...,
-        description="組織ID",
-        example="org_soulsyncs",
-    ),
     grace_days: int = Query(
         0,
         ge=0,
         le=30,
         description="猶予日数",
     ),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     期限超過タスクのサマリー（件数のみ）を取得
 
     軽量版API: ダッシュボード表示用
     """
+    organization_id = user.organization_id
+
     logger.info(
         "Get overdue tasks summary",
         organization_id=organization_id,
@@ -494,9 +492,10 @@ async def get_overdue_tasks_summary(
                   AND skip_tracking = FALSE
                   AND limit_time IS NOT NULL
                   AND limit_time < :cutoff_timestamp
+                  AND organization_id = :org_id
                 GROUP BY limit_time
             """
-            result = conn.execute(text(query), {"cutoff_timestamp": cutoff_timestamp})
+            result = conn.execute(text(query), {"cutoff_timestamp": cutoff_timestamp, "org_id": organization_id})
             rows = result.fetchall()
 
         severe_count = 0

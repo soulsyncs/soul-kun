@@ -54,7 +54,7 @@ gcloud functions deploy sync-chatwork-tasks \
     --source="$SCRIPT_DIR" \
     --entry-point=sync_chatwork_tasks \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=540s \
     --set-secrets=CHATWORK_API_TOKEN=CHATWORK_API_TOKEN:latest,SOULKUN_CHATWORK_TOKEN=SOULKUN_CHATWORK_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest

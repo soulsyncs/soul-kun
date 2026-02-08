@@ -10,7 +10,8 @@ from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
 # テスト用のFastAPIアプリを作成
-from app.api.v1.knowledge import router, get_current_user, get_db_connection
+from app.api.v1.knowledge import router, get_db_connection
+from app.deps.auth import get_current_user
 from app.services.knowledge_search import UserContext
 
 
@@ -59,8 +60,8 @@ class TestKnowledgeSearchEndpoint:
                 "/api/v1/knowledge/search",
                 json={"query": "テスト"},
             )
-            # ヘッダーがないので422エラー
-            assert response.status_code == 422
+            # JWT認証なしで401エラー
+            assert response.status_code == 401
 
     def test_search_endpoint_validation(self, client):
         """リクエストバリデーション"""

@@ -31,6 +31,7 @@ from .models import (
     Severity,
     TeachingUsageContext,
 )
+from lib.brain.hybrid_search import escape_ilike
 
 logger = logging.getLogger(__name__)
 
@@ -378,12 +379,12 @@ class CEOTeachingRepository:
         for i, kw in enumerate(keywords[:5]):  # 最大5キーワード
             param_name = f"kw_{i}"
             conditions.append(f"""
-                (statement ILIKE :{param_name}
-                 OR reasoning ILIKE :{param_name}
-                 OR context ILIKE :{param_name}
+                (statement ILIKE :{param_name} ESCAPE '\\'
+                 OR reasoning ILIKE :{param_name} ESCAPE '\\'
+                 OR context ILIKE :{param_name} ESCAPE '\\'
                  OR :{param_name} = ANY(keywords))
             """)
-            params[param_name] = f"%{kw}%"
+            params[param_name] = f"%{escape_ilike(kw)}%"
 
         where_clause = " OR ".join(conditions)
 

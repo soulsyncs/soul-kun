@@ -3,6 +3,7 @@ from flask import jsonify
 from google.cloud import firestore
 import httpx
 import re
+import os
 from datetime import datetime, timedelta, timezone
 import pg8000
 import sqlalchemy
@@ -61,6 +62,10 @@ BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
 
 # JST タイムゾーン
 JST = timezone(timedelta(hours=9))
+
+def _escape_ilike(value: str) -> str:
+    """ILIKEメタキャラクタをエスケープ"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 # ChatWork API ヘッダー取得関数
 def get_chatwork_headers():
@@ -259,80 +264,96 @@ def is_toall_mention(body):
 
 # ===== データベース操作関数 =====
 
+# テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
+_ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+
 def get_or_create_person(name):
     pool = get_pool()
-    with pool.connect() as conn:
+    with pool.begin() as conn:
         result = conn.execute(
-            sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-            {"name": name}
+            sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+            {"name": name, "org_id": _ORGANIZATION_ID}
         ).fetchone()
         if result:
             return result[0]
         result = conn.execute(
-            sqlalchemy.text("INSERT INTO persons (name) VALUES (:name) RETURNING id"),
-            {"name": name}
+            sqlalchemy.text("INSERT INTO persons (name, organization_id) VALUES (:name, :org_id) RETURNING id"),
+            {"name": name, "org_id": _ORGANIZATION_ID}
         )
-        conn.commit()
         return result.fetchone()[0]
 
 def save_person_attribute(person_name, attribute_type, attribute_value, source="conversation"):
     person_id = get_or_create_person(person_name)
     pool = get_pool()
-    with pool.connect() as conn:
+    with pool.begin() as conn:
         conn.execute(
             sqlalchemy.text("""
-                INSERT INTO person_attributes (person_id, attribute_type, attribute_value, source, updated_at)
-                VALUES (:person_id, :attr_type, :attr_value, :source, CURRENT_TIMESTAMP)
-                ON CONFLICT (person_id, attribute_type) 
+                INSERT INTO person_attributes (person_id, attribute_type, attribute_value, source, updated_at, organization_id)
+                VALUES (:person_id, :attr_type, :attr_value, :source, CURRENT_TIMESTAMP, :org_id)
+                ON CONFLICT (person_id, attribute_type)
                 DO UPDATE SET attribute_value = :attr_value, source = :source, updated_at = CURRENT_TIMESTAMP
             """),
-            {"person_id": person_id, "attr_type": attribute_type, "attr_value": attribute_value, "source": source}
+            {"person_id": person_id, "attr_type": attribute_type, "attr_value": attribute_value, "source": source, "org_id": _ORGANIZATION_ID}
         )
-        conn.commit()
     return True
 
 def get_person_info(person_name):
     pool = get_pool()
     with pool.connect() as conn:
         person_result = conn.execute(
-            sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-            {"name": person_name}
+            sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+            {"name": person_name, "org_id": _ORGANIZATION_ID}
         ).fetchone()
         if not person_result:
             return None
         person_id = person_result[0]
         attributes = conn.execute(
             sqlalchemy.text("""
-                SELECT attribute_type, attribute_value FROM person_attributes 
-                WHERE person_id = :person_id ORDER BY updated_at DESC
+                SELECT attribute_type, attribute_value FROM person_attributes
+                WHERE person_id = :person_id AND organization_id = :org_id ORDER BY updated_at DESC
             """),
-            {"person_id": person_id}
+            {"person_id": person_id, "org_id": _ORGANIZATION_ID}
         ).fetchall()
         return {
             "name": person_name,
             "attributes": [{"type": a[0], "value": a[1]} for a in attributes]
         }
 
+def normalize_person_name(name):
+    """人物名を正規化（ChatWork形式→DB形式）"""
+    if not name:
+        return name
+    normalized = re.sub(r'\s*\([^)]*\)\s*', '', name)
+    normalized = re.sub(r'(さん|くん|ちゃん|様|氏)$', '', normalized)
+    normalized = normalized.replace(' ', '').replace('\u3000', '')
+    return normalized.strip()
+
 def search_person_by_partial_name(partial_name):
     """部分一致で人物を検索"""
+    normalized = normalize_person_name(partial_name) if partial_name else partial_name
     pool = get_pool()
     with pool.connect() as conn:
         result = conn.execute(
             sqlalchemy.text("""
-                SELECT name FROM persons 
-                WHERE name ILIKE :pattern OR name ILIKE :pattern2
-                ORDER BY 
+                SELECT name FROM persons
+                WHERE organization_id = :org_id
+                  AND (name ILIKE :pattern ESCAPE '\\'
+                   OR name ILIKE :normalized_pattern ESCAPE '\\')
+                ORDER BY
                     CASE WHEN name = :exact THEN 0
-                         WHEN name ILIKE :starts_with THEN 1
+                         WHEN name = :normalized THEN 0
+                         WHEN name ILIKE :starts_with ESCAPE '\\' THEN 1
                          ELSE 2 END,
                     LENGTH(name)
                 LIMIT 5
             """),
             {
-                "pattern": f"%{partial_name}%",
-                "pattern2": f"%{partial_name}%",
+                "org_id": _ORGANIZATION_ID,
+                "pattern": f"%{_escape_ilike(partial_name)}%",
+                "normalized_pattern": f"%{_escape_ilike(normalized)}%",
                 "exact": partial_name,
-                "starts_with": f"{partial_name}%"
+                "normalized": normalized,
+                "starts_with": f"{_escape_ilike(partial_name)}%"
             }
         ).fetchall()
         return [r[0] for r in result]
@@ -343,16 +364,16 @@ def delete_person(person_name):
         trans = conn.begin()
         try:
             person_result = conn.execute(
-                sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-                {"name": person_name}
+                sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+                {"name": person_name, "org_id": _ORGANIZATION_ID}
             ).fetchone()
             if not person_result:
                 trans.rollback()
                 return False
             person_id = person_result[0]
-            conn.execute(sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id"), {"person_id": person_id})
-            conn.execute(sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id"), {"person_id": person_id})
-            conn.execute(sqlalchemy.text("DELETE FROM persons WHERE id = :person_id"), {"person_id": person_id})
+            conn.execute(sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
+            conn.execute(sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
+            conn.execute(sqlalchemy.text("DELETE FROM persons WHERE id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
             trans.commit()
             return True
         except Exception as e:
@@ -367,9 +388,11 @@ def get_all_persons_summary():
             sqlalchemy.text("""
                 SELECT p.name, STRING_AGG(pa.attribute_type || '=' || pa.attribute_value, ', ') as attributes
                 FROM persons p
-                LEFT JOIN person_attributes pa ON p.id = pa.person_id
+                LEFT JOIN person_attributes pa ON p.id = pa.person_id AND pa.organization_id = :org_id
+                WHERE p.organization_id = :org_id
                 GROUP BY p.id, p.name ORDER BY p.name
-            """)
+            """),
+            {"org_id": _ORGANIZATION_ID}
         ).fetchall()
         return [{"name": r[0], "attributes": r[1]} for r in result]
 
@@ -409,11 +432,11 @@ def search_department_by_name(partial_name):
                 SELECT id, name, level,
                        (SELECT COUNT(*) FROM employees e WHERE e.department_id = d.id) as member_count
                 FROM departments d
-                WHERE d.is_active = true AND d.name ILIKE :pattern
+                WHERE d.is_active = true AND d.name ILIKE :pattern ESCAPE '\\'
                 ORDER BY d.level, d.name
                 LIMIT 10
             """),
-            {"pattern": f"%{partial_name}%"}
+            {"pattern": f"%{_escape_ilike(partial_name)}%"}
         ).fetchall()
 
         return [{"id": str(r[0]), "name": r[1], "level": r[2], "member_count": r[3] or 0} for r in result]
@@ -426,10 +449,10 @@ def get_department_members(dept_name):
         dept_result = conn.execute(
             sqlalchemy.text("""
                 SELECT id, name FROM departments
-                WHERE is_active = true AND name ILIKE :pattern
+                WHERE is_active = true AND name ILIKE :pattern ESCAPE '\\'
                 LIMIT 1
             """),
-            {"pattern": f"%{dept_name}%"}
+            {"pattern": f"%{_escape_ilike(dept_name)}%"}
         ).fetchone()
 
         if not dept_result:
@@ -516,8 +539,8 @@ def get_chatwork_account_id_by_name(name):
         
         # 部分一致で検索
         result = conn.execute(
-            sqlalchemy.text("SELECT account_id, name FROM chatwork_users WHERE name ILIKE :pattern LIMIT 1"),
-            {"pattern": f"%{name}%"}
+            sqlalchemy.text("SELECT account_id, name FROM chatwork_users WHERE name ILIKE :pattern ESCAPE '\\' LIMIT 1"),
+            {"pattern": f"%{_escape_ilike(name)}%"}
         ).fetchone()
         if result:
             return result[0]
@@ -596,8 +619,8 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO chatwork_tasks
-                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary)
-                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary)
+                    (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary, organization_id)
+                    VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary, :org_id)
                     ON CONFLICT (task_id) DO NOTHING
                 """),
                 {
@@ -610,6 +633,7 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
                     "status": task_data.get("status", "open"),
                     "department_id": department_id,
                     "summary": summary,
+                    "org_id": _ORGANIZATION_ID,
                 }
             )
         print(f"✅ タスクをDBに保存: task_id={task_data['task_id']}")
@@ -2601,10 +2625,10 @@ def sync_chatwork_tasks(request):
                 
                 # DBに存在するか確認
                 cursor.execute("""
-                    SELECT task_id, status FROM chatwork_tasks WHERE task_id = %s
-                """, (task_id,))
+                    SELECT task_id, status FROM chatwork_tasks WHERE task_id = %s AND organization_id = %s
+                """, (task_id, _ORGANIZATION_ID))
                 existing = cursor.fetchone()
-                
+
                 if existing:
                     # 既存タスクの更新
                     cursor.execute("""
@@ -2615,8 +2639,8 @@ def sync_chatwork_tasks(request):
                             last_synced_at = CURRENT_TIMESTAMP,
                             room_name = %s,
                             assigned_to_name = %s
-                        WHERE task_id = %s
-                    """, (body, limit_datetime, room_name, assigned_to_name, task_id))
+                        WHERE task_id = %s AND organization_id = %s
+                    """, (body, limit_datetime, room_name, assigned_to_name, task_id, _ORGANIZATION_ID))
                 else:
                     # 新規タスクの挿入
                     # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
@@ -2653,11 +2677,11 @@ def sync_chatwork_tasks(request):
                     cursor.execute("""
                         INSERT INTO chatwork_tasks
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id, organization_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (task_id) DO NOTHING
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id, _ORGANIZATION_ID))
 
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
@@ -2667,10 +2691,10 @@ def sync_chatwork_tasks(request):
                 
                 # DBに存在するか確認
                 cursor.execute("""
-                    SELECT task_id, status, completion_notified, assigned_by_name 
-                    FROM chatwork_tasks 
-                    WHERE task_id = %s
-                """, (task_id,))
+                    SELECT task_id, status, completion_notified, assigned_by_name
+                    FROM chatwork_tasks
+                    WHERE task_id = %s AND organization_id = %s
+                """, (task_id, _ORGANIZATION_ID))
                 existing = cursor.fetchone()
                 
                 if existing:
@@ -2685,8 +2709,8 @@ def sync_chatwork_tasks(request):
                             SET status = 'done',
                                 completed_at = CURRENT_TIMESTAMP,
                                 last_synced_at = CURRENT_TIMESTAMP
-                            WHERE task_id = %s
-                        """, (task_id,))
+                            WHERE task_id = %s AND organization_id = %s
+                        """, (task_id, _ORGANIZATION_ID))
                         
                         # 完了通知を送信（まだ送信していない場合）
                         if not completion_notified:
@@ -2694,8 +2718,8 @@ def sync_chatwork_tasks(request):
                             cursor.execute("""
                                 UPDATE chatwork_tasks
                                 SET completion_notified = TRUE
-                                WHERE task_id = %s
-                            """, (task_id,))
+                                WHERE task_id = %s AND organization_id = %s
+                            """, (task_id, _ORGANIZATION_ID))
         
         conn.commit()
         print("=== Task sync completed ===")
@@ -2737,7 +2761,8 @@ def remind_tasks(request):
               AND skip_tracking = FALSE
               AND reminder_disabled = FALSE
               AND limit_time IS NOT NULL
-        """)
+              AND organization_id = %s
+        """, (_ORGANIZATION_ID,))
         
         tasks = cursor.fetchall()
         

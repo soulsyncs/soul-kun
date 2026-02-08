@@ -54,11 +54,23 @@ app.add_middleware(
 
 @app.middleware("http")
 async def add_tenant_context(request: Request, call_next):
-    """リクエストにテナントコンテキストを設定"""
-    # X-Tenant-ID ヘッダーからテナントIDを取得
-    tenant_id = request.headers.get("X-Tenant-ID")
+    """リクエストにテナントコンテキストを設定（JWT優先）"""
+    tenant_id = None
+
+    # JWT Bearer tokenからorg_idを取得（認証エラーはルートハンドラで処理）
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            from app.deps.auth import decode_jwt
+            token = auth_header[7:]
+            payload = decode_jwt(token)
+            tenant_id = payload.get("org_id")
+        except Exception as e:
+            logger.debug(f"JWT decode in tenant middleware: {type(e).__name__}")
+
+    # フォールバック: ヘッダー → デフォルト
     if not tenant_id:
-        tenant_id = get_current_or_default_tenant()
+        tenant_id = request.headers.get("X-Tenant-ID") or get_current_or_default_tenant()
 
     with TenantContext(tenant_id):
         response = await call_next(request)

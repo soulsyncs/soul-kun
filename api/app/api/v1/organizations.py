@@ -4,7 +4,7 @@ Organizations API
 組織階層連携API（Phase 3.5）
 """
 
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from typing import Optional
 
@@ -25,6 +25,8 @@ from app.services.organization_sync import (
     OrganizationSyncService,
     OrganizationSyncError,
 )
+from app.services.knowledge_search import UserContext
+from app.deps.auth import get_current_user
 
 router = APIRouter(prefix="/organizations", tags=["organizations"])
 logger = get_logger(__name__)
@@ -42,8 +44,7 @@ logger = get_logger(__name__)
 async def sync_org_chart(
     org_id: str,
     data: OrgChartSyncRequest,
-    x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
-    authorization: Optional[str] = Header(None),
+    user: UserContext = Depends(get_current_user),
 ):
     """
     組織図同期API
@@ -56,6 +57,17 @@ async def sync_org_chart(
     - **roles**: 役職データの配列
     - **access_scopes**: アクセススコープデータの配列
     """
+    # JWT org_idとパスorg_idの一致を確認（他組織への不正アクセス防止）
+    if user.organization_id != org_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "status": "failed",
+                "error_code": "ACCESS_DENIED",
+                "error_message": "この組織へのアクセス権限がありません",
+            },
+        )
+
     logger.info(
         f"Sync org chart started",
         org_id=org_id,
@@ -64,7 +76,7 @@ async def sync_org_chart(
         employees_count=len(data.employees),
     )
 
-    # 組織IDの一致を確認
+    # リクエストボディの組織IDの一致を確認
     if data.organization_id != org_id:
         raise HTTPException(
             status_code=400,
@@ -117,7 +129,7 @@ async def sync_org_chart(
             response = service.sync_org_chart(
                 org_id=org_id,
                 data=data,
-                triggered_by=x_user_id,
+                triggered_by=user.user_id,
             )
 
             conn.commit()
@@ -128,7 +140,7 @@ async def sync_org_chart(
             action="sync_org_chart",
             resource_type="organization",
             resource_id=org_id,
-            user_id=x_user_id,
+            user_id=user.user_id,
             details={
                 "sync_type": data.sync_type,
                 "departments_added": response.summary.departments_added,
@@ -187,6 +199,7 @@ async def get_departments(
     level: Optional[int] = None,
     include_children: bool = False,
     is_active: bool = True,
+    user: UserContext = Depends(get_current_user),
 ):
     """
     部署一覧取得API
@@ -198,6 +211,16 @@ async def get_departments(
     - **include_children**: 配下すべてを含む
     - **is_active**: 有効な部署のみ
     """
+    if user.organization_id != org_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "status": "failed",
+                "error_code": "ACCESS_DENIED",
+                "error_message": "この組織へのアクセス権限がありません",
+            },
+        )
+
     pool = get_db_pool()
 
     with pool.connect() as conn:
@@ -272,12 +295,23 @@ async def get_departments(
 async def get_department(
     org_id: str,
     dept_id: str,
+    user: UserContext = Depends(get_current_user),
 ):
     """
     部署詳細取得API
 
     特定の部署の詳細情報を取得します。
     """
+    if user.organization_id != org_id:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "status": "failed",
+                "error_code": "ACCESS_DENIED",
+                "error_message": "この組織へのアクセス権限がありません",
+            },
+        )
+
     pool = get_db_pool()
 
     with pool.connect() as conn:

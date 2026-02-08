@@ -32,7 +32,8 @@ class TaskHandler:
         prepare_task_display_text: Callable = None,
         validate_summary: Callable = None,
         get_user_primary_department: Callable = None,
-        use_text_utils: bool = False
+        use_text_utils: bool = False,
+        organization_id: str = ""
     ):
         """
         Args:
@@ -45,7 +46,10 @@ class TaskHandler:
             validate_summary: サマリーバリデーション関数（オプション）
             get_user_primary_department: ユーザーのメイン部署取得関数（オプション）
             use_text_utils: テキストユーティリティを使用するか
+            organization_id: テナントID（CLAUDE.md 鉄則#1: 全クエリにorg_idフィルター必須）
         """
+        if not organization_id:
+            raise ValueError("organization_id is required for TaskHandler")
         self.get_pool = get_pool
         self.get_secret = get_secret
         self.call_chatwork_api_with_retry = call_chatwork_api_with_retry
@@ -55,6 +59,7 @@ class TaskHandler:
         self.validate_summary = validate_summary
         self.get_user_primary_department_func = get_user_primary_department
         self.use_text_utils = use_text_utils
+        self.organization_id = organization_id
 
     @staticmethod
     def _fallback_truncate(text: str, max_length: int = 40) -> str:
@@ -211,11 +216,13 @@ class TaskHandler:
                 """
                 params = {}
 
+                # CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須
+                query += " WHERE organization_id = :org_id"
+                params["org_id"] = self.organization_id
+
                 # v10.22.0: search_all_rooms=Trueの場合はroom_idフィルタをスキップ
-                if search_all_rooms:
-                    query += " WHERE 1=1"
-                else:
-                    query += " WHERE room_id = :room_id"
+                if not search_all_rooms:
+                    query += " AND room_id = :room_id"
                     params["room_id"] = room_id
 
                 if assigned_to_account_id:
@@ -279,9 +286,9 @@ class TaskHandler:
             with pool.begin() as conn:
                 conn.execute(
                     sqlalchemy.text("""
-                        UPDATE chatwork_tasks SET status = :status WHERE task_id = :task_id
+                        UPDATE chatwork_tasks SET status = :status WHERE task_id = :task_id AND organization_id = :org_id
                     """),
-                    {"task_id": task_id, "status": status}
+                    {"task_id": task_id, "status": status, "org_id": self.organization_id}
                 )
             print(f"✅ タスクステータス更新: task_id={task_id}, status={status}")
             return True
@@ -335,8 +342,8 @@ class TaskHandler:
                 conn.execute(
                     sqlalchemy.text("""
                         INSERT INTO chatwork_tasks
-                        (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary)
-                        VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary)
+                        (task_id, room_id, assigned_by_account_id, assigned_to_account_id, body, limit_time, status, department_id, summary, organization_id)
+                        VALUES (:task_id, :room_id, :assigned_by, :assigned_to, :body, :limit_time, :status, :department_id, :summary, :org_id)
                         ON CONFLICT (task_id) DO NOTHING
                     """),
                     {
@@ -348,7 +355,8 @@ class TaskHandler:
                         "limit_time": limit_time,
                         "status": "open",
                         "department_id": department_id,
-                        "summary": summary
+                        "summary": summary,
+                        "org_id": self.organization_id
                     }
                 )
 
@@ -470,9 +478,9 @@ class TaskHandler:
                     sqlalchemy.text("""
                         SELECT task_id, room_id, body, limit_time, status, assigned_to_account_id, assigned_by_account_id, department_id, summary
                         FROM chatwork_tasks
-                        WHERE task_id = :task_id
+                        WHERE task_id = :task_id AND organization_id = :org_id
                     """),
-                    {"task_id": task_id}
+                    {"task_id": task_id, "org_id": self.organization_id}
                 )
                 row = result.fetchone()
                 if row:

@@ -33,13 +33,13 @@ def mock_get_pool(mock_pool):
 @pytest.fixture
 def person_service(mock_get_pool):
     """テスト用PersonService"""
-    return PersonService(get_pool=mock_get_pool)
+    return PersonService(get_pool=mock_get_pool, organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
 
 @pytest.fixture
 def org_chart_service(mock_get_pool):
     """テスト用OrgChartService"""
-    return OrgChartService(get_pool=mock_get_pool)
+    return OrgChartService(get_pool=mock_get_pool, organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
 
 # ================================================================

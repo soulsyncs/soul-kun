@@ -443,23 +443,23 @@ class AutoMemoryFlusher:
                     conn.commit()
 
                 elif item.category in ("fact", "decision", "commitment"):
-                    # soulkun_knowledge テーブルに保存（org_idスコープ追加: Codexレビュー指摘#2）
+                    # soulkun_knowledge テーブルに保存（Phase 4: org_idカラム対応）
                     conn.execute(
                         sql_text("""
                             INSERT INTO soulkun_knowledge
-                                (key, value, category, source, classification)
+                                (organization_id, key, value, category, source, classification)
                             SELECT
-                                :key, :value, :category, 'auto_flush', 'internal'
+                                :org_id, :key, :value, :category, 'auto_flush', 'internal'
                             WHERE EXISTS (
                                 SELECT 1 FROM organizations WHERE slug = :org_id
                             )
-                            ON CONFLICT (key) DO UPDATE SET
+                            ON CONFLICT (organization_id, category, key) DO UPDATE SET
                                 value = EXCLUDED.value,
                                 updated_at = CURRENT_TIMESTAMP
                         """),
                         {
                             "org_id": self.org_id,
-                            "key": f"[{self.org_id}:{item.category}] {item.subject}"[:200],
+                            "key": item.subject[:200],
                             "value": item.content,
                             "category": item.category,
                         },

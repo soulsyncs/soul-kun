@@ -4110,9 +4110,9 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
                     pool = get_pool()
                     with pool.begin() as conn:
                         conn.execute(sqlalchemy.text("""
-                            UPDATE knowledge_proposals 
+                            UPDATE knowledge_proposals
                             SET admin_notified = TRUE
-                            WHERE id = :id
+                            WHERE organization_id = 'org_soulsyncs' AND id = :id
                         """), {"id": proposal_id})
                 except Exception as e:
                     print(f"⚠️ admin_notified更新エラー: {e}")
@@ -5362,13 +5362,14 @@ def ensure_knowledge_tables():
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS soulkun_knowledge (
                     id SERIAL PRIMARY KEY,
+                    organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
                     category TEXT NOT NULL DEFAULT 'other',
                     key TEXT NOT NULL,
                     value TEXT NOT NULL,
                     created_by TEXT,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(category, key)
+                    UNIQUE(organization_id, category, key)
                 );
             """))
             conn.execute(sqlalchemy.text("""
@@ -5381,6 +5382,7 @@ def ensure_knowledge_tables():
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS knowledge_proposals (
                     id SERIAL PRIMARY KEY,
+                    organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
                     proposed_by_account_id TEXT NOT NULL,
                     proposed_by_name TEXT,
                     proposed_in_room_id TEXT,
@@ -5426,18 +5428,19 @@ def is_admin(account_id):
     return str(account_id) == str(ADMIN_ACCOUNT_ID)
 
 
-def save_knowledge(category: str, key: str, value: str, created_by: str = None):
+def save_knowledge(category: str, key: str, value: str, created_by: str = None, organization_id: str = "org_soulsyncs"):
     """知識を保存（既存の場合は更新）"""
     try:
         pool = get_pool()
         with pool.begin() as conn:
-            # UPSERT（存在すれば更新、なければ挿入）
+            # UPSERT（存在すれば更新、なければ挿入）Phase 4: org_id対応
             conn.execute(sqlalchemy.text("""
-                INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                ON CONFLICT (category, key) 
+                INSERT INTO soulkun_knowledge (organization_id, category, key, value, created_by, updated_at)
+                VALUES (:org_id, :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                ON CONFLICT (organization_id, category, key)
                 DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
             """), {
+                "org_id": organization_id,
                 "category": category,
                 "key": key,
                 "value": value,
@@ -5451,20 +5454,19 @@ def save_knowledge(category: str, key: str, value: str, created_by: str = None):
         return False
 
 
-def delete_knowledge(category: str = None, key: str = None):
+def delete_knowledge(category: str = None, key: str = None, organization_id: str = "org_soulsyncs"):
     """知識を削除"""
     try:
         pool = get_pool()
         with pool.begin() as conn:
             if category and key:
                 conn.execute(sqlalchemy.text("""
-                    DELETE FROM soulkun_knowledge WHERE category = :category AND key = :key
-                """), {"category": category, "key": key})
+                    DELETE FROM soulkun_knowledge WHERE organization_id = :org_id AND category = :category AND key = :key
+                """), {"org_id": organization_id, "category": category, "key": key})
             elif key:
-                # カテゴリ指定なしの場合はkeyのみで検索
                 conn.execute(sqlalchemy.text("""
-                    DELETE FROM soulkun_knowledge WHERE key = :key
-                """), {"key": key})
+                    DELETE FROM soulkun_knowledge WHERE organization_id = :org_id AND key = :key
+                """), {"org_id": organization_id, "key": key})
         print(f"✅ 知識を削除: [{category}] {key}")
         return True
     except Exception as e:
@@ -5477,20 +5479,22 @@ def delete_knowledge(category: str = None, key: str = None):
 KNOWLEDGE_LIMIT = 50  # プロンプトに含める知識の最大件数
 KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
 
-def get_all_knowledge(limit: int = None):
+def get_all_knowledge(limit: int = None, organization_id: str = "org_soulsyncs"):
     """全ての知識を取得"""
     try:
         pool = get_pool()
         with pool.connect() as conn:
-            # v6.9.1: LIMITを追加
             sql = """
-                SELECT category, key, value, created_at 
-                FROM soulkun_knowledge 
+                SELECT category, key, value, created_at
+                FROM soulkun_knowledge
+                WHERE organization_id = :org_id
                 ORDER BY category, updated_at DESC
             """
+            params = {"org_id": organization_id}
             if limit:
-                sql += f" LIMIT {limit}"
-            result = conn.execute(sqlalchemy.text(sql))
+                sql += " LIMIT :limit"
+                params["limit"] = limit
+            result = conn.execute(sqlalchemy.text(sql), params)
             rows = result.fetchall()
             return [{"category": r[0], "key": r[1], "value": r[2], "created_at": r[3]} for r in rows]
     except Exception as e:
@@ -5542,10 +5546,10 @@ def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
         pool = get_pool()
         with pool.begin() as conn:
             result = conn.execute(sqlalchemy.text("""
-                INSERT INTO knowledge_proposals 
-                (proposed_by_account_id, proposed_by_name, proposed_in_room_id, 
+                INSERT INTO knowledge_proposals
+                (organization_id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                  category, key, value, message_id, status)
-                VALUES (:account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
+                VALUES ('org_soulsyncs', :account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
                 RETURNING id
             """), {
                 "account_id": proposed_by_account_id,
@@ -5577,8 +5581,8 @@ def get_pending_proposals():
             result = conn.execute(sqlalchemy.text("""
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at
-                FROM knowledge_proposals 
-                WHERE status = 'pending'
+                FROM knowledge_proposals
+                WHERE organization_id = 'org_soulsyncs' AND status = 'pending'
                 ORDER BY created_at ASC
             """))
             rows = result.fetchall()
@@ -5607,8 +5611,8 @@ def get_proposal_by_id(proposal_id: int):
             result = conn.execute(sqlalchemy.text("""
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at, status
-                FROM knowledge_proposals 
-                WHERE id = :id
+                FROM knowledge_proposals
+                WHERE organization_id = 'org_soulsyncs' AND id = :id
             """), {"id": proposal_id})
             row = result.fetchone()
             if row:
@@ -5644,8 +5648,8 @@ def get_unnotified_proposals():
             result = conn.execute(sqlalchemy.text("""
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at
-                FROM knowledge_proposals 
-                WHERE status = 'pending' AND admin_notified = FALSE
+                FROM knowledge_proposals
+                WHERE organization_id = 'org_soulsyncs' AND status = 'pending' AND admin_notified = FALSE
                 ORDER BY created_at ASC
             """))
             rows = result.fetchall()
@@ -5693,7 +5697,8 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             # 提案を取得
             result = conn.execute(sqlalchemy.text("""
                 SELECT category, key, value, proposed_by_account_id
-                FROM knowledge_proposals WHERE id = :id AND status = 'pending'
+                FROM knowledge_proposals
+                WHERE organization_id = 'org_soulsyncs' AND id = :id AND status = 'pending'
             """), {"id": proposal_id})
             row = result.fetchone()
             
@@ -5703,11 +5708,11 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             
             category, key, value, proposed_by = row
             
-            # 知識に反映
+            # 知識に反映（Phase 4: org_id対応）
             conn.execute(sqlalchemy.text("""
-                INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                ON CONFLICT (category, key) 
+                INSERT INTO soulkun_knowledge (organization_id, category, key, value, created_by, updated_at)
+                VALUES ('org_soulsyncs', :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                ON CONFLICT (organization_id, category, key)
                 DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
             """), {
                 "category": category,
@@ -5718,9 +5723,9 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             
             # 提案を承認済みに更新
             conn.execute(sqlalchemy.text("""
-                UPDATE knowledge_proposals 
+                UPDATE knowledge_proposals
                 SET status = 'approved', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE id = :id
+                WHERE organization_id = 'org_soulsyncs' AND id = :id
             """), {"id": proposal_id, "reviewed_by": reviewed_by})
         
         print(f"✅ 提案ID={proposal_id}を承認: {key}={value}")
@@ -5737,9 +5742,9 @@ def reject_proposal(proposal_id: int, reviewed_by: str):
         pool = get_pool()
         with pool.begin() as conn:
             conn.execute(sqlalchemy.text("""
-                UPDATE knowledge_proposals 
+                UPDATE knowledge_proposals
                 SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE id = :id AND status = 'pending'
+                WHERE organization_id = 'org_soulsyncs' AND id = :id AND status = 'pending'
             """), {"id": proposal_id, "reviewed_by": reviewed_by})
         print(f"✅ 提案ID={proposal_id}を却下")
         return True

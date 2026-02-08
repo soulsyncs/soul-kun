@@ -418,3 +418,113 @@ class TestRetryProposalNotification:
 
         assert success is False
         assert "既に処理済み" in message
+
+
+class TestOrgIdIsolation:
+    """organization_idによるテナント分離テスト"""
+
+    def test_create_proposal_includes_org_id(self):
+        """create_proposalがorganization_idをINSERTに含むこと"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.begin.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = [1]
+
+        handler = ProposalHandler(
+            get_pool=MagicMock(return_value=mock_pool),
+            get_secret=MagicMock(),
+            admin_room_id="12345",
+            admin_account_id="67890",
+            is_admin=MagicMock(),
+            organization_id="org_test"
+        )
+
+        handler.create_proposal("111", "User", "999", "rules", "key1", "value1")
+
+        sql_str = str(mock_conn.execute.call_args[0][0])
+        params = mock_conn.execute.call_args[0][1]
+        assert "organization_id" in sql_str
+        assert params["org_id"] == "org_test"
+
+    def test_get_pending_proposals_filters_by_org_id(self):
+        """get_pending_proposalsがorganization_idでフィルタすること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        handler = ProposalHandler(
+            get_pool=MagicMock(return_value=mock_pool),
+            get_secret=MagicMock(),
+            admin_room_id="12345",
+            admin_account_id="67890",
+            is_admin=MagicMock(),
+            organization_id="org_other"
+        )
+
+        handler.get_pending_proposals()
+
+        sql_str = str(mock_conn.execute.call_args[0][0])
+        params = mock_conn.execute.call_args[0][1]
+        assert "organization_id = :org_id" in sql_str
+        assert params["org_id"] == "org_other"
+
+    def test_approve_proposal_scoped_by_org_id(self):
+        """approve_proposalがorganization_idでスコープされること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.begin.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (
+            "rules", "key1", "value1", "111"
+        )
+
+        handler = ProposalHandler(
+            get_pool=MagicMock(return_value=mock_pool),
+            get_secret=MagicMock(),
+            admin_room_id="12345",
+            admin_account_id="67890",
+            is_admin=MagicMock(),
+            organization_id="org_test"
+        )
+
+        handler.approve_proposal(1, "admin")
+
+        # 全てのexecute呼び出しがorg_idを含むことを確認
+        for call in mock_conn.execute.call_args_list:
+            params = call[0][1]
+            assert params["org_id"] == "org_test"
+
+    def test_reject_proposal_scoped_by_org_id(self):
+        """reject_proposalがorganization_idでスコープされること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.begin.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.begin.return_value.__exit__ = MagicMock(return_value=False)
+
+        handler = ProposalHandler(
+            get_pool=MagicMock(return_value=mock_pool),
+            get_secret=MagicMock(),
+            admin_room_id="12345",
+            admin_account_id="67890",
+            is_admin=MagicMock(),
+            organization_id="org_test"
+        )
+
+        handler.reject_proposal(1, "admin")
+
+        params = mock_conn.execute.call_args[0][1]
+        assert params["org_id"] == "org_test"
+
+    def test_default_org_id(self):
+        """organization_idのデフォルト値がorg_soulsyncsであること"""
+        handler = ProposalHandler(
+            get_pool=MagicMock(),
+            get_secret=MagicMock(),
+            admin_room_id="12345",
+            admin_account_id="67890",
+            is_admin=MagicMock()
+        )
+        assert handler.organization_id == "org_soulsyncs"

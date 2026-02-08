@@ -833,12 +833,10 @@ class BrainMemoryAccess:
         """ILIKEベースの知識検索（フォールバック）"""
         from lib.brain.hybrid_search import escape_ilike
         escaped_query = escape_ilike(query)
-        escaped_org = escape_ilike(self.org_id)
 
         try:
             with self.pool.connect() as conn:
-                # NOTE: key_prefix フィルタは org_id カラムとの二重チェック（belt-and-suspenders）。
-                # Phase 4 移行完了後、既存キーからプレフィクスを除去したらこの条件を削除する。
+                # Phase 4完了: org_idカラムでテナント分離（key_prefixフィルタ不要）
                 result = conn.execute(
                     text("""
                         SELECT
@@ -848,7 +846,6 @@ class BrainMemoryAccess:
                             category
                         FROM soulkun_knowledge
                         WHERE organization_id = :org_id
-                        AND key LIKE :key_prefix ESCAPE '\\'
                         AND (
                             key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
                             OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
@@ -856,7 +853,7 @@ class BrainMemoryAccess:
                         ORDER BY id DESC
                         LIMIT :limit
                     """),
-                    {"org_id": self.org_id, "key_prefix": f"[{escaped_org}:%", "query": escaped_query, "limit": limit},
+                    {"org_id": self.org_id, "query": escaped_query, "limit": limit},
                 )
                 rows = result.fetchall()
 

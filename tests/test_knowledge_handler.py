@@ -42,13 +42,11 @@ def create_handler(mock_pool=None, **kwargs):
 
     defaults = {
         "get_pool": lambda: mock_pool,
-        "get_secret": MagicMock(return_value="test-api-key"),
         "is_admin_func": MagicMock(return_value=False),
         "create_proposal_func": MagicMock(return_value=1),
         "report_proposal_to_admin_func": MagicMock(return_value=True),
         "is_mvv_question_func": MagicMock(return_value=False),
         "get_full_mvv_info_func": MagicMock(return_value="MVV情報"),
-        "call_openrouter_api_func": MagicMock(return_value="テスト回答ウル！"),
         "phase3_knowledge_config": {
             "enabled": True,
             "api_url": "https://test-api.example.com/search",
@@ -58,9 +56,7 @@ def create_handler(mock_pool=None, **kwargs):
             "keyword_weight": 0.4,
             "vector_weight": 0.6,
         },
-        "default_model": "test-model",
         "admin_account_id": "1728974",
-        "openrouter_api_url": "https://openrouter.test/api",
     }
     defaults.update(kwargs)
     return KnowledgeHandler(**defaults)
@@ -115,7 +111,6 @@ class TestKnowledgeHandlerInit:
         handler = create_handler()
         assert handler is not None
         assert handler.get_pool is not None
-        assert handler.get_secret is not None
 
     def test_init_with_minimal_params(self):
         """最小パラメータで初期化できることを確認"""
@@ -124,16 +119,16 @@ class TestKnowledgeHandlerInit:
         assert handler is not None
         assert handler.get_pool is not None
 
-    def test_init_sets_default_model(self):
-        """デフォルトモデルが設定されることを確認"""
+    def test_init_sets_default_org_id(self):
+        """デフォルトorg_idが設定されることを確認"""
         mock_pool, _ = create_mock_pool()
         handler = KnowledgeHandler(get_pool=lambda: mock_pool)
-        assert handler.default_model == "google/gemini-3-flash-preview"
+        assert handler.organization_id == "org_soulsyncs"
 
-    def test_init_sets_custom_model(self):
-        """カスタムモデルが設定されることを確認"""
-        handler = create_handler(default_model="custom-model")
-        assert handler.default_model == "custom-model"
+    def test_init_sets_custom_org_id(self):
+        """カスタムorg_idが設定されることを確認"""
+        handler = create_handler(phase3_knowledge_config={"organization_id": "org_custom"})
+        assert handler.organization_id == "org_custom"
 
 
 # =====================================================
@@ -858,21 +853,20 @@ class TestPhase35BrainIntegration:
             ("rules", "年末調整", "12月末まで", datetime.now()),
         ]
         mock_conn.execute.return_value = mock_result
-        mock_openrouter = MagicMock(return_value="LLM回答")
         handler = create_handler(
             mock_pool=mock_pool,
             is_mvv_question_func=MagicMock(return_value=False),
             phase3_knowledge_config={"enabled": False},
-            call_openrouter_api_func=mock_openrouter,
         )
 
-        handler.handle_query_company_knowledge(
+        result = handler.handle_query_company_knowledge(
             params={"query": "年末調整"}, room_id="123",
             account_id="456", sender_name="テスト", context=None
         )
 
-        # OpenRouter APIが呼ばれていないことを確認
-        mock_openrouter.assert_not_called()
+        # Brain bypass禁止: ハンドラーはデータ返却のみ、LLM呼び出しなし
+        assert isinstance(result, dict)
+        assert result.get("needs_answer_synthesis") is True
 
     def test_handler_no_results_returns_string(self):
         """検索結果なしの場合はstr返却（Brain合成不要）"""

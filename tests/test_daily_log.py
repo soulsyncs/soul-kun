@@ -345,8 +345,8 @@ class TestOrgIdEscaping:
         calls = conn.execute.call_args_list
         knowledge_call = calls[2]
         params = knowledge_call[0][1]
-        # %がエスケープされている
-        assert "\\%" in params["key_prefix"]
+        # Phase 4: org_idカラムでフィルタ（特殊文字はパラメータ化で安全に渡される）
+        assert params["org_id"] == "org_100%"
 
 
 # =============================================================================

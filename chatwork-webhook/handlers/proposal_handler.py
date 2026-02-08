@@ -31,7 +31,8 @@ class ProposalHandler:
         admin_room_id: str,
         admin_account_id: str,
         is_admin: Callable[[str], bool],
-        save_person_attribute: Callable[[str, str, str, str], bool] = None
+        save_person_attribute: Callable[[str, str, str, str], bool] = None,
+        organization_id: str = "org_soulsyncs",
     ):
         """
         Args:
@@ -41,6 +42,7 @@ class ProposalHandler:
             admin_account_id: 管理者アカウントID
             is_admin: 管理者判定関数
             save_person_attribute: 人物属性保存関数（v10.25.0追加）
+            organization_id: 組織ID（Phase 4: テナント分離）
         """
         self.get_pool = get_pool
         self.get_secret = get_secret
@@ -48,6 +50,7 @@ class ProposalHandler:
         self.admin_account_id = admin_account_id
         self.is_admin = is_admin
         self.save_person_attribute = save_person_attribute
+        self.organization_id = organization_id
 
     def create_proposal(
         self,
@@ -79,11 +82,12 @@ class ProposalHandler:
             with pool.begin() as conn:
                 result = conn.execute(sqlalchemy.text("""
                     INSERT INTO knowledge_proposals
-                    (proposed_by_account_id, proposed_by_name, proposed_in_room_id,
+                    (organization_id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                      category, key, value, message_id, status)
-                    VALUES (:account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
+                    VALUES (:org_id, :account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
                     RETURNING id
                 """), {
+                    "org_id": self.organization_id,
                     "account_id": proposed_by_account_id,
                     "name": proposed_by_name,
                     "room_id": proposed_in_room_id,
@@ -116,9 +120,9 @@ class ProposalHandler:
                     SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                            category, key, value, message_id, created_at
                     FROM knowledge_proposals
-                    WHERE status = 'pending'
+                    WHERE organization_id = :org_id AND status = 'pending'
                     ORDER BY created_at ASC
-                """))
+                """), {"org_id": self.organization_id})
                 rows = result.fetchall()
                 return [{
                     "id": r[0], "proposed_by_account_id": r[1], "proposed_by_name": r[2],
@@ -166,8 +170,8 @@ class ProposalHandler:
                     SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                            category, key, value, message_id, created_at, status
                     FROM knowledge_proposals
-                    WHERE id = :id
-                """), {"id": proposal_id})
+                    WHERE organization_id = :org_id AND id = :id
+                """), {"org_id": self.organization_id, "id": proposal_id})
                 row = result.fetchone()
                 if row:
                     return {
@@ -197,9 +201,9 @@ class ProposalHandler:
                     SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                            category, key, value, message_id, created_at
                     FROM knowledge_proposals
-                    WHERE status = 'pending' AND admin_notified = FALSE
+                    WHERE organization_id = :org_id AND status = 'pending' AND admin_notified = FALSE
                     ORDER BY created_at ASC
-                """))
+                """), {"org_id": self.organization_id})
                 rows = result.fetchall()
                 return [{
                     "id": r[0], "proposed_by_account_id": r[1], "proposed_by_name": r[2],
@@ -230,8 +234,8 @@ class ProposalHandler:
                 # 提案を取得
                 result = conn.execute(sqlalchemy.text("""
                     SELECT category, key, value, proposed_by_account_id
-                    FROM knowledge_proposals WHERE id = :id AND status = 'pending'
-                """), {"id": proposal_id})
+                    FROM knowledge_proposals WHERE organization_id = :org_id AND id = :id AND status = 'pending'
+                """), {"org_id": self.organization_id, "id": proposal_id})
                 row = result.fetchone()
 
                 if not row:
@@ -259,13 +263,14 @@ class ProposalHandler:
                         print(f"⚠️ save_person_attributeが未設定のため、人物情報を保存できません")
                         return False
                 else:
-                    # 通常の知識の場合
+                    # 通常の知識の場合（Phase 4: org_idカラム対応）
                     conn.execute(sqlalchemy.text("""
-                        INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                        VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                        ON CONFLICT (category, key)
+                        INSERT INTO soulkun_knowledge (organization_id, category, key, value, created_by, updated_at)
+                        VALUES (:org_id, :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                        ON CONFLICT (organization_id, category, key)
                         DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
                     """), {
+                        "org_id": self.organization_id,
                         "category": category,
                         "key": key,
                         "value": value,
@@ -276,8 +281,8 @@ class ProposalHandler:
                 conn.execute(sqlalchemy.text("""
                     UPDATE knowledge_proposals
                     SET status = 'approved', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                """), {"id": proposal_id, "reviewed_by": reviewed_by})
+                    WHERE organization_id = :org_id AND id = :id
+                """), {"org_id": self.organization_id, "id": proposal_id, "reviewed_by": reviewed_by})
 
             print(f"✅ 提案ID={proposal_id}を承認: {key}={value}")
             return True
@@ -303,8 +308,8 @@ class ProposalHandler:
                 conn.execute(sqlalchemy.text("""
                     UPDATE knowledge_proposals
                     SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                    WHERE id = :id AND status = 'pending'
-                """), {"id": proposal_id, "reviewed_by": reviewed_by})
+                    WHERE organization_id = :org_id AND id = :id AND status = 'pending'
+                """), {"org_id": self.organization_id, "id": proposal_id, "reviewed_by": reviewed_by})
             print(f"✅ 提案ID={proposal_id}を却下")
             return True
         except Exception as e:
@@ -390,8 +395,8 @@ class ProposalHandler:
                             conn.execute(sqlalchemy.text("""
                                 UPDATE knowledge_proposals
                                 SET admin_notified = TRUE
-                                WHERE id = :id
-                            """), {"id": proposal_id})
+                                WHERE organization_id = :org_id AND id = :id
+                            """), {"org_id": self.organization_id, "id": proposal_id})
                     except Exception as e:
                         print(f"⚠️ admin_notified更新エラー: {e}")
                     return True

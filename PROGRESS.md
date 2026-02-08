@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-07 JST**
+**最終更新: 2026-02-09 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -71,6 +71,37 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ Phase 4完了: knowledge全テーブルorg_id完全移行 + 本番マイグレーション（2026-02-09）
+
+**PR:** #423
+**コミット:** d3cf0f1
+
+**目的:** CLAUDE.md鉄則#1（全テーブルにorganization_id）を knowledge テーブル2つに適用し、テナント分離を完成
+
+**実施内容:**
+
+| 作業 | 詳細 |
+|------|------|
+| soulkun_knowledge org_id追加 | VARCHAR(255) NOT NULL + RLS + UNIQUE制約変更 |
+| knowledge_proposals org_id追加 | VARCHAR(255) NOT NULL + RLS + インデックス |
+| 全DBクエリ org_id追加 | 26ファイル変更（memory_access, daily_log, hybrid_search, memory_sanitizer, memory_flush, proposal_handler, sync-chatwork-tasks） |
+| key_prefix除去 | LIKE フィルタ5箇所 → organization_id = :org_id に統一 |
+| ON CONFLICT修正 | (category, key) → (organization_id, category, key) |
+| 未使用パラメータ削除 | knowledge_handler.py: get_secret, call_openrouter_api_func, default_model, openrouter_api_url |
+| マイグレーションSQL | キープレフィクス除去regex + バックフィル安全性コメント |
+| テナント分離テスト | proposal_handler org_id isolation 5テスト追加 |
+
+**本番マイグレーション実行（2026-02-09）:**
+- Cloud SQLバックアップ取得後に実行
+- soulkun_knowledge: 6行 → 全行 org_soulsyncs バックフィル、RLS有効化
+- knowledge_proposals: 2行 → 全行 org_soulsyncs バックフィル、RLS有効化
+- 全検証クエリ異常なし、データ破損なし
+
+**Codex:** 外部レビュー PASS（7項目全クリア）
+**テスト:** 8196 passed, 25 skipped
+
+---
 
 ### ✅ mypy lib/brain/ 全109ファイル エラー0件達成（2026-02-07）
 
@@ -1928,7 +1959,7 @@ else:
 | **App1** | **議事録自動生成** | ✅ 完了 | 2026-01-27 | M2+G1統合アプリ、42テスト完了 |
 | **F1** | **CEO Feedback** | ✅ 完了 | 2026-01-27 | 8ファイル・57テスト完了（Phase F1完了） |
 | **AA** | **Autonomous Agent** | 📋 設計完了 | - | 自律エージェント（6-8週間） |
-| 4A | テナント分離 | 📋 未着手 | - | RLS、マルチテナント |
+| 4A | テナント分離 | 🔧 進行中 | - | RLS完了（全テーブル）、マルチテナントUI未着手 |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ---
@@ -1987,6 +2018,19 @@ else:
 ---
 
 ## 直近の主な成果
+
+### 2026-02-09
+
+- **07:00-08:30 JST**: Phase 4完了 - knowledge全テーブルorg_id完全移行 ✅ **PR #423 マージ + 本番マイグレーション完了**
+  - **概要**: soulkun_knowledge + knowledge_proposals に organization_id 追加、RLS有効化、全クエリにorg_idフィルタ追加
+  - **変更**: 26ファイル、+357/-197行
+  - **テスト**: 8196 passed（+5 org_id isolation tests）
+  - **本番マイグレーション**: Cloud SQLバックアップ後に実行、全検証クエリ正常
+  - **Codex**: 外部レビュー PASS
+
+### 2026-02-08
+
+- **PR #422 マージ**: Phase 2.5/SM/3/3.5/4 First 統合
 
 ### 2026-01-29
 

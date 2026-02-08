@@ -72,6 +72,34 @@
 
 ## 🚨 次回やること
 
+### ✅ Phase 4A完了: 全テーブルRLS有効化 + runtime org_id追加（2026-02-09）
+
+**PR:** #425, #426
+
+**目的:** Codex監査で検出された全セキュリティギャップを解消
+
+**実施内容:**
+
+| 作業 | 詳細 |
+|------|------|
+| Runtime CREATE TABLE org_id追加 | 6テーブル×7ファイル（21箇所）+ INSERT文5箇所修正 |
+| notification_logs型統一 | task_actions.py: UUID → VARCHAR(100) |
+| RLSギャップ修正 | 6テーブル（goals, goal_progress, goal_reminders, goal_setting_patterns, audit_logs, document_versions） |
+| processed_messages INSERT修正 | 3ファイルにorg_id追加 |
+| processed_messagesデータ正規化 | 131行 soul_syncs → org_soulsyncs |
+| テーブル所有者統一 | audit_logs, document_versions: postgres → soulkun_user |
+| ドキュメント | PROGRESS.md Phase SM/G2-G4 ✅完了、docs/02_phase_overview.md更新 |
+
+**本番マイグレーション実行（2026-02-09）:**
+- runtime 5テーブル: org_id追加 + RLS有効化（processed_messages, task_overdue_reminders, task_limit_changes, dm_room_cache, task_escalations）
+- RLSギャップ4テーブル: goal_setting_patterns(org_id新規追加+20行バックフィル), goals, goal_progress, goal_reminders
+- postgres所有2テーブル: audit_logs, document_versions → RLS有効化 + 所有者変更
+
+**Codex:** 外部レビュー PASS（2回実行）
+**テスト:** 8196 passed, 25 skipped
+
+---
+
 ### ✅ Phase 4完了: knowledge全テーブルorg_id完全移行 + 本番マイグレーション（2026-02-09）
 
 **PR:** #423

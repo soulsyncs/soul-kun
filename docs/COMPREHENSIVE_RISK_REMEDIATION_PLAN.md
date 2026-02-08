@@ -322,6 +322,7 @@ async def get_current_user(
 |---|------|---------|--------|
 | 1 | **Supabase ANON keyローテーション** | Supabase Dashboard > Settings > API でキー再生成 → GCP Secret Manager `SUPABASE_ANON_KEY` を更新 | 🔴 高（Git履歴に旧キー残存） |
 | 2 | daily_activity_logs カラム型確認 | 本番DBで `SELECT data_type FROM information_schema.columns WHERE table_name='daily_activity_logs' AND column_name='organization_id'` を実行し、::uuid が正しいか検証 | 🟡 中 |
+| 3 | ~~VARCHAR org_idテーブルのRLSキャスト~~ | ✅ **対応済み** (commit `8292af8`): Phase 2I(4), 2J(4), X(3) の計11テーブルを `::uuid` → `::text` に修正。Phase 2Hは元の20260202マイグレーションでキャストなし（正しい）のため影響なし | ✅ 完了 |
 
 ---
 

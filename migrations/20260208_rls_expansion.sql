@@ -19,11 +19,14 @@ BEGIN;
 -- ヘルパー: テーブルとorganization_idカラムが存在する場合のみRLSを有効化
 --
 -- Type Cast パターン（3種類）:
---   1. ::uuid  → organization_id が UUID 型のテーブル（大多数: 58テーブル）
---   2. ::text  → organization_id が TEXT/VARCHAR 型のテーブル
---                 chatwork_tasks: ALTER TABLE ... ADD COLUMN organization_id TEXT
---                 (参照: docs/SECURITY_AUDIT_ORGANIZATION_ID.md line 119)
---   3. なし   → 該当なし（全テーブルに明示キャストを付与済み）
+--   1. ::uuid  → organization_id が UUID 型のテーブル（47テーブル）
+--                 daily_activity_logs: DB直接作成テーブル、UUID型と推定（要本番確認）
+--   2. ::text  → organization_id が TEXT/VARCHAR 型のテーブル（12テーブル）
+--                 chatwork_tasks: TEXT型 (docs/SECURITY_AUDIT_ORGANIZATION_ID.md)
+--                 Phase 2I (4): organization_vocabulary等 - VARCHAR(255)
+--                 Phase 2J (4): judgment_history等 - VARCHAR(255)
+--                 Phase X  (3): scheduled_announcements等 - VARCHAR(100)
+--   3. なし   → 該当なし（全59テーブルに明示キャストを付与済み）
 --
 -- current_setting() は常に text を返すため、カラム型に合わせたキャストが必須。
 -- UUID カラムに対してキャストなしで比較すると暗黙キャストに依存し、
@@ -254,9 +257,10 @@ END $$;
 
 -- ============================================================================
 -- Phase 2I: Deep Understanding
+-- 注意: これらのテーブルはorganization_idがVARCHAR(255)型 → ::text キャスト使用
 -- ============================================================================
 
--- organization_vocabulary
+-- organization_vocabulary (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -266,12 +270,12 @@ BEGIN
         ALTER TABLE organization_vocabulary ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS organization_vocabulary_org_isolation ON organization_vocabulary;
         CREATE POLICY organization_vocabulary_org_isolation ON organization_vocabulary
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- deep_understanding_logs
+-- deep_understanding_logs (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -281,12 +285,12 @@ BEGIN
         ALTER TABLE deep_understanding_logs ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS deep_understanding_logs_org_isolation ON deep_understanding_logs;
         CREATE POLICY deep_understanding_logs_org_isolation ON deep_understanding_logs
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- intent_resolution_feedback
+-- intent_resolution_feedback (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -296,12 +300,12 @@ BEGIN
         ALTER TABLE intent_resolution_feedback ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS intent_resolution_feedback_org_isolation ON intent_resolution_feedback;
         CREATE POLICY intent_resolution_feedback_org_isolation ON intent_resolution_feedback
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- emotion_patterns
+-- emotion_patterns (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -311,16 +315,17 @@ BEGIN
         ALTER TABLE emotion_patterns ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS emotion_patterns_org_isolation ON emotion_patterns;
         CREATE POLICY emotion_patterns_org_isolation ON emotion_patterns
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
 -- ============================================================================
 -- Phase 2J: Advanced Judgment
+-- 注意: これらのテーブルはorganization_idがVARCHAR(255)型 → ::text キャスト使用
 -- ============================================================================
 
--- judgment_history
+-- judgment_history (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -330,12 +335,12 @@ BEGIN
         ALTER TABLE judgment_history ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS judgment_history_org_isolation ON judgment_history;
         CREATE POLICY judgment_history_org_isolation ON judgment_history
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- evaluation_criteria_templates
+-- evaluation_criteria_templates (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -345,12 +350,12 @@ BEGIN
         ALTER TABLE evaluation_criteria_templates ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS evaluation_criteria_templates_org_isolation ON evaluation_criteria_templates;
         CREATE POLICY evaluation_criteria_templates_org_isolation ON evaluation_criteria_templates
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- judgment_patterns
+-- judgment_patterns (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -360,12 +365,12 @@ BEGIN
         ALTER TABLE judgment_patterns ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS judgment_patterns_org_isolation ON judgment_patterns;
         CREATE POLICY judgment_patterns_org_isolation ON judgment_patterns
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- judgment_feedback
+-- judgment_feedback (VARCHAR(255))
 DO $$
 BEGIN
     IF EXISTS (
@@ -375,8 +380,8 @@ BEGIN
         ALTER TABLE judgment_feedback ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS judgment_feedback_org_isolation ON judgment_feedback;
         CREATE POLICY judgment_feedback_org_isolation ON judgment_feedback
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
@@ -721,9 +726,11 @@ END $$;
 
 -- ============================================================================
 -- Phase X: Announcements
+-- 注意: これらのテーブルはorganization_idがVARCHAR(100)型
+--       DEFAULT 'org_soulsyncs' のため ::uuid キャストは不可 → ::text 使用
 -- ============================================================================
 
--- scheduled_announcements
+-- scheduled_announcements (VARCHAR(100))
 DO $$
 BEGIN
     IF EXISTS (
@@ -733,12 +740,12 @@ BEGIN
         ALTER TABLE scheduled_announcements ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS scheduled_announcements_org_isolation ON scheduled_announcements;
         CREATE POLICY scheduled_announcements_org_isolation ON scheduled_announcements
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- announcement_logs
+-- announcement_logs (VARCHAR(100))
 DO $$
 BEGIN
     IF EXISTS (
@@ -748,12 +755,12 @@ BEGIN
         ALTER TABLE announcement_logs ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS announcement_logs_org_isolation ON announcement_logs;
         CREATE POLICY announcement_logs_org_isolation ON announcement_logs
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 
--- announcement_patterns
+-- announcement_patterns (VARCHAR(100))
 DO $$
 BEGIN
     IF EXISTS (
@@ -763,8 +770,8 @@ BEGIN
         ALTER TABLE announcement_patterns ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS announcement_patterns_org_isolation ON announcement_patterns;
         CREATE POLICY announcement_patterns_org_isolation ON announcement_patterns
-            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
+            USING (organization_id = current_setting('app.current_organization_id', true)::text)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::text);
     END IF;
 END $$;
 

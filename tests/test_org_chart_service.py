@@ -586,11 +586,13 @@ class TestOrgChartServiceInitAdditional:
 
     @patch.dict("os.environ", {"SUPABASE_URL": "https://env.supabase.co", "SUPABASE_ANON_KEY": "env_key"})
     @patch("lib.org_chart_service.get_secret_cached", side_effect=Exception("Secret Manager unavailable"))
-    def test_init_from_environment(self, mock_secret):
+    @patch("lib.org_chart_service.logger")
+    def test_init_from_environment(self, mock_logger, mock_secret):
         """環境変数からフォールバック初期化（Secret Manager不可時）"""
         service = OrgChartService()
         assert service.supabase_url == "https://env.supabase.co"
         assert service.supabase_key == "env_key"
+        mock_logger.warning.assert_called_once()
 
     @patch("lib.org_chart_service.get_secret_cached", return_value="secret_manager_key")
     def test_init_from_secret_manager(self, mock_secret):

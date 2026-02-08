@@ -148,8 +148,8 @@ class OrgChartService:
         else:
             try:
                 self.supabase_key = get_secret_cached('SUPABASE_ANON_KEY')
-            except Exception:
-                # Cloud Functions等で環境変数として注入される場合のフォールバック
+            except Exception as e:
+                logger.warning("Secret Manager unavailable, falling back to env var: %s", e)
                 self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
         self.organization_id = organization_id
         self.skip_organization_filter = skip_organization_filter

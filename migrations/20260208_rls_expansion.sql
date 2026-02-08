@@ -17,7 +17,17 @@ BEGIN;
 
 -- ============================================================================
 -- ヘルパー: テーブルとorganization_idカラムが存在する場合のみRLSを有効化
--- パターン: UUID型 (::uuid キャスト)
+--
+-- Type Cast パターン（3種類）:
+--   1. ::uuid  → organization_id が UUID 型のテーブル（大多数: 58テーブル）
+--   2. ::text  → organization_id が TEXT/VARCHAR 型のテーブル
+--                 chatwork_tasks: ALTER TABLE ... ADD COLUMN organization_id TEXT
+--                 (参照: docs/SECURITY_AUDIT_ORGANIZATION_ID.md line 119)
+--   3. なし   → 該当なし（全テーブルに明示キャストを付与済み）
+--
+-- current_setting() は常に text を返すため、カラム型に合わせたキャストが必須。
+-- UUID カラムに対してキャストなしで比較すると暗黙キャストに依存し、
+-- 型不一致エラーや予期しないアクセス許可のリスクがある。
 -- ============================================================================
 
 -- ============================================================================
@@ -943,7 +953,7 @@ BEGIN
     END IF;
 END $$;
 
--- chatwork_tasks
+-- chatwork_tasks (organization_id は TEXT 型 — docs/SECURITY_AUDIT_ORGANIZATION_ID.md 参照)
 DO $$
 BEGIN
     IF EXISTS (
@@ -958,7 +968,7 @@ BEGIN
     END IF;
 END $$;
 
--- daily_activity_logs
+-- daily_activity_logs (organization_id は UUID 型と推定 — DB直接作成テーブル)
 DO $$
 BEGIN
     IF EXISTS (
@@ -968,8 +978,8 @@ BEGIN
         ALTER TABLE daily_activity_logs ENABLE ROW LEVEL SECURITY;
         DROP POLICY IF EXISTS daily_activity_logs_org_isolation ON daily_activity_logs;
         CREATE POLICY daily_activity_logs_org_isolation ON daily_activity_logs
-            USING (organization_id = current_setting('app.current_organization_id', true))
-            WITH CHECK (organization_id = current_setting('app.current_organization_id', true));
+            USING (organization_id = current_setting('app.current_organization_id', true)::uuid)
+            WITH CHECK (organization_id = current_setting('app.current_organization_id', true)::uuid);
     END IF;
 END $$;
 

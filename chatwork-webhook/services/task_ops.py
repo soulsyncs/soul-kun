@@ -11,29 +11,16 @@ import sqlalchemy
 from infra.db import get_pool, get_secret
 from infra.chatwork_api import call_chatwork_api_with_retry
 
-try:
-    from lib import (
-        extract_task_subject,
-        clean_chatwork_tags,
-        prepare_task_display_text,
-        validate_summary,
-    )
-    USE_TEXT_UTILS_LIB = True
-except ImportError:
-    USE_TEXT_UTILS_LIB = False
-    extract_task_subject = None
-    clean_chatwork_tags = None
-    prepare_task_display_text = None
-    validate_summary = None
+from lib import (
+    extract_task_subject,
+    clean_chatwork_tags,
+    prepare_task_display_text,
+    validate_summary,
+)
 
-try:
-    from lib import (
-        get_user_primary_department as lib_get_user_primary_department,
-    )
-    USE_USER_UTILS_LIB = True
-except ImportError:
-    USE_USER_UTILS_LIB = False
-    lib_get_user_primary_department = None
+from lib import (
+    get_user_primary_department as lib_get_user_primary_department,
+)
 
 from handlers.task_handler import TaskHandler as _NewTaskHandler
 
@@ -50,12 +37,12 @@ def _get_task_handler():
             get_pool=get_pool,
             get_secret=get_secret,
             call_chatwork_api_with_retry=call_chatwork_api_with_retry,
-            extract_task_subject=extract_task_subject if USE_TEXT_UTILS_LIB else None,
-            clean_chatwork_tags=clean_chatwork_tags if USE_TEXT_UTILS_LIB else None,
-            prepare_task_display_text=prepare_task_display_text if USE_TEXT_UTILS_LIB else None,
-            validate_summary=validate_summary if USE_TEXT_UTILS_LIB else None,
-            get_user_primary_department=lib_get_user_primary_department if USE_USER_UTILS_LIB else None,
-            use_text_utils=USE_TEXT_UTILS_LIB
+            extract_task_subject=extract_task_subject,
+            clean_chatwork_tags=clean_chatwork_tags,
+            prepare_task_display_text=prepare_task_display_text,
+            validate_summary=validate_summary,
+            get_user_primary_department=lib_get_user_primary_department,
+            use_text_utils=True
         )
     return _task_handler
 

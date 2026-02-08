@@ -21,19 +21,9 @@ from google import genai  # v10.8.1: Gemini APIでタスク要約
 # =====================================================
 # v10.31.1: Phase D - 接続設定集約
 # =====================================================
-try:
-    from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
-    from lib.secrets import get_secret_cached as _lib_get_secret
-    from lib.config import get_settings
-    USE_LIB_DB = True
-    print("✅ lib/db.py loaded for database connection (Phase D)")
-except ImportError as e:
-    print(f"⚠️ lib/db.py not available (using fallback): {e}")
-    USE_LIB_DB = False
-
-    # フォールバック: 旧実装で必要なインポート
-    from google.cloud import secretmanager
-    from google.cloud.sql.connector import Connector
+from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
+from lib.secrets import get_secret_cached as _lib_get_secret
+from lib.config import get_settings
 
 # =====================================================
 # v10.14.1: lib/共通ライブラリからインポート
@@ -41,29 +31,23 @@ except ImportError as e:
 # =====================================================
 # デプロイ前に deploy.sh で soul-kun/lib/ からコピーされます
 # =====================================================
-try:
-    from lib import (
-        # Text Utils
-        GREETING_PATTERNS as LIB_GREETING_PATTERNS,
-        CLOSING_PATTERNS as LIB_CLOSING_PATTERNS,
-        remove_greetings as lib_remove_greetings,
-        extract_task_subject as lib_extract_task_subject,
-        is_greeting_only as lib_is_greeting_only,
-        validate_summary as lib_validate_summary,
-        validate_and_get_reason,
-        prepare_task_display_text as lib_prepare_task_display_text,  # v10.17.1追加
-        clean_chatwork_tags as lib_clean_chatwork_tags,  # v10.17.1追加
-        # Audit
-        log_audit,
-        log_audit_batch,
-        # User Utils (v10.18.1追加)
-        get_user_primary_department as lib_get_user_primary_department,
-    )
-    USE_LIB = True
-    print("✅ lib/ モジュールをロードしました (v10.18.1)")
-except ImportError as e:
-    USE_LIB = False
-    print(f"⚠️ lib/ モジュールが見つかりません。インライン関数を使用します: {e}")
+from lib import (
+    # Text Utils
+    GREETING_PATTERNS as LIB_GREETING_PATTERNS,
+    CLOSING_PATTERNS as LIB_CLOSING_PATTERNS,
+    remove_greetings as lib_remove_greetings,
+    extract_task_subject as lib_extract_task_subject,
+    is_greeting_only as lib_is_greeting_only,
+    validate_summary as lib_validate_summary,
+    validate_and_get_reason,
+    prepare_task_display_text as lib_prepare_task_display_text,  # v10.17.1追加
+    clean_chatwork_tags as lib_clean_chatwork_tags,  # v10.17.1追加
+    # Audit
+    log_audit,
+    log_audit_batch,
+    # User Utils (v10.18.1追加)
+    get_user_primary_department as lib_get_user_primary_department,
+)
 
 # =====================================================
 # v10.30.1: 管理者設定モジュール（Phase A）
@@ -83,12 +67,6 @@ except ImportError as e:
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
-
-# Cloud SQL設定（フォールバック用）
-if not USE_LIB_DB:
-    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-    DB_NAME = "soulkun_tasks"
-    DB_USER = "soulkun_user"
 
 # 会話履歴の設定
 MAX_HISTORY_COUNT = 100      # 100件に増加
@@ -186,10 +164,6 @@ def match_local_command(message: str):
 
 # 遅延管理設定
 ESCALATION_DAYS = 3  # エスカレーションまでの日数
-
-# Cloud SQL接続プール
-_pool = None
-_connector = None  # グローバルConnector（接続リーク防止）
 
 # ★★★ v6.8.2: 実行内メモリキャッシュ（N+1問題対策）★★★
 _runtime_dm_cache = {}  # {account_id: room_id} - 実行中のDMルームキャッシュ
@@ -325,32 +299,7 @@ def remove_greetings(text: str) -> str:
     Returns:
         挨拶を除去したテキスト
     """
-    # v10.14.1: lib/を使用可能な場合はそちらを使用
-    if USE_LIB:
-        return lib_remove_greetings(text)
-
-    # フォールバック: インライン実装
-    if not text:
-        return ""
-
-    result = text
-
-    # 開始の挨拶を除去（複数回試行 - ネストした挨拶対応）
-    for _ in range(3):
-        original = result
-        for pattern in GREETING_PATTERNS:
-            result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
-        if result == original:
-            break
-
-    # 終了の挨拶を除去
-    for pattern in CLOSING_PATTERNS:
-        result = re.sub(pattern, '', result, flags=re.MULTILINE | re.IGNORECASE)
-
-    # 行頭の空白・改行を整理
-    result = result.strip()
-
-    return result
+    return lib_remove_greetings(text)
 
 
 def extract_task_subject(text: str) -> str:
@@ -371,38 +320,7 @@ def extract_task_subject(text: str) -> str:
     Returns:
         件名（見つからない場合は空文字列）
     """
-    # v10.14.1: lib/を使用可能な場合はそちらを使用
-    if USE_LIB:
-        return lib_extract_task_subject(text)
-
-    # フォールバック: インライン実装
-    if not text:
-        return ""
-
-    # 1. 【...】 形式の件名を抽出
-    subject_match = re.search(r'【([^】]+)】', text)
-    if subject_match:
-        subject = subject_match.group(1).strip()
-        if len(subject) >= 3:  # 意味のある長さ
-            return f"【{subject}】"
-
-    # 2. ■/●/◆/▼/★ で始まる見出しを抽出
-    headline_match = re.search(r'^[■●◆▼★☆□○◇]\s*(.+?)(?:\n|$)', text, re.MULTILINE)
-    if headline_match:
-        headline = headline_match.group(1).strip()
-        if 3 <= len(headline) <= 50:  # 適切な長さ
-            return headline
-
-    # 3. 1行目が短い場合は件名として扱う
-    first_line = text.split('\n')[0].strip()
-    # 挨拶で始まらず、40文字以下で、句点やクエスチョンで終わらない
-    if (first_line and
-        len(first_line) <= 40 and
-        not re.match(r'^(お疲れ|いつも|こんにち|おはよう|こんばん)', first_line) and
-        not first_line.endswith(('。', '？', '?'))):
-        return first_line
-
-    return ""
+    return lib_extract_task_subject(text)
 
 
 def is_greeting_only(text: str) -> bool:
@@ -422,17 +340,7 @@ def is_greeting_only(text: str) -> bool:
     Returns:
         True: 挨拶のみ、False: 実質的なコンテンツあり
     """
-    # v10.14.1: lib/を使用可能な場合はそちらを使用
-    if USE_LIB:
-        return lib_is_greeting_only(text)
-
-    # フォールバック: インライン実装
-    if not text:
-        return True
-
-    cleaned = remove_greetings(text)
-    # 空か、非常に短い場合は挨拶のみと判定
-    return len(cleaned.strip()) <= 5
+    return lib_is_greeting_only(text)
 
 
 def validate_summary(summary: str, original_body: str) -> bool:
@@ -454,33 +362,7 @@ def validate_summary(summary: str, original_body: str) -> bool:
     Returns:
         True: 有効な要約、False: 無効（再生成が必要）
     """
-    # v10.14.1: lib/を使用可能な場合はそちらを使用
-    if USE_LIB:
-        return lib_validate_summary(summary, original_body)
-
-    # フォールバック: インライン実装
-    if not summary:
-        return False
-
-    # 1. 挨拶だけの場合はNG
-    if is_greeting_only(summary):
-        return False
-
-    # 2. 非常に短い場合はNG（ただし元の本文も短い場合はOK）
-    if len(summary) < 8 and len(original_body) > 50:
-        return False
-
-    # 3. 明らかに途切れている場合はNG
-    truncation_indicators = ['…', '...', '。。', '、、']
-    if any(summary.endswith(ind) for ind in truncation_indicators):
-        return False
-
-    # 4. 挨拶で始まる場合はNG
-    greeting_starts = ['お疲れ', 'いつも', 'お世話', '夜分', 'お忙し']
-    if any(summary.startswith(g) for g in greeting_starts):
-        return False
-
-    return True
+    return lib_validate_summary(summary, original_body)
 
 
 def clean_task_body_for_summary(body: str) -> str:
@@ -784,9 +666,7 @@ def get_task_display_text(task: dict, max_length: int = 40) -> str:
         return "（タスク内容なし）"
 
     clean_body = clean_task_body_for_summary(body)
-    if USE_LIB:
-        return lib_prepare_task_display_text(clean_body, max_length=max_length)
-    return prepare_task_display_text(clean_body, max_length=max_length)
+    return lib_prepare_task_display_text(clean_body, max_length=max_length)
 
 
 def _ensure_complete_summary(summary: str, max_length: int = 40) -> str:
@@ -1496,7 +1376,7 @@ def regenerate_bad_summaries(
     print(f"📊 低品質要約チェック完了: チェック={result['total_checked']}, 低品質={result['bad_found']}, 再生成成功={result['regenerated']}, 冪等スキップ={result['skipped_same']}, 失敗={result['failed']}")
 
     # v10.14.1: 監査ログを記録
-    if USE_LIB and audit_items:
+    if audit_items:
         try:
             log_audit_batch(
                 conn=conn,
@@ -2306,24 +2186,9 @@ HEADERS = None  # 遅延初期化用
 # Phase D: 接続設定集約（v10.31.1）
 # =============================================================================
 
-def get_connector():
-    """グローバルConnectorを取得（接続リーク防止）- フォールバック用"""
-    global _connector
-    if _connector is None:
-        if not USE_LIB_DB:
-            _connector = Connector()
-    return _connector
-
 def get_secret(secret_id):
     """Secret Managerからシークレットを取得（キャッシュ付き）"""
-    if USE_LIB_DB:
-        return _lib_get_secret(secret_id)
-    else:
-        # フォールバック
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
+    return _lib_get_secret(secret_id)
 
 def get_db_password():
     """DBパスワードを取得"""
@@ -2331,39 +2196,11 @@ def get_db_password():
 
 def get_db_connection():
     """Phase 1-B用: pg8000接続を返す"""
-    if USE_LIB_DB:
-        return _lib_get_db_connection()
-    else:
-        # フォールバック
-        connector = get_connector()
-        conn = connector.connect(
-            INSTANCE_CONNECTION_NAME,
-            "pg8000",
-            user=DB_USER,
-            password=get_db_password(),
-            db=DB_NAME,
-        )
-        return conn
+    return _lib_get_db_connection()
 
 def get_pool():
     """Cloud SQL接続プールを取得"""
-    if USE_LIB_DB:
-        return _lib_get_db_pool()
-    else:
-        # フォールバック
-        global _pool
-        if _pool is None:
-            connector = get_connector()
-            def getconn():
-                return connector.connect(
-                    INSTANCE_CONNECTION_NAME, "pg8000",
-                    user=DB_USER, password=get_db_password(), db=DB_NAME,
-                )
-            _pool = sqlalchemy.create_engine(
-                "postgresql+pg8000://", creator=getconn,
-                pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
-            )
-        return _pool
+    return _lib_get_db_pool()
 
 
 # =====================================================
@@ -2911,12 +2748,8 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
                 print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
                 # フォールバック: prepare_task_display_textを使用
                 try:
-                    if USE_LIB:
-                        clean_body = lib_clean_chatwork_tags(body)
-                        summary = lib_prepare_task_display_text(clean_body, max_length=40)
-                    else:
-                        clean_body = clean_task_body(body)
-                        summary = prepare_task_display_text(clean_body, max_length=40)
+                    clean_body = lib_clean_chatwork_tags(body)
+                    summary = lib_prepare_task_display_text(clean_body, max_length=40)
                 except Exception as fallback_e:
                     print(f"⚠️ フォールバックもエラー: {fallback_e}")
                     # 最終手段: 自然な位置で切る
@@ -2936,7 +2769,7 @@ def save_chatwork_task_to_db(task_id, room_id, assigned_by_account_id, assigned_
         # v10.18.1: department_id取得（Phase 3.5対応）
         # =====================================================
         department_id = None
-        if USE_LIB and assigned_to_account_id:
+        if assigned_to_account_id:
             try:
                 department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
                 if department_id:
@@ -3372,12 +3205,8 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
             }
         )
         
-        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-        task_display = (
-            lib_prepare_task_display_text(task_body, max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(task_body, max_length=30)
-        )
+        # タスク本文を整形
+        task_display = lib_prepare_task_display_text(task_body, max_length=30)
         return f"✅ タスク「{task_display}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
     else:
         return f"❌ タスクの完了に失敗したウル...\nもう一度試してみてほしいウル！"
@@ -3444,12 +3273,8 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
             except:
                 pass
         
-        # タスク内容を短く表示（v10.17.1: 直接切り詰めを廃止）
-        body_short = (
-            lib_prepare_task_display_text(body, max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(body, max_length=30)
-        )
+        # タスク内容を短く表示
+        body_short = lib_prepare_task_display_text(body, max_length=30)
         response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"\nこの{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"
@@ -6173,7 +5998,7 @@ def flush_dm_unavailable_notifications():
         task_hint = ""
         if tasks and len(tasks) > 0:
             body = tasks[0].get("body", "")
-            body_short = lib_prepare_task_display_text(body, max_length=25) if body and USE_LIB else (body[:25] + "..." if body and len(body) > 25 else body)
+            body_short = lib_prepare_task_display_text(body, max_length=25) if body else body
             task_hint = f"「{body_short}」" if body_short else ""
         
         message_lines.append(f"{i}. {person_name}（ID:{account_id}）- {action_type} {task_hint}")
@@ -6219,12 +6044,8 @@ def report_unassigned_overdue_tasks(tasks):
                      "以下のタスクは担当者が設定されておらず、督促できません：\n"]
     
     for i, task in enumerate(tasks[:10], 1):  # 最大10件まで
-        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-        body_short = (
-            lib_prepare_task_display_text(task["body"], max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(task["body"], max_length=30)
-        )
+        # タスク本文を整形
+        body_short = lib_prepare_task_display_text(task["body"], max_length=30)
         requester = task.get("assigned_by_name") or "依頼者不明"
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
@@ -6437,12 +6258,8 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
         overdue_days = get_overdue_days(task["limit_time"])
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         requester = task.get("assigned_by_name") or "依頼者"
-        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-        body_short = (
-            lib_prepare_task_display_text(task["body"], max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(task["body"], max_length=30)
-        )
+        # タスク本文を整形
+        body_short = lib_prepare_task_display_text(task["body"], max_length=30)
         
         message_lines.append(f"{i}. 「{body_short}」（依頼者: {requester} / 期限: {limit_date} / {overdue_days}日超過）")
     
@@ -6615,12 +6432,8 @@ def send_escalation_to_requester(requester_id, tasks):
     
     for task in tasks:
         assignee = task.get("assigned_to_name", "担当者")
-        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-        body_short = (
-            lib_prepare_task_display_text(task["body"], max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(task["body"], max_length=30)
-        )
+        # タスク本文を整形
+        body_short = lib_prepare_task_display_text(task["body"], max_length=30)
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         
         message_lines.append(f"・「{body_short}」")
@@ -6662,12 +6475,8 @@ def send_escalation_to_admin(tasks):
     for i, task in enumerate(tasks, 1):
         assignee = task.get("assigned_to_name", "担当者")
         requester = task.get("assigned_by_name", "依頼者")
-        # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-        body_short = (
-            lib_prepare_task_display_text(task["body"], max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(task["body"], max_length=30)
-        )
+        # タスク本文を整形
+        body_short = lib_prepare_task_display_text(task["body"], max_length=30)
         limit_date = datetime.fromtimestamp(task["limit_time"], tz=JST).strftime("%m/%d") if task["limit_time"] else "不明"
         
         message_lines.append(f"{i}. {assignee}さん「{body_short}」")
@@ -6743,12 +6552,8 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     assignee_name = task_info.get("assigned_to_name", "担当者")
     assignee_id = task_info.get("assigned_to_account_id")
     requester_name = task_info.get("assigned_by_name", "依頼者")
-    # タスク本文を整形（v10.17.1: 直接切り詰めを廃止）
-    body_short = (
-        lib_prepare_task_display_text(task_info["body"], max_length=30)
-        if USE_LIB else
-        prepare_task_display_text(task_info["body"], max_length=30)
-    )
+    # タスク本文を整形
+    body_short = lib_prepare_task_display_text(task_info["body"], max_length=30)
     
     # ① 管理部への即時報告
     admin_message = f"""[info][title]📝 タスク期限変更の検知[/title]
@@ -7391,11 +7196,7 @@ def generate_deadline_alert_message_for_manual_task(
         clean_task_name = "（タスク内容なし）"
     else:
         # 途切れ防止を適用
-        clean_task_name = (
-            lib_prepare_task_display_text(clean_task_name, max_length=30)
-            if USE_LIB else
-            prepare_task_display_text(clean_task_name, max_length=30)
-        )
+        clean_task_name = lib_prepare_task_display_text(clean_task_name, max_length=30)
 
     # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
@@ -7824,7 +7625,7 @@ def sync_chatwork_tasks(request):
                         print(f"📝 summaryがNULLのため生成: task_id={task_id}")
 
                     # 条件3: summaryが低品質（挨拶で始まる、途中で途切れている等）
-                    if old_summary and USE_LIB:
+                    if old_summary:
                         try:
                             if not lib_validate_summary(old_summary, body):
                                 should_regenerate_summary = True
@@ -7840,12 +7641,8 @@ def sync_chatwork_tasks(request):
                             print(f"⚠️ UPDATE用要約生成エラー: {e}")
                             # フォールバック
                             try:
-                                if USE_LIB:
-                                    clean_body = lib_clean_chatwork_tags(body)
-                                    new_summary = lib_prepare_task_display_text(clean_body, max_length=40)
-                                else:
-                                    clean_body = clean_task_body(body)
-                                    new_summary = prepare_task_display_text(clean_body, max_length=40)
+                                clean_body = lib_clean_chatwork_tags(body)
+                                new_summary = lib_prepare_task_display_text(clean_body, max_length=40)
                             except:
                                 # 最終手段: 自然な位置で切る
                                 if body and len(body) > 40:

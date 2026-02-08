@@ -109,16 +109,12 @@ def _get_knowledge_handler():
 
         _knowledge_handler = _NewKnowledgeHandler(
             get_pool=get_pool,
-            get_secret=get_secret,
             is_admin_func=is_admin,
             create_proposal_func=create_proposal,
             report_proposal_to_admin_func=report_proposal_to_admin,
             is_mvv_question_func=mvv_question_func,
             get_full_mvv_info_func=mvv_info_func,
-            call_openrouter_api_func=call_openrouter_api,
             phase3_knowledge_config=PHASE3_KNOWLEDGE_CONFIG,
-            default_model=MODELS["default"],
             admin_account_id=ADMIN_ACCOUNT_ID,
-            openrouter_api_url=OPENROUTER_API_URL
         )
     return _knowledge_handler

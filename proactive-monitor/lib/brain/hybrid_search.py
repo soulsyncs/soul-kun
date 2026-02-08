@@ -396,13 +396,10 @@ class HybridSearcher:
         # ILIKEメタキャラクタをエスケープ（CRITICAL-2: パターンインジェクション防止）
         escaped_query = escape_ilike(query)
 
-        # org_idプレフィックスで組織スコープ（soulkun_knowledgeにはorg_idカラムがない）
-        escaped_org = escape_ilike(self.org_id)
-
         try:
             with self.pool.connect() as conn:
                 # soulkun_knowledge（会社知識）からの検索
-                # org_idスコープ: keyが "[{org_id}:" で始まるレコードのみ（鉄則#1準拠）
+                # Phase 4完了: org_idカラムでテナント分離（鉄則#1準拠）
                 knowledge_results = conn.execute(
                     sql_text("""
                         SELECT
@@ -411,7 +408,7 @@ class HybridSearcher:
                             value AS content,
                             category
                         FROM soulkun_knowledge
-                        WHERE key LIKE :key_prefix ESCAPE '\\'
+                        WHERE organization_id = :org_id
                         AND (
                             key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
                             OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
@@ -427,7 +424,7 @@ class HybridSearcher:
                         LIMIT :limit
                     """),
                     {
-                        "key_prefix": f"[{escaped_org}:%",
+                        "org_id": self.org_id,
                         "query": escaped_query,
                         "limit": limit,
                     },

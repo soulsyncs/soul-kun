@@ -273,18 +273,17 @@ class DailyLogGenerator:
             if pref_result:
                 activity.new_preferences = pref_result[0] or 0
 
-            # soulkun_knowledge（当日作成分、org_idプレフィックスでスコープ）
-            escaped_org = self.org_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # soulkun_knowledge（当日作成分、Phase 4: org_idカラムでスコープ）
             knowledge_result = conn.execute(
                 sql_text("""
                     SELECT COUNT(*)
                     FROM soulkun_knowledge
-                    WHERE key LIKE :key_prefix ESCAPE '\\'
+                    WHERE organization_id = :org_id
                       AND created_at >= CAST(:date_start AS DATE)
                       AND created_at < CAST(:date_end AS DATE)
                 """),
                 {
-                    "key_prefix": f"[{escaped_org}:%",
+                    "org_id": self.org_id,
                     "date_start": date_start,
                     "date_end": date_end,
                 },

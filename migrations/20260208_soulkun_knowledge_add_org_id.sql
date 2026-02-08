@@ -37,6 +37,10 @@ END $$;
 -- ============================================================================
 -- 2. 既存データのバックフィル（キー接頭辞パターンから抽出）
 -- ============================================================================
+-- 安全性: 本番環境は現在 org_soulsyncs のみの単一テナント。
+-- キー形式が [org_soulsyncs:xxx] パターンの場合は正規表現で org_id を抽出し、
+-- それ以外（プレフィクスなし）はデフォルト組織 'org_soulsyncs' を設定する。
+-- 将来マルチテナント化する際は、テナント固有のバックフィルスクリプトを別途作成すること。
 -- キー形式: [org_soulsyncs:actual_key] → organization_id = 'org_soulsyncs'
 
 UPDATE soulkun_knowledge
@@ -48,6 +52,19 @@ UPDATE soulkun_knowledge
 UPDATE soulkun_knowledge
   SET organization_id = 'org_soulsyncs'
   WHERE organization_id IS NULL;
+
+-- ============================================================================
+-- 2.5. キーからプレフィクスを除去
+-- ============================================================================
+-- パターン1: "[org:category] subject" → "subject"（memory_flushが書くフォーマット）
+UPDATE soulkun_knowledge
+  SET key = substring(key FROM '^\[[^\]]+\] (.+)$')
+  WHERE key ~ '^\[[^\]]+\] .+';
+
+-- パターン2: "[org:key_name]" → "key_name"（単純ブラケットフォーマット）
+UPDATE soulkun_knowledge
+  SET key = substring(key FROM '^\[[^:]+:(.+)\]$')
+  WHERE key ~ '^\[[^:]+:.+\]$';
 
 -- ============================================================================
 -- 3. NOT NULL制約を追加

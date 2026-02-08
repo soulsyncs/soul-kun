@@ -222,13 +222,13 @@ class TestMemoryViewer:
         pref_result.fetchall.return_value = []
         knowledge_result = MagicMock()
         knowledge_result.fetchall.return_value = [
-            ("1", "fact", "[org_test:fact] 田中さん", "営業部長"),
+            ("1", "fact", "田中さん", "営業部長"),
         ]
         conn.execute.side_effect = [pref_result, knowledge_result]
 
         result = viewer.get_user_memories("user123")
         assert result.total_count == 1
-        assert result.memories[0].title == "田中さん"  # プレフィックス除去
+        assert result.memories[0].title == "田中さん"
         assert result.memories[0].source == "auto_flush"
 
     def test_get_user_memories_with_pii_masking(self, viewer, mock_pool):

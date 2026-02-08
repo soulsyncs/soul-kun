@@ -249,10 +249,8 @@ class MemoryViewer:
                     ))
 
                 # 2. soulkun_knowledge（自動フラッシュされた事実・決定・約束）
-                # org_idプレフィックスでスコープ（Phase 4前の暫定対応）
+                # Phase 4完了: org_idカラムでテナント分離
                 # 注意: このテーブルにはuser_idがなく、組織共有ナレッジとして扱う
-                # CRITICAL-2: org_idのLIKEワイルドカードをエスケープ
-                escaped_org = self.org_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
                 knowledge_query = """
                     SELECT
                         id::text,
@@ -260,11 +258,11 @@ class MemoryViewer:
                         key,
                         value
                     FROM soulkun_knowledge
-                    WHERE key LIKE :key_prefix ESCAPE '\\'
+                    WHERE organization_id = :org_id
                       AND source = 'auto_flush'
                 """
                 k_params: Dict[str, Any] = {
-                    "key_prefix": f"[{escaped_org}:%",
+                    "org_id": self.org_id,
                     "limit": limit,
                 }
 
@@ -278,11 +276,7 @@ class MemoryViewer:
 
                 for row in k_rows:
                     content, was_masked = mask_pii(str(row[3] or ""))
-                    # キーからプレフィックスを除去して表示
                     raw_title = str(row[2] or "")
-                    # "[org_id:category] subject" → "subject"
-                    if "] " in raw_title:
-                        raw_title = raw_title.split("] ", 1)[1]
                     title, title_masked = mask_pii(raw_title)
 
                     if was_masked or title_masked:
@@ -376,18 +370,17 @@ class MemoryViewer:
                     deleted = result.rowcount > 0
 
                 else:  # knowledge
-                    # CRITICAL-2: org_idのLIKEワイルドカードをエスケープ
-                    escaped_org = self.org_id.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                    # Phase 4完了: org_idカラムでテナント分離
                     result = conn.execute(
                         sql_text("""
                             DELETE FROM soulkun_knowledge
                             WHERE id = CAST(:memory_id AS INTEGER)
-                              AND key LIKE :key_prefix ESCAPE '\\'
+                              AND organization_id = :org_id
                               AND source = 'auto_flush'
                         """),
                         {
                             "memory_id": memory_id,
-                            "key_prefix": f"[{escaped_org}:%",
+                            "org_id": self.org_id,
                         },
                     )
                     conn.commit()

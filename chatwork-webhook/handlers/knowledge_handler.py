@@ -70,45 +70,33 @@ class KnowledgeHandler:
     def __init__(
         self,
         get_pool: Callable,
-        get_secret: Callable = None,
         is_admin_func: Callable = None,
         create_proposal_func: Callable = None,
         report_proposal_to_admin_func: Callable = None,
         is_mvv_question_func: Callable = None,
         get_full_mvv_info_func: Callable = None,
-        call_openrouter_api_func: Callable = None,
         phase3_knowledge_config: Dict[str, Any] = None,
-        default_model: str = None,
         admin_account_id: str = None,
-        openrouter_api_url: str = None
     ):
         """
         Args:
             get_pool: DB接続プールを取得する関数
-            get_secret: Secret Managerから秘密情報を取得する関数
             is_admin_func: 管理者判定関数
             create_proposal_func: 提案作成関数
             report_proposal_to_admin_func: 管理部への報告関数
             is_mvv_question_func: MVV質問判定関数
             get_full_mvv_info_func: MVV情報取得関数
-            call_openrouter_api_func: OpenRouter API呼び出し関数
             phase3_knowledge_config: Phase 3ナレッジ検索設定
-            default_model: デフォルトのLLMモデル
             admin_account_id: 管理者アカウントID
-            openrouter_api_url: OpenRouter API URL
         """
         self.get_pool = get_pool
-        self.get_secret = get_secret
         self.is_admin_func = is_admin_func
         self.create_proposal_func = create_proposal_func
         self.report_proposal_to_admin_func = report_proposal_to_admin_func
         self.is_mvv_question_func = is_mvv_question_func
         self.get_full_mvv_info_func = get_full_mvv_info_func
-        self.call_openrouter_api_func = call_openrouter_api_func
         self.phase3_config = phase3_knowledge_config or {}
-        self.default_model = default_model or "google/gemini-3-flash-preview"
         self.admin_account_id = admin_account_id
-        self.openrouter_api_url = openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions"
         # Phase 4: org_id for soulkun_knowledge queries
         self.organization_id = self.phase3_config.get("organization_id", "org_soulsyncs")
 
@@ -216,11 +204,11 @@ class KnowledgeHandler:
                     ON soulkun_knowledge(category);
                 """))
 
-                # 提案テーブル
-                # v6.9.1: admin_notifiedフラグ追加（通知失敗検知用）
+                # 提案テーブル（Phase 4: org_idカラム追加）
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE IF NOT EXISTS knowledge_proposals (
                         id SERIAL PRIMARY KEY,
+                        organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
                         proposed_by_account_id TEXT NOT NULL,
                         proposed_by_name TEXT,
                         proposed_in_room_id TEXT,

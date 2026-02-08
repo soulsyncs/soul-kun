@@ -5254,8 +5254,8 @@ def mark_as_processed(message_id, room_id):
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO processed_messages (message_id, room_id, processed_at)
-                    VALUES (:message_id, :room_id, :processed_at)
+                    INSERT INTO processed_messages (message_id, room_id, organization_id, processed_at)
+                    VALUES (:message_id, :room_id, 'org_soulsyncs', :processed_at)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {

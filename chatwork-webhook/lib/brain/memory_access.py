@@ -837,6 +837,8 @@ class BrainMemoryAccess:
 
         try:
             with self.pool.connect() as conn:
+                # NOTE: key_prefix フィルタは org_id カラムとの二重チェック（belt-and-suspenders）。
+                # Phase 4 移行完了後、既存キーからプレフィクスを除去したらこの条件を削除する。
                 result = conn.execute(
                     text("""
                         SELECT
@@ -845,7 +847,8 @@ class BrainMemoryAccess:
                             value,
                             category
                         FROM soulkun_knowledge
-                        WHERE key LIKE :key_prefix ESCAPE '\\'
+                        WHERE organization_id = :org_id
+                        AND key LIKE :key_prefix ESCAPE '\\'
                         AND (
                             key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
                             OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
@@ -853,7 +856,7 @@ class BrainMemoryAccess:
                         ORDER BY id DESC
                         LIMIT :limit
                     """),
-                    {"key_prefix": f"[{escaped_org}:%", "query": escaped_query, "limit": limit},
+                    {"org_id": self.org_id, "key_prefix": f"[{escaped_org}:%", "query": escaped_query, "limit": limit},
                 )
                 rows = result.fetchall()
 

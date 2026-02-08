@@ -144,11 +144,12 @@ class PineconeClient:
             if not self._api_key:
                 try:
                     self._api_key = get_secret('PINECONE_API_KEY')
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Failed to get PINECONE_API_KEY from Secret Manager: {e}")
                     raise ValueError(
                         "Pinecone APIキーが設定されていません。"
                         "環境変数 PINECONE_API_KEY または Secret Manager で設定してください。"
-                    )
+                    ) from e
 
         # インデックス名
         self.index_name = index_name or self.settings.PINECONE_INDEX_NAME
@@ -481,20 +482,40 @@ class PineconeClient:
             SearchResponse オブジェクト
         """
         # フィルタを構築
-        filters: dict[str, Any] = {
-            "classification": {"$in": accessible_classifications}
-        }
+        # 部署アクセス制御の有無で分岐
+        # accessible_department_ids が None → 部署フィルタなし（classification のみ）
+        # accessible_department_ids が [] → confidential アクセス不可（non-confidential のみ）
+        # accessible_department_ids が ["dept_1"] → non-confidential + confidential(部署一致)
+        if accessible_department_ids is not None:
+            non_confidential = [c for c in accessible_classifications if c != "confidential"]
+            has_confidential = "confidential" in accessible_classifications
+
+            access_or: list[dict[str, Any]] = []
+            if non_confidential:
+                access_or.append({"classification": {"$in": non_confidential}})
+            if has_confidential and accessible_department_ids:
+                access_or.append({
+                    "$and": [
+                        {"classification": "confidential"},
+                        {"department_id": {"$in": accessible_department_ids}},
+                    ]
+                })
+
+            if not access_or:
+                # アクセス可能な分類なし → 空結果を返すフィルタ
+                filters: dict[str, Any] = {"classification": {"$in": []}}
+            elif len(access_or) == 1:
+                filters = access_or[0]
+            else:
+                filters = {"$or": access_or}
+        else:
+            filters: dict[str, Any] = {
+                "classification": {"$in": accessible_classifications}
+            }
 
         # カテゴリフィルタ
         if category_filter:
-            filters["category"] = {"$in": category_filter}
-
-        # 部署フィルタ（confidentialの場合）
-        if accessible_department_ids:
-            # confidentialかつ指定部署、または非confidential
-            # Pineconeのフィルタ構文で表現
-            # 注: 複雑なフィルタは後処理で対応
-            pass
+            filters = {"$and": [filters, {"category": {"$in": category_filter}}]}
 
         return await self.search(
             organization_id=organization_id,

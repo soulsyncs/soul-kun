@@ -14,6 +14,8 @@ import traceback
 import sqlalchemy
 from typing import Optional, List, Dict, Any, Callable
 
+from lib.brain.hybrid_search import escape_ilike
+
 
 # =====================================================
 # 定数: キーワード・クエリ拡張
@@ -334,8 +336,8 @@ class KnowledgeHandler:
                     ORDER BY category, updated_at DESC
                 """
                 if limit:
-                    sql += f" LIMIT {limit}"
-                result = conn.execute(sqlalchemy.text(sql))
+                    sql += " LIMIT :limit"
+                result = conn.execute(sqlalchemy.text(sql), {"limit": limit} if limit else {})
                 rows = result.fetchall()
                 return [{"category": r[0], "key": r[1], "value": r[2], "created_at": r[3]} for r in rows]
         except Exception as e:
@@ -584,18 +586,19 @@ class KnowledgeHandler:
                 sql = """
                     SELECT category, key, value
                     FROM soulkun_knowledge
-                    WHERE key ILIKE :pattern OR value ILIKE :pattern
+                    WHERE key ILIKE :pattern ESCAPE '\\' OR value ILIKE :pattern ESCAPE '\\'
                     ORDER BY
                         CASE
-                            WHEN key ILIKE :exact THEN 1
-                            WHEN key ILIKE :pattern THEN 2
+                            WHEN key ILIKE :exact ESCAPE '\\' THEN 1
+                            WHEN key ILIKE :pattern ESCAPE '\\' THEN 2
                             ELSE 3
                         END
                     LIMIT 5
                 """
 
-                pattern = f"%{query}%"
-                exact = query
+                escaped = escape_ilike(query)
+                pattern = f"%{escaped}%"
+                exact = escaped
 
                 result = conn.execute(
                     sqlalchemy.text(sql),

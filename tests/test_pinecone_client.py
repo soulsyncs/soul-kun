@@ -161,6 +161,164 @@ class TestPineconeClient:
         mock_pinecone['index'].delete.assert_called()
 
 
+class TestDepartmentFilterConstruction:
+    """search_with_access_control のフィルタ構築テスト"""
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_non_confidential_only(self, mock_pinecone):
+        """non-confidentialのみ + dept_ids指定 → classification.$inのみ（$or不要）"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["public", "internal"],
+            accessible_department_ids=["dept_1"],
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        assert actual_filter == {"classification": {"$in": ["public", "internal"]}}
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_with_confidential(self, mock_pinecone):
+        """confidential含む + dept_ids指定 → $or: [non-conf, $and:[conf, dept]]"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1", "dept_2"],
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        expected = {
+            "$or": [
+                {"classification": {"$in": ["public", "internal"]}},
+                {"$and": [
+                    {"classification": "confidential"},
+                    {"department_id": {"$in": ["dept_1", "dept_2"]}},
+                ]},
+            ]
+        }
+        assert actual_filter == expected
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_empty_dept_ids(self, mock_pinecone):
+        """confidential含む + dept_ids空 → confidential除外（non-confidentialのみ）"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=[],
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        # confidentialアクセス不可 → public/internalのみ
+        assert actual_filter == {"classification": {"$in": ["public", "internal"]}}
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_none_dept_ids(self, mock_pinecone):
+        """dept_ids=None → レガシー動作（classification.$inのみ）"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=None,
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        assert actual_filter == {
+            "classification": {"$in": ["public", "internal", "confidential"]}
+        }
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_with_category(self, mock_pinecone):
+        """部署フィルタ + カテゴリフィルタ → $andで結合"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+            category_filter=["A", "B"],
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        # 部署フィルタ + カテゴリ → $andで結合
+        assert "$and" in actual_filter
+        # カテゴリフィルタが含まれる
+        category_part = next(
+            f for f in actual_filter["$and"]
+            if "category" in f
+        )
+        assert category_part == {"category": {"$in": ["A", "B"]}}
+        # アクセス制御フィルタの完全な構造を検証
+        access_part = next(
+            f for f in actual_filter["$and"]
+            if "$or" in f
+        )
+        assert access_part == {
+            "$or": [
+                {"classification": {"$in": ["public", "internal"]}},
+                {"$and": [
+                    {"classification": "confidential"},
+                    {"department_id": {"$in": ["dept_1"]}},
+                ]},
+            ]
+        }
+
+    @pytest.mark.asyncio
+    async def test_search_dept_filter_confidential_only(self, mock_pinecone):
+        """confidentialのみ + dept_ids指定 → $and:[conf, dept]（$or不要）"""
+        client = PineconeClient(api_key="test-key")
+        query_vector = [0.1] * 768
+
+        await client.search_with_access_control(
+            organization_id="org_test",
+            query_vector=query_vector,
+            accessible_classifications=["confidential"],
+            accessible_department_ids=["dept_1"],
+            top_k=5,
+        )
+
+        call_kwargs = mock_pinecone['index'].query.call_args
+        actual_filter = call_kwargs.kwargs.get('filter') or call_kwargs[1].get('filter')
+
+        expected = {
+            "$and": [
+                {"classification": "confidential"},
+                {"department_id": {"$in": ["dept_1"]}},
+            ]
+        }
+        assert actual_filter == expected
+
+
 class TestSearchResult:
     """SearchResult のテスト"""
 

@@ -12,7 +12,7 @@ main.pyから分割されたナレッジ管理機能を提供する。
 import httpx
 import traceback
 import sqlalchemy
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any, Callable, Union
 
 from lib.brain.hybrid_search import escape_ilike
 
@@ -109,6 +109,8 @@ class KnowledgeHandler:
         self.default_model = default_model or "google/gemini-3-flash-preview"
         self.admin_account_id = admin_account_id
         self.openrouter_api_url = openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions"
+        # Phase 4: org_id for soulkun_knowledge queries
+        self.organization_id = self.phase3_config.get("organization_id", "org_soulsyncs")
 
     # =====================================================
     # キーワード・クエリ処理（静的メソッド）
@@ -199,13 +201,14 @@ class KnowledgeHandler:
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE IF NOT EXISTS soulkun_knowledge (
                         id SERIAL PRIMARY KEY,
+                        organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
                         category TEXT NOT NULL DEFAULT 'other',
                         key TEXT NOT NULL,
                         value TEXT NOT NULL,
                         created_by TEXT,
                         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(category, key)
+                        UNIQUE(organization_id, category, key)
                     );
                 """))
                 conn.execute(sqlalchemy.text("""
@@ -269,11 +272,12 @@ class KnowledgeHandler:
             with pool.begin() as conn:
                 # UPSERT（存在すれば更新、なければ挿入）
                 conn.execute(sqlalchemy.text("""
-                    INSERT INTO soulkun_knowledge (category, key, value, created_by, updated_at)
-                    VALUES (:category, :key, :value, :created_by, CURRENT_TIMESTAMP)
-                    ON CONFLICT (category, key)
+                    INSERT INTO soulkun_knowledge (organization_id, category, key, value, created_by, updated_at)
+                    VALUES (:org_id, :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                    ON CONFLICT (organization_id, category, key)
                     DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
                 """), {
+                    "org_id": self.organization_id,
                     "category": category,
                     "key": key,
                     "value": value,
@@ -302,13 +306,14 @@ class KnowledgeHandler:
             with pool.begin() as conn:
                 if category and key:
                     conn.execute(sqlalchemy.text("""
-                        DELETE FROM soulkun_knowledge WHERE category = :category AND key = :key
-                    """), {"category": category, "key": key})
+                        DELETE FROM soulkun_knowledge
+                        WHERE organization_id = :org_id AND category = :category AND key = :key
+                    """), {"org_id": self.organization_id, "category": category, "key": key})
                 elif key:
-                    # カテゴリ指定なしの場合はkeyのみで検索
                     conn.execute(sqlalchemy.text("""
-                        DELETE FROM soulkun_knowledge WHERE key = :key
-                    """), {"key": key})
+                        DELETE FROM soulkun_knowledge
+                        WHERE organization_id = :org_id AND key = :key
+                    """), {"org_id": self.organization_id, "key": key})
             print(f"✅ 知識を削除: [{category}] {key}")
             return True
         except Exception as e:
@@ -329,15 +334,17 @@ class KnowledgeHandler:
         try:
             pool = self.get_pool()
             with pool.connect() as conn:
-                # v6.9.1: LIMITを追加
                 sql = """
                     SELECT category, key, value, created_at
                     FROM soulkun_knowledge
+                    WHERE organization_id = :org_id
                     ORDER BY category, updated_at DESC
                 """
+                params = {"org_id": self.organization_id}
                 if limit:
                     sql += " LIMIT :limit"
-                result = conn.execute(sqlalchemy.text(sql), {"limit": limit} if limit else {})
+                    params["limit"] = limit
+                result = conn.execute(sqlalchemy.text(sql), params)
                 rows = result.fetchall()
                 return [{"category": r[0], "key": r[1], "value": r[2], "created_at": r[3]} for r in rows]
         except Exception as e:
@@ -586,7 +593,8 @@ class KnowledgeHandler:
                 sql = """
                     SELECT category, key, value
                     FROM soulkun_knowledge
-                    WHERE key ILIKE :pattern ESCAPE '\\' OR value ILIKE :pattern ESCAPE '\\'
+                    WHERE organization_id = :org_id
+                      AND (key ILIKE :pattern ESCAPE '\\' OR value ILIKE :pattern ESCAPE '\\')
                     ORDER BY
                         CASE
                             WHEN key ILIKE :exact ESCAPE '\\' THEN 1
@@ -602,7 +610,7 @@ class KnowledgeHandler:
 
                 result = conn.execute(
                     sqlalchemy.text(sql),
-                    {"pattern": pattern, "exact": exact}
+                    {"org_id": self.organization_id, "pattern": pattern, "exact": exact}
                 )
                 rows = result.fetchall()
 
@@ -873,7 +881,7 @@ class KnowledgeHandler:
         return "\n".join(lines)
 
     def handle_query_company_knowledge(self, params: Dict, room_id: str, account_id: str,
-                                        sender_name: str, context: Dict = None) -> str:
+                                        sender_name: str, context: Dict = None) -> Union[str, Dict[str, Any]]:
         """
         会社知識の参照ハンドラー（Phase 3統合版）
 
@@ -925,49 +933,27 @@ class KnowledgeHandler:
 📁 Google Driveの「ソウルくんナレッジベース」フォルダに資料をアップロードすると、自動で学習するウル！
 📝 または、管理者に「設定: {query} = 回答内容」と教えてもらえると覚えるウル！"""
 
-            # LLMで回答を生成
-            system_prompt = f"""あなたは「ソウルくん」です。会社の知識ベースから情報を参照して回答します。
+            # Phase 3.5: 検索結果をBrain層に返す（Brain bypass禁止 - CLAUDE.md §1準拠）
+            # ハンドラーはデータ取得のみ。回答生成はBrain（LLM Brain）が担当。
+            results_for_brain = search_result.get("results", [])
+            source_note = ""
+            if source == "phase3" and results_for_brain:
+                doc = results_for_brain[0].get("document", {})
+                doc_title = doc.get("title", "")
+                if doc_title:
+                    source_note = f"\n\n📄 参考: {doc_title}"
 
-【重要なルール】
-1. 提供された参考情報に基づいて回答してください
-2. 情報源を明示してください（例：「就業規則によると...」「社内マニュアルでは...」）
-3. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
-4. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
-5. 簡潔に、わかりやすく回答してください
-
-【参考情報の出典】
-検索方法: {source}（{"旧システム" if source == "legacy" else "Phase 3 Pinecone検索"}）
-信頼度: {confidence:.2f}
-
-【参考情報】
-{formatted_context}
-"""
-
-            user_message = f"質問: {query}"
-
-            # OpenRouter APIで回答を生成
-            response = None
-            if self.call_openrouter_api_func:
-                response = self.call_openrouter_api_func(
-                    system_prompt=system_prompt,
-                    user_message=user_message,
-                    model=self.default_model
-                )
-
-            if response:
-                # 出典情報を追加
-                source_note = ""
-                if source == "phase3":
-                    results = search_result.get("results", [])
-                    if results:
-                        doc = results[0].get("document", {})
-                        doc_title = doc.get("title", "")
-                        if doc_title:
-                            source_note = f"\n\n📄 参考: {doc_title}"
-
-                return response + source_note
-            else:
-                return "🐺 ごめんウル、回答の生成に失敗したウル…\nもう一度試してみてほしいウル！"
+            return {
+                "needs_answer_synthesis": True,
+                "status": "found",
+                "query": query,
+                "source": source,
+                "confidence": confidence,
+                "formatted_context": formatted_context,
+                "results": results_for_brain,
+                "source_note": source_note,
+                "message": f"🐺 「{query}」について調べたウル！",
+            }
 
         except Exception as e:
             print(f"❌ 会社知識クエリエラー: {e}")

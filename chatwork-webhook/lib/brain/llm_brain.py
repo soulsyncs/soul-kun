@@ -546,6 +546,68 @@ class LLMBrain:
         return result
 
     # =========================================================================
+    # Phase 3.5: テキスト合成（Tool不使用）
+    # =========================================================================
+
+    async def synthesize_text(
+        self,
+        system_prompt: str,
+        user_message: str,
+    ) -> Optional[str]:
+        """
+        Toolを使わずにテキスト応答を生成する（Phase 3.5）
+
+        Brain層からの回答合成に使用。ハンドラーが返した検索コンテキストを
+        元に、Brain（LLM）が回答を生成する。CLAUDE.md §1準拠。
+
+        Args:
+            system_prompt: 回答生成用のシステムプロンプト
+            user_message: ユーザーの質問
+
+        Returns:
+            生成されたテキスト応答、またはNone（エラー時）
+        """
+        logger.info(f"Synthesize text: {user_message[:50]}...")
+
+        messages = [{"role": "user", "content": user_message}]
+
+        try:
+            if self.api_provider == APIProvider.OPENROUTER:
+                response = await self._call_openrouter(
+                    system=system_prompt,
+                    messages=messages,
+                    tools=[],
+                )
+                content = (
+                    response.get("choices", [{}])[0]
+                    .get("message", {})
+                    .get("content", "")
+                )
+            else:
+                response = await self._call_anthropic(
+                    system=system_prompt,
+                    messages=messages,
+                    tools=[],
+                )
+                content_blocks = response.get("content", [])
+                content = "".join(
+                    b.get("text", "")
+                    for b in content_blocks
+                    if b.get("type") == "text"
+                )
+
+            if content:
+                logger.info(f"Synthesis complete: {len(content)} chars")
+                return content
+
+            logger.warning("Synthesis returned empty content")
+            return None
+
+        except Exception as e:
+            logger.error(f"Synthesis error: {e}", exc_info=True)
+            return None
+
+    # =========================================================================
     # プロンプト構築
     # =========================================================================
 

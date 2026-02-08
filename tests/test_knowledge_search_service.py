@@ -191,10 +191,13 @@ class TestKnowledgeSearchService:
             db_conn=mock_services['db_conn'],
         )
 
-        filter = service._build_metadata_filter(
-            user_context=sample_user_context,
-            categories=None,
-        )
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = False
+
+            filter = service._build_metadata_filter(
+                user_context=sample_user_context,
+                categories=None,
+            )
 
         assert "classification" in filter
         assert filter["classification"]["$in"] == ["public", "internal"]
@@ -209,10 +212,13 @@ class TestKnowledgeSearchService:
             db_conn=mock_services['db_conn'],
         )
 
-        filter = service._build_metadata_filter(
-            user_context=sample_user_context,
-            categories=["A", "B"],
-        )
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = False
+
+            filter = service._build_metadata_filter(
+                user_context=sample_user_context,
+                categories=["A", "B"],
+            )
 
         assert "$and" in filter
         # フィルタにカテゴリが含まれる
@@ -331,9 +337,16 @@ class TestDepartmentFilter:
             result = service._build_metadata_filter(ctx)
 
             # $or で non-confidential と confidential+dept を分岐
-            assert "$or" in result or ("$and" in result and any(
-                "$or" in c for c in result.get("$and", []) if isinstance(c, dict)
-            ))
+            assert "$or" in result
+            assert result == {
+                "$or": [
+                    {"classification": {"$in": ["public", "internal"]}},
+                    {"$and": [
+                        {"classification": "confidential"},
+                        {"department_id": {"$in": ["dept_1", "dept_2"]}},
+                    ]},
+                ]
+            }
 
     def test_build_filter_with_empty_department_ids(self):
         """部署アクセス制御有効・部署ID空: confidentialアクセス不可、public/internalのみ"""
@@ -352,15 +365,7 @@ class TestDepartmentFilter:
             result = service._build_metadata_filter(ctx)
 
             # confidential が除外され、public/internal のみ
-            if "$and" in result:
-                cls_filter = next(
-                    (c for c in result["$and"] if "classification" in c),
-                    None,
-                )
-                if cls_filter:
-                    assert "confidential" not in cls_filter["classification"]["$in"]
-            elif "classification" in result:
-                assert "confidential" not in result["classification"]["$in"]
+            assert result == {"classification": {"$in": ["public", "internal"]}}
 
     def test_build_filter_confidential_excludes_no_dept_docs(self):
         """部署アクセス制御有効時: confidential+department未設定は非管理者に見えない"""
@@ -378,10 +383,12 @@ class TestDepartmentFilter:
 
             result = service._build_metadata_filter(ctx)
 
-            # department_id="" は含まれない（管理者のみ）
-            import json
-            result_str = json.dumps(result, ensure_ascii=False)
-            assert '"department_id": ""' not in result_str
+            # confidential部分のdepartment_id.$inにはdept_1のみ（空文字列は含まない）
+            assert "$or" in result
+            confidential_branch = result["$or"][1]
+            dept_filter = confidential_branch["$and"][1]
+            assert dept_filter == {"department_id": {"$in": ["dept_1"]}}
+            assert "" not in dept_filter["department_id"]["$in"]
 
     def test_build_filter_without_department_access_control(self):
         """部署アクセス制御無効時はclassificationフィルタのみ"""
@@ -400,5 +407,180 @@ class TestDepartmentFilter:
             result = service._build_metadata_filter(ctx)
 
             # confidential を含むclassificationフィルタがそのまま残る
-            if "classification" in result:
-                assert "confidential" in result["classification"]["$in"]
+            assert result == {
+                "classification": {"$in": ["public", "internal", "confidential"]}
+            }
+
+    def test_build_filter_dept_plus_category_combo(self):
+        """部署フィルタ + カテゴリフィルタの組み合わせ"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+        )
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+
+            result = service._build_metadata_filter(ctx, categories=["A"])
+
+            # $and で部署フィルタとカテゴリフィルタが結合される
+            assert "$and" in result
+            # カテゴリフィルタが含まれる
+            category_part = next(
+                f for f in result["$and"] if "category" in f
+            )
+            assert category_part == {"category": {"$in": ["A"]}}
+            # 部署フィルタの完全な構造を検証
+            access_part = next(
+                f for f in result["$and"] if "$or" in f
+            )
+            assert access_part == {
+                "$or": [
+                    {"classification": {"$in": ["public", "internal"]}},
+                    {"$and": [
+                        {"classification": "confidential"},
+                        {"department_id": {"$in": ["dept_1"]}},
+                    ]},
+                ]
+            }
+
+
+class TestFilterByAccessControl:
+    """_filter_by_access_control の直接テスト"""
+
+    @pytest.mark.asyncio
+    async def test_passes_public_doc(self):
+        """publicドキュメントはどの部署でも通過"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal"],
+            accessible_department_ids=[],
+        )
+
+        results = [
+            SearchResult(id="r1", score=0.9, metadata={
+                "classification": "public", "department_id": "dept_x"
+            }),
+        ]
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+            filtered, count = await service._filter_by_access_control(
+                "org1", results, ctx, max_results=10
+            )
+
+        assert len(filtered) == 1
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_passes_confidential_matching_dept(self):
+        """confidential + 部署一致 → 通過"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1", "dept_2"],
+        )
+
+        results = [
+            SearchResult(id="r1", score=0.9, metadata={
+                "classification": "confidential", "department_id": "dept_1"
+            }),
+        ]
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+            filtered, count = await service._filter_by_access_control(
+                "org1", results, ctx, max_results=10
+            )
+
+        assert len(filtered) == 1
+        assert count == 0
+
+    @pytest.mark.asyncio
+    async def test_blocks_confidential_no_dept(self):
+        """confidential + department_id空 → ブロック（管理者のみ）"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+        )
+
+        results = [
+            SearchResult(id="r1", score=0.9, metadata={
+                "classification": "confidential", "department_id": ""
+            }),
+        ]
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+            filtered, count = await service._filter_by_access_control(
+                "org1", results, ctx, max_results=10
+            )
+
+        assert len(filtered) == 0
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_blocks_confidential_wrong_dept(self):
+        """confidential + 部署不一致 → ブロック"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+        )
+
+        results = [
+            SearchResult(id="r1", score=0.9, metadata={
+                "classification": "confidential", "department_id": "dept_other"
+            }),
+        ]
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+            filtered, count = await service._filter_by_access_control(
+                "org1", results, ctx, max_results=10
+            )
+
+        assert len(filtered) == 0
+        assert count == 1
+
+    @pytest.mark.asyncio
+    async def test_disabled_passes_all(self):
+        """ENABLE_DEPARTMENT_ACCESS_CONTROL=False → confidentialも通過"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=[],
+        )
+
+        results = [
+            SearchResult(id="r1", score=0.9, metadata={
+                "classification": "confidential", "department_id": ""
+            }),
+            SearchResult(id="r2", score=0.8, metadata={
+                "classification": "confidential", "department_id": "dept_x"
+            }),
+        ]
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = False
+            filtered, count = await service._filter_by_access_control(
+                "org1", results, ctx, max_results=10
+            )
+
+        assert len(filtered) == 2
+        assert count == 0

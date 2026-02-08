@@ -2072,3 +2072,166 @@ class TestProcessMessageCEOTeachings:
             )
 
         assert response.success is True
+
+
+# =============================================================================
+# Phase 3.5: Brain-controlled Knowledge Answer Synthesis
+# =============================================================================
+
+
+class TestSynthesizeKnowledgeAnswer:
+    """_synthesize_knowledge_answer のテスト"""
+
+    @pytest.fixture
+    def brain_with_llm(self, mock_pool, test_capabilities):
+        """LLM Brain付きのSoulkunBrain"""
+        brain = SoulkunBrain(
+            pool=mock_pool,
+            org_id="org_test",
+            handlers={},
+            capabilities=test_capabilities,
+        )
+        brain.llm_brain = AsyncMock()
+        return brain
+
+    @pytest.mark.asyncio
+    async def test_synthesize_returns_answer(self, brain_with_llm):
+        """LLM Brainが回答を合成する"""
+        brain_with_llm.llm_brain.synthesize_text = AsyncMock(
+            return_value="有給休暇は10日ウル！🐺"
+        )
+
+        search_data = {
+            "needs_answer_synthesis": True,
+            "status": "found",
+            "query": "有給休暇は何日？",
+            "source": "legacy",
+            "confidence": 0.85,
+            "formatted_context": "有給休暇: 10日",
+            "source_note": "",
+        }
+
+        result = await brain_with_llm._synthesize_knowledge_answer(
+            search_data=search_data,
+            original_query="有給休暇は何日？",
+        )
+
+        assert result == "有給休暇は10日ウル！🐺"
+        brain_with_llm.llm_brain.synthesize_text.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_synthesize_appends_source_note(self, brain_with_llm):
+        """source_noteが回答に付加される"""
+        brain_with_llm.llm_brain.synthesize_text = AsyncMock(
+            return_value="就業規則によると10日ウル！"
+        )
+
+        search_data = {
+            "needs_answer_synthesis": True,
+            "status": "found",
+            "query": "有給",
+            "source": "phase3",
+            "confidence": 0.9,
+            "formatted_context": "有給: 10日",
+            "source_note": "\n\n📄 参考: 就業規則",
+        }
+
+        result = await brain_with_llm._synthesize_knowledge_answer(
+            search_data=search_data,
+            original_query="有給",
+        )
+
+        assert "就業規則によると10日ウル！" in result
+        assert "📄 参考: 就業規則" in result
+
+    @pytest.mark.asyncio
+    async def test_synthesize_returns_none_without_llm_brain(self, mock_pool, test_capabilities):
+        """LLM Brainが無い場合はNoneを返す"""
+        brain = SoulkunBrain(
+            pool=mock_pool,
+            org_id="org_test",
+            handlers={},
+            capabilities=test_capabilities,
+        )
+        brain.llm_brain = None
+
+        result = await brain._synthesize_knowledge_answer(
+            search_data={"formatted_context": "test"},
+            original_query="test",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_synthesize_returns_none_on_error(self, brain_with_llm):
+        """LLM Brainエラー時はNoneを返す"""
+        brain_with_llm.llm_brain.synthesize_text = AsyncMock(
+            side_effect=Exception("API error")
+        )
+
+        result = await brain_with_llm._synthesize_knowledge_answer(
+            search_data={
+                "formatted_context": "test",
+                "source": "legacy",
+                "confidence": 0.5,
+                "source_note": "",
+            },
+            original_query="test",
+        )
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_synthesize_system_prompt_contains_context(self, brain_with_llm):
+        """システムプロンプトに検索コンテキストが含まれる"""
+        brain_with_llm.llm_brain.synthesize_text = AsyncMock(return_value="回答ウル")
+
+        search_data = {
+            "needs_answer_synthesis": True,
+            "status": "found",
+            "query": "経費精算",
+            "source": "phase3",
+            "confidence": 0.92,
+            "formatted_context": "経費精算は上限5万円です。",
+            "source_note": "",
+        }
+
+        await brain_with_llm._synthesize_knowledge_answer(
+            search_data=search_data,
+            original_query="経費精算のルールは？",
+        )
+
+        call_args = brain_with_llm.llm_brain.synthesize_text.call_args
+        system_prompt = call_args.kwargs.get("system_prompt", call_args[0][0] if call_args[0] else "")
+        user_message = call_args.kwargs.get("user_message", call_args[0][1] if len(call_args[0]) > 1 else "")
+
+        # システムプロンプトに検索コンテキストが含まれる
+        assert "経費精算は上限5万円です。" in system_prompt
+        assert "0.92" in system_prompt
+        # ユーザーメッセージに元の質問が含まれる
+        assert "経費精算のルールは？" in user_message
+
+    @pytest.mark.asyncio
+    async def test_synthesize_truncates_long_context(self, brain_with_llm):
+        """長いコンテキストが4000文字に切り詰められる"""
+        brain_with_llm.llm_brain.synthesize_text = AsyncMock(return_value="回答ウル")
+
+        long_context = "A" * 5000
+        search_data = {
+            "needs_answer_synthesis": True,
+            "formatted_context": long_context,
+            "source": "legacy",
+            "confidence": 0.5,
+            "source_note": "",
+        }
+
+        await brain_with_llm._synthesize_knowledge_answer(
+            search_data=search_data,
+            original_query="test",
+        )
+
+        call_args = brain_with_llm.llm_brain.synthesize_text.call_args
+        system_prompt = call_args.kwargs.get("system_prompt", call_args[0][0] if call_args[0] else "")
+        # 5000文字の元コンテキストは切り詰められている
+        assert "以下省略" in system_prompt
+        assert "A" * 4001 not in system_prompt

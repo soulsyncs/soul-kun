@@ -604,7 +604,7 @@ class TestHandleQueryCompanyKnowledge:
         assert "勉強中" in result
 
     def test_handle_query_company_knowledge_with_results(self):
-        """検索結果あり"""
+        """検索結果あり → Phase 3.5: dict形式で検索データを返す（LLM呼び出しなし）"""
         mock_pool, mock_conn = create_mock_pool()
         mock_result = MagicMock()
         mock_result.fetchall.return_value = [
@@ -615,14 +615,19 @@ class TestHandleQueryCompanyKnowledge:
             mock_pool=mock_pool,
             is_mvv_question_func=MagicMock(return_value=False),
             phase3_knowledge_config={"enabled": False},
-            call_openrouter_api_func=MagicMock(return_value="有給は10日ウル！")
         )
 
         result = handler.handle_query_company_knowledge(
             params={"query": "有給休暇"}, room_id="123", account_id="456",
             sender_name="テスト", context=None
         )
-        assert "10日" in result
+        # Phase 3.5: ハンドラーはdict形式の検索データを返す
+        assert isinstance(result, dict)
+        assert result["needs_answer_synthesis"] is True
+        assert result["status"] == "found"
+        assert result["query"] == "有給休暇"
+        assert result["source"] in ("legacy", "phase3")
+        assert result["formatted_context"] != ""
 
 
 # =====================================================
@@ -769,6 +774,253 @@ class TestIntegratedKnowledgeSearch:
         result = handler.integrated_knowledge_search("存在しない情報")
         assert result["source"] == "none"
         assert result["confidence"] == 0.0
+
+
+# =====================================================
+# Phase 3.5: Brain Tool統合テスト
+# =====================================================
+
+class TestPhase35BrainIntegration:
+    """Phase 3.5: ハンドラーがLLM呼び出しせず、Brain合成用データを返すことを検証"""
+
+    def test_handler_returns_dict_not_string(self):
+        """検索結果あり → dict返却（str禁止）"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "経費精算", "上限5万円", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "経費精算のルール"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        assert isinstance(result, dict)
+        assert not isinstance(result, str)
+
+    def test_handler_sets_needs_answer_synthesis(self):
+        """needs_answer_synthesis=True がセットされる"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "有給", "10日", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "有給"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        assert result["needs_answer_synthesis"] is True
+        assert result["status"] == "found"
+
+    def test_handler_includes_formatted_context(self):
+        """formatted_contextが含まれる"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "出張手当", "1日3000円", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "出張手当"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        assert "formatted_context" in result
+        assert len(result["formatted_context"]) > 0
+        assert "confidence" in result
+
+    def test_no_direct_llm_call(self):
+        """ハンドラーがLLMを直接呼び出さない（Brain bypass禁止）"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "年末調整", "12月末まで", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        mock_openrouter = MagicMock(return_value="LLM回答")
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+            call_openrouter_api_func=mock_openrouter,
+        )
+
+        handler.handle_query_company_knowledge(
+            params={"query": "年末調整"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        # OpenRouter APIが呼ばれていないことを確認
+        mock_openrouter.assert_not_called()
+
+    def test_handler_no_results_returns_string(self):
+        """検索結果なしの場合はstr返却（Brain合成不要）"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "存在しない情報"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        assert isinstance(result, str)
+        assert "勉強中" in result
+
+    def test_handler_error_returns_string(self):
+        """DBエラー時はstr返却（Brain合成不要 → 勉強中メッセージ）"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_conn.execute.side_effect = Exception("DB error")
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "テスト"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        # DBエラーはintegrated_knowledge_searchで吸収されるため、
+        # 結果なし（"none"ソース）→ "勉強中" メッセージが返る
+        assert isinstance(result, str)
+        assert "勉強中" in result
+
+    def test_handler_dict_contains_query(self):
+        """返却dictにqueryが含まれる"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "休暇", "有給10日", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            is_mvv_question_func=MagicMock(return_value=False),
+            phase3_knowledge_config={"enabled": False},
+        )
+
+        result = handler.handle_query_company_knowledge(
+            params={"query": "休暇について"}, room_id="123",
+            account_id="456", sender_name="テスト", context=None
+        )
+
+        assert result["query"] == "休暇について"
+        assert "message" in result
+
+
+# =====================================================
+# Phase 4: org_id テナント分離テスト
+# =====================================================
+
+class TestPhase4OrgIsolation:
+    """Phase 4: soulkun_knowledge のorg_id分離を検証"""
+
+    def test_handler_has_organization_id(self):
+        """ハンドラーにorganization_idが設定される"""
+        handler = create_handler(
+            phase3_knowledge_config={"organization_id": "org_test_company"}
+        )
+        assert handler.organization_id == "org_test_company"
+
+    def test_handler_default_organization_id(self):
+        """org_id未指定時はデフォルト値"""
+        handler = create_handler(phase3_knowledge_config={})
+        assert handler.organization_id == "org_soulsyncs"
+
+    def test_save_knowledge_includes_org_id(self):
+        """save_knowledgeがorg_idパラメータを含む"""
+        mock_pool, mock_conn = create_mock_pool()
+        handler = create_handler(
+            mock_pool=mock_pool,
+            phase3_knowledge_config={"organization_id": "org_test"},
+        )
+
+        handler.save_knowledge("rules", "有給", "10日", created_by="user1")
+
+        # SQLにorganization_idが含まれることを確認
+        call_args = mock_conn.execute.call_args
+        sql_text = str(call_args[0][0])
+        assert "organization_id" in sql_text
+        # call_args[0] = positional args: (text_obj, params_dict)
+        params = call_args[0][1] if len(call_args[0]) > 1 else {}
+        assert params.get("org_id") == "org_test"
+
+    def test_delete_knowledge_includes_org_id(self):
+        """delete_knowledgeがorg_idパラメータを含む"""
+        mock_pool, mock_conn = create_mock_pool()
+        handler = create_handler(
+            mock_pool=mock_pool,
+            phase3_knowledge_config={"organization_id": "org_test"},
+        )
+
+        handler.delete_knowledge(category="rules", key="有給")
+
+        call_args = mock_conn.execute.call_args
+        sql_text = str(call_args[0][0])
+        assert "organization_id" in sql_text
+
+    def test_get_all_knowledge_includes_org_id(self):
+        """get_all_knowledgeがorg_idフィルタを含む"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            phase3_knowledge_config={"organization_id": "org_test"},
+        )
+
+        handler.get_all_knowledge(limit=10)
+
+        call_args = mock_conn.execute.call_args
+        sql_text = str(call_args[0][0])
+        assert "organization_id" in sql_text
+
+    def test_search_legacy_knowledge_includes_org_id(self):
+        """search_legacy_knowledgeがorg_idフィルタを含む"""
+        mock_pool, mock_conn = create_mock_pool()
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = []
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(
+            mock_pool=mock_pool,
+            phase3_knowledge_config={"organization_id": "org_test"},
+        )
+
+        handler.search_legacy_knowledge("有給")
+
+        call_args = mock_conn.execute.call_args
+        sql_text = str(call_args[0][0])
+        assert "organization_id" in sql_text
 
 
 if __name__ == "__main__":

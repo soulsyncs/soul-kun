@@ -1023,6 +1023,13 @@ async def _brain_handle_task_complete(params, room_id, account_id, sender_name, 
 
 
 async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name, context):
+    """
+    ナレッジ検索ハンドラー
+
+    Phase 3.5: ハンドラーはデータ取得のみ。回答生成はBrain層が担当。
+    dict結果（needs_answer_synthesis=True）をHandlerResult.dataに格納し、
+    core.py の _synthesize_knowledge_answer で Brain が回答を合成する。
+    """
     try:
         import sys
         main = sys.modules.get('main')
@@ -1031,6 +1038,14 @@ async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name
 
         handle_query_company_knowledge = getattr(main, 'handle_query_company_knowledge')
         result = handle_query_company_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+
+        # Phase 3.5: dict結果はBrain合成用のデータとして渡す
+        if isinstance(result, dict):
+            return HandlerResult(
+                success=True,
+                message=result.get("message", "検索完了ウル🐺"),
+                data=result,
+            )
         return HandlerResult(success=True, message=result if result else "ナレッジが見つからなかったウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"ナレッジ検索でエラーが発生したウル🐺")

@@ -1955,6 +1955,36 @@ class SoulkunBrain:
                 error_code=result.data.get("error_code") if result.data and not result.success else None,
             )
 
+            # Phase 3.5: Brain-controlled knowledge answer synthesis
+            # ハンドラーが返した検索データをBrain（LLM）で回答に合成する
+            # CLAUDE.md §1: 全出力は脳を通る。ハンドラーはデータ取得のみ。
+            if (
+                result.success
+                and result.data
+                and isinstance(result.data, dict)
+                and result.data.get("needs_answer_synthesis")
+                and self.llm_brain is not None
+            ):
+                synthesized = await self._synthesize_knowledge_answer(
+                    search_data=result.data,
+                    original_query=tool_call.parameters.get("query", ""),
+                )
+                if synthesized:
+                    result = HandlerResult(
+                        success=True,
+                        message=synthesized,
+                        data=result.data,
+                    )
+                else:
+                    # 合成失敗時: 検索結果をそのまま表示
+                    fallback = result.data.get("formatted_context", "")
+                    if fallback:
+                        result = HandlerResult(
+                            success=True,
+                            message=f"検索結果を見つけたウル！🐺\n\n{fallback}",
+                            data=result.data,
+                        )
+
             # 記憶更新（非同期）
             asyncio.create_task(
                 self.memory_manager.update_memory_safely(
@@ -1996,6 +2026,69 @@ class SoulkunBrain:
                 debug_info={"error": str(e)},
                 total_time_ms=self._elapsed_ms(start_time),
             )
+
+    async def _synthesize_knowledge_answer(
+        self,
+        search_data: Dict[str, Any],
+        original_query: str,
+    ) -> Optional[str]:
+        """
+        Brain層でナレッジ検索結果から回答を合成する（Phase 3.5）
+
+        CLAUDE.md §1準拠: 全出力は脳を通る。ハンドラーはデータ取得のみ、
+        回答生成はBrain（LLM Brain）が担当する。
+
+        Args:
+            search_data: ハンドラーが返した検索データ
+            original_query: ユーザーの元の質問
+
+        Returns:
+            合成された回答テキスト、またはNone（エラー時）
+        """
+        if self.llm_brain is None:
+            logger.warning("LLM Brain not available for knowledge synthesis")
+            return None
+
+        formatted_context = search_data.get("formatted_context", "")
+        # トークン制限を考慮してコンテキストを切り詰め（約1000トークン相当）
+        MAX_CONTEXT_CHARS = 4000
+        if len(formatted_context) > MAX_CONTEXT_CHARS:
+            formatted_context = formatted_context[:MAX_CONTEXT_CHARS] + "\n...(以下省略)"
+        source = search_data.get("source", "unknown")
+        confidence = search_data.get("confidence", 0)
+        source_note = search_data.get("source_note", "")
+
+        system_prompt = f"""あなたは「ソウルくん」です。会社の知識ベースから情報を参照して回答します。
+
+【重要なルール】
+1. 提供された参考情報に基づいて回答してください
+2. 情報源を明示してください（例：「就業規則によると...」「社内マニュアルでは...」）
+3. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
+4. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
+5. 簡潔に、わかりやすく回答してください
+
+【参考情報の出典】
+検索方法: {source}（{"旧システム" if source == "legacy" else "Phase 3 Pinecone検索"}）
+信頼度: {confidence:.2f}
+
+【参考情報】
+{formatted_context}
+"""
+
+        try:
+            answer = await self.llm_brain.synthesize_text(
+                system_prompt=system_prompt,
+                user_message=f"質問: {original_query}",
+            )
+
+            if answer and source_note:
+                answer += source_note
+
+            return answer
+
+        except Exception as e:
+            logger.error(f"Knowledge synthesis error: {e}", exc_info=True)
+            return None
 
     def _parse_confirmation_response(
         self,

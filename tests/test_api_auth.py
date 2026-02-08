@@ -8,12 +8,16 @@ Task 1-2: API認証ミドルウェアの単体テスト。
 - 必須claims不足で401
 - 正常トークンでUserContext取得
 - ロール別アクセス制御
+
+Codexプレプッシュレビュー指摘対応（API統合テスト追加）:
+- org_id不一致で403
+- JWT未指定で401（/api/v1/tasks, /api/v1/knowledge/search）
 """
 
 import datetime
 import os
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 from jose import jwt
@@ -364,3 +368,196 @@ class TestGetJwtSecret:
             with pytest.raises(HTTPException) as exc_info:
                 auth_module._get_jwt_secret()
             assert exc_info.value.status_code == 500
+
+
+# ================================================================
+# API統合テスト: エンドポイントレベルのJWT認証検証
+# Codexプレプッシュレビュー指摘対応
+# ================================================================
+
+
+class TestOrganizationsEndpointAuth:
+    """organizations エンドポイントのJWT認証・org_id不一致テスト"""
+
+    @pytest.fixture
+    def client(self):
+        """テストクライアント（organizationsルーター）"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.api.v1.organizations import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        return TestClient(app)
+
+    def test_sync_org_chart_without_jwt_returns_401(self, client):
+        """JWT未指定でorganizations同期APIにアクセスすると401"""
+        response = client.post(
+            "/api/v1/organizations/org-001/sync-org-chart",
+            json={
+                "organization_id": "org-001",
+                "sync_type": "full",
+                "departments": [],
+                "employees": [],
+                "roles": [],
+            },
+        )
+        # 認証なし → 401（get_current_userがNoneで401を返す）
+        assert response.status_code == 401
+
+    @patch("app.api.v1.organizations.get_db_pool")
+    def test_sync_org_chart_org_id_mismatch_returns_403(self, mock_get_pool, client):
+        """JWT内のorg_idとパスのorg_idが不一致で403"""
+        # JWTのorg_id="org-AAA"だがパスは"org-BBB"
+        token = _make_token(user_id="u-test", org_id="org-AAA", role="admin")
+        response = client.post(
+            "/api/v1/organizations/org-BBB/sync-org-chart",
+            json={
+                "organization_id": "org-BBB",
+                "sync_type": "full",
+                "departments": [],
+                "employees": [],
+                "roles": [],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+        data = response.json()
+        assert data["detail"]["error_code"] == "ACCESS_DENIED"
+
+    def test_get_departments_without_jwt_returns_401(self, client):
+        """JWT未指定で部署一覧APIにアクセスすると401"""
+        response = client.get("/api/v1/organizations/org-001/departments")
+        assert response.status_code == 401
+
+    @patch("app.api.v1.organizations.get_db_pool")
+    def test_get_departments_org_id_mismatch_returns_403(self, mock_get_pool, client):
+        """JWT内のorg_idとパスのorg_idが不一致で部署一覧403"""
+        token = _make_token(user_id="u-test", org_id="org-AAA", role="member")
+        response = client.get(
+            "/api/v1/organizations/org-BBB/departments",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+    def test_get_department_detail_without_jwt_returns_401(self, client):
+        """JWT未指定で部署詳細APIにアクセスすると401"""
+        response = client.get(
+            "/api/v1/organizations/org-001/departments/dept-001"
+        )
+        assert response.status_code == 401
+
+    @patch("app.api.v1.organizations.get_db_pool")
+    def test_get_department_detail_org_id_mismatch_returns_403(self, mock_get_pool, client):
+        """JWT内のorg_idとパスのorg_idが不一致で部署詳細403"""
+        token = _make_token(user_id="u-test", org_id="org-AAA", role="member")
+        response = client.get(
+            "/api/v1/organizations/org-BBB/departments/dept-001",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 403
+
+
+class TestTasksEndpointAuth:
+    """tasks エンドポイントのJWT認証テスト"""
+
+    @pytest.fixture
+    def client(self):
+        """テストクライアント（tasksルーター）"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.api.v1.tasks import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        return TestClient(app)
+
+    def test_overdue_tasks_without_jwt_returns_401(self, client):
+        """/api/v1/tasks/overdue にJWT未指定で401"""
+        response = client.get("/api/v1/tasks/overdue")
+        assert response.status_code == 401
+
+    def test_overdue_summary_without_jwt_returns_401(self, client):
+        """/api/v1/tasks/overdue/summary にJWT未指定で401"""
+        response = client.get("/api/v1/tasks/overdue/summary")
+        assert response.status_code == 401
+
+    def test_overdue_tasks_with_expired_token_returns_401(self, client):
+        """期限切れトークンで/api/v1/tasks/overdueにアクセスすると401"""
+        token = _make_expired_token(user_id="u-test", org_id="org-test")
+        response = client.get(
+            "/api/v1/tasks/overdue",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 401
+
+    def test_overdue_tasks_with_invalid_token_returns_401(self, client):
+        """不正なトークンで/api/v1/tasks/overdueにアクセスすると401"""
+        response = client.get(
+            "/api/v1/tasks/overdue",
+            headers={"Authorization": "Bearer invalid-token-string"},
+        )
+        assert response.status_code == 401
+
+
+class TestKnowledgeEndpointAuth:
+    """knowledge エンドポイントのJWT認証テスト"""
+
+    @pytest.fixture
+    def client(self):
+        """テストクライアント（knowledgeルーター）"""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from app.api.v1.knowledge import router
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/v1")
+        return TestClient(app)
+
+    def test_search_without_jwt_returns_401(self, client):
+        """/api/v1/knowledge/search にJWT未指定で401"""
+        response = client.post(
+            "/api/v1/knowledge/search",
+            json={"query": "テスト検索"},
+        )
+        assert response.status_code == 401
+
+    def test_search_with_expired_token_returns_401(self, client):
+        """期限切れトークンで/api/v1/knowledge/searchにアクセスすると401"""
+        token = _make_expired_token(user_id="u-test", org_id="org-test")
+        response = client.post(
+            "/api/v1/knowledge/search",
+            json={"query": "テスト検索"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 401
+
+    def test_search_with_invalid_token_returns_401(self, client):
+        """不正なトークンで/api/v1/knowledge/searchにアクセスすると401"""
+        response = client.post(
+            "/api/v1/knowledge/search",
+            json={"query": "テスト検索"},
+            headers={"Authorization": "Bearer garbage-token"},
+        )
+        assert response.status_code == 401
+
+    def test_feedback_without_jwt_returns_401(self, client):
+        """/api/v1/knowledge/feedback にJWT未指定で401"""
+        response = client.post(
+            "/api/v1/knowledge/feedback",
+            json={
+                "search_log_id": "log_123",
+                "feedback_type": "helpful",
+            },
+        )
+        assert response.status_code == 401
+
+    def test_documents_list_without_jwt_returns_401(self, client):
+        """/api/v1/knowledge/documents にJWT未指定で401"""
+        response = client.get("/api/v1/knowledge/documents")
+        assert response.status_code == 401
+
+    def test_document_detail_without_jwt_returns_401(self, client):
+        """/api/v1/knowledge/documents/{id} にJWT未指定で401"""
+        response = client.get("/api/v1/knowledge/documents/doc-123")
+        assert response.status_code == 401

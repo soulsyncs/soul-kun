@@ -188,6 +188,7 @@ class TestDrivePermissionSyncService:
 
             mock_org_instance = AsyncMock()
             mock_perm_instance = AsyncMock()
+            mock_perm_instance.clear_cache = MagicMock()  # sync method
             mock_drive_instance = MagicMock()
 
             mock_org.return_value = mock_org_instance

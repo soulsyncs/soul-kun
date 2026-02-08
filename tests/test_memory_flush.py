@@ -447,17 +447,25 @@ class TestAutoFlushDebounce:
         ]
         return {"recent_conversation": msgs}
 
+    @staticmethod
+    def _close_coro(coro, **kwargs):
+        """create_task mock: コルーチンを閉じてTaskモックを返す"""
+        coro.close()
+        return MagicMock()
+
     @pytest.mark.asyncio
     async def test_first_call_triggers_flush(self, memory_access, mock_context):
         """初回呼び出しではフラッシュがトリガーされる"""
-        with patch("lib.brain.memory_access.asyncio.ensure_future") as mock_ensure:
+        with patch("lib.brain.memory_access.asyncio.create_task") as mock_ensure:
+            mock_ensure.side_effect = self._close_coro
             await memory_access._try_auto_flush(mock_context, "user1", "room1")
             mock_ensure.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_second_call_within_debounce_skips(self, memory_access, mock_context):
         """デバウンス期間内の2回目はスキップされる"""
-        with patch("lib.brain.memory_access.asyncio.ensure_future") as mock_ensure:
+        with patch("lib.brain.memory_access.asyncio.create_task") as mock_ensure:
+            mock_ensure.side_effect = self._close_coro
             await memory_access._try_auto_flush(mock_context, "user1", "room1")
             await memory_access._try_auto_flush(mock_context, "user1", "room1")
             # 1回のみ呼ばれる
@@ -466,7 +474,8 @@ class TestAutoFlushDebounce:
     @pytest.mark.asyncio
     async def test_different_room_triggers_separately(self, memory_access, mock_context):
         """別ルームは別々にフラッシュされる"""
-        with patch("lib.brain.memory_access.asyncio.ensure_future") as mock_ensure:
+        with patch("lib.brain.memory_access.asyncio.create_task") as mock_ensure:
+            mock_ensure.side_effect = self._close_coro
             await memory_access._try_auto_flush(mock_context, "user1", "room1")
             await memory_access._try_auto_flush(mock_context, "user1", "room2")
             assert mock_ensure.call_count == 2
@@ -474,7 +483,8 @@ class TestAutoFlushDebounce:
     @pytest.mark.asyncio
     async def test_after_debounce_period_triggers_again(self, memory_access, mock_context):
         """デバウンス期間後は再度フラッシュされる"""
-        with patch("lib.brain.memory_access.asyncio.ensure_future") as mock_ensure:
+        with patch("lib.brain.memory_access.asyncio.create_task") as mock_ensure:
+            mock_ensure.side_effect = self._close_coro
             await memory_access._try_auto_flush(mock_context, "user1", "room1")
             # デバウンス期間を過去にずらす
             past = datetime.now(timezone.utc) - timedelta(seconds=301)
@@ -487,6 +497,6 @@ class TestAutoFlushDebounce:
         """flusherなしでは何も起きない"""
         from lib.brain.memory_access import BrainMemoryAccess
         ma = BrainMemoryAccess(pool=mock_pool, org_id="org_test")
-        with patch("lib.brain.memory_access.asyncio.ensure_future") as mock_ensure:
+        with patch("lib.brain.memory_access.asyncio.create_task") as mock_ensure:
             await ma._try_auto_flush(mock_context, "user1", "room1")
             mock_ensure.assert_not_called()

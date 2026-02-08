@@ -498,10 +498,20 @@ class TestHybridSearch:
         with patch("lib.brain.hybrid_search.asyncio.wait_for") as mock_wait_for:
             # 1回目: gather全体がタイムアウト → 2回目: キーワードフォールバック成功
             keyword_fallback = [{"id": "k1", "title": "fb", "content": "fallback", "source_table": "soulkun_knowledge"}]
-            mock_wait_for.side_effect = [
-                asyncio.TimeoutError(),  # gather全体
-                keyword_fallback,        # キーワードフォールバック
-            ]
+            responses = [asyncio.TimeoutError(), keyword_fallback]
+            call_idx = 0
+
+            async def _wait_for_side_effect(coro_or_future, timeout=None):
+                nonlocal call_idx
+                if asyncio.iscoroutine(coro_or_future):
+                    coro_or_future.close()
+                resp = responses[call_idx]
+                call_idx += 1
+                if isinstance(resp, BaseException):
+                    raise resp
+                return resp
+
+            mock_wait_for.side_effect = _wait_for_side_effect
 
             result = await searcher_full.search("テスト")
             assert result.total_count >= 0  # フォールバックが動いた
@@ -511,7 +521,12 @@ class TestHybridSearch:
     async def test_timeout_both_stages_returns_empty(self, searcher_full, mock_pool, mock_pinecone, mock_embedding):
         """gather + フォールバック両方タイムアウトで空結果"""
         with patch("lib.brain.hybrid_search.asyncio.wait_for") as mock_wait_for:
-            mock_wait_for.side_effect = asyncio.TimeoutError()
+            async def _timeout_and_cleanup(coro_or_future, timeout=None):
+                if asyncio.iscoroutine(coro_or_future):
+                    coro_or_future.close()
+                raise asyncio.TimeoutError()
+
+            mock_wait_for.side_effect = _timeout_and_cleanup
 
             result = await searcher_full.search("テスト")
             assert result.total_count == 0

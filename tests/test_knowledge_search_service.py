@@ -320,6 +320,10 @@ class TestKnowledgeFeedback:
 class TestDepartmentFilter:
     """部署フィルタのテスト"""
 
+    @pytest.fixture(autouse=True)
+    def mock_api_key(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_AI_API_KEY", "mock-key")
+
     def test_build_filter_with_department_access_control(self):
         """部署アクセス制御有効時: public/internalは部署無視、confidentialは部署一致のみ"""
         service = KnowledgeSearchService(db_conn=AsyncMock())
@@ -451,6 +455,10 @@ class TestDepartmentFilter:
 
 class TestFilterByAccessControl:
     """_filter_by_access_control の直接テスト"""
+
+    @pytest.fixture(autouse=True)
+    def mock_api_key(self, monkeypatch):
+        monkeypatch.setenv("GOOGLE_AI_API_KEY", "mock-key")
 
     @pytest.mark.asyncio
     async def test_passes_public_doc(self):

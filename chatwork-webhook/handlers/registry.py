@@ -973,6 +973,89 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     },
 
     # =========================================================================
+    # 目標削除・整理（v10.56.0）
+    # =========================================================================
+    "goal_delete": {
+        "name": "目標削除",
+        "description": "登録済みの目標を削除する。「目標を消したい」「目標#3を削除して」「いらない目標を消して」などに対応。確認必須の危険操作。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "目標を消したい",
+            "目標#3を削除して",
+            "いらない目標を消して",
+            "この目標やめたい",
+        ],
+        "params_schema": {
+            "target_numbers": {
+                "type": "string",
+                "description": "削除対象の目標番号（例: '2,3,6-15'）",
+                "required": False,
+                "note": "省略時は目標一覧を表示して選択を促す"
+            }
+        },
+        "handler": "goal_delete",
+        "requires_confirmation": True,
+        "required_data": ["sender_account_id", "sender_name"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標を消", "目標を削除", "目標やめ", "目標キャンセル"],
+                "secondary": ["消したい", "削除", "やめたい", "キャンセル"],
+                "negative": ["登録したい", "一覧", "整理"],
+            },
+            "intent_keywords": {
+                "primary": ["目標を消したい", "目標を削除して", "目標やめたい", "目標をキャンセル"],
+                "secondary": ["消す", "削除", "やめる"],
+                "modifiers": ["目標"],
+                "negative": ["登録", "新規", "整理", "レビュー"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "high",
+            "priority": 5,
+        },
+    },
+
+    "goal_cleanup": {
+        "name": "目標整理",
+        "description": "重複・期限切れ・放置中の目標をまとめて整理する。「目標が多すぎる」「重複を統合したい」「古い目標を消したい」などに対応。メニュー形式で選択。",
+        "category": "goal",
+        "enabled": True,
+        "trigger_examples": [
+            "目標を整理したい",
+            "重複した目標をまとめて",
+            "古い目標を消したい",
+            "目標が多すぎる",
+        ],
+        "params_schema": {
+            "cleanup_type": {
+                "type": "string",
+                "description": "整理タイプ: duplicates（重複統合）, expired（期限切れ整理）, pending（放置中整理）",
+                "required": False,
+                "note": "省略時はメニューを表示"
+            }
+        },
+        "handler": "goal_cleanup",
+        "requires_confirmation": True,
+        "required_data": ["sender_account_id", "sender_name"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["目標整理", "重複統合", "目標が多すぎ", "古い目標"],
+                "secondary": ["整理", "統合", "まとめ", "クリーンアップ"],
+                "negative": ["登録", "新規", "削除して"],
+            },
+            "intent_keywords": {
+                "primary": ["目標整理", "目標をまとめ", "重複した目標", "古い目標を消"],
+                "secondary": ["整理", "統合", "まとめ", "クリーンアップ"],
+                "modifiers": ["目標"],
+                "negative": ["登録", "新規", "削除して"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
+
+    # =========================================================================
     # アナウンス機能（v10.26.0）
     # =========================================================================
     "announcement_create": {
@@ -1055,6 +1138,13 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
                 "required": False,
                 "note": "ユーザーが指定した場合のみ"
             },
+            "output_format": {
+                "type": "string",
+                "description": "出力形式: google_docs（Googleドキュメント）, markdown（マークダウン）",
+                "required": False,
+                "default": "google_docs",
+                "note": "省略時はgoogle_docs"
+            },
         },
         "handler": "generate_document",  # CapabilityBridge経由
         "requires_confirmation": True,
@@ -1097,9 +1187,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             },
             "style": {
                 "type": "string",
-                "description": "スタイル: realistic（写実的）, anime（アニメ風）, watercolor（水彩画風）等",
+                "description": "スタイル: vivid（鮮やか）, natural（自然）, anime（アニメ風）, realistic（写実的）, illustration（イラスト）, minimalist（ミニマル）, corporate（ビジネス）",
                 "required": False,
-                "note": "省略時は自動判定"
+                "note": "省略時はvivid"
             },
             "size": {
                 "type": "string",

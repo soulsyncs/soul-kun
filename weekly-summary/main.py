@@ -23,61 +23,9 @@ import json
 # - get_pool() -> lib/db.py
 # - get_secret() -> lib/secrets.py
 # ============================================
-try:
-    from lib.db import get_db_pool
-    from lib.secrets import get_secret_cached as get_secret
-    from lib.config import get_settings
-    USE_LIB_DB = True
-    print("✅ lib/db.py loaded for database connection (Phase D)")
-except ImportError as e:
-    print(f"⚠️ lib/db.py not available (using fallback): {e}")
-    USE_LIB_DB = False
-
-    # フォールバック: 旧実装
-    from google.cloud.sql.connector import Connector
-    from google.cloud import secretmanager
-
-    PROJECT_ID = "soulkun-production"
-    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-    DB_NAME = "soulkun_tasks"
-    DB_USER = "soulkun_user"
-
-    _connector = None
-    _pool = None
-
-    def get_secret(secret_id):
-        """Secret Managerからシークレットを取得（フォールバック）"""
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
-
-    def get_db_pool():
-        """データベース接続プールを取得（フォールバック）"""
-        global _connector, _pool
-
-        if _pool is not None:
-            return _pool
-
-        _connector = Connector()
-
-        def getconn():
-            password = get_secret("cloudsql-password")
-            conn = _connector.connect(
-                INSTANCE_CONNECTION_NAME,
-                "pg8000",
-                user=DB_USER,
-                password=password,
-                db=DB_NAME
-            )
-            return conn
-
-        _pool = sqlalchemy.create_engine(
-            "postgresql+pg8000://",
-            creator=getconn,
-        )
-
-        return _pool
+from lib.db import get_db_pool
+from lib.secrets import get_secret_cached as get_secret
+from lib.config import get_settings
 
 
 # ============================================

@@ -29,18 +29,11 @@ from utils.date_utils import (
     check_deadline_proximity as _new_check_deadline_proximity,
 )
 
-try:
-    from lib import (
-        clean_chatwork_tags,
-        prepare_task_display_text,
-        validate_summary,
-    )
-    USE_TEXT_UTILS_LIB = True
-except ImportError:
-    USE_TEXT_UTILS_LIB = False
-    clean_chatwork_tags = None
-    prepare_task_display_text = None
-    validate_summary = None
+from lib import (
+    clean_chatwork_tags,
+    prepare_task_display_text,
+    validate_summary,
+)
 
 # Firestore client for pending tasks
 db = firestore.Client(project=PROJECT_ID)
@@ -280,10 +273,7 @@ def generate_deadline_alert_message(
     if not clean_task_name:
         clean_task_name = "（タスク内容なし）"
     else:
-        if USE_TEXT_UTILS_LIB and prepare_task_display_text:
-            clean_task_name = prepare_task_display_text(clean_task_name, max_length=30)
-        else:
-            clean_task_name = _fallback_truncate_text(clean_task_name, max_length=30)
+        clean_task_name = prepare_task_display_text(clean_task_name, max_length=30)
 
     # メンション部分を生成（v10.13.4: 「あなたが」に統一）
     mention_line = ""
@@ -654,10 +644,7 @@ def handle_chatwork_task_complete(params, room_id, account_id, sender_name, cont
         )
         
         # ★★★ v10.24.8: prepare_task_display_text()で自然な位置で切る ★★★
-        if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
-            task_display = prepare_task_display_text(clean_chatwork_tags(task_body), max_length=30)
-        else:
-            task_display = _fallback_truncate_text(task_body, max_length=30)
+        task_display = prepare_task_display_text(clean_chatwork_tags(task_body), max_length=30)
         return f"✅ タスク「{task_display}」を完了にしたウル🎉\nお疲れ様ウル！他にも何か手伝えることがあったら教えてウル🐺✨"
     else:
         return f"❌ タスクの完了に失敗したウル...\nもう一度試してみてほしいウル！"
@@ -796,18 +783,15 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
 
                 # v10.27.0: AI生成のsummaryを優先使用（有効な場合のみ）
                 body_short = None
-                if summary and USE_TEXT_UTILS_LIB:
+                if summary:
                     if validate_summary(summary, body):
                         body_short = summary
                     else:
                         print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
 
                 if not body_short:
-                    if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
-                        clean_body = clean_chatwork_tags(body)
-                        body_short = prepare_task_display_text(clean_body, max_length=40)
-                    else:
-                        body_short = _fallback_truncate_text(body, max_length=40)
+                    clean_body = clean_chatwork_tags(body)
+                    body_short = prepare_task_display_text(clean_body, max_length=40)
                 response += f"  {task_num}. {body_short} {limit_str}\n"
                 task_num += 1
             response += "\n"
@@ -829,18 +813,15 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
 
             # v10.27.0: AI生成のsummaryを優先使用（有効な場合のみ）
             body_short = None
-            if summary and USE_TEXT_UTILS_LIB:
+            if summary:
                 if validate_summary(summary, body):
                     body_short = summary
                 else:
                     print(f"⚠️ summary検証失敗、bodyから生成: task_id={task.get('task_id')}")
 
             if not body_short:
-                if USE_TEXT_UTILS_LIB and clean_chatwork_tags and prepare_task_display_text:
-                    clean_body = clean_chatwork_tags(body)
-                    body_short = prepare_task_display_text(clean_body, max_length=40)
-                else:
-                    body_short = _fallback_truncate_text(body, max_length=40)
+                clean_body = clean_chatwork_tags(body)
+                body_short = prepare_task_display_text(clean_body, max_length=40)
             response += f"{i}. {body_short} {limit_str}\n"
 
     response += f"この{len(tasks)}つが{status_text}タスクだよウル！頑張ってねウル💪✨"

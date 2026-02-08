@@ -426,6 +426,7 @@ class CapabilityBridge:
                 "summary": DocumentType.SUMMARY,
                 "proposal": DocumentType.PROPOSAL,
                 "minutes": DocumentType.MINUTES,
+                "manual": DocumentType.MANUAL,
             }
             doc_type = doc_type_map.get(document_type_str, DocumentType.REPORT)
 
@@ -548,6 +549,7 @@ class CapabilityBridge:
                 "vivid": ImageStyle.VIVID,
                 "natural": ImageStyle.NATURAL,
                 "anime": ImageStyle.ANIME,
+                "realistic": ImageStyle.PHOTOREALISTIC,
                 "photorealistic": ImageStyle.PHOTOREALISTIC,
                 "illustration": ImageStyle.ILLUSTRATION,
                 "minimalist": ImageStyle.MINIMALIST,

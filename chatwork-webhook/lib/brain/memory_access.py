@@ -343,7 +343,10 @@ class BrainMemoryAccess:
                 if hasattr(msg, "role") and hasattr(msg, "content")
             ]
             # fire-and-forget: フラッシュをバックグラウンドタスクとして起動
-            asyncio.ensure_future(self._run_flush_background(history, user_id, room_id))
+            asyncio.create_task(
+                self._run_flush_background(history, user_id, room_id),
+                name=f"memory_flush:{user_id}:{room_id}",
+            )
         except Exception as e:
             logger.warning(f"Auto memory flush scheduling failed: {e}")
 

@@ -1552,11 +1552,12 @@ async def _brain_handle_announcement_create(params, room_id, account_id, sender_
             return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
 
         _get_announcement_handler = getattr(main, '_get_announcement_handler')
-        result = _get_announcement_handler().handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
+        result = _get_announcement_handler().handle_announcement_request(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         if result:
             return HandlerResult(success=True, message=result)
         return HandlerResult(success=True, message="アナウンス機能は現在準備中ウル🐺")
     except Exception as e:
+        logger.error("announcement_create error: %s", e, exc_info=True)
         return HandlerResult(success=False, message=f"アナウンスでエラーが発生したウル🐺")
 
 
@@ -1571,6 +1572,7 @@ async def _brain_handle_query_org_chart(params, room_id, account_id, sender_name
         result = handle_query_org_chart(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         return HandlerResult(success=True, message=result if result else "組織情報を取得したウル🐺")
     except Exception as e:
+        logger.error("query_org_chart error: %s", e, exc_info=True)
         return HandlerResult(success=False, message=f"組織図クエリでエラーが発生したウル🐺")
 
 

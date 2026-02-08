@@ -24,11 +24,8 @@ import base64  # v6.8.9: Webhook署名検証用
 from infra.db import (
     get_pool,
     get_secret,
-    get_connector,
     get_db_connection,
-    get_db_password,
     PROJECT_ID,
-    USE_LIB_DB,
 )
 
 # =====================================================
@@ -181,76 +178,49 @@ except ImportError as e:
 # =====================================================
 # v10.18.1: summary生成用ライブラリ
 # =====================================================
-try:
-    from lib import (
-        clean_chatwork_tags,
-        prepare_task_display_text,
-        extract_task_subject,
-        validate_summary,
-    )
-    USE_TEXT_UTILS_LIB = True
-    print("✅ lib/text_utils.py loaded for summary generation")
-except ImportError as e:
-    print(f"⚠️ lib/text_utils.py not available: {e}")
-    USE_TEXT_UTILS_LIB = False
+from lib import (
+    clean_chatwork_tags,
+    prepare_task_display_text,
+    extract_task_subject,
+    validate_summary,
+)
+print("✅ lib/text_utils.py loaded for summary generation")
 
 # =====================================================
 # v10.18.1: ユーザーユーティリティ（Phase 3.5対応）
 # =====================================================
-try:
-    from lib import (
-        get_user_primary_department as lib_get_user_primary_department,
-    )
-    USE_USER_UTILS_LIB = True
-    print("✅ lib/user_utils.py loaded for department_id")
-except ImportError as e:
-    print(f"⚠️ lib/user_utils.py not available: {e}")
-    USE_USER_UTILS_LIB = False
+from lib import (
+    get_user_primary_department as lib_get_user_primary_department,
+)
+print("✅ lib/user_utils.py loaded for department_id")
 
 # =====================================================
 # v10.26.0: 営業日判定ユーティリティ
 # =====================================================
-try:
-    from lib.business_day import (
-        is_business_day,
-        get_non_business_day_reason,
-    )
-    USE_BUSINESS_DAY_LIB = True
-    print("✅ lib/business_day.py loaded for holiday detection")
-except ImportError as e:
-    print(f"⚠️ lib/business_day.py not available: {e}")
-    USE_BUSINESS_DAY_LIB = False
-    is_business_day = None
-    get_non_business_day_reason = None
+from lib.business_day import (
+    is_business_day,
+    get_non_business_day_reason,
+)
+print("✅ lib/business_day.py loaded for holiday detection")
 
 # =====================================================
 # v10.19.0: Phase 2.5 目標設定対話フロー
 # =====================================================
-try:
-    from lib import (
-        has_active_goal_session,
-        process_goal_setting_message,
-    )
-    USE_GOAL_SETTING_LIB = True
-    print("✅ lib/goal_setting.py loaded for goal setting dialogue")
-except ImportError as e:
-    print(f"⚠️ lib/goal_setting.py not available: {e}")
-    USE_GOAL_SETTING_LIB = False
+from lib import (
+    has_active_goal_session,
+    process_goal_setting_message,
+)
+print("✅ lib/goal_setting.py loaded for goal setting dialogue")
 
 # =====================================================
 # v10.40.8: ユーザー長期記憶（プロフィール）
 # =====================================================
-try:
-    from lib.long_term_memory import (
-        is_long_term_memory_request,
-        save_long_term_memory,
-        LongTermMemoryManager,
-    )
-    USE_LONG_TERM_MEMORY = True
-    print("✅ lib/long_term_memory.py loaded for user profile memory")
-except ImportError as e:
-    print(f"⚠️ lib/long_term_memory.py not available: {e}")
-    USE_LONG_TERM_MEMORY = False
+from lib.long_term_memory import (
+    is_long_term_memory_request,
+    save_long_term_memory,
+    LongTermMemoryManager,
+)
+print("✅ lib/long_term_memory.py loaded for user profile memory")
 
 # =====================================================
 # v10.40.9: ボットペルソナ記憶
@@ -808,7 +778,7 @@ def _get_overdue_handler():
             get_overdue_days_func=get_overdue_days,
             admin_room_id=str(ADMIN_ROOM_ID),
             escalation_days=ESCALATION_DAYS,
-            prepare_task_display_text=prepare_task_display_text if USE_TEXT_UTILS_LIB else None
+            prepare_task_display_text=prepare_task_display_text
         )
     return _overdue_handler
 
@@ -854,8 +824,8 @@ def _get_announcement_handler():
             get_all_rooms=get_all_rooms,
             create_chatwork_task=create_chatwork_task,
             send_chatwork_message=send_chatwork_message,
-            is_business_day=is_business_day if USE_BUSINESS_DAY_LIB else None,
-            get_non_business_day_reason=get_non_business_day_reason if USE_BUSINESS_DAY_LIB else None,
+            is_business_day=is_business_day,
+            get_non_business_day_reason=get_non_business_day_reason,
             authorized_room_ids=authorized_rooms,
             admin_account_id=admin_acct_id,
             organization_id=org_id,
@@ -1054,15 +1024,14 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
     }
 
     # 目標設定セッションチェック
-    if USE_GOAL_SETTING_LIB:
-        try:
-            pool = get_pool()
-            session = has_active_goal_session(pool, room_id, account_id)
-            if session:
-                context["has_active_goal_session"] = True
-                context["goal_session_id"] = session.get("session_id") if isinstance(session, dict) else None
-        except Exception as e:
-            print(f"⚠️ Goal session check failed: {e}")
+    try:
+        pool = get_pool()
+        session = has_active_goal_session(pool, room_id, account_id)
+        if session:
+            context["has_active_goal_session"] = True
+            context["goal_session_id"] = session.get("session_id") if isinstance(session, dict) else None
+    except Exception as e:
+        print(f"⚠️ Goal session check failed: {e}")
 
     # アナウンス確認待ちチェック（v10.33.0: フラグチェック削除, v10.33.1: ハンドラー必須化）
     try:
@@ -2215,7 +2184,7 @@ def sync_chatwork_tasks(request):
                     # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
                     # ★★★ v10.24.8: フォールバックも自然な位置で切る ★★★
                     summary = None
-                    if USE_TEXT_UTILS_LIB and body:
+                    if body:
                         try:
                             summary = extract_task_subject(body)
                             if not validate_summary(summary, body):

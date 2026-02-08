@@ -30,14 +30,10 @@ class TestKnowledgeSearchEndpoint:
         """テストクライアント"""
         app = create_test_app()
 
-        # 依存性をオーバーライド
-        async def mock_get_db_connection():
-            conn = AsyncMock()
-            conn.execute = AsyncMock()
-            conn.commit = AsyncMock()
-            yield conn
+        def mock_get_db_connection():
+            yield MagicMock()
 
-        async def mock_get_current_user():
+        def mock_get_current_user():
             return UserContext(
                 user_id="test_user",
                 organization_id="org_test",
@@ -53,12 +49,8 @@ class TestKnowledgeSearchEndpoint:
         """認証ヘッダーが必要"""
         app = create_test_app()
 
-        # DBはモックするが、認証はモックしない（ヘッダー必須を確認）
-        async def mock_get_db_connection():
-            conn = AsyncMock()
-            conn.execute = AsyncMock()
-            conn.commit = AsyncMock()
-            yield conn
+        def mock_get_db_connection():
+            yield MagicMock()
 
         app.dependency_overrides[get_db_connection] = mock_get_db_connection
 
@@ -127,13 +119,10 @@ class TestKnowledgeFeedbackEndpoint:
         """テストクライアント"""
         app = create_test_app()
 
-        async def mock_get_db_connection():
-            conn = AsyncMock()
-            conn.execute = AsyncMock()
-            conn.commit = AsyncMock()
-            yield conn
+        def mock_get_db_connection():
+            yield MagicMock()
 
-        async def mock_get_current_user():
+        def mock_get_current_user():
             return UserContext(
                 user_id="test_user",
                 organization_id="org_test",
@@ -196,8 +185,8 @@ class TestDocumentsEndpoint:
         """テストクライアント"""
         app = create_test_app()
 
-        async def mock_get_db_connection():
-            conn = AsyncMock()
+        def mock_get_db_connection():
+            conn = MagicMock()
 
             # カウントクエリのモック
             count_result = MagicMock()
@@ -211,7 +200,7 @@ class TestDocumentsEndpoint:
             conn.commit = AsyncMock()
             yield conn
 
-        async def mock_get_current_user():
+        def mock_get_current_user():
             return UserContext(
                 user_id="test_user",
                 organization_id="org_test",

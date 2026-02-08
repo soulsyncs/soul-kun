@@ -12,54 +12,26 @@ import asyncio
 from typing import Optional
 
 # ★★★ v10.31.1: Phase D - 接続設定集約 ★★★
-try:
-    from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
-    from lib.secrets import get_secret_cached as _lib_get_secret
-    from lib.config import get_settings
-    USE_LIB_DB = True
-    print("✅ lib/db.py loaded for database connection (Phase D)")
-except ImportError as e:
-    print(f"⚠️ lib/db.py not available (using fallback): {e}")
-    USE_LIB_DB = False
-
-    # フォールバック: 旧実装で必要なインポート
-    from google.cloud import secretmanager
-    from google.cloud.sql.connector import Connector
+from lib.db import get_db_pool as _lib_get_db_pool, get_db_connection as _lib_get_db_connection
+from lib.secrets import get_secret_cached as _lib_get_secret
+from lib.config import get_settings
 
 # ★★★ v10.18.1: lib/テキスト処理ユーティリティ ★★★
-try:
-    from lib import (
-        clean_chatwork_tags as lib_clean_chatwork_tags,
-        prepare_task_display_text as lib_prepare_task_display_text,
-        remove_greetings as lib_remove_greetings,
-        validate_summary as lib_validate_summary,
-        extract_task_subject as lib_extract_task_subject,
-    )
-    USE_TEXT_UTILS_LIB = True
-    print("✅ lib/text_utils をロードしました")
-except ImportError as e:
-    USE_TEXT_UTILS_LIB = False
-    print(f"⚠️ lib/text_utils が見つかりません: {e}")
+from lib import (
+    clean_chatwork_tags as lib_clean_chatwork_tags,
+    prepare_task_display_text as lib_prepare_task_display_text,
+    remove_greetings as lib_remove_greetings,
+    validate_summary as lib_validate_summary,
+    extract_task_subject as lib_extract_task_subject,
+)
 
 # ★★★ v10.18.1: ユーザーユーティリティ（Phase 3.5対応） ★★★
-try:
-    from lib import (
-        get_user_primary_department as lib_get_user_primary_department,
-    )
-    USE_USER_UTILS_LIB = True
-    print("✅ lib/user_utils をロードしました")
-except ImportError as e:
-    USE_USER_UTILS_LIB = False
-    print(f"⚠️ lib/user_utils が見つかりません: {e}")
+from lib import (
+    get_user_primary_department as lib_get_user_primary_department,
+)
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
-
-# Cloud SQL設定（フォールバック用）
-if not USE_LIB_DB:
-    INSTANCE_CONNECTION_NAME = "soulkun-production:asia-northeast1:soulkun-db"
-    DB_NAME = "soulkun_tasks"
-    DB_USER = "soulkun_user"
 
 # 会話履歴の設定
 MAX_HISTORY_COUNT = 100      # 100件に増加
@@ -87,9 +59,6 @@ BOT_NAME_PATTERNS = [
 MY_ACCOUNT_ID = "10909425"
 BOT_ACCOUNT_ID = "10909425"  # Phase 1-B用
 
-# Cloud SQL接続プール
-_pool = None
-
 # JST タイムゾーン
 JST = timezone(timedelta(hours=9))
 
@@ -105,14 +74,7 @@ HEADERS = None  # 遅延初期化用
 
 def get_secret(secret_id):
     """Secret Managerからシークレットを取得"""
-    if USE_LIB_DB:
-        return _lib_get_secret(secret_id)
-    else:
-        # フォールバック
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
+    return _lib_get_secret(secret_id)
 
 def get_db_password():
     """DBパスワードを取得"""
@@ -120,39 +82,11 @@ def get_db_password():
 
 def get_db_connection():
     """Phase 1-B用: pg8000接続を返す"""
-    if USE_LIB_DB:
-        return _lib_get_db_connection()
-    else:
-        # フォールバック
-        connector = Connector()
-        conn = connector.connect(
-            INSTANCE_CONNECTION_NAME,
-            "pg8000",
-            user=DB_USER,
-            password=get_db_password(),
-            db=DB_NAME,
-        )
-        return conn
+    return _lib_get_db_connection()
 
 def get_pool():
     """Cloud SQL接続プールを取得"""
-    if USE_LIB_DB:
-        return _lib_get_db_pool()
-    else:
-        # フォールバック
-        global _pool
-        if _pool is None:
-            connector = Connector()
-            def getconn():
-                return connector.connect(
-                    INSTANCE_CONNECTION_NAME, "pg8000",
-                    user=DB_USER, password=get_db_password(), db=DB_NAME,
-                )
-            _pool = sqlalchemy.create_engine(
-                "postgresql+pg8000://", creator=getconn,
-                pool_size=5, max_overflow=2, pool_timeout=30, pool_recycle=1800,
-            )
-        return _pool
+    return _lib_get_db_pool()
 
 # =====================================================
 # LLM Brain Integration (v10.50.0)
@@ -623,29 +557,6 @@ def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None)
         print(f"ChatWork API 例外: {e}")
         return None
 
-def get_user_primary_department(chatwork_account_id):
-    """担当者のメイン部署IDを取得（Phase 3.5対応）"""
-    try:
-        pool = get_pool()
-        with pool.connect() as conn:
-            result = conn.execute(
-                sqlalchemy.text("""
-                    SELECT ud.department_id
-                    FROM user_departments ud
-                    JOIN users u ON ud.user_id = u.id
-                    WHERE u.chatwork_account_id = :chatwork_account_id
-                      AND ud.is_primary = TRUE
-                      AND ud.ended_at IS NULL
-                    LIMIT 1
-                """),
-                {"chatwork_account_id": str(chatwork_account_id)}
-            )
-            row = result.fetchone()
-            return row[0] if row else None
-    except Exception as e:
-        print(f"部署取得エラー: {e}")
-        return None
-
 
 def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
     """ChatWorkタスクをデータベースに保存
@@ -659,21 +570,17 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
 
         # ★★★ v10.18.1: department_id取得（Phase 3.5対応） ★★★
         department_id = None
-        if USE_USER_UTILS_LIB and assigned_to_account_id:
+        if assigned_to_account_id:
             try:
                 department_id = lib_get_user_primary_department(pool, assigned_to_account_id)
                 if department_id:
                     print(f"📁 department_id取得成功: {department_id}")
             except Exception as e:
-                print(f"⚠️ lib department_id取得エラー、ローカル関数にフォールバック: {e}")
-                department_id = get_user_primary_department(assigned_to_account_id)
-        else:
-            # lib未使用時はローカル関数を使用
-            department_id = get_user_primary_department(assigned_to_account_id)
+                print(f"⚠️ department_id取得エラー: {e}")
 
         # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
         summary = None
-        if USE_TEXT_UTILS_LIB and body:
+        if body:
             try:
                 summary = lib_extract_task_subject(body)
                 if not lib_validate_summary(summary, body):
@@ -681,7 +588,6 @@ def save_chatwork_task_to_db(task_data, room_id, assigned_by_account_id):
                 if not lib_validate_summary(summary, body):
                     cleaned = lib_clean_chatwork_tags(body)
                     summary = cleaned[:40] + "..." if len(cleaned) > 40 else cleaned
-                print(f"📝 summary生成成功: {summary}")
             except Exception as e:
                 print(f"⚠️ summary生成エラー（フォールバック使用）: {e}")
                 summary = body[:40] + "..." if body and len(body) > 40 else body
@@ -2715,7 +2621,7 @@ def sync_chatwork_tasks(request):
                     # 新規タスクの挿入
                     # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
                     summary = None
-                    if USE_TEXT_UTILS_LIB and body:
+                    if body:
                         try:
                             summary = lib_extract_task_subject(body)
                             if not lib_validate_summary(summary, body):

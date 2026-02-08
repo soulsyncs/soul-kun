@@ -130,6 +130,7 @@ def ensure_processed_messages_table():
                 CREATE TABLE IF NOT EXISTS processed_messages (
                     message_id VARCHAR(50) PRIMARY KEY,
                     room_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
             """))

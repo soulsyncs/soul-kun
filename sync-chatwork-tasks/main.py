@@ -5138,8 +5138,8 @@ def save_room_message(room_id, message_id, account_id, account_name, body, send_
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO room_messages (room_id, message_id, account_id, account_name, body, send_time)
-                    VALUES (:room_id, :message_id, :account_id, :account_name, :body, :send_time)
+                    INSERT INTO room_messages (room_id, message_id, account_id, account_name, body, send_time, organization_id)
+                    VALUES (:room_id, :message_id, :account_id, :account_name, :body, :send_time, :org_id)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {
@@ -5148,7 +5148,8 @@ def save_room_message(room_id, message_id, account_id, account_name, body, send_
                     "account_id": account_id,
                     "account_name": account_name,
                     "body": body,
-                    "send_time": send_time or datetime.now(timezone.utc)
+                    "send_time": send_time or datetime.now(timezone.utc),
+                    "org_id": _ORGANIZATION_ID,
                 }
             )
     except Exception as e:
@@ -5205,6 +5206,7 @@ def ensure_room_messages_table():
                     account_name VARCHAR(255),
                     body TEXT,
                     send_time TIMESTAMP,
+                    organization_id UUID NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """))
@@ -5228,6 +5230,7 @@ def ensure_processed_messages_table():
                 CREATE TABLE IF NOT EXISTS processed_messages (
                     message_id VARCHAR(50) PRIMARY KEY,
                     room_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
             """))
@@ -5281,6 +5284,7 @@ def ensure_overdue_tables():
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
                     account_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     reminder_date DATE NOT NULL,
                     overdue_days INTEGER NOT NULL,
                     escalated BOOLEAN DEFAULT FALSE,
@@ -5298,6 +5302,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_limit_changes (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     old_limit_time BIGINT,
                     new_limit_time BIGINT,
                     detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -5317,6 +5322,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS dm_room_cache (
                     account_id BIGINT PRIMARY KEY,
                     dm_room_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
             """))
@@ -5326,6 +5332,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_escalations (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
+                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
                     escalated_date DATE NOT NULL,
                     escalated_to_requester BOOLEAN DEFAULT FALSE,
                     escalated_to_admin BOOLEAN DEFAULT FALSE,

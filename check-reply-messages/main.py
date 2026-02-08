@@ -2149,8 +2149,8 @@ def save_room_message(room_id, message_id, account_id, account_name, body, send_
         with pool.connect() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO room_messages (room_id, message_id, account_id, account_name, body, send_time)
-                    VALUES (:room_id, :message_id, :account_id, :account_name, :body, :send_time)
+                    INSERT INTO room_messages (room_id, message_id, account_id, account_name, body, send_time, organization_id)
+                    VALUES (:room_id, :message_id, :account_id, :account_name, :body, :send_time, :org_id)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {
@@ -2159,7 +2159,8 @@ def save_room_message(room_id, message_id, account_id, account_name, body, send_
                     "account_id": account_id,
                     "account_name": account_name,
                     "body": body,
-                    "send_time": send_time or datetime.now(timezone.utc)
+                    "send_time": send_time or datetime.now(timezone.utc),
+                    "org_id": _ORGANIZATION_ID,
                 }
             )
             conn.commit()
@@ -2216,6 +2217,7 @@ def ensure_room_messages_table():
                     account_name VARCHAR(255),
                     body TEXT,
                     send_time TIMESTAMP,
+                    organization_id UUID NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """))

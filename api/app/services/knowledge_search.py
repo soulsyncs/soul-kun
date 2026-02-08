@@ -16,6 +16,7 @@ Phase 3: ナレッジ検索機能
 import uuid
 import time
 from datetime import datetime
+
 from typing import Optional
 from dataclasses import dataclass
 
@@ -196,7 +197,10 @@ class KnowledgeSearchService:
                 answer_refused = True
                 refused_reason = "low_confidence"
 
-        # 7. 検索ログ記録
+        # 7. 回答生成（Phase 3.5: Brain Tool統合後に実装予定）
+        answer = None
+
+        # 8. 検索ログ記録
         search_log_id = await self._log_search(
             user_context=user_context,
             request=request,
@@ -220,7 +224,7 @@ class KnowledgeSearchService:
             search_log_id=search_log_id,
             top_score=top_score,
             average_score=average_score,
-            answer=None,  # 回答生成は Phase 3.5 以降
+            answer=answer,
             answer_refused=answer_refused,
             refused_reason=refused_reason,
             search_time_ms=search_time_ms,
@@ -257,14 +261,37 @@ class KnowledgeSearchService:
             })
 
         # 部署フィルタ（Phase 3.5: ENABLE_DEPARTMENT_ACCESS_CONTROL が TRUE の場合）
+        # 設計: public/internal は部署に関係なくアクセス可
+        #        confidential は指定部署のドキュメントのみアクセス可
+        #        confidential + department_id未設定 は管理者のみ（ここでは除外）
         if settings.ENABLE_DEPARTMENT_ACCESS_CONTROL:
-            if user_context.accessible_department_ids:
-                filter_conditions.append({
-                    "$or": [
-                        {"department_id": ""},  # 部署指定なし
-                        {"department_id": {"$in": user_context.accessible_department_ids}}
+            classifications = user_context.accessible_classifications or []
+            non_confidential = [c for c in classifications if c != "confidential"]
+            has_confidential = "confidential" in classifications
+
+            # classificationフィルタを部署対応版に置き換え
+            access_or: list[dict] = []
+            if non_confidential:
+                access_or.append({"classification": {"$in": non_confidential}})
+            if has_confidential and user_context.accessible_department_ids:
+                # confidential は指定部署のドキュメントのみ
+                access_or.append({
+                    "$and": [
+                        {"classification": "confidential"},
+                        {"department_id": {"$in": user_context.accessible_department_ids}},
                     ]
                 })
+            # confidential + dept_ids空 → confidentialアクセス不可（access_orに追加しない）
+
+            if access_or:
+                # 既存のclassificationフィルタを部署対応版に置き換え
+                filter_conditions = [
+                    f for f in filter_conditions if "classification" not in f
+                ]
+                if len(access_or) == 1:
+                    filter_conditions.append(access_or[0])
+                else:
+                    filter_conditions.append({"$or": access_or})
 
         if len(filter_conditions) == 1:
             return filter_conditions[0]
@@ -312,9 +339,10 @@ class KnowledgeSearchService:
                 continue
 
             # 部署チェック（Phase 3.5）
+            # confidential は指定部署のみ、department_id未設定は管理者のみ（除外）
             if settings.ENABLE_DEPARTMENT_ACCESS_CONTROL:
-                if classification == "confidential" and department_id:
-                    if department_id not in user_context.accessible_department_ids:
+                if classification == "confidential":
+                    if not department_id or department_id not in (user_context.accessible_department_ids or []):
                         filtered_count += 1
                         continue
 
@@ -344,9 +372,6 @@ class KnowledgeSearchService:
 
         # Pinecone IDのリストを取得
         pinecone_ids = [r.id for r in search_results]
-
-        # PostgreSQL 配列リテラル形式に変換
-        ids_str = "'{" + ",".join(f'"{id}"' for id in pinecone_ids) + "}'"
 
         # DBからチャンク情報を取得
         query = f"""
@@ -630,21 +655,23 @@ class KnowledgeSearchService:
             }
         )
 
-        # 検索ログの has_feedback フラグを更新
+        # 検索ログの has_feedback フラグを更新（org_id フィルタ: Rule #1）
         await self.db_conn.execute(
             text("""
                 UPDATE knowledge_search_logs
                 SET has_feedback = TRUE,
                     feedback_type = :feedback_type
                 WHERE id = :search_log_id
+                  AND organization_id = CAST(:org_id AS UUID)
             """),
             {
                 "search_log_id": request.search_log_id,
                 "feedback_type": request.feedback_type,
+                "org_id": user_context.organization_id,
             }
         )
 
-        # ドキュメントのフィードバック統計を更新
+        # ドキュメントのフィードバック統計を更新（org_id フィルタ: Rule #1）
         if request.target_chunk_ids:
             if request.feedback_type == "helpful":
                 await self.db_conn.execute(
@@ -654,8 +681,9 @@ class KnowledgeSearchService:
                         FROM document_chunks dc
                         WHERE dc.document_id = d.id
                           AND dc.id = ANY(CAST(:chunk_ids AS UUID[]))
+                          AND d.organization_id = CAST(:org_id AS UUID)
                     """),
-                    {"chunk_ids": target_chunk_ids_pg}
+                    {"chunk_ids": target_chunk_ids_pg, "org_id": user_context.organization_id}
                 )
             elif request.feedback_type in ("not_helpful", "wrong", "incomplete", "outdated"):
                 await self.db_conn.execute(
@@ -665,8 +693,9 @@ class KnowledgeSearchService:
                         FROM document_chunks dc
                         WHERE dc.document_id = d.id
                           AND dc.id = ANY(CAST(:chunk_ids AS UUID[]))
+                          AND d.organization_id = CAST(:org_id AS UUID)
                     """),
-                    {"chunk_ids": target_chunk_ids_pg}
+                    {"chunk_ids": target_chunk_ids_pg, "org_id": user_context.organization_id}
                 )
 
         return KnowledgeFeedbackResponse(

@@ -860,5 +860,386 @@ class TestIntegration:
             assert result.tier_used == Tier.ECONOMY
 
 
+# =============================================================================
+# 統合テスト（API呼び出しシミュレーション）
+# =============================================================================
+
+
+class TestIntegrationWithMockedAPI:
+    """モックAPIを使った統合テスト"""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = Mock()
+        conn = Mock()
+        result = Mock()
+        result.fetchone.return_value = None
+        result.fetchall.return_value = []
+        conn.execute.return_value = result
+        pool.connect.return_value.__enter__ = Mock(return_value=conn)
+        pool.connect.return_value.__exit__ = Mock(return_value=False)
+        return pool
+
+    def _make_orchestrator(self, mock_pool, **kwargs):
+        defaults = dict(
+            pool=mock_pool,
+            organization_id="org_test",
+            api_key="test-key",
+            dry_run=False,
+            enable_logging=False,
+            enable_cost_management=False,
+        )
+        defaults.update(kwargs)
+        return create_orchestrator(**defaults)
+
+    @pytest.mark.asyncio
+    async def test_successful_api_call(self, mock_pool):
+        """API呼び出し成功→結果が返る"""
+        orchestrator = self._make_orchestrator(mock_pool)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.raise_for_status = Mock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "こんにちは！"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        }
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch("httpx.AsyncClient") as mock_client_cls:
+            mock_client = AsyncMock()
+            mock_client.post.return_value = mock_response
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is True
+            assert result.content == "こんにちは！"
+            assert result.input_tokens == 10
+            assert result.output_tokens == 20
+
+    @pytest.mark.asyncio
+    async def test_api_error_429_triggers_retry(self, mock_pool):
+        """429エラーでリトライが発動"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_fallback=True)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator._fallback_manager, 'execute_with_fallback') as mock_fallback:
+            mock_fallback.return_value = FallbackResult(
+                success=True,
+                response="リトライ後の応答",
+                model_used=model,
+                was_fallback=True,
+                original_model_id=model.model_id,
+                fallback_attempts=[
+                    FallbackAttempt(model_id=model.model_id, attempt_number=1, success=False, error_message="429"),
+                    FallbackAttempt(model_id=model.model_id, attempt_number=2, success=True),
+                ],
+                input_tokens=10,
+                output_tokens=20,
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is True
+            assert result.was_fallback is True
+            assert result.fallback_attempts == 2
+
+    @pytest.mark.asyncio
+    async def test_api_error_401_no_retry(self, mock_pool):
+        """401エラーはリトライしない"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_fallback=True)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator._fallback_manager, 'execute_with_fallback') as mock_fallback:
+            mock_fallback.return_value = FallbackResult(
+                success=False,
+                model_used=model,
+                error_message="401 Unauthorized",
+                fallback_attempts=[
+                    FallbackAttempt(model_id=model.model_id, attempt_number=1, success=False, error_message="401"),
+                ],
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is False
+            assert "401" in (result.error_message or "")
+
+    @pytest.mark.asyncio
+    async def test_cost_block_prevents_api_call(self, mock_pool):
+        """コスト上限でAPI呼び出しがブロックされる"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_cost_management=True)
+        model = create_test_model_info(tier=Tier.PREMIUM)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator._cost_manager, 'estimate_cost') as mock_estimate, \
+             patch.object(orchestrator._cost_manager, 'check_cost') as mock_check:
+            mock_estimate.return_value = CostEstimate(
+                input_tokens=1000, output_tokens=500,
+                cost_jpy=Decimal("100.0"), model_id=model.model_id,
+            )
+            mock_check.return_value = CostCheckResult(
+                estimated_cost_jpy=Decimal("100.0"),
+                daily_cost_jpy=Decimal("500.0"),
+                monthly_cost_jpy=Decimal("10000.0"),
+                budget_remaining_jpy=Decimal("0"),
+                budget_status=BudgetStatus.LIMIT,
+                action=CostAction.BLOCK,
+                message="日次コスト上限に達しました",
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is False
+            assert result.cost_action == CostAction.BLOCK
+            assert "上限" in (result.cost_message or "")
+
+    @pytest.mark.asyncio
+    async def test_fallback_premium_to_standard(self, mock_pool):
+        """PREMIUMモデル失敗→STANDARDへフォールバック"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_fallback=True)
+        premium = create_test_model_info(model_id="claude-opus", tier=Tier.PREMIUM)
+        standard = create_test_model_info(model_id="gpt-4o", tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=premium), \
+             patch.object(orchestrator._fallback_manager, 'execute_with_fallback') as mock_fallback:
+            mock_fallback.return_value = FallbackResult(
+                success=True,
+                response="フォールバック応答",
+                model_used=standard,
+                was_fallback=True,
+                original_model_id="claude-opus",
+                fallback_attempts=[
+                    FallbackAttempt(model_id="claude-opus", attempt_number=1, success=False, error_message="503"),
+                    FallbackAttempt(model_id="gpt-4o", attempt_number=2, success=True),
+                ],
+                input_tokens=10,
+                output_tokens=20,
+            )
+
+            result = await orchestrator.call(prompt="重要な経営判断", task_type="ceo_learning")
+
+            assert result.success is True
+            assert result.was_fallback is True
+            assert result.original_model_id == "claude-opus"
+
+    @pytest.mark.asyncio
+    async def test_all_models_fail(self, mock_pool):
+        """全モデル失敗→エラー結果"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_fallback=True)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator._fallback_manager, 'execute_with_fallback') as mock_fallback:
+            mock_fallback.return_value = FallbackResult(
+                success=False,
+                model_used=model,
+                error_message="All models failed",
+                fallback_attempts=[
+                    FallbackAttempt(model_id="gpt-4o", attempt_number=1, success=False, error_message="503"),
+                    FallbackAttempt(model_id="gemini-pro", attempt_number=2, success=False, error_message="503"),
+                ],
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is False
+            assert result.error_message is not None
+
+    @pytest.mark.asyncio
+    async def test_logging_records_usage(self, mock_pool):
+        """ログ有効時に利用ログが記録される"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_logging=True)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api, \
+             patch.object(orchestrator._usage_logger, 'log_usage') as mock_log:
+            mock_api.return_value = ("応答テキスト", 10, 20)
+
+            result = await orchestrator.call(
+                prompt="テスト", task_type="conversation",
+                room_id="room-1", user_id="user-1",
+            )
+
+            assert result.success is True
+            mock_log.assert_called_once()
+            call_kwargs = mock_log.call_args
+            assert call_kwargs[1]["room_id"] == "room-1"
+            assert call_kwargs[1]["user_id"] == "user-1"
+
+    @pytest.mark.asyncio
+    async def test_logging_disabled_skips_log(self, mock_pool):
+        """ログ無効時は記録されない"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_logging=False)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api, \
+             patch.object(orchestrator._usage_logger, 'log_usage') as mock_log:
+            mock_api.return_value = ("応答", 10, 20)
+
+            await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            mock_log.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_monthly_summary_updated_on_success(self, mock_pool):
+        """成功時に月次サマリーが更新される"""
+        orchestrator = self._make_orchestrator(mock_pool, enable_cost_management=True)
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api, \
+             patch.object(orchestrator._cost_manager, 'estimate_cost') as mock_est, \
+             patch.object(orchestrator._cost_manager, 'check_cost') as mock_check, \
+             patch.object(orchestrator._cost_manager, 'calculate_actual_cost', return_value=Decimal("1.5")), \
+             patch.object(orchestrator._cost_manager, 'update_monthly_summary') as mock_summary:
+            mock_api.return_value = ("応答", 10, 20)
+            mock_est.return_value = CostEstimate(
+                input_tokens=10, output_tokens=20,
+                cost_jpy=Decimal("1.5"), model_id=model.model_id,
+            )
+            mock_check.return_value = CostCheckResult(
+                estimated_cost_jpy=Decimal("1.5"),
+                daily_cost_jpy=Decimal("10.0"),
+                monthly_cost_jpy=Decimal("100.0"),
+                budget_remaining_jpy=Decimal("9900.0"),
+                budget_status=BudgetStatus.NORMAL,
+                action=CostAction.AUTO_EXECUTE, message="OK",
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is True
+            mock_summary.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_keyword_upgrade_to_premium(self, mock_pool):
+        """重要キーワードでSTANDARD→PREMIUMに昇格"""
+        orchestrator = self._make_orchestrator(mock_pool)
+        premium = create_test_model_info(model_id="claude-opus", tier=Tier.PREMIUM)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=premium), \
+             patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api:
+            mock_api.return_value = ("経営分析結果", 50, 100)
+
+            result = await orchestrator.call(
+                prompt="重要な経営判断について分析してください",
+                task_type="conversation",
+            )
+
+            assert result.success is True
+            assert result.tier_used == Tier.PREMIUM
+
+    @pytest.mark.asyncio
+    async def test_keyword_downgrade_to_economy(self, mock_pool):
+        """ざっくりキーワードでダウングレード"""
+        orchestrator = self._make_orchestrator(mock_pool)
+        economy = create_test_model_info(model_id="gemini-flash", tier=Tier.ECONOMY)
+
+        with patch.object(orchestrator._selector, 'select') as mock_select:
+            mock_select.return_value = ModelSelection(
+                model=economy, tier=Tier.ECONOMY,
+                reason="Downgraded by keyword: ざっくり",
+            )
+            with patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api:
+                mock_api.return_value = ("概要です", 10, 20)
+
+                result = await orchestrator.call(
+                    prompt="ざっくり教えて",
+                    task_type="conversation",
+                )
+
+                assert result.success is True
+                assert result.tier_used == Tier.ECONOMY
+
+    @pytest.mark.asyncio
+    async def test_exception_in_selector_returns_error(self, mock_pool):
+        """セレクタで例外→エラー結果"""
+        orchestrator = self._make_orchestrator(mock_pool)
+
+        with patch.object(orchestrator._selector, 'select', side_effect=RuntimeError("DB error")):
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is False
+            assert "DB error" in (result.error_message or "")
+
+    @pytest.mark.asyncio
+    async def test_no_api_key_raises_error(self, mock_pool):
+        """APIキーなしで呼び出すとエラー"""
+        orchestrator = self._make_orchestrator(mock_pool, api_key="")
+        orchestrator._api_key = None
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator._fallback_manager, 'execute_with_fallback') as mock_fb:
+            mock_fb.return_value = FallbackResult(
+                success=False, error_message="OpenRouter API key not configured",
+                model_used=model,
+            )
+
+            result = await orchestrator.call(prompt="テスト", task_type="conversation")
+
+            assert result.success is False
+
+    @pytest.mark.asyncio
+    async def test_different_org_ids_isolated(self, mock_pool):
+        """異なるorg_idのオーケストレータが独立"""
+        orch_a = self._make_orchestrator(mock_pool, organization_id="org_A")
+        orch_b = self._make_orchestrator(mock_pool, organization_id="org_B")
+
+        assert orch_a._organization_id == "org_A"
+        assert orch_b._organization_id == "org_B"
+        assert orch_a._cost_manager._organization_id == "org_A"
+        assert orch_b._cost_manager._organization_id == "org_B"
+
+    @pytest.mark.asyncio
+    async def test_full_flow_with_cost_and_logging(self, mock_pool):
+        """コスト管理+ログ+API呼び出しの全フロー"""
+        orchestrator = self._make_orchestrator(
+            mock_pool, enable_cost_management=True, enable_logging=True,
+        )
+        model = create_test_model_info(tier=Tier.STANDARD)
+
+        with patch.object(orchestrator._registry, 'get_default_model_for_tier', return_value=model), \
+             patch.object(orchestrator, '_call_openrouter', new_callable=AsyncMock) as mock_api, \
+             patch.object(orchestrator._cost_manager, 'estimate_cost') as mock_est, \
+             patch.object(orchestrator._cost_manager, 'check_cost') as mock_check, \
+             patch.object(orchestrator._cost_manager, 'calculate_actual_cost', return_value=Decimal("2.0")), \
+             patch.object(orchestrator._cost_manager, 'update_monthly_summary') as mock_summary, \
+             patch.object(orchestrator._usage_logger, 'log_usage') as mock_log:
+            mock_api.return_value = ("フル統合テスト応答", 50, 100)
+            mock_est.return_value = CostEstimate(
+                input_tokens=50, output_tokens=100,
+                cost_jpy=Decimal("2.0"), model_id=model.model_id,
+            )
+            mock_check.return_value = CostCheckResult(
+                estimated_cost_jpy=Decimal("1.5"),
+                daily_cost_jpy=Decimal("10.0"),
+                monthly_cost_jpy=Decimal("100.0"),
+                budget_remaining_jpy=Decimal("9900.0"),
+                budget_status=BudgetStatus.NORMAL,
+                action=CostAction.AUTO_EXECUTE, message="OK",
+            )
+
+            result = await orchestrator.call(
+                prompt="統合テスト", task_type="conversation",
+                room_id="room-test", user_id="user-test",
+            )
+
+            assert result.success is True
+            assert result.content == "フル統合テスト応答"
+            assert result.cost_jpy == Decimal("2.0")
+            assert result.cost_action == CostAction.AUTO_EXECUTE
+            mock_log.assert_called_once()
+            mock_summary.assert_called_once()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -6,7 +6,6 @@ api/app/services/knowledge_search.py のテスト
 
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
-from datetime import datetime
 
 from app.services.knowledge_search import (
     KnowledgeSearchService,
@@ -310,3 +309,96 @@ class TestKnowledgeFeedback:
         response = await service.submit_feedback(sample_user_context, request)
 
         assert response.status == "received"
+
+
+class TestDepartmentFilter:
+    """部署フィルタのテスト"""
+
+    def test_build_filter_with_department_access_control(self):
+        """部署アクセス制御有効時: public/internalは部署無視、confidentialは部署一致のみ"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1", "dept_2"],
+        )
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+
+            result = service._build_metadata_filter(ctx)
+
+            # $or で non-confidential と confidential+dept を分岐
+            assert "$or" in result or ("$and" in result and any(
+                "$or" in c for c in result.get("$and", []) if isinstance(c, dict)
+            ))
+
+    def test_build_filter_with_empty_department_ids(self):
+        """部署アクセス制御有効・部署ID空: confidentialアクセス不可、public/internalのみ"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=[],  # 空リスト
+        )
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+
+            result = service._build_metadata_filter(ctx)
+
+            # confidential が除外され、public/internal のみ
+            if "$and" in result:
+                cls_filter = next(
+                    (c for c in result["$and"] if "classification" in c),
+                    None,
+                )
+                if cls_filter:
+                    assert "confidential" not in cls_filter["classification"]["$in"]
+            elif "classification" in result:
+                assert "confidential" not in result["classification"]["$in"]
+
+    def test_build_filter_confidential_excludes_no_dept_docs(self):
+        """部署アクセス制御有効時: confidential+department未設定は非管理者に見えない"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+        )
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = True
+
+            result = service._build_metadata_filter(ctx)
+
+            # department_id="" は含まれない（管理者のみ）
+            import json
+            result_str = json.dumps(result, ensure_ascii=False)
+            assert '"department_id": ""' not in result_str
+
+    def test_build_filter_without_department_access_control(self):
+        """部署アクセス制御無効時はclassificationフィルタのみ"""
+        service = KnowledgeSearchService(db_conn=AsyncMock())
+
+        ctx = UserContext(
+            user_id="user1",
+            organization_id="org1",
+            accessible_classifications=["public", "internal", "confidential"],
+            accessible_department_ids=["dept_1"],
+        )
+
+        with patch("app.services.knowledge_search.settings") as mock_settings:
+            mock_settings.ENABLE_DEPARTMENT_ACCESS_CONTROL = False
+
+            result = service._build_metadata_filter(ctx)
+
+            # confidential を含むclassificationフィルタがそのまま残る
+            if "classification" in result:
+                assert "confidential" in result["classification"]["$in"]

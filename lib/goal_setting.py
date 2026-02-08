@@ -28,7 +28,7 @@ v1.7 変更点:
 
 from datetime import datetime, timedelta, date
 from decimal import Decimal
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, List, Tuple
 from uuid import uuid4
 from sqlalchemy import text
 import json
@@ -3218,9 +3218,84 @@ class GoalHistoryProvider:
         numeric_count = sum(1 for g in past_goals if g.get("target_value"))
         goal_type_preference = "numeric" if numeric_count > len(past_goals) / 2 else "qualitative"
 
+        # 期間の傾向を分析
+        period_preference = self._analyze_period_preference(past_goals)
+
+        # 進捗スタイルを分析
+        progress_style = self._analyze_progress_style(past_goals)
+
         return {
             "goal_type_preference": goal_type_preference,
-            "period_preference": "monthly",  # TODO: 実際の期間を分析
-            "progress_style": "steady",  # TODO: 進捗パターンを分析
+            "period_preference": period_preference,
+            "progress_style": progress_style,
             "weak_points": context.get("struggle_areas", [])
         }
+
+    def _analyze_period_preference(self, past_goals: List[Dict[str, Any]]) -> str:
+        """過去目標の期間パターンからユーザーの好む目標期間を判定"""
+        period_days_list: List[int] = []
+        for g in past_goals:
+            deadline_str = g.get("deadline")
+            created_str = g.get("created_at")
+            if not deadline_str or not created_str:
+                continue
+            try:
+                deadline_dt = datetime.fromisoformat(deadline_str)
+                created_dt = datetime.fromisoformat(created_str)
+                days = (deadline_dt - created_dt).days
+                if days > 0:
+                    period_days_list.append(days)
+            except (ValueError, TypeError):
+                continue
+
+        if not period_days_list:
+            return "monthly"
+
+        avg_days = sum(period_days_list) / len(period_days_list)
+        if avg_days <= 10:
+            return "weekly"
+        elif avg_days <= 45:
+            return "monthly"
+        elif avg_days <= 120:
+            return "quarterly"
+        else:
+            return "yearly"
+
+    def _analyze_progress_style(self, past_goals: List[Dict[str, Any]]) -> str:
+        """過去目標の達成パターンからユーザーの進捗スタイルを判定"""
+        completed = [g for g in past_goals if g.get("status") == "completed"]
+        abandoned = [g for g in past_goals if g.get("status") == "abandoned"]
+        active = [g for g in past_goals if g.get("status") == "active"]
+
+        if not past_goals:
+            return "steady"
+
+        total = len(past_goals)
+        completion_rate = len(completed) / total if total > 0 else 0
+
+        # 達成率のばらつきを確認
+        rates = [g.get("achievement_rate", 0) for g in past_goals]
+        avg_rate = sum(rates) / len(rates) if rates else 0
+
+        if len(rates) >= 2:
+            variance = sum((r - avg_rate) ** 2 for r in rates) / len(rates)
+        else:
+            variance = 0
+
+        # 放棄率が高い → 三日坊主型
+        if len(abandoned) > total * 0.4:
+            return "sprint"
+
+        # ばらつきが大きい → 波がある
+        if variance > 1000:
+            return "fluctuating"
+
+        # 完了率が高く安定 → 着実型
+        if completion_rate >= 0.6 and avg_rate >= 60:
+            return "steady"
+
+        # 進行中が多い（まだ結果が出ていない）→ slow_start
+        if len(active) > total * 0.5:
+            return "slow_start"
+
+        return "steady"

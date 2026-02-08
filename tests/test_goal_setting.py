@@ -2385,3 +2385,147 @@ class TestLearnFromInteraction:
             mock_conn, session, "why", "ng_abstract",
             was_accepted=False, retry_count=2, specificity_score=0.3
         )
+
+
+class TestAnalyzePeriodPreference:
+    """_analyze_period_preference のテスト"""
+
+    @pytest.fixture
+    def provider(self):
+        from lib.goal_setting import GoalHistoryProvider
+        return GoalHistoryProvider(MagicMock(), "org-1")
+
+    def test_weekly_preference(self, provider):
+        """7日以内の目標が多い場合 weekly"""
+        goals = [
+            {"deadline": "2026-02-07", "created_at": "2026-02-01"},
+            {"deadline": "2026-02-14", "created_at": "2026-02-08"},
+            {"deadline": "2026-02-21", "created_at": "2026-02-15"},
+        ]
+        assert provider._analyze_period_preference(goals) == "weekly"
+
+    def test_monthly_preference(self, provider):
+        """30日前後の目標が多い場合 monthly"""
+        goals = [
+            {"deadline": "2026-02-28", "created_at": "2026-02-01"},
+            {"deadline": "2026-03-31", "created_at": "2026-03-01"},
+        ]
+        assert provider._analyze_period_preference(goals) == "monthly"
+
+    def test_quarterly_preference(self, provider):
+        """90日前後の目標が多い場合 quarterly"""
+        goals = [
+            {"deadline": "2026-04-01", "created_at": "2026-01-01"},
+            {"deadline": "2026-07-01", "created_at": "2026-04-01"},
+        ]
+        assert provider._analyze_period_preference(goals) == "quarterly"
+
+    def test_yearly_preference(self, provider):
+        """365日の目標が多い場合 yearly"""
+        goals = [
+            {"deadline": "2027-01-01", "created_at": "2026-01-01"},
+            {"deadline": "2027-06-01", "created_at": "2026-06-01"},
+        ]
+        assert provider._analyze_period_preference(goals) == "yearly"
+
+    def test_empty_goals_returns_monthly(self, provider):
+        """空リストの場合デフォルトmonthly"""
+        assert provider._analyze_period_preference([]) == "monthly"
+
+    def test_no_dates_returns_monthly(self, provider):
+        """日付がない場合デフォルトmonthly"""
+        goals = [{"title": "test"}, {"title": "test2"}]
+        assert provider._analyze_period_preference(goals) == "monthly"
+
+    def test_invalid_dates_ignored(self, provider):
+        """不正な日付はスキップされる"""
+        goals = [
+            {"deadline": "invalid", "created_at": "2026-01-01"},
+            {"deadline": "2026-02-07", "created_at": "2026-02-01"},
+        ]
+        assert provider._analyze_period_preference(goals) == "weekly"
+
+    def test_negative_period_ignored(self, provider):
+        """deadline < created_at の場合スキップ"""
+        goals = [
+            {"deadline": "2026-01-01", "created_at": "2026-02-01"},
+            {"deadline": "2026-02-28", "created_at": "2026-02-01"},
+        ]
+        assert provider._analyze_period_preference(goals) == "monthly"
+
+
+class TestAnalyzeProgressStyle:
+    """_analyze_progress_style のテスト"""
+
+    @pytest.fixture
+    def provider(self):
+        from lib.goal_setting import GoalHistoryProvider
+        return GoalHistoryProvider(MagicMock(), "org-1")
+
+    def test_steady_style(self, provider):
+        """完了率が高く安定 → steady"""
+        goals = [
+            {"status": "completed", "achievement_rate": 90},
+            {"status": "completed", "achievement_rate": 85},
+            {"status": "completed", "achievement_rate": 80},
+        ]
+        assert provider._analyze_progress_style(goals) == "steady"
+
+    def test_sprint_style(self, provider):
+        """放棄率が高い → sprint"""
+        goals = [
+            {"status": "abandoned", "achievement_rate": 20},
+            {"status": "abandoned", "achievement_rate": 30},
+            {"status": "abandoned", "achievement_rate": 10},
+            {"status": "completed", "achievement_rate": 95},
+        ]
+        assert provider._analyze_progress_style(goals) == "sprint"
+
+    def test_fluctuating_style(self, provider):
+        """達成率のばらつきが大きい → fluctuating"""
+        goals = [
+            {"status": "completed", "achievement_rate": 100},
+            {"status": "active", "achievement_rate": 0},
+            {"status": "completed", "achievement_rate": 95},
+            {"status": "active", "achievement_rate": 5},
+        ]
+        assert provider._analyze_progress_style(goals) == "fluctuating"
+
+    def test_slow_start_style(self, provider):
+        """進行中が多い → slow_start"""
+        goals = [
+            {"status": "active", "achievement_rate": 20},
+            {"status": "active", "achievement_rate": 15},
+            {"status": "active", "achievement_rate": 30},
+            {"status": "completed", "achievement_rate": 70},
+        ]
+        assert provider._analyze_progress_style(goals) == "slow_start"
+
+    def test_empty_goals_returns_steady(self, provider):
+        """空リストの場合デフォルトsteady"""
+        assert provider._analyze_progress_style([]) == "steady"
+
+    def test_single_completed_goal(self, provider):
+        """完了目標1つだけの場合"""
+        goals = [{"status": "completed", "achievement_rate": 80}]
+        result = provider._analyze_progress_style(goals)
+        assert result == "steady"
+
+    def test_all_active_goals(self, provider):
+        """全て進行中"""
+        goals = [
+            {"status": "active", "achievement_rate": 30},
+            {"status": "active", "achievement_rate": 25},
+            {"status": "active", "achievement_rate": 40},
+        ]
+        assert provider._analyze_progress_style(goals) == "slow_start"
+
+    def test_missing_achievement_rate(self, provider):
+        """achievement_rateがないgoalでもエラーにならない"""
+        goals = [
+            {"status": "completed"},
+            {"status": "completed"},
+            {"status": "completed"},
+        ]
+        result = provider._analyze_progress_style(goals)
+        assert isinstance(result, str)

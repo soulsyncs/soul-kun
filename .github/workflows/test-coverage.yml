@@ -46,7 +46,8 @@ jobs:
           # - beautifulsoup4: HTMLパース用（test_document_processor.py）
           # - Pillow: 画像処理用（test_multimodal.py）
           # - jpholiday: 日本の祝日判定用（test_business_day.py）
-          pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday
+          # - python-jose[cryptography]: JWT認証テスト用（test_api_auth.py等）
+          pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday python-jose[cryptography]
 
       - name: Run tests with coverage
         run: |

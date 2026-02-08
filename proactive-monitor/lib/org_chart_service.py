@@ -28,6 +28,8 @@ from dataclasses import dataclass, field
 import logging
 import httpx
 
+from .secrets import get_secret_cached
+
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +142,15 @@ class OrgChartService:
                                        （単一テナント環境ではTrueに設定）
         """
         self.supabase_url = supabase_url or os.getenv('SUPABASE_URL')
-        self.supabase_key = supabase_key or os.getenv('SUPABASE_ANON_KEY')
+        # SUPABASE_ANON_KEYはSecret Managerから取得（フォールバック: 環境変数）
+        if supabase_key:
+            self.supabase_key = supabase_key
+        else:
+            try:
+                self.supabase_key = get_secret_cached('SUPABASE_ANON_KEY')
+            except Exception as e:
+                logger.warning("Secret Manager unavailable, falling back to env var: %s", e)
+                self.supabase_key = os.getenv('SUPABASE_ANON_KEY')
         self.organization_id = organization_id
         self.skip_organization_filter = skip_organization_filter
 

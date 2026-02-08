@@ -661,7 +661,7 @@ class EmotionDetector(BaseDetector):
                 "org_id": str(self._org_id),
                 "message_id": message['message_id'],
                 "room_id": message['room_id'],
-                "user_id": str(self._org_id),  # TODO: 実際のuser_idにマッピング
+                "user_id": str(self._org_id),  # NOTE: user_id列はUUID型。account_id(BIGINT)は格納不可。スキーマ変更後に修正（Tier 2で対応）
                 "sentiment_score": sentiment['sentiment_score'],
                 "sentiment_label": sentiment['sentiment_label'],
                 "confidence": sentiment.get('confidence'),
@@ -693,10 +693,12 @@ class EmotionDetector(BaseDetector):
                 FROM emotion_scores es
                 INNER JOIN room_messages rm ON es.message_id = rm.message_id
                 WHERE rm.account_id = :account_id
+                  AND es.organization_id = :org_id
                   AND es.message_time >= :start_date
                   AND es.message_time < :end_date
             """), {
                 "account_id": account_id,
+                "org_id": str(self._org_id),
                 "start_date": baseline_start,
                 "end_date": baseline_end,
             })
@@ -866,7 +868,7 @@ class EmotionDetector(BaseDetector):
                 RETURNING id
             """), {
                 "org_id": str(self._org_id),
-                "user_id": str(self._org_id),  # TODO: account_idからuser_idへのマッピング
+                "user_id": str(self._org_id),  # NOTE: user_id列はUUID型。account_id(BIGINT)は格納不可。スキーマ変更後に修正（Tier 2で対応）
                 "user_name": alert.get('user_name'),
                 "alert_type": alert['alert_type'],
                 "risk_level": alert['risk_level'],

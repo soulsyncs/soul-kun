@@ -8,6 +8,7 @@
 # ============================================
 
 import functions_framework
+import os
 import sqlalchemy
 import httpx
 from datetime import datetime, timedelta
@@ -26,6 +27,8 @@ import json
 from lib.db import get_db_pool
 from lib.secrets import get_secret_cached as get_secret
 from lib.config import get_settings
+
+_ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
 
 # ============================================
@@ -90,17 +93,19 @@ def get_weekly_task_summary(account_id, start_date, end_date):
                     THEN 1 END) as on_time_completed
             FROM chatwork_tasks
             WHERE assigned_to_account_id = :account_id
+            AND organization_id = :org_id
             AND (
                 (limit_time >= :start_ts AND limit_time <= :end_ts)
-                OR 
-                (status = 'done' 
-                 AND completed_at >= to_timestamp(:start_ts) 
+                OR
+                (status = 'done'
+                 AND completed_at >= to_timestamp(:start_ts)
                  AND completed_at <= to_timestamp(:end_ts))
             )
         """)
-        
+
         result = conn.execute(query, {
             'account_id': account_id,
+            'org_id': _ORGANIZATION_ID,
             'start_ts': start_ts,
             'end_ts': end_ts
         }).fetchone()

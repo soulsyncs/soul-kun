@@ -31,6 +31,7 @@ from .constants import (
     NodeType,
 )
 from .models import KnowledgeEdge, KnowledgeNode, KnowledgeSubgraph
+from lib.brain.hybrid_search import escape_ilike
 
 
 logger = logging.getLogger(__name__)
@@ -291,8 +292,8 @@ class KnowledgeGraph:
             FROM {TABLE_BRAIN_KNOWLEDGE_NODES}
             WHERE organization_id = CAST(:organization_id AS uuid)
               AND (
-                name ILIKE :pattern
-                OR description ILIKE :pattern
+                name ILIKE :pattern ESCAPE '\\'
+                OR description ILIKE :pattern ESCAPE '\\'
                 OR :query_text = ANY(aliases)
               )
               {type_clause}
@@ -304,7 +305,7 @@ class KnowledgeGraph:
             params = {
                 "organization_id": self.organization_id,
                 "query_text": query_text,
-                "pattern": f"%{query_text}%",
+                "pattern": f"%{escape_ilike(query_text)}%",
                 "limit": limit,
             }
             if node_type:

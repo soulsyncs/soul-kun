@@ -119,7 +119,7 @@ gcloud functions deploy goal-daily-check \
     --source="$SCRIPT_DIR" \
     --entry-point=goal_daily_check \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=540s \
     --env-vars-file="$ENV_FILE" \
@@ -136,7 +136,7 @@ gcloud functions deploy goal-daily-reminder \
     --source="$SCRIPT_DIR" \
     --entry-point=goal_daily_reminder \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=540s \
     --env-vars-file="$ENV_FILE" \
@@ -153,7 +153,7 @@ gcloud functions deploy goal-morning-feedback \
     --source="$SCRIPT_DIR" \
     --entry-point=goal_morning_feedback \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=540s \
     --env-vars-file="$ENV_FILE" \
@@ -170,7 +170,7 @@ gcloud functions deploy goal-consecutive-unanswered \
     --source="$SCRIPT_DIR" \
     --entry-point=goal_consecutive_unanswered_check \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=540s \
     --env-vars-file="$ENV_FILE" \

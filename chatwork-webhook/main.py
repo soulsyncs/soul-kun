@@ -18,6 +18,9 @@ import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
 
+# テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
+_ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+
 # =====================================================
 # Phase 11: infra/db.py からDB接続・シークレット管理をインポート
 # =====================================================
@@ -2147,8 +2150,8 @@ def sync_chatwork_tasks(request):
                 
                 # DBに存在するか確認（期限変更検知のためlimit_timeも取得）
                 cursor.execute("""
-                    SELECT task_id, status, limit_time, assigned_by_name FROM chatwork_tasks WHERE task_id = %s
-                """, (task_id,))
+                    SELECT task_id, status, limit_time, assigned_by_name FROM chatwork_tasks WHERE task_id = %s AND organization_id = %s
+                """, (task_id, _ORGANIZATION_ID))
                 existing = cursor.fetchone()
                 
                 if existing:
@@ -2177,8 +2180,8 @@ def sync_chatwork_tasks(request):
                             last_synced_at = CURRENT_TIMESTAMP,
                             room_name = %s,
                             assigned_to_name = %s
-                        WHERE task_id = %s
-                    """, (body, limit_datetime, room_name, assigned_to_name, task_id))
+                        WHERE task_id = %s AND organization_id = %s
+                    """, (body, limit_datetime, room_name, assigned_to_name, task_id, _ORGANIZATION_ID))
                 else:
                     # 新規タスクの挿入
                     # ★★★ v10.18.1: summary生成（3段階フォールバック） ★★★
@@ -2216,11 +2219,11 @@ def sync_chatwork_tasks(request):
                     cursor.execute("""
                         INSERT INTO chatwork_tasks
                         (task_id, room_id, assigned_to_account_id, assigned_by_account_id, body, limit_time, status,
-                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id)
-                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s)
+                         skip_tracking, last_synced_at, room_name, assigned_to_name, assigned_by_name, summary, department_id, organization_id)
+                        VALUES (%s, %s, %s, %s, %s, %s, 'open', %s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (task_id) DO NOTHING
                     """, (task_id, room_id, assigned_to_id, assigned_by_id, body,
-                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id))
+                          limit_datetime, skip_tracking, room_name, assigned_to_name, assigned_by_name, summary, department_id, _ORGANIZATION_ID))
 
             # 完了タスクを取得
             done_tasks = get_room_tasks(room_id, 'done')
@@ -2230,10 +2233,10 @@ def sync_chatwork_tasks(request):
                 
                 # DBに存在するか確認
                 cursor.execute("""
-                    SELECT task_id, status, completion_notified, assigned_by_name 
-                    FROM chatwork_tasks 
-                    WHERE task_id = %s
-                """, (task_id,))
+                    SELECT task_id, status, completion_notified, assigned_by_name
+                    FROM chatwork_tasks
+                    WHERE task_id = %s AND organization_id = %s
+                """, (task_id, _ORGANIZATION_ID))
                 existing = cursor.fetchone()
                 
                 if existing:
@@ -2248,8 +2251,8 @@ def sync_chatwork_tasks(request):
                             SET status = 'done',
                                 completed_at = CURRENT_TIMESTAMP,
                                 last_synced_at = CURRENT_TIMESTAMP
-                            WHERE task_id = %s
-                        """, (task_id,))
+                            WHERE task_id = %s AND organization_id = %s
+                        """, (task_id, _ORGANIZATION_ID))
                         
                         # 完了通知を送信（まだ送信していない場合）
                         if not completion_notified:
@@ -2257,8 +2260,8 @@ def sync_chatwork_tasks(request):
                             cursor.execute("""
                                 UPDATE chatwork_tasks
                                 SET completion_notified = TRUE
-                                WHERE task_id = %s
-                            """, (task_id,))
+                                WHERE task_id = %s AND organization_id = %s
+                            """, (task_id, _ORGANIZATION_ID))
         
         conn.commit()
         print("=== Task sync completed ===")
@@ -2314,7 +2317,8 @@ def remind_tasks(request):
               AND skip_tracking = FALSE
               AND reminder_disabled = FALSE
               AND limit_time IS NOT NULL
-        """)
+              AND organization_id = %s
+        """, (_ORGANIZATION_ID,))
         
         tasks = cursor.fetchall()
         

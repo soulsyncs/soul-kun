@@ -225,10 +225,11 @@ class ImplicitFeedbackDetector:
                 limit_time
             FROM chatwork_tasks
             WHERE id = CAST(:task_id AS uuid)
+            AND organization_id = :org_id
         """)
 
         try:
-            result = conn.execute(query, {"task_id": task_id})
+            result = conn.execute(query, {"task_id": task_id, "org_id": self.organization_id})
             row = result.fetchone()
         except Exception as e:
             logger.warning(f"Failed to query chatwork_tasks: {e}")

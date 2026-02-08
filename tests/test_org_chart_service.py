@@ -585,11 +585,21 @@ class TestOrgChartServiceInitAdditional:
     """初期化の追加テスト"""
 
     @patch.dict("os.environ", {"SUPABASE_URL": "https://env.supabase.co", "SUPABASE_ANON_KEY": "env_key"})
-    def test_init_from_environment(self):
-        """環境変数から初期化"""
+    @patch("lib.org_chart_service.get_secret_cached", side_effect=Exception("Secret Manager unavailable"))
+    @patch("lib.org_chart_service.logger")
+    def test_init_from_environment(self, mock_logger, mock_secret):
+        """環境変数からフォールバック初期化（Secret Manager不可時）"""
         service = OrgChartService()
         assert service.supabase_url == "https://env.supabase.co"
         assert service.supabase_key == "env_key"
+        mock_logger.warning.assert_called_once()
+
+    @patch("lib.org_chart_service.get_secret_cached", return_value="secret_manager_key")
+    def test_init_from_secret_manager(self, mock_secret):
+        """Secret Managerからキーを取得"""
+        service = OrgChartService(supabase_url="https://test.supabase.co")
+        assert service.supabase_key == "secret_manager_key"
+        mock_secret.assert_called_once_with('SUPABASE_ANON_KEY')
 
     def test_init_with_custom_organization_id(self):
         """カスタム組織ID"""

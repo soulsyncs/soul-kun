@@ -5,6 +5,7 @@ Phase 11-3: main.pyから抽出された人物情報管理・組織図クエリ�
 依存: infra/db.py (get_pool), lib/person_service (PersonService, OrgChartService)
 """
 
+import os
 from infra.db import get_pool
 
 try:
@@ -17,20 +18,22 @@ except ImportError:
 _person_service = None
 _org_chart_service = None
 
+# テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
+_ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
 
 def _get_person_service():
     """PersonServiceのシングルトンインスタンスを取得"""
     global _person_service
     if _person_service is None and USE_PERSON_SERVICE:
-        _person_service = PersonService(get_pool=get_pool)
+        _person_service = PersonService(get_pool=get_pool, organization_id=_ORGANIZATION_ID)
     return _person_service
 
 def _get_org_chart_service():
     """OrgChartServiceのシングルトンインスタンスを取得"""
     global _org_chart_service
     if _org_chart_service is None and USE_PERSON_SERVICE:
-        _org_chart_service = OrgChartService(get_pool=get_pool)
+        _org_chart_service = OrgChartService(get_pool=get_pool, organization_id=_ORGANIZATION_ID)
     return _org_chart_service
 
 def save_person_attribute(person_name, attribute_type, attribute_value, source="conversation"):

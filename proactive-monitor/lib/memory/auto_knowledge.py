@@ -29,6 +29,7 @@ from .exceptions import (
     DatabaseError,
     wrap_memory_error,
 )
+from lib.brain.hybrid_search import escape_ilike
 
 
 logger = logging.getLogger(__name__)
@@ -572,7 +573,7 @@ class AutoKnowledge(BaseMemory):
                 WHERE organization_id = :org_id
                   AND status = :status
                   AND (
-                      question ILIKE :query
+                      question ILIKE :query ESCAPE '\\'
                       OR :query_word = ANY(keywords)
                   )
                 ORDER BY usage_count DESC, quality_score DESC NULLS LAST
@@ -580,7 +581,7 @@ class AutoKnowledge(BaseMemory):
             """), {
                 "org_id": str(self.org_id),
                 "status": KnowledgeStatus.APPROVED.value,
-                "query": f"%{query}%",
+                "query": f"%{escape_ilike(query)}%",
                 "query_word": query,
                 "limit": limit,
             })

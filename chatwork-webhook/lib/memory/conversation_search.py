@@ -30,6 +30,7 @@ from .exceptions import (
     DatabaseError,
     wrap_memory_error,
 )
+from lib.brain.hybrid_search import escape_ilike
 
 
 logger = logging.getLogger(__name__)
@@ -323,7 +324,7 @@ class ConversationSearch(BaseMemory):
         conditions = ["organization_id = :org_id"]
         params = {
             "org_id": str(self.org_id),
-            "query": f"%{query}%",
+            "query": f"%{escape_ilike(query)}%",
             "query_word": query,
         }
 
@@ -353,7 +354,7 @@ class ConversationSearch(BaseMemory):
                 FROM conversation_index
                 WHERE {where_clause}
                   AND (
-                      message_text ILIKE :query
+                      message_text ILIKE :query ESCAPE '\\'
                       OR :query_word = ANY(keywords)
                   )
                 ORDER BY message_time DESC

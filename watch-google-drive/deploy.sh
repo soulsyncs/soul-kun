@@ -88,7 +88,7 @@ gcloud functions deploy watch_google_drive \
     --source="$SCRIPT_DIR" \
     --entry-point=watch_google_drive \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=1024MB \
     --timeout=540s \
     --max-instances=5 \

@@ -14,7 +14,7 @@ Phase 3: ナレッジ検索機能
 """
 
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Header
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from lib.config import get_settings
 from lib.logging import get_logger
@@ -31,8 +31,14 @@ from app.services.knowledge_search import (
     KnowledgeSearchService,
     UserContext,
 )
+from app.deps.auth import get_current_user
 
 from sqlalchemy import text
+
+
+def _escape_ilike(value: str) -> str:
+    """ILIKEメタキャラクタをエスケープ"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 logger = get_logger(__name__)
@@ -53,36 +59,8 @@ async def get_db_connection():
         await conn.commit()
 
 
-async def get_current_user(
-    x_user_id: str = Header(..., description="ユーザーID"),
-    x_tenant_id: str = Header(..., alias="X-Tenant-ID", description="テナントID"),
-    x_department_id: Optional[str] = Header(None, alias="X-Department-ID", description="部署ID"),
-) -> UserContext:
-    """
-    現在のユーザーコンテキストを取得
-
-    Note:
-        本番環境では認証ミドルウェアでJWTトークン等から取得する。
-        ここでは簡易的にヘッダーから取得している。
-    """
-    # ユーザーのアクセス可能な機密区分を取得
-    # 本来はDBからユーザーの権限を確認する
-    accessible_classifications = ["public", "internal"]
-
-    # ユーザーの役職によって confidential/restricted へのアクセスを許可
-    # Phase 3.5 で組織階層から動的に計算
-
-    return UserContext(
-        user_id=x_user_id,
-        organization_id=x_tenant_id,
-        department_id=x_department_id,
-        accessible_classifications=accessible_classifications,
-        accessible_department_ids=[x_department_id] if x_department_id else [],
-    )
-
-
 # ================================================================
-# エンドポイント
+# エンドポイント（認証は app.deps.auth.get_current_user で統一）
 # ================================================================
 
 @router.post(
@@ -230,8 +208,8 @@ async def list_documents(
             params["status"] = status
 
         if search:
-            conditions.append("(title ILIKE :search OR file_name ILIKE :search)")
-            params["search"] = f"%{search}%"
+            conditions.append("(title ILIKE :search ESCAPE '\\' OR file_name ILIKE :search ESCAPE '\\')")
+            params["search"] = f"%{_escape_ilike(search)}%"
 
         where_clause = " AND ".join(conditions)
 

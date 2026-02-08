@@ -25,7 +25,7 @@ Version: 1.0
 
 import json
 import os
-import traceback
+
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -274,12 +274,14 @@ class EmotionDetector(BaseDetector):
                     account_name,
                     COUNT(*) as message_count
                 FROM room_messages
-                WHERE send_time >= :cutoff_date
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND send_time >= :cutoff_date
                   AND account_id IS NOT NULL
                 GROUP BY account_id, account_name
                 HAVING COUNT(*) >= :min_messages
                 ORDER BY message_count DESC
             """), {
+                "org_id": str(self._org_id),
                 "cutoff_date": cutoff_date,
                 "min_messages": self._min_messages,
             })
@@ -411,13 +413,15 @@ class EmotionDetector(BaseDetector):
                     body,
                     send_time
                 FROM room_messages
-                WHERE account_id = :account_id
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND account_id = :account_id
                   AND send_time >= :cutoff_date
                   AND body IS NOT NULL
                   AND LENGTH(body) > 10
                 ORDER BY send_time DESC
                 LIMIT 50
             """), {
+                "org_id": str(self._org_id),
                 "account_id": account_id,
                 "cutoff_date": cutoff_date,
             })
@@ -661,7 +665,7 @@ class EmotionDetector(BaseDetector):
                 "org_id": str(self._org_id),
                 "message_id": message['message_id'],
                 "room_id": message['room_id'],
-                "user_id": str(self._org_id),  # TODO: 実際のuser_idにマッピング
+                "user_id": str(self._org_id),  # NOTE: user_id列はUUID型。account_id(BIGINT)は格納不可。スキーマ変更後に修正（Tier 2で対応）
                 "sentiment_score": sentiment['sentiment_score'],
                 "sentiment_label": sentiment['sentiment_label'],
                 "confidence": sentiment.get('confidence'),
@@ -693,10 +697,12 @@ class EmotionDetector(BaseDetector):
                 FROM emotion_scores es
                 INNER JOIN room_messages rm ON es.message_id = rm.message_id
                 WHERE rm.account_id = :account_id
+                  AND es.organization_id = :org_id
                   AND es.message_time >= :start_date
                   AND es.message_time < :end_date
             """), {
                 "account_id": account_id,
+                "org_id": str(self._org_id),
                 "start_date": baseline_start,
                 "end_date": baseline_end,
             })
@@ -866,7 +872,7 @@ class EmotionDetector(BaseDetector):
                 RETURNING id
             """), {
                 "org_id": str(self._org_id),
-                "user_id": str(self._org_id),  # TODO: account_idからuser_idへのマッピング
+                "user_id": str(self._org_id),  # NOTE: user_id列はUUID型。account_id(BIGINT)は格納不可。スキーマ変更後に修正（Tier 2で対応）
                 "user_name": alert.get('user_name'),
                 "alert_type": alert['alert_type'],
                 "risk_level": alert['risk_level'],
@@ -897,7 +903,6 @@ class EmotionDetector(BaseDetector):
                 "Failed to save emotion alert",
                 extra={"error": str(e)}
             )
-            traceback.print_exc()
             return None
 
     def _create_insight_data(self, alert: dict[str, Any]) -> InsightData:

@@ -202,6 +202,8 @@ class BrainMemoryAccess:
             hybrid_searcher: HybridSearcher インスタンス（オプション、v10.57.1追加）
         """
         self.pool = pool
+        if not org_id:
+            raise ValueError("org_id is required for MemoryAccess")
         self.org_id = org_id
         self.firestore_db = firestore_db
         self.memory_flusher = memory_flusher
@@ -570,10 +572,11 @@ class BrainMemoryAccess:
                     text("""
                         SELECT id, name
                         FROM persons
+                        WHERE organization_id = CAST(:org_id AS uuid)
                         ORDER BY name
                         LIMIT :limit
                     """),
-                    {"limit": limit},
+                    {"org_id": self.org_id, "limit": limit},
                 )
                 person_rows = result.fetchall()
 
@@ -588,9 +591,10 @@ class BrainMemoryAccess:
                             SELECT attribute_type, attribute_value
                             FROM person_attributes
                             WHERE person_id = :person_id
+                              AND organization_id = CAST(:org_id AS uuid)
                             ORDER BY updated_at DESC
                         """),
-                        {"person_id": person_id},
+                        {"person_id": person_id, "org_id": self.org_id},
                     )
                     attr_rows = attr_result.fetchall()
                     attributes = {attr[0]: attr[1] for attr in attr_rows}
@@ -649,13 +653,14 @@ class BrainMemoryAccess:
                         FROM chatwork_tasks
                         WHERE assigned_to_account_id = :user_id
                           AND status = 'open'
+                          AND organization_id = :org_id
                         ORDER BY
                             CASE WHEN limit_time IS NOT NULL AND to_timestamp(limit_time) < NOW()
                                  THEN 0 ELSE 1 END,
                             limit_time ASC NULLS LAST
                         LIMIT :limit
                     """),
-                    {"user_id": user_id, "limit": limit},
+                    {"user_id": user_id, "limit": limit, "org_id": self.org_id},
                 )
                 rows = result.fetchall()
 
@@ -971,11 +976,12 @@ class BrainMemoryAccess:
             List[ConversationMessage]: マッチした会話メッセージ
         """
         try:
+            from lib.brain.hybrid_search import escape_ilike
             with self.pool.connect() as conn:
                 # 基本クエリ
                 params = {
                     "org_id": self.org_id,
-                    "query": f"%{query}%",
+                    "query": f"%{escape_ilike(query)}%",
                     "limit": limit,
                 }
 
@@ -996,7 +1002,7 @@ class BrainMemoryAccess:
                             ci.message_time
                         FROM conversation_index ci
                         WHERE ci.organization_id = CAST(:org_id AS uuid)
-                          AND ci.message_text ILIKE :query
+                          AND ci.message_text ILIKE :query ESCAPE '\\'
                           {user_clause}
                         ORDER BY ci.message_time DESC
                         LIMIT :limit

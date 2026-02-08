@@ -13,34 +13,41 @@ import re
 import sqlalchemy
 from typing import Optional, List, Dict, Any, Callable, Tuple
 
+from lib.brain.hybrid_search import escape_ilike
+
 
 class PersonService:
     """
     人物情報を管理するサービスクラス
 
-    依存注入パターンで get_pool を受け取り、DBアクセスを行う。
+    依存注入パターンで get_pool と organization_id を受け取り、DBアクセスを行う。
+    全クエリでorganization_idフィルターを適用（CLAUDE.md 鉄則#1）。
     """
 
-    def __init__(self, get_pool: Callable):
+    def __init__(self, get_pool: Callable, organization_id: str = ""):
         """
         Args:
             get_pool: DB接続プールを取得する関数
+            organization_id: テナントID（必須）
         """
+        if not organization_id:
+            raise ValueError("organization_id is required for PersonService")
         self.get_pool = get_pool
+        self.organization_id = organization_id
 
     def get_or_create_person(self, name: str) -> int:
         """人物を取得、なければ作成してIDを返す"""
         pool = self.get_pool()
         with pool.begin() as conn:
             result = conn.execute(
-                sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-                {"name": name}
+                sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+                {"name": name, "org_id": self.organization_id}
             ).fetchone()
             if result:
                 return result[0]
             result = conn.execute(
-                sqlalchemy.text("INSERT INTO persons (name) VALUES (:name) RETURNING id"),
-                {"name": name}
+                sqlalchemy.text("INSERT INTO persons (name, organization_id) VALUES (:name, :org_id) RETURNING id"),
+                {"name": name, "org_id": self.organization_id}
             )
             return result.fetchone()[0]
 
@@ -57,12 +64,12 @@ class PersonService:
         with pool.begin() as conn:
             conn.execute(
                 sqlalchemy.text("""
-                    INSERT INTO person_attributes (person_id, attribute_type, attribute_value, source, updated_at)
-                    VALUES (:person_id, :attr_type, :attr_value, :source, CURRENT_TIMESTAMP)
+                    INSERT INTO person_attributes (person_id, attribute_type, attribute_value, source, updated_at, organization_id)
+                    VALUES (:person_id, :attr_type, :attr_value, :source, CURRENT_TIMESTAMP, :org_id)
                     ON CONFLICT (person_id, attribute_type)
                     DO UPDATE SET attribute_value = :attr_value, source = :source, updated_at = CURRENT_TIMESTAMP
                 """),
-                {"person_id": person_id, "attr_type": attribute_type, "attr_value": attribute_value, "source": source}
+                {"person_id": person_id, "attr_type": attribute_type, "attr_value": attribute_value, "source": source, "org_id": self.organization_id}
             )
         return True
 
@@ -71,8 +78,8 @@ class PersonService:
         pool = self.get_pool()
         with pool.connect() as conn:
             person_result = conn.execute(
-                sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-                {"name": person_name}
+                sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+                {"name": person_name, "org_id": self.organization_id}
             ).fetchone()
             if not person_result:
                 return None
@@ -80,9 +87,9 @@ class PersonService:
             attributes = conn.execute(
                 sqlalchemy.text("""
                     SELECT attribute_type, attribute_value FROM person_attributes
-                    WHERE person_id = :person_id ORDER BY updated_at DESC
+                    WHERE person_id = :person_id AND organization_id = :org_id ORDER BY updated_at DESC
                 """),
-                {"person_id": person_id}
+                {"person_id": person_id, "org_id": self.organization_id}
             ).fetchall()
             return {
                 "name": person_name,
@@ -96,24 +103,24 @@ class PersonService:
             trans = conn.begin()
             try:
                 person_result = conn.execute(
-                    sqlalchemy.text("SELECT id FROM persons WHERE name = :name"),
-                    {"name": person_name}
+                    sqlalchemy.text("SELECT id FROM persons WHERE name = :name AND organization_id = :org_id"),
+                    {"name": person_name, "org_id": self.organization_id}
                 ).fetchone()
                 if not person_result:
                     trans.rollback()
                     return False
                 person_id = person_result[0]
                 conn.execute(
-                    sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id"),
-                    {"person_id": person_id}
+                    sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id AND organization_id = :org_id"),
+                    {"person_id": person_id, "org_id": self.organization_id}
                 )
                 conn.execute(
-                    sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id"),
-                    {"person_id": person_id}
+                    sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id AND organization_id = :org_id"),
+                    {"person_id": person_id, "org_id": self.organization_id}
                 )
                 conn.execute(
-                    sqlalchemy.text("DELETE FROM persons WHERE id = :person_id"),
-                    {"person_id": person_id}
+                    sqlalchemy.text("DELETE FROM persons WHERE id = :person_id AND organization_id = :org_id"),
+                    {"person_id": person_id, "org_id": self.organization_id}
                 )
                 trans.commit()
                 return True
@@ -130,9 +137,11 @@ class PersonService:
                 sqlalchemy.text("""
                     SELECT p.name, STRING_AGG(pa.attribute_type || '=' || pa.attribute_value, ', ') as attributes
                     FROM persons p
-                    LEFT JOIN person_attributes pa ON p.id = pa.person_id
+                    LEFT JOIN person_attributes pa ON p.id = pa.person_id AND pa.organization_id = :org_id
+                    WHERE p.organization_id = :org_id
                     GROUP BY p.id, p.name ORDER BY p.name
-                """)
+                """),
+                {"org_id": self.organization_id}
             ).fetchall()
             return [{"name": r[0], "attributes": r[1]} for r in result]
 
@@ -145,24 +154,26 @@ class PersonService:
             result = conn.execute(
                 sqlalchemy.text("""
                     SELECT name FROM persons
-                    WHERE name ILIKE :pattern
-                       OR name ILIKE :pattern2
-                       OR name ILIKE :normalized_pattern
+                    WHERE organization_id = :org_id
+                      AND (name ILIKE :pattern ESCAPE '\\'
+                       OR name ILIKE :pattern2 ESCAPE '\\'
+                       OR name ILIKE :normalized_pattern ESCAPE '\\')
                     ORDER BY
                         CASE WHEN name = :exact THEN 0
                              WHEN name = :normalized THEN 0
-                             WHEN name ILIKE :starts_with THEN 1
+                             WHEN name ILIKE :starts_with ESCAPE '\\' THEN 1
                              ELSE 2 END,
                         LENGTH(name)
                     LIMIT 5
                 """),
                 {
-                    "pattern": f"%{partial_name}%",
-                    "pattern2": f"%{partial_name}%",
-                    "normalized_pattern": f"%{normalized}%",
+                    "org_id": self.organization_id,
+                    "pattern": f"%{escape_ilike(partial_name)}%",
+                    "pattern2": f"%{escape_ilike(partial_name)}%",
+                    "normalized_pattern": f"%{escape_ilike(normalized)}%",
                     "exact": partial_name,
                     "normalized": normalized,
-                    "starts_with": f"{partial_name}%"
+                    "starts_with": f"{escape_ilike(partial_name)}%"
                 }
             ).fetchall()
             print(f"   🔍 search_person_by_partial_name: '{partial_name}' (normalized: '{normalized}') → {len(result)}件")
@@ -172,14 +183,20 @@ class PersonService:
 class OrgChartService:
     """
     組織図関連の機能を提供するサービスクラス
+
+    全クエリでorganization_idフィルターを適用（CLAUDE.md 鉄則#1）。
     """
 
-    def __init__(self, get_pool: Callable):
+    def __init__(self, get_pool: Callable, organization_id: str = ""):
         """
         Args:
             get_pool: DB接続プールを取得する関数
+            organization_id: テナントID（必須）
         """
+        if not organization_id:
+            raise ValueError("organization_id is required for OrgChartService")
         self.get_pool = get_pool
+        self.organization_id = organization_id
 
     def get_org_chart_overview(self) -> List[Dict[str, Any]]:
         """組織図の全体構造を取得（兼務を含む）"""
@@ -190,16 +207,18 @@ class OrgChartService:
                     SELECT d.id, d.name, d.level, d.parent_id,
                            (SELECT COUNT(DISTINCT e.id)
                             FROM employees e
-                            WHERE e.department_id = d.id
+                            WHERE (e.department_id = d.id
                                OR EXISTS (
                                    SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
                                    WHERE dept->>'department_id' = d.external_id
-                               )
+                               ))
+                              AND e.organization_id = :org_id
                            ) as member_count
                     FROM departments d
-                    WHERE d.is_active = true
+                    WHERE d.is_active = true AND d.organization_id = :org_id
                     ORDER BY d.level, d.display_order, d.name
-                """)
+                """),
+                {"org_id": self.organization_id}
             ).fetchall()
 
             departments = []
@@ -222,18 +241,19 @@ class OrgChartService:
                     SELECT id, name, level,
                            (SELECT COUNT(DISTINCT e.id)
                             FROM employees e
-                            WHERE e.department_id = d.id
+                            WHERE (e.department_id = d.id
                                OR EXISTS (
                                    SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
                                    WHERE dept->>'department_id' = d.external_id
-                               )
+                               ))
+                              AND e.organization_id = :org_id
                            ) as member_count
                     FROM departments d
-                    WHERE d.is_active = true AND d.name ILIKE :pattern
+                    WHERE d.is_active = true AND d.organization_id = :org_id AND d.name ILIKE :pattern ESCAPE '\\'
                     ORDER BY d.level, d.name
                     LIMIT 10
                 """),
-                {"pattern": f"%{partial_name}%"}
+                {"pattern": f"%{escape_ilike(partial_name)}%", "org_id": self.organization_id}
             ).fetchall()
 
             return [{"id": str(r[0]), "name": r[1], "level": r[2], "member_count": r[3] or 0} for r in result]
@@ -246,10 +266,10 @@ class OrgChartService:
             dept_result = conn.execute(
                 sqlalchemy.text("""
                     SELECT id, name, external_id FROM departments
-                    WHERE is_active = true AND name ILIKE :pattern
+                    WHERE is_active = true AND organization_id = :org_id AND name ILIKE :pattern ESCAPE '\\'
                     LIMIT 1
                 """),
-                {"pattern": f"%{dept_name}%"}
+                {"pattern": f"%{escape_ilike(dept_name)}%", "org_id": self.organization_id}
             ).fetchone()
 
             if not dept_result:
@@ -307,6 +327,7 @@ class OrgChartService:
                                END as position_order
                         FROM employees e
                         WHERE e.is_active = true
+                          AND e.organization_id = :org_id
                           AND (e.department_id = :dept_id
                                OR EXISTS (
                                    SELECT 1 FROM jsonb_array_elements(e.metadata->'departments') AS dept
@@ -315,7 +336,7 @@ class OrgChartService:
                     ) AS subquery
                     ORDER BY is_concurrent, position_order, name
                 """),
-                {"dept_id": dept_id, "ext_id": dept_external_id}
+                {"dept_id": dept_id, "ext_id": dept_external_id, "org_id": self.organization_id}
             ).fetchall()
 
             members = []

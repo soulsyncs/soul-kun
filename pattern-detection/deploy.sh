@@ -206,7 +206,7 @@ gcloud functions deploy pattern-detection \
     --source="$SCRIPT_DIR" \
     --entry-point=pattern_detection \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
     --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
@@ -228,7 +228,7 @@ gcloud functions deploy personalization-detection \
     --source="$SCRIPT_DIR" \
     --entry-point=personalization_detection \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
     --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
@@ -250,7 +250,7 @@ gcloud functions deploy weekly-report \
     --source="$SCRIPT_DIR" \
     --entry-point=weekly_report \
     --trigger-http \
-    --allow-unauthenticated \
+    --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
     --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \

@@ -23,7 +23,8 @@ class TestTaskHandlerInit:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
         assert handler.get_pool is not None
         assert handler.get_secret is not None
@@ -42,11 +43,22 @@ class TestTaskHandlerInit:
             prepare_task_display_text=MagicMock(),
             validate_summary=MagicMock(),
             get_user_primary_department=MagicMock(),
-            use_text_utils=True
+            use_text_utils=True,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
         assert handler.extract_task_subject is not None
         assert handler.clean_chatwork_tags is not None
         assert handler.use_text_utils is True
+
+    def test_init_raises_on_empty_org_id(self):
+        """空のorganization_idでValueErrorが発生すること"""
+        with pytest.raises(ValueError, match="organization_id is required"):
+            TaskHandler(
+                get_pool=MagicMock(),
+                get_secret=MagicMock(),
+                call_chatwork_api_with_retry=MagicMock(),
+                organization_id=""
+            )
 
 
 class TestCreateChatworkTask:
@@ -64,7 +76,8 @@ class TestCreateChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.create_chatwork_task(
@@ -88,7 +101,8 @@ class TestCreateChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.create_chatwork_task(
@@ -114,7 +128,8 @@ class TestCreateChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.create_chatwork_task(
@@ -132,7 +147,8 @@ class TestCreateChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.create_chatwork_task(
@@ -159,7 +175,8 @@ class TestCompleteChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.complete_chatwork_task(
@@ -180,7 +197,8 @@ class TestCompleteChatworkTask:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(return_value="test_token"),
-            call_chatwork_api_with_retry=mock_api
+            call_chatwork_api_with_retry=mock_api,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.complete_chatwork_task(
@@ -209,7 +227,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.search_tasks_from_db(
@@ -239,7 +258,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.search_tasks_from_db(
@@ -250,10 +270,11 @@ class TestSearchTasksFromDb:
 
         assert len(result) == 2
         assert result[0]["summary"] == "要約1"  # v10.25.0追加
-        # SQLにroom_idフィルタが含まれていないことを確認
+        # SQLにroom_idフィルタが含まれていないことを確認（org_idフィルタは必須）
         call_args = mock_conn.execute.call_args
         query_text = str(call_args[0][0])
-        assert "WHERE 1=1" in query_text
+        assert "organization_id = :org_id" in query_text
+        assert "AND room_id = :room_id" not in query_text
 
     def test_search_tasks_by_status(self):
         """ステータスによるタスク検索"""
@@ -266,7 +287,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.search_tasks_from_db(
@@ -289,7 +311,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.search_tasks_from_db(
@@ -309,7 +332,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.search_tasks_from_db(room_id="room1")
@@ -330,7 +354,8 @@ class TestSearchTasksFromDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.search_tasks_from_db(
@@ -360,7 +385,8 @@ class TestUpdateTaskStatusInDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.update_task_status_in_db(
@@ -379,7 +405,8 @@ class TestUpdateTaskStatusInDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.update_task_status_in_db(
@@ -403,7 +430,8 @@ class TestSaveChatworkTaskToDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.save_chatwork_task_to_db(
@@ -427,7 +455,8 @@ class TestSaveChatworkTaskToDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.save_chatwork_task_to_db(
@@ -454,7 +483,8 @@ class TestSaveChatworkTaskToDb:
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
             call_chatwork_api_with_retry=MagicMock(),
-            get_user_primary_department=mock_get_dept
+            get_user_primary_department=mock_get_dept,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.save_chatwork_task_to_db(
@@ -476,7 +506,8 @@ class TestSaveChatworkTaskToDb:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.save_chatwork_task_to_db(
@@ -498,7 +529,8 @@ class TestGenerateTaskSummary:
         handler = TaskHandler(
             get_pool=MagicMock(),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler._generate_task_summary("")
@@ -511,7 +543,8 @@ class TestGenerateTaskSummary:
             get_pool=MagicMock(),
             get_secret=MagicMock(),
             call_chatwork_api_with_retry=MagicMock(),
-            use_text_utils=False
+            use_text_utils=False,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         body = "これは長いタスク本文です。40文字を超える場合は切り詰められます。あいうえおかきくけこさしすせそ"
@@ -526,7 +559,8 @@ class TestGenerateTaskSummary:
             get_pool=MagicMock(),
             get_secret=MagicMock(),
             call_chatwork_api_with_retry=MagicMock(),
-            use_text_utils=False
+            use_text_utils=False,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         body = "短いタスク"
@@ -545,7 +579,8 @@ class TestGenerateTaskSummary:
             call_chatwork_api_with_retry=MagicMock(),
             extract_task_subject=mock_extract,
             prepare_task_display_text=mock_prepare,
-            use_text_utils=True
+            use_text_utils=True,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler._generate_task_summary("【件名】テストタスク\n本文です")
@@ -565,7 +600,8 @@ class TestGenerateTaskSummary:
             call_chatwork_api_with_retry=MagicMock(),
             extract_task_subject=mock_extract,
             prepare_task_display_text=mock_prepare,
-            use_text_utils=True
+            use_text_utils=True,
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler._generate_task_summary("【件名】" + long_subject)
@@ -587,7 +623,8 @@ class TestLogAnalyticsEvent:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.log_analytics_event(
@@ -610,7 +647,8 @@ class TestLogAnalyticsEvent:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.log_analytics_event(
@@ -638,7 +676,8 @@ class TestLogAnalyticsEvent:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         handler.log_analytics_event(
@@ -662,7 +701,8 @@ class TestLogAnalyticsEvent:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         # 例外が発生しないことを確認
@@ -691,7 +731,8 @@ class TestGetTaskById:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.get_task_by_id("task1")
@@ -714,7 +755,8 @@ class TestGetTaskById:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.get_task_by_id("nonexistent")
@@ -729,7 +771,8 @@ class TestGetTaskById:
         handler = TaskHandler(
             get_pool=MagicMock(return_value=mock_pool),
             get_secret=MagicMock(),
-            call_chatwork_api_with_retry=MagicMock()
+            call_chatwork_api_with_retry=MagicMock(),
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
 
         result = handler.get_task_by_id("task1")

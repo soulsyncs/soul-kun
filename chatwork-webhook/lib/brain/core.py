@@ -1234,6 +1234,25 @@ class SoulkunBrain:
                     for knowledge in memory_context["relevant_knowledge"]
                 ]
 
+            # Phase 2E: 適用可能な学習をコンテキストに追加
+            # asyncio.to_thread()で同期DB呼び出しをオフロード
+            if self.learning.phase2e_learning:
+                try:
+                    def _fetch_learnings():
+                        with self.pool.connect() as conn:
+                            applicable = self.learning.phase2e_learning.find_applicable(
+                                conn, message or "", None, user_id, room_id
+                            )
+                            if applicable:
+                                additions = self.learning.phase2e_learning.build_context_additions(applicable)
+                                return self.learning.phase2e_learning.build_prompt_instructions(additions)
+                            return None
+                    result = await asyncio.to_thread(_fetch_learnings)
+                    if result:
+                        context.phase2e_learnings = result
+                except Exception as e:
+                    logger.warning(f"Error fetching Phase 2E learnings: {e}")
+
             logger.debug(
                 f"Context loaded: conversation={len(context.recent_conversation)}, "
                 f"tasks={len(context.recent_tasks)}, goals={len(context.active_goals)}, "
@@ -1557,6 +1576,7 @@ class SoulkunBrain:
                 memory_access=self.memory_access,
                 state_manager=self.llm_state_manager,
                 ceo_teaching_repository=self.ceo_teaching_repo,
+                phase2e_learning=self.learning.phase2e_learning,
             )
             logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
         except Exception as e:
@@ -1771,12 +1791,14 @@ class SoulkunBrain:
                     )
 
             # 1. LLMコンテキストを構築
+            # Phase 2E: _get_context()で取得済みの学習を渡して重複クエリ回避
             llm_context = await self.llm_context_builder.build(
                 user_id=account_id,
                 room_id=room_id,
                 organization_id=self.org_id,
                 message=message,
                 sender_name=sender_name,
+                phase2e_learnings_prefetched=context.phase2e_learnings,
             )
 
             # 2. Toolカタログを取得（SYSTEM_CAPABILITIESから変換）

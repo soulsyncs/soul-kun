@@ -712,6 +712,9 @@ class BrainContext:
     # CEO教え関連（Phase 2D）
     ceo_teachings: Optional["CEOTeachingContext"] = None
 
+    # Phase 2E: 学習基盤からの適用学習（LLMプロンプト用テキスト）
+    phase2e_learnings: Optional[str] = None
+
     # v10.42.0 P2: ユーザーの人生軸・価値観・長期目標
     # UserLongTermMemory.get_all()の結果を格納
     user_life_axis: Optional[List[Dict[str, Any]]] = None

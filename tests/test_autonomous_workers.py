@@ -115,7 +115,7 @@ class TestResearchWorker:
         assert result is not None
         assert result["query"] == "テスト検索"
         assert result["results_count"] == 0
-        assert "見つかりませんでした" in result["synthesis"]
+        assert result["synthesis_length"] > 0
 
     @pytest.mark.asyncio
     async def test_execute_reports_progress(self):
@@ -169,7 +169,7 @@ class TestReminderWorker:
         result = await worker.execute(task)
 
         assert result["status"] == "awaiting_confirmation"
-        assert result["message_preview"] == "テストリマインダー"
+        assert result["message_length"] == len("テストリマインダー")
 
     @pytest.mark.asyncio
     async def test_confirmed_sends_message(self):
@@ -246,7 +246,7 @@ class TestReportWorker:
         assert result["report_type"] == "daily_summary"
         assert result["data_points"] == 0
         assert result["sent"] is True
-        assert "データがありません" in result["report_preview"]
+        assert result["report_length"] > 0
 
     @pytest.mark.asyncio
     async def test_generate_report_with_data(self):
@@ -392,7 +392,7 @@ class TestResearchWorkerDB:
         result = await worker.execute(task)
 
         assert result["results_count"] == 1
-        assert "手順書" in result["synthesis"]
+        assert result["synthesis_length"] > 0
 
 
 # =============================================================================
@@ -511,7 +511,7 @@ class TestReportWorkerDB:
 
         assert result["sent"] is True
         assert result["data_points"] == 5
-        assert "API呼出数: 10" in result["report_preview"]
+        assert result["report_length"] > 0
         send_func.assert_called_once()
 
 
@@ -586,3 +586,66 @@ class TestIdempotency:
             or (len(c.args) > 1 and c.args[1] == TaskStatus.COMPLETED)
         ]
         assert len(update_calls) >= 1
+
+
+# =============================================================================
+# TaskQueue.claim 直接テスト (C.14)
+# =============================================================================
+
+
+class TestTaskQueueClaim:
+    """TaskQueue.claim() の直接テスト"""
+
+    @pytest.mark.asyncio
+    async def test_claim_success_pending(self):
+        """pending状態のタスクをclaimできる"""
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.mappings.return_value.first.return_value = {"id": "task-001"}
+        mock_conn.execute.return_value = mock_result
+
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        tq = TaskQueue(pool=mock_pool, org_id="org-test")
+        result = await tq.claim("task-001")
+
+        assert result is True
+        mock_conn.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_claim_fail_already_running(self):
+        """既にrunning/completedの場合はclaimに失敗"""
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.mappings.return_value.first.return_value = None  # 0 rows
+        mock_conn.execute.return_value = mock_result
+
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        tq = TaskQueue(pool=mock_pool, org_id="org-test")
+        result = await tq.claim("task-001")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_claim_db_error(self):
+        """DB例外時はFalseを返す"""
+        mock_pool = MagicMock()
+        mock_pool.connect.side_effect = RuntimeError("connection error")
+
+        tq = TaskQueue(pool=mock_pool, org_id="org-test")
+        result = await tq.claim("task-001")
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_claim_no_pool(self):
+        """pool無しの場合はFalseを返す"""
+        tq = TaskQueue(pool=None, org_id="org-test")
+        result = await tq.claim("task-001")
+
+        assert result is False

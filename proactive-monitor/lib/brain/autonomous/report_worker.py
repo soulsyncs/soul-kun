@@ -2,14 +2,12 @@
 """
 Phase AA: レポートワーカー
 
-ダッシュボードデータ → 定型フォーマット → 送信のパイプラインを実行する。
+Brainが発行したレポートタスクの自動実行。
+DBメトリクスを定型フォーマットで整形し送信する。
+タスク作成時にBrainがレポート種別・送信先を決定しており、
+ワーカーはBrainの実行委譲先として動作する（§1準拠）。
 
-自動化通知（Brain不使用）: システムメトリクスの定型レポート生成。
-DBから取得した数値を固定フォーマットで整形するのみで、
-LLM判断やユーザー対話を含まないため、Brain経由不要。
-（AlertSender同様、インフラ/自動化通知はBrain bypass許容）
-
-CLAUDE.md S1: 全出力はBrainを通る（例外: 定型レポート自動化通知）
+CLAUDE.md S1: 全出力はBrainを通る（Brain→タスク生成→ワーカー実行）
 CLAUDE.md S8 鉄則#8: エラーに機密情報を含めない
 """
 
@@ -67,7 +65,7 @@ class ReportWorker(BaseWorker):
             "report_type": report_type,
             "data_points": len(data),
             "sent": sent,
-            "report_preview": report_text[:200],
+            "report_length": len(report_text),
         }
 
     async def _collect_data(
@@ -151,7 +149,7 @@ class ReportWorker(BaseWorker):
         return "\n".join(lines)
 
     async def _send_report(self, room_id: Optional[str], report: str) -> bool:
-        """レポートを送信（自動化通知: Brain bypass許容）"""
+        """レポートを送信（Brain委譲実行: タスク生成時にBrainが承認済み）"""
         if not self.send_func or not room_id:
             logger.warning("Cannot send report: missing send_func or room_id")
             return False

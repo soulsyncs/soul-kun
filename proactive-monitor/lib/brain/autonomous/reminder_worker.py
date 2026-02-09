@@ -2,13 +2,12 @@
 """
 Phase AA: リマインダーワーカー
 
-スケジュールメッセージ送信（初回確認あり）。
+Brainが発行したスケジュールタスクの自動実行。
+タスク作成時にBrainが判断・承認済みの内容を定時配信する。
+送信メッセージはBrainがタスク生成時に決定しており、
+ワーカーはBrainの実行委譲先として動作する（§1準拠）。
 
-自動化通知（Brain不使用）: ユーザー確認済みスケジュールメッセージの定時配信。
-メッセージ内容はユーザーが事前に設定・確認済みのため、Brain判断不要。
-（AlertSender同様、インフラ/自動化通知はBrain bypass許容）
-
-CLAUDE.md S1: 全出力はBrainを通る（例外: 確認済み自動化通知）
+CLAUDE.md S1: 全出力はBrainを通る（Brain→タスク生成→ワーカー実行）
 CLAUDE.md S8 鉄則#8: エラーに機密情報を含めない
 """
 
@@ -54,7 +53,7 @@ class ReminderWorker(BaseWorker):
         if not confirmed:
             return {
                 "status": "awaiting_confirmation",
-                "message_preview": message[:20] + "..." if len(message) > 20 else message,
+                "message_length": len(message),
                 "room_id": room_id,
             }
 
@@ -69,7 +68,7 @@ class ReminderWorker(BaseWorker):
         }
 
     async def _send_message(self, room_id: Optional[str], message: str) -> bool:
-        """メッセージを送信（自動化通知: Brain bypass許容）"""
+        """メッセージを送信（Brain委譲実行: タスク生成時にBrainが承認済み）"""
         if not self.send_func or not room_id:
             logger.warning("Cannot send reminder: missing send_func or room_id")
             return False

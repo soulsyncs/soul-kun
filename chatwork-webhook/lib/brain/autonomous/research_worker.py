@@ -60,7 +60,7 @@ class ResearchWorker(BaseWorker):
         return {
             "query": query,
             "results_count": len(knowledge_results),
-            "synthesis": synthesis,
+            "synthesis_length": len(synthesis),
         }
 
     async def _search_knowledge(

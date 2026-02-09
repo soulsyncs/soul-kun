@@ -83,22 +83,33 @@ class ResearchWorker(BaseWorker):
             from sqlalchemy import text
             import asyncio
 
+            def _escape_ilike(value: str) -> str:
+                """ILIKEメタキャラクタをエスケープ"""
+                return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
             def _sync_search():
                 with self.pool.connect() as conn:
                     conn.execute(
                         text("SELECT set_config('app.current_organization_id', :org_id, false)"),
                         {"org_id": organization_id},
                     )
+                    escaped_query = _escape_ilike(query)
                     rows = conn.execute(
                         text("""
                             SELECT d.title, dc.content
                             FROM document_chunks dc
                             JOIN documents d ON d.id = dc.document_id
                             WHERE d.organization_id = :org_id::uuid
+                              AND (d.title ILIKE :pattern ESCAPE '\\'
+                                   OR dc.content ILIKE :pattern ESCAPE '\\')
                             ORDER BY d.updated_at DESC
                             LIMIT :limit
                         """),
-                        {"org_id": organization_id, "limit": max_results},
+                        {
+                            "org_id": organization_id,
+                            "pattern": f"%{escaped_query}%",
+                            "limit": max_results,
+                        },
                     ).mappings().all()
                     return [{"title": r["title"], "content": (r["content"] or "")[:500]} for r in rows]
 

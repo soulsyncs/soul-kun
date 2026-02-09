@@ -378,8 +378,12 @@ class TestResearchWorkerDB:
         assert len(results) == 2
         assert results[0]["title"] == "ナレッジ1"
         assert results[1]["title"] == "ナレッジ2"
-        # set_config が呼ばれていることを確認
+        # set_config + SELECT(ILIKE検索) が呼ばれていることを確認
         assert mock_conn.execute.call_count >= 2
+        # SQLにILIKEパターンが渡されている（queryを使用）
+        search_call = mock_conn.execute.call_args_list[-1]
+        params = search_call[0][1] if len(search_call[0]) > 1 else search_call[1]
+        assert params["pattern"] == "%テスト%"
 
     @pytest.mark.asyncio
     async def test_search_knowledge_empty_result(self):
@@ -483,6 +487,47 @@ class TestReportWorkerDB:
         assert data["total_cost"] == 500.0
         assert data["error_count"] == 3
         assert data["total_decisions"] == 100
+
+    @pytest.mark.asyncio
+    async def test_collect_data_weekly_uses_7day_interval(self):
+        """weekly_summaryは7日間の集計期間を使用"""
+        usage_row = {"call_count": 10, "total_tokens": 5000, "total_cost": 250.0}
+        error_row = {"errors": 1, "total": 20}
+
+        mock_conn = MagicMock()
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                return result
+            elif call_count["n"] == 2:
+                result.mappings.return_value.first.return_value = usage_row
+                return result
+            else:
+                result.mappings.return_value.first.return_value = error_row
+                return result
+
+        mock_conn.execute.side_effect = side_effect
+
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=mock_pool)
+
+        data = await worker._collect_data(
+            organization_id="org-test",
+            report_type="weekly_summary",
+        )
+
+        assert data["call_count"] == 10
+        # intervalパラメータが"7 days"で渡されていることを確認
+        usage_call = mock_conn.execute.call_args_list[1]
+        params = usage_call[0][1] if len(usage_call[0]) > 1 else usage_call[1]
+        assert params["interval"] == "7 days"
 
     @pytest.mark.asyncio
     async def test_collect_data_db_error(self):

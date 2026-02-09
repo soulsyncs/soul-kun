@@ -77,6 +77,9 @@ class ReportWorker(BaseWorker):
             from sqlalchemy import text
             import asyncio
 
+            # report_typeに応じた集計期間
+            interval = "7 days" if "weekly" in report_type else "1 day"
+
             def _sync_collect():
                 with self.pool.connect() as conn:
                     conn.execute(
@@ -93,9 +96,9 @@ class ReportWorker(BaseWorker):
                                 COALESCE(SUM(estimated_cost_jpy), 0) AS total_cost
                             FROM ai_usage_logs
                             WHERE organization_id = :org_id::uuid
-                              AND created_at >= NOW() - INTERVAL '1 day'
+                              AND created_at >= NOW() - CAST(:interval AS interval)
                         """),
-                        {"org_id": organization_id},
+                        {"org_id": organization_id, "interval": interval},
                     ).mappings().first()
 
                     # エラー率
@@ -106,9 +109,9 @@ class ReportWorker(BaseWorker):
                                 COUNT(*) AS total
                             FROM brain_decision_logs
                             WHERE organization_id = :org_id::uuid
-                              AND created_at >= NOW() - INTERVAL '1 day'
+                              AND created_at >= NOW() - CAST(:interval AS interval)
                         """),
-                        {"org_id": organization_id},
+                        {"org_id": organization_id, "interval": interval},
                     ).mappings().first()
 
                     return {

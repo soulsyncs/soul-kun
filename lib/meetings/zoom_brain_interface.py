@@ -207,14 +207,13 @@ class ZoomBrainInterface:
             )
             meeting_id = meeting["id"]
 
-            # raw_transcript: PII含有のため90日保持→retention_managerがNULL化。
-            # CLAUDE.md §9-2 準拠: 会議録原文は「明示的指示に基づく一時保存」扱い。
+            # raw_transcript=None: Zoom VTTには話者名（PII）が含まれるため保存しない。
+            # CLAUDE.md §3-2 #8 準拠: PIIをDB保存に含めない。
             # sanitized_transcriptがLLM・表示用（PII除去済み）。
-            # nullify_expired_raw_transcripts()が90日後にraw+segments+speakersをNULL化。
             await asyncio.to_thread(
                 self.db.save_transcript,
                 meeting_id=meeting_id,
-                raw_transcript=raw_text,
+                raw_transcript=None,
                 sanitized_transcript=sanitized_text,
                 segments_json=vtt_transcript.to_segments_json(),
                 speakers_json=vtt_transcript.to_speakers_json(),

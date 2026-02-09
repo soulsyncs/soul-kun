@@ -433,6 +433,29 @@ Speaker: test
         assert "準備中" in result.message
 
 
+class TestPiiProtection:
+    """raw_transcript は PII 保護のため None で保存する"""
+
+    @pytest.mark.asyncio
+    async def test_raw_transcript_not_saved(self, mock_pool, mock_zoom_client):
+        """CLAUDE.md §3-2 #8: raw_transcript=None でDB保存される"""
+        interface = ZoomBrainInterface(
+            mock_pool, "org_test", zoom_client=mock_zoom_client
+        )
+        result = await interface.process_zoom_minutes(
+            room_id="room_123",
+            account_id="user_456",
+        )
+        assert result.success is True
+
+        # save_transcript is the 3rd DB call (dedup, create, save_transcript)
+        conn = mock_pool.connect.return_value
+        calls = conn.execute.call_args_list
+        # save_transcript call params should have raw=None
+        save_call_params = calls[2][0][1]  # positional arg [1] = params dict
+        assert save_call_params["raw"] is None
+
+
 class TestParseZoomDatetime:
     def test_valid_iso_with_z(self):
         dt = _parse_zoom_datetime("2026-02-09T10:00:00Z")

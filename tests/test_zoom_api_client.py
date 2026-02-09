@@ -210,6 +210,92 @@ class TestFindTranscriptUrl:
         assert zoom_client.find_transcript_url({}) is None
 
 
+class TestApiGetError:
+    """_api_get の HTTP エラーパス"""
+
+    @patch("lib.meetings.zoom_api_client.httpx.get")
+    @patch("lib.meetings.zoom_api_client.httpx.post")
+    def test_api_get_http_error_propagates(self, mock_post, mock_get, zoom_client):
+        import httpx
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "tok"}
+        token_resp.raise_for_status = MagicMock()
+        mock_post.return_value = token_resp
+
+        error_resp = MagicMock()
+        error_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "404", request=MagicMock(), response=MagicMock()
+        )
+        mock_get.return_value = error_resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            zoom_client.get_meeting_recordings("meeting_123")
+
+    @patch("lib.meetings.zoom_api_client.httpx.get")
+    @patch("lib.meetings.zoom_api_client.httpx.post")
+    def test_list_recordings_http_error(self, mock_post, mock_get, zoom_client):
+        import httpx
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "tok"}
+        token_resp.raise_for_status = MagicMock()
+        mock_post.return_value = token_resp
+
+        error_resp = MagicMock()
+        error_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500", request=MagicMock(), response=MagicMock()
+        )
+        mock_get.return_value = error_resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            zoom_client.list_recordings()
+
+
+class TestDownloadTranscriptError:
+    """download_transcript のエラーパス"""
+
+    @patch("lib.meetings.zoom_api_client.httpx.get")
+    @patch("lib.meetings.zoom_api_client.httpx.post")
+    def test_download_transcript_http_error(self, mock_post, mock_get, zoom_client):
+        import httpx
+
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "tok"}
+        token_resp.raise_for_status = MagicMock()
+        mock_post.return_value = token_resp
+
+        error_resp = MagicMock()
+        error_resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "403", request=MagicMock(), response=MagicMock()
+        )
+        mock_get.return_value = error_resp
+
+        with pytest.raises(httpx.HTTPStatusError):
+            zoom_client.download_transcript("https://zoom.us/rec/download/abc")
+
+
+class TestListRecordingsPageSize:
+    """page_size の上限キャップ"""
+
+    @patch("lib.meetings.zoom_api_client.httpx.get")
+    @patch("lib.meetings.zoom_api_client.httpx.post")
+    def test_page_size_capped_at_300(self, mock_post, mock_get, zoom_client):
+        token_resp = MagicMock()
+        token_resp.json.return_value = {"access_token": "tok"}
+        token_resp.raise_for_status = MagicMock()
+        mock_post.return_value = token_resp
+
+        rec_resp = MagicMock()
+        rec_resp.json.return_value = {"meetings": []}
+        rec_resp.raise_for_status = MagicMock()
+        mock_get.return_value = rec_resp
+
+        zoom_client.list_recordings(page_size=999)
+        call_kwargs = mock_get.call_args[1]
+        assert call_kwargs["params"]["page_size"] == 300
+
+
 class TestCreateFromSecrets:
     def test_factory_uses_secrets(self):
         mock_secret = MagicMock(

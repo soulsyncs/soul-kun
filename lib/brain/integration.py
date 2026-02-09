@@ -96,6 +96,7 @@ class BypassType(str, Enum):
     TASK_PENDING = "task_pending"              # タスク作成待ち
     LOCAL_COMMAND = "local_command"            # ローカルコマンド
     DIRECT_HANDLER = "direct_handler"          # ハンドラー直接呼び出し
+    MEETING_AUDIO = "meeting_audio"            # 会議音声ファイル文字起こし
 
 
 # =============================================================================
@@ -835,6 +836,15 @@ class BrainIntegration:
                 bypass_type=BypassType.LOCAL_COMMAND,
                 should_redirect=True,  # 脳に統合済み
                 reason="Local command detected",
+            )
+
+        # 会議音声ファイル（Phase C: バイナリ前処理済み）
+        if context.get("has_meeting_audio"):
+            return BypassDetectionResult(
+                is_bypass=True,
+                bypass_type=BypassType.MEETING_AUDIO,
+                should_redirect=True,
+                reason="Meeting audio file detected",
             )
 
         return BypassDetectionResult(is_bypass=False)

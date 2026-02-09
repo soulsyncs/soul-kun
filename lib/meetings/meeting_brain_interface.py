@@ -471,13 +471,23 @@ class MeetingBrainInterface:
         )
 
         try:
-            user_prompt = build_chatwork_minutes_prompt(sanitized_text, title)
-            llm_response = await get_ai_response_func(
-                user_prompt,
-                system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
-            )
+            import asyncio as _asyncio
 
-            if not llm_response:
+            user_prompt = build_chatwork_minutes_prompt(sanitized_text, title)
+
+            if _asyncio.iscoroutinefunction(get_ai_response_func):
+                llm_response = await get_ai_response_func(
+                    user_prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
+                )
+            else:
+                llm_response = await _asyncio.to_thread(
+                    get_ai_response_func,
+                    user_prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
+                )
+
+            if not llm_response or not llm_response.strip():
                 logger.warning("LLM returned empty response for minutes generation")
                 return None
 

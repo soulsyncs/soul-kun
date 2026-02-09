@@ -162,6 +162,9 @@ class LLMContext:
     # === ナレッジ（遅延取得可） ===
     relevant_knowledge: Optional[List[KnowledgeChunk]] = None
 
+    # === Phase 2E: 学習済み知識 ===
+    phase2e_learnings: str = ""
+
     # === メタ情報 ===
     current_datetime: datetime = field(default_factory=lambda: datetime.now(JST))
     organization_id: str = ""
@@ -226,6 +229,10 @@ class LLMContext:
             knowledge = "\n".join([f"- {k.content[:100]}..." for k in self.relevant_knowledge[:3]])
             sections.append(f"【関連ナレッジ】\n{knowledge}")
 
+        # Phase 2E: 学習済み知識
+        if self.phase2e_learnings:
+            sections.append(self.phase2e_learnings)
+
         # 現在日時
         sections.append(f"【現在日時】\n{self.current_datetime.strftime('%Y年%m月%d日 %H:%M')}")
 
@@ -253,6 +260,7 @@ class ContextBuilder:
         memory_access=None,
         state_manager=None,
         ceo_teaching_repository=None,
+        phase2e_learning=None,
     ):
         """
         Args:
@@ -260,11 +268,13 @@ class ContextBuilder:
             memory_access: BrainMemoryAccessインスタンス（Noneの場合は内部で生成）
             state_manager: BrainStateManagerインスタンス
             ceo_teaching_repository: CEOTeachingRepositoryインスタンス
+            phase2e_learning: Phase2ELearningインスタンス（学習基盤）
         """
         self.pool = pool
         self.memory_access = memory_access
         self.state_manager = state_manager
         self.ceo_teaching_repository = ceo_teaching_repository
+        self.phase2e_learning = phase2e_learning
 
     async def build(
         self,
@@ -273,6 +283,7 @@ class ContextBuilder:
         organization_id: str,
         message: str,
         sender_name: Optional[str] = None,
+        phase2e_learnings_prefetched: Optional[str] = None,
     ) -> LLMContext:
         """
         コンテキストを構築する
@@ -297,6 +308,12 @@ class ContextBuilder:
         logger.debug("Building LLM context")
 
         # 並列で全ての情報を取得
+        # Phase 2E: _get_context()で既に取得済みの場合はDBクエリをスキップ
+        phase2e_task = (
+            self._return_prefetched(phase2e_learnings_prefetched)
+            if phase2e_learnings_prefetched is not None
+            else self._get_phase2e_learnings(message, user_id, room_id)
+        )
         tasks = [
             self._get_session_state(user_id, room_id),
             self._get_recent_messages(user_id, room_id, organization_id),
@@ -307,6 +324,7 @@ class ContextBuilder:
             self._get_active_goals(user_id, organization_id),
             self._get_ceo_teachings(organization_id, message),
             self._get_user_info(user_id, organization_id, sender_name),
+            phase2e_task,
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -322,6 +340,7 @@ class ContextBuilder:
             active_goals,
             ceo_teachings,
             user_info,
+            phase2e_learnings,
         ) = self._handle_results(results)
 
         return LLMContext(
@@ -339,6 +358,7 @@ class ContextBuilder:
             ceo_teachings=ceo_teachings,
             company_values=self._get_company_values(),
             relevant_knowledge=None,  # 必要時に遅延取得
+            phase2e_learnings=phase2e_learnings,
             current_datetime=datetime.now(JST),
             organization_id=organization_id,
             room_id=room_id,
@@ -356,6 +376,7 @@ class ContextBuilder:
             "active_goals",
             "ceo_teachings",
             "user_info",
+            "phase2e_learnings",
         ]
         defaults: List[Any] = [
             None,  # session_state
@@ -367,6 +388,7 @@ class ContextBuilder:
             [],    # active_goals
             [],    # ceo_teachings
             {},    # user_info
+            "",    # phase2e_learnings
         ]
 
         processed = []
@@ -592,6 +614,44 @@ class ContextBuilder:
         except Exception as e:
             logger.warning(f"Error getting CEO teachings: {e}")
             return []
+
+    @staticmethod
+    async def _return_prefetched(value: str) -> str:
+        """プリフェッチ済みの値を返す（asyncio.gather互換用）"""
+        return value
+
+    async def _get_phase2e_learnings(
+        self,
+        message: str,
+        user_id: str,
+        room_id: str,
+    ) -> str:
+        """Phase 2E: 適用可能な学習済み知識をプロンプト文として取得
+
+        Note: asyncio.to_thread()で同期DB呼び出しをオフロードし、
+        asyncio.gather()内でイベントループをブロックしない。
+        """
+        if not self.phase2e_learning:
+            return ""
+
+        try:
+            def _sync_fetch():
+                with self.pool.connect() as conn:
+                    applicable = self.phase2e_learning.find_applicable(
+                        conn, message, None, user_id, room_id
+                    )
+                    if not applicable:
+                        return ""
+                    context_additions = self.phase2e_learning.build_context_additions(
+                        applicable
+                    )
+                    return self.phase2e_learning.build_prompt_instructions(
+                        context_additions
+                    )
+            return await asyncio.to_thread(_sync_fetch)
+        except Exception as e:
+            logger.warning(f"Error getting Phase 2E learnings: {e}")
+            return ""
 
     async def _get_user_info(
         self,

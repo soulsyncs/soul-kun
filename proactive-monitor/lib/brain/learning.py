@@ -249,6 +249,11 @@ class BrainLearning:
         # テーブル存在フラグ
         self._table_ensured = False
 
+    @property
+    def phase2e_learning(self):
+        """Phase 2E学習基盤インスタンス（外部からのアクセス用）"""
+        return self._phase2e_learning
+
     @contextmanager
     def _connect_with_org_context(self):
         """

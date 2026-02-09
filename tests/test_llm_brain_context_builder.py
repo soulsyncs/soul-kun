@@ -104,7 +104,6 @@ def sample_session_state():
     return SessionState(
         mode="normal",
         pending_action=None,
-        context_data={},
     )
 
 
@@ -548,3 +547,165 @@ class TestContextBuilder:
         )
 
         assert context.user_name == "指定された名前"
+
+
+# =============================================================================
+# Phase 2E: 学習統合テスト
+# =============================================================================
+
+
+class TestPhase2ELearningIntegration:
+    """Phase 2E学習のContextBuilder/LLMContext統合テスト"""
+
+    def test_llm_context_has_phase2e_field(self):
+        """LLMContextにphase2e_learningsフィールドがあること"""
+        ctx = LLMContext(
+            user_id="user_001",
+            user_name="テスト",
+            user_role="member",
+            organization_id="org_test",
+            room_id="room_123",
+            current_datetime=datetime.now(),
+        )
+        assert ctx.phase2e_learnings == ""
+
+    def test_to_prompt_string_includes_learnings(self):
+        """phase2e_learningsがプロンプトに含まれること"""
+        ctx = LLMContext(
+            user_id="user_001",
+            user_name="テスト",
+            user_role="member",
+            organization_id="org_test",
+            room_id="room_123",
+            current_datetime=datetime.now(),
+            phase2e_learnings="【覚えている別名】\n- 「麻美」は「渡部麻美」のこと",
+        )
+        result = ctx.to_prompt_string()
+        assert "【覚えている別名】" in result
+        assert "渡部麻美" in result
+
+    def test_to_prompt_string_excludes_empty_learnings(self):
+        """空のphase2e_learningsはプロンプトに含まれないこと"""
+        ctx = LLMContext(
+            user_id="user_001",
+            user_name="テスト",
+            user_role="member",
+            organization_id="org_test",
+            room_id="room_123",
+            current_datetime=datetime.now(),
+            phase2e_learnings="",
+        )
+        result = ctx.to_prompt_string()
+        assert "覚えている別名" not in result
+
+    def test_context_builder_init_with_phase2e(self):
+        """ContextBuilderがphase2e_learningパラメータを受け取ること"""
+        mock_pool = MagicMock()
+        mock_learning = MagicMock()
+        builder = ContextBuilder(
+            pool=mock_pool,
+            phase2e_learning=mock_learning,
+        )
+        assert builder.phase2e_learning is mock_learning
+
+    @pytest.mark.asyncio
+    async def test_build_includes_phase2e_learnings(self):
+        """buildがPhase 2E学習を含むLLMContextを返すこと"""
+        mock_pool = MagicMock()
+        mock_learning = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        # find_applicable → build_context_additions → build_prompt_instructions
+        mock_applied = [MagicMock()]
+        mock_learning.find_applicable.return_value = mock_applied
+        mock_learning.build_context_additions.return_value = {"aliases": [{"from": "麻美", "to": "渡部麻美"}]}
+        mock_learning.build_prompt_instructions.return_value = "【覚えている別名】\n- 「麻美」は「渡部麻美」のこと"
+
+        builder = ContextBuilder(
+            pool=mock_pool,
+            phase2e_learning=mock_learning,
+        )
+
+        with patch.object(builder, '_get_user_info', new_callable=AsyncMock) as mock_ui:
+            mock_ui.return_value = {"name": "テスト", "role": ""}
+            context = await builder.build(
+                user_id="user_001",
+                room_id="room_123",
+                organization_id="org_test",
+                message="麻美さんに連絡して",
+            )
+
+        assert context.phase2e_learnings == "【覚えている別名】\n- 「麻美」は「渡部麻美」のこと"
+        mock_learning.find_applicable.assert_called_once_with(
+            mock_conn, "麻美さんに連絡して", None, "user_001", "room_123"
+        )
+
+    @pytest.mark.asyncio
+    async def test_build_phase2e_no_applicable(self):
+        """適用可能な学習がない場合、空文字が返ること"""
+        mock_pool = MagicMock()
+        mock_learning = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_learning.find_applicable.return_value = []
+
+        builder = ContextBuilder(
+            pool=mock_pool,
+            phase2e_learning=mock_learning,
+        )
+
+        with patch.object(builder, '_get_user_info', new_callable=AsyncMock) as mock_ui:
+            mock_ui.return_value = {"name": "テスト", "role": ""}
+            context = await builder.build(
+                user_id="user_001",
+                room_id="room_123",
+                organization_id="org_test",
+                message="こんにちは",
+            )
+
+        assert context.phase2e_learnings == ""
+        mock_learning.build_context_additions.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_phase2e_error_graceful(self):
+        """Phase 2E取得エラー時もLLMContextが正常に返ること"""
+        mock_pool = MagicMock()
+        mock_learning = MagicMock()
+        mock_pool.connect.side_effect = Exception("DB connection error")
+
+        builder = ContextBuilder(
+            pool=mock_pool,
+            phase2e_learning=mock_learning,
+        )
+
+        with patch.object(builder, '_get_user_info', new_callable=AsyncMock) as mock_ui:
+            mock_ui.return_value = {"name": "テスト", "role": ""}
+            context = await builder.build(
+                user_id="user_001",
+                room_id="room_123",
+                organization_id="org_test",
+                message="テスト",
+            )
+
+        assert isinstance(context, LLMContext)
+        assert context.phase2e_learnings == ""
+
+    @pytest.mark.asyncio
+    async def test_build_without_phase2e(self):
+        """phase2e_learning未設定時も正常に動作すること"""
+        mock_pool = MagicMock()
+        builder = ContextBuilder(pool=mock_pool)
+
+        with patch.object(builder, '_get_user_info', new_callable=AsyncMock) as mock_ui:
+            mock_ui.return_value = {"name": "テスト", "role": ""}
+            context = await builder.build(
+                user_id="user_001",
+                room_id="room_123",
+                organization_id="org_test",
+                message="テスト",
+            )
+
+        assert context.phase2e_learnings == ""

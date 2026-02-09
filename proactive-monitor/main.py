@@ -140,6 +140,53 @@ async def _try_generate_daily_log(pool) -> str:
         return "error"
 
 
+async def _try_outcome_learning_batch() -> dict:
+    """
+    Phase 2F: 結果からの学習 — バッチ処理
+
+    未検出アウトカムの検知 + パターン抽出 + 自動昇格を行う。
+    毎回の定期実行で呼び出される。エラー時はログのみで続行。
+
+    Note: DailyLogGeneratorと同様、同期DBプールを使用する。
+    """
+    try:
+        from lib.brain.outcome_learning import create_outcome_learning
+        from lib.db import get_db_pool
+
+        org_id = os.environ.get("SOULKUN_ORG_ID", "soulsyncs")
+        outcome_learning = create_outcome_learning(org_id)
+        sync_pool = get_db_pool()
+
+        def _sync_batch():
+            with sync_pool.connect() as conn:
+                # 1. 未検出アウトカムの処理
+                processed = outcome_learning.process_pending_outcomes(conn)
+
+                # 2. パターン抽出（30日分）
+                patterns = outcome_learning.extract_patterns(conn, days=30, save=True)
+
+                # 3. 昇格可能パターンの自動昇格
+                promotable = outcome_learning.find_promotable_patterns(conn)
+                promoted_count = 0
+                for p in promotable:
+                    learning_id = outcome_learning.promote_pattern_to_learning(conn, p.id)
+                    if learning_id:
+                        promoted_count += 1
+
+                return {
+                    "processed_outcomes": processed,
+                    "patterns_extracted": len(patterns),
+                    "patterns_promoted": promoted_count,
+                }
+
+        result = await asyncio.to_thread(_sync_batch)
+        logger.info("[OutcomeLearning] Batch complete: %s", result)
+        return result
+    except Exception as e:
+        logger.warning("[OutcomeLearning] Batch failed: %s", type(e).__name__)
+        return {"error": type(e).__name__}
+
+
 async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
@@ -167,6 +214,9 @@ async def run_proactive_monitor():
     # Phase 2-B: 日次レポート生成（JST 9:00台のみ）
     daily_log_result = await _try_generate_daily_log(pool)
 
+    # Phase 2F: 結果からの学習 — バッチ処理
+    outcome_batch_result = await _try_outcome_learning_batch()
+
     # 統計
     total_users = len(results)
     total_triggers = sum(len(r.triggers_found) for r in results)
@@ -182,6 +232,7 @@ async def run_proactive_monitor():
         "dry_run": PROACTIVE_DRY_RUN,
         "brain_used": brain is not None,  # CLAUDE.md鉄則1b準拠状況
         "daily_log": daily_log_result,
+        "outcome_learning": outcome_batch_result,
         "users_checked": total_users,
         "triggers_found": total_triggers,
         "actions_taken": total_actions,

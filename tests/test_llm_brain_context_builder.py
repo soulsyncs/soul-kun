@@ -709,3 +709,173 @@ class TestPhase2ELearningIntegration:
             )
 
         assert context.phase2e_learnings == ""
+
+
+# =============================================================================
+# Phase 2F: Outcome Learning Context Integration
+# =============================================================================
+
+
+class TestOutcomePatternsContext:
+    """Phase 2F: 行動パターンのコンテキスト統合テスト"""
+
+    def test_to_prompt_string_includes_outcome_patterns(self):
+        """outcome_patternsがプロンプトに含まれること"""
+        ctx = LLMContext(
+            user_id="user_001",
+            user_name="テスト",
+            user_role="member",
+            organization_id="org_test",
+            room_id="room_123",
+            current_datetime=datetime.now(),
+            outcome_patterns="【行動パターン（Phase 2F）】\n- 午前中のリマインドが効果的 (信頼度: 85%)",
+        )
+        result = ctx.to_prompt_string()
+        assert "行動パターン（Phase 2F）" in result
+        assert "午前中のリマインド" in result
+
+    def test_to_prompt_string_excludes_empty_outcome_patterns(self):
+        """空のoutcome_patternsはプロンプトに含まれないこと"""
+        ctx = LLMContext(
+            user_id="user_001",
+            user_name="テスト",
+            user_role="member",
+            organization_id="org_test",
+            room_id="room_123",
+            current_datetime=datetime.now(),
+            outcome_patterns="",
+        )
+        result = ctx.to_prompt_string()
+        assert "行動パターン" not in result
+
+    def test_context_builder_init_with_outcome_learning(self):
+        """ContextBuilderがoutcome_learningパラメータを受け取ること"""
+        mock_pool = MagicMock()
+        mock_outcome = MagicMock()
+        builder = ContextBuilder(
+            pool=mock_pool,
+            outcome_learning=mock_outcome,
+        )
+        assert builder.outcome_learning is mock_outcome
+
+    def test_context_builder_init_without_outcome_learning(self):
+        """outcome_learning未設定時はNoneであること"""
+        mock_pool = MagicMock()
+        builder = ContextBuilder(pool=mock_pool)
+        assert builder.outcome_learning is None
+
+    @pytest.mark.asyncio
+    async def test_get_outcome_patterns_with_patterns(self):
+        """パターンがある場合、フォーマットされた文字列が返ること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_pattern = MagicMock()
+        mock_pattern.pattern_content = {"description": "午前中のリマインドが効果的"}
+        mock_pattern.pattern_type = "timing"
+        mock_pattern.confidence_score = 0.85
+
+        mock_outcome = MagicMock()
+        mock_outcome.find_applicable_patterns.return_value = [mock_pattern]
+
+        builder = ContextBuilder(pool=mock_pool, outcome_learning=mock_outcome)
+        result = await builder._get_outcome_patterns("user_001")
+
+        assert "行動パターン（Phase 2F）" in result
+        assert "午前中のリマインド" in result
+        assert "85%" in result
+
+    @pytest.mark.asyncio
+    async def test_get_outcome_patterns_no_patterns(self):
+        """パターンがない場合、空文字が返ること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_outcome = MagicMock()
+        mock_outcome.find_applicable_patterns.return_value = []
+
+        builder = ContextBuilder(pool=mock_pool, outcome_learning=mock_outcome)
+        result = await builder._get_outcome_patterns("user_001")
+
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_get_outcome_patterns_none_learning(self):
+        """outcome_learning未設定時は空文字が返ること"""
+        mock_pool = MagicMock()
+        builder = ContextBuilder(pool=mock_pool)
+        result = await builder._get_outcome_patterns("user_001")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_get_outcome_patterns_max_3(self):
+        """最大3件に制限されること"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        patterns = []
+        for i in range(5):
+            p = MagicMock()
+            p.pattern_content = {"description": f"パターン{i}"}
+            p.pattern_type = "timing"
+            p.confidence_score = 0.8
+            patterns.append(p)
+
+        mock_outcome = MagicMock()
+        mock_outcome.find_applicable_patterns.return_value = patterns
+
+        builder = ContextBuilder(pool=mock_pool, outcome_learning=mock_outcome)
+        result = await builder._get_outcome_patterns("user_001")
+
+        assert "パターン0" in result
+        assert "パターン1" in result
+        assert "パターン2" in result
+        assert "パターン3" not in result
+        assert "パターン4" not in result
+
+    @pytest.mark.asyncio
+    async def test_get_outcome_patterns_error_graceful(self):
+        """エラー時も空文字が返ること"""
+        mock_pool = MagicMock()
+        mock_pool.connect.side_effect = Exception("DB error")
+        mock_outcome = MagicMock()
+
+        builder = ContextBuilder(pool=mock_pool, outcome_learning=mock_outcome)
+        result = await builder._get_outcome_patterns("user_001")
+        assert result == ""
+
+    @pytest.mark.asyncio
+    async def test_build_includes_outcome_patterns(self):
+        """buildがoutcome_patternsを含むLLMContextを返すこと"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        mock_pattern = MagicMock()
+        mock_pattern.pattern_content = {"description": "朝のリマインドが効果的"}
+        mock_pattern.pattern_type = "timing"
+        mock_pattern.confidence_score = 0.9
+
+        mock_outcome = MagicMock()
+        mock_outcome.find_applicable_patterns.return_value = [mock_pattern]
+
+        builder = ContextBuilder(pool=mock_pool, outcome_learning=mock_outcome)
+
+        with patch.object(builder, '_get_user_info', new_callable=AsyncMock) as mock_ui:
+            mock_ui.return_value = {"name": "テスト", "role": ""}
+            context = await builder.build(
+                user_id="user_001",
+                room_id="room_123",
+                organization_id="org_test",
+                message="テスト",
+            )
+
+        assert "行動パターン" in context.outcome_patterns
+        assert "朝のリマインド" in context.outcome_patterns

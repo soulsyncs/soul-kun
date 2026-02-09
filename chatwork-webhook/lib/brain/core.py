@@ -500,6 +500,11 @@ class SoulkunBrain:
             organization_id=org_id,
         )
 
+        # Phase 2F: Outcome Learning（結果からの学習）
+        from lib.brain.outcome_learning import create_outcome_learning, TRACKABLE_ACTIONS
+        self._trackable_actions = TRACKABLE_ACTIONS
+        self.outcome_learning = create_outcome_learning(org_id)
+
         # v10.46.0: 観測機能（Observability Layer）
         self.observability = create_observability(
             org_id=org_id,
@@ -737,6 +742,18 @@ class SoulkunBrain:
                 execution_time_ms=self._elapsed_ms(start_time),
                 error_code=result.data.get("error_code") if result.data and not result.success else None,
             )
+
+            # 5.8 Phase 2F: 結果からの学習 — アクション記録（fire-and-forget）
+            if getattr(self, '_trackable_actions', None) and decision.action in self._trackable_actions:
+                asyncio.create_task(
+                    self._record_outcome_event(
+                        action=decision.action,
+                        target_account_id=account_id,
+                        target_room_id=room_id,
+                        action_params=decision.params,
+                        context_snapshot={"intent": understanding.intent},
+                    )
+                )
 
             # 6. 記憶更新（非同期で実行、エラーは無視）
             asyncio.create_task(
@@ -1580,6 +1597,7 @@ class SoulkunBrain:
                 state_manager=self.llm_state_manager,
                 ceo_teaching_repository=self.ceo_teaching_repo,
                 phase2e_learning=self.learning.phase2e_learning,
+                outcome_learning=self.outcome_learning,
             )
             logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
         except Exception as e:
@@ -1643,6 +1661,44 @@ class SoulkunBrain:
             sender_name=sender_name,
         )
         return result.to_handler_result()
+
+    # =========================================================================
+    # Phase 2F: Outcome Learning
+    # =========================================================================
+
+    async def _record_outcome_event(
+        self,
+        action: str,
+        target_account_id: str,
+        target_room_id: str,
+        action_params: Optional[Dict[str, Any]] = None,
+        context_snapshot: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Phase 2F: アクション結果を非同期で記録（fire-and-forget）
+
+        Note: asyncio.to_thread()で同期DB呼び出しをオフロードし、
+        イベントループをブロックしない。
+        """
+        try:
+            # PII保護: message/body/contentキーを除外してからDB保存
+            safe_params = {
+                k: v for k, v in (action_params or {}).items()
+                if k not in ("message", "body", "content", "text")
+            } if action_params else None
+
+            def _sync_record():
+                with self.pool.connect() as conn:
+                    self.outcome_learning.record_action(
+                        conn=conn,
+                        action=action,
+                        target_account_id=target_account_id,
+                        target_room_id=target_room_id,
+                        action_params=safe_params,
+                        context_snapshot=context_snapshot,
+                    )
+            await asyncio.to_thread(_sync_record)
+        except Exception as e:
+            logger.warning("Phase 2F outcome recording failed: %s", type(e).__name__)
 
     # =========================================================================
     # ユーティリティ

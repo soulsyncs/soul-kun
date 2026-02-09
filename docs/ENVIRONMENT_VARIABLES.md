@@ -294,6 +294,45 @@ ENABLE_DEPARTMENT_ACCESS_CONTROL=true
 
 ---
 
+## Phase C: 会議文字起こし
+
+### MEETING_GCS_BUCKET
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | 会議録音ファイルの保存先GCSバケット名 |
+| デフォルト | （未設定 = GCSアップロードスキップ） |
+| 本番値 | `soulkun-meeting-recordings` |
+
+**動作:**
+
+| 値 | 動作 |
+|----|------|
+| 未設定 | GCSアップロードをスキップ。文字起こしのみ実行。 |
+| `soulkun-meeting-recordings` | 音声ファイルをGCSにアップロードし、90日後に自動削除。 |
+
+```bash
+MEETING_GCS_BUCKET=soulkun-meeting-recordings
+```
+
+### ENABLE_MEETING_TRANSCRIPTION
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | 会議文字起こし機能の有効化フラグ |
+| デフォルト | `false` |
+| 管理場所 | `lib/brain/capability_bridge.py` の `DEFAULT_FEATURE_FLAGS` |
+
+### OPENAI_API_KEY
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | OpenAI APIキー（Whisper文字起こし用） |
+| デフォルト | （未設定） |
+| 取得元 | 環境変数 → Secret Manager（フォールバック） |
+
+---
+
 ## コンポーネント別設定
 
 ### Cloud Functions: chatwork-webhook

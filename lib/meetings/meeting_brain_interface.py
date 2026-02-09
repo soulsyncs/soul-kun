@@ -15,7 +15,7 @@ Created: 2026-02-10
 """
 
 import logging
-from dataclasses import dataclass
+import os
 from typing import Any, Dict, Optional
 
 # 安定データクラスのみimport（lib/brain/の内部ロジックには依存しない）
@@ -93,13 +93,25 @@ class MeetingBrainInterface:
                 )
             current_version += 1
 
-            # 3. 音声処理（AudioProcessor）
+            # 3. 音声をGCSにアップロード（バケット設定時のみ）
+            gcs_path = await self._upload_audio_to_gcs(meeting_id, audio_data)
+            if gcs_path:
+                await asyncio.to_thread(
+                    self.db.save_recording,
+                    meeting_id=meeting_id,
+                    gcs_path=gcs_path,
+                    file_size_bytes=len(audio_data),
+                    duration_seconds=0,
+                    format=self._detect_audio_format(audio_data),
+                )
+
+            # 4. 音声処理（AudioProcessor）
             transcript_text, audio_meta = await self._transcribe_audio(audio_data)
 
-            # 4. PII除去
+            # 5. PII除去
             sanitized, pii_count = self.sanitizer.sanitize(transcript_text)
 
-            # 5. 文字起こし結果を保存（segments/speakersもサニタイズ）
+            # 6. 文字起こし結果を保存（segments/speakersもサニタイズ）
             await asyncio.to_thread(
                 self.db.save_transcript,
                 meeting_id=meeting_id,
@@ -112,7 +124,7 @@ class MeetingBrainInterface:
                 confidence=audio_meta.get("confidence", 0),
             )
 
-            # 6. ステータス更新: transcribed（brain_approved=FALSEのまま）
+            # 7. ステータス更新: transcribed（brain_approved=FALSEのまま）
             updated = await asyncio.to_thread(
                 self.db.update_meeting_status,
                 meeting_id, "transcribed", expected_version=current_version,
@@ -336,6 +348,70 @@ class MeetingBrainInterface:
             except Exception as e:
                 logger.warning("Failed to get OpenAI key from Secret Manager: %s", e)
         return key
+
+    async def _upload_audio_to_gcs(
+        self,
+        meeting_id: str,
+        audio_data: bytes,
+    ) -> Optional[str]:
+        """
+        音声データをGCSにアップロードする。
+
+        MEETING_GCS_BUCKET が未設定の場合はスキップ（None返却）。
+        GCSアップロード失敗は文字起こし処理を止めない（警告のみ）。
+
+        Returns:
+            GCSパス（gs://bucket/path）or None
+        """
+        import asyncio
+
+        bucket_name = os.getenv("MEETING_GCS_BUCKET", "")
+        if not bucket_name:
+            logger.debug("MEETING_GCS_BUCKET not set, skipping GCS upload")
+            return None
+
+        try:
+            audio_format = self._detect_audio_format(audio_data)
+            gcs_path = (
+                f"gs://{bucket_name}/{self.organization_id}"
+                f"/{meeting_id}/audio.{audio_format}"
+            )
+
+            def _do_upload():
+                from google.cloud import storage
+                client = storage.Client()
+                bucket = client.bucket(bucket_name)
+                blob_path = f"{self.organization_id}/{meeting_id}/audio.{audio_format}"
+                blob = bucket.blob(blob_path)
+                content_type = (
+                    "audio/mpeg" if audio_format == "mp3"
+                    else f"audio/{audio_format}"
+                )
+                blob.upload_from_string(audio_data, content_type=content_type)
+
+            await asyncio.to_thread(_do_upload)
+            logger.info("Audio uploaded to GCS: %s", gcs_path)
+            return gcs_path
+
+        except Exception as e:
+            logger.warning(
+                "GCS upload failed (continuing with transcription): %s",
+                type(e).__name__,
+            )
+            return None
+
+    @staticmethod
+    def _detect_audio_format(audio_data: bytes) -> str:
+        """音声データのフォーマットをマジックバイトで判定する"""
+        if audio_data[:4] == b"fLaC":
+            return "flac"
+        if audio_data[:4] == b"RIFF":
+            return "wav"
+        if audio_data[:3] == b"ID3" or (len(audio_data) > 1 and audio_data[0:2] == b"\xff\xfb"):
+            return "mp3"
+        if audio_data[:4] == b"OggS":
+            return "ogg"
+        return "mp3"
 
     @staticmethod
     def _build_summary_message(

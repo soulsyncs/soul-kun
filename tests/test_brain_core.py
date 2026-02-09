@@ -2235,3 +2235,80 @@ class TestSynthesizeKnowledgeAnswer:
         # 5000文字の元コンテキストは切り詰められている
         assert "以下省略" in system_prompt
         assert "A" * 4001 not in system_prompt
+
+
+# =============================================================================
+# Phase 2F: Outcome Learning Integration
+# =============================================================================
+
+
+class TestOutcomeLearningInitialization:
+    """Phase 2F: outcome_learning初期化のテスト"""
+
+    def test_outcome_learning_exists(self, mock_pool):
+        """SoulkunBrainにoutcome_learning属性が存在すること"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        assert hasattr(brain, 'outcome_learning')
+        assert brain.outcome_learning is not None
+
+    def test_trackable_actions_exists(self, mock_pool):
+        """SoulkunBrainに_trackable_actions属性が存在すること"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        assert hasattr(brain, '_trackable_actions')
+        assert isinstance(brain._trackable_actions, (set, list, frozenset))
+
+
+class TestOutcomeRecording:
+    """Phase 2F: アクション記録のテスト"""
+
+    @pytest.mark.asyncio
+    async def test_record_outcome_event_success(self, mock_pool):
+        """trackableアクション時にrecord_actionが呼ばれること"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        brain.outcome_learning = MagicMock()
+        brain.outcome_learning.record_action = MagicMock(return_value="event-id")
+
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        await brain._record_outcome_event(
+            action="send_reminder",
+            target_account_id="12345",
+            target_room_id="room_001",
+            action_params={"message_type": "task_reminder"},
+            context_snapshot={"intent": "remind_task"},
+        )
+
+        brain.outcome_learning.record_action.assert_called_once_with(
+            conn=mock_conn,
+            action="send_reminder",
+            target_account_id="12345",
+            target_room_id="room_001",
+            action_params={"message_type": "task_reminder"},
+            context_snapshot={"intent": "remind_task"},
+        )
+
+    @pytest.mark.asyncio
+    async def test_record_outcome_event_error_graceful(self, mock_pool):
+        """record_action失敗時もエラーを投げないこと"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        mock_pool.connect.side_effect = Exception("DB down")
+
+        # Should not raise
+        await brain._record_outcome_event(
+            action="send_reminder",
+            target_account_id="12345",
+            target_room_id="room_001",
+        )
+
+    def test_trackable_action_triggers_recording(self, mock_pool):
+        """trackableアクションが_trackable_actionsに含まれることを確認"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        # send_reminder is a trackable action
+        assert "send_reminder" in brain._trackable_actions
+
+    def test_non_trackable_action_not_in_set(self, mock_pool):
+        """non-trackableアクションが_trackable_actionsに含まれないことを確認"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        assert "general_conversation" not in brain._trackable_actions

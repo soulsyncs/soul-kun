@@ -165,6 +165,9 @@ class LLMContext:
     # === Phase 2E: 学習済み知識 ===
     phase2e_learnings: str = ""
 
+    # === Phase 2F: 行動パターン ===
+    outcome_patterns: str = ""
+
     # === メタ情報 ===
     current_datetime: datetime = field(default_factory=lambda: datetime.now(JST))
     organization_id: str = ""
@@ -233,6 +236,10 @@ class LLMContext:
         if self.phase2e_learnings:
             sections.append(self.phase2e_learnings)
 
+        # Phase 2F: 行動パターン
+        if self.outcome_patterns:
+            sections.append(self.outcome_patterns)
+
         # 現在日時
         sections.append(f"【現在日時】\n{self.current_datetime.strftime('%Y年%m月%d日 %H:%M')}")
 
@@ -261,6 +268,7 @@ class ContextBuilder:
         state_manager=None,
         ceo_teaching_repository=None,
         phase2e_learning=None,
+        outcome_learning=None,
     ):
         """
         Args:
@@ -269,12 +277,14 @@ class ContextBuilder:
             state_manager: BrainStateManagerインスタンス
             ceo_teaching_repository: CEOTeachingRepositoryインスタンス
             phase2e_learning: Phase2ELearningインスタンス（学習基盤）
+            outcome_learning: Phase 2F OutcomeLearningインスタンス
         """
         self.pool = pool
         self.memory_access = memory_access
         self.state_manager = state_manager
         self.ceo_teaching_repository = ceo_teaching_repository
         self.phase2e_learning = phase2e_learning
+        self.outcome_learning = outcome_learning
 
     async def build(
         self,
@@ -325,6 +335,7 @@ class ContextBuilder:
             self._get_ceo_teachings(organization_id, message),
             self._get_user_info(user_id, organization_id, sender_name),
             phase2e_task,
+            self._get_outcome_patterns(user_id),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -341,6 +352,7 @@ class ContextBuilder:
             ceo_teachings,
             user_info,
             phase2e_learnings,
+            outcome_patterns,
         ) = self._handle_results(results)
 
         return LLMContext(
@@ -359,6 +371,7 @@ class ContextBuilder:
             company_values=self._get_company_values(),
             relevant_knowledge=None,  # 必要時に遅延取得
             phase2e_learnings=phase2e_learnings,
+            outcome_patterns=outcome_patterns,
             current_datetime=datetime.now(JST),
             organization_id=organization_id,
             room_id=room_id,
@@ -377,6 +390,7 @@ class ContextBuilder:
             "ceo_teachings",
             "user_info",
             "phase2e_learnings",
+            "outcome_patterns",
         ]
         defaults: List[Any] = [
             None,  # session_state
@@ -389,6 +403,7 @@ class ContextBuilder:
             [],    # ceo_teachings
             {},    # user_info
             "",    # phase2e_learnings
+            "",    # outcome_patterns
         ]
 
         processed = []
@@ -651,6 +666,38 @@ class ContextBuilder:
             return await asyncio.to_thread(_sync_fetch)
         except Exception as e:
             logger.warning(f"Error getting Phase 2E learnings: {e}")
+            return ""
+
+    async def _get_outcome_patterns(
+        self,
+        user_id: str,
+    ) -> str:
+        """Phase 2F: ユーザーの行動パターンを取得
+
+        Note: asyncio.to_thread()で同期DB呼び出しをオフロードし、
+        asyncio.gather()内でイベントループをブロックしない。
+        """
+        if not self.outcome_learning:
+            return ""
+
+        try:
+            def _sync_fetch():
+                with self.pool.connect() as conn:
+                    patterns = self.outcome_learning.find_applicable_patterns(
+                        conn=conn, target_account_id=user_id,
+                    )
+                    if not patterns:
+                        return ""
+                    lines = []
+                    for p in patterns[:3]:
+                        content = p.pattern_content or {}
+                        desc = content.get("description", p.pattern_type)
+                        score = p.confidence_score or 0.0
+                        lines.append(f"- {desc} (信頼度: {score:.0%})")
+                    return "【行動パターン（Phase 2F）】\n" + "\n".join(lines)
+            return await asyncio.to_thread(_sync_fetch)
+        except Exception as e:
+            logger.warning("Phase 2F pattern fetch failed: %s", type(e).__name__)
             return ""
 
     async def _get_user_info(

@@ -451,7 +451,12 @@ class MeetingBrainInterface:
         """
         サニタイズ済みテキストからChatWork用議事録を生成する。
 
-        LLM呼び出しはget_ai_response_func経由（Brain bypass防止）。
+        Brain bypass防止の設計:
+        - LLM呼び出しはBrainが注入するget_ai_response_func経由
+        - 生成結果はHandlerResult.messageとしてBrainに返却
+        - ChatWork投稿の最終判断はBrain側が行う（ここでは送信しない）
+        - ZoomBrainInterface._generate_minutes()と同パターン
+
         失敗時はNoneを返す（文字起こし結果にフォールバック）。
 
         Returns:
@@ -476,15 +481,15 @@ class MeetingBrainInterface:
 
             formatted = format_chatwork_minutes(llm_response, title)
             logger.info(
-                "ChatWork minutes generated: title=%s, length=%d",
-                title or "unknown", len(formatted),
+                "ChatWork minutes generated: length=%d",
+                len(formatted),
             )
             return formatted
 
-        except Exception:
+        except Exception as e:
             logger.warning(
                 "Minutes generation failed (falling back to transcript): %s",
-                title or "unknown",
+                type(e).__name__,
             )
             return None
 

@@ -1773,3 +1773,87 @@ class TestConstants:
     def test_max_urls_is_positive(self):
         """MAX_URLS_PER_MESSAGE が正の数"""
         assert MAX_URLS_PER_MESSAGE > 0
+
+
+class TestMeetingMinutesFeatureFlag:
+    """ENABLE_MEETING_MINUTES フラグによるLLM関数注入テスト（Phase C MVP1）"""
+
+    def test_flag_exists_in_defaults(self):
+        """ENABLE_MEETING_MINUTES がデフォルトフラグに存在"""
+        assert "ENABLE_MEETING_MINUTES" in DEFAULT_FEATURE_FLAGS
+        assert DEFAULT_FEATURE_FLAGS["ENABLE_MEETING_MINUTES"] is False
+
+    @pytest.mark.asyncio
+    async def test_injects_llm_caller_when_flag_on(self, mock_pool):
+        """フラグON + llm_caller設定時にget_ai_response_funcが注入される"""
+        mock_llm = AsyncMock(return_value="議事録テキスト")
+        bridge = CapabilityBridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_MEETING_MINUTES": True},
+            llm_caller=mock_llm,
+        )
+
+        mock_handler_result = HandlerResult(success=True, message="ok", data={})
+
+        with patch("handlers.meeting_handler.handle_meeting_upload", new_callable=AsyncMock) as mock_handler:
+            mock_handler.return_value = mock_handler_result
+            await bridge._handle_meeting_transcription(
+                room_id="r1",
+                account_id="a1",
+                sender_name="test",
+                params={"audio_data": b"fake"},
+            )
+
+            call_kwargs = mock_handler.call_args[1]
+            assert "get_ai_response_func" in call_kwargs
+            assert call_kwargs["get_ai_response_func"] is mock_llm
+
+    @pytest.mark.asyncio
+    async def test_no_injection_when_flag_off(self, mock_pool):
+        """フラグOFF時はget_ai_response_funcが注入されない"""
+        mock_llm = AsyncMock()
+        bridge = CapabilityBridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_MEETING_MINUTES": False},
+            llm_caller=mock_llm,
+        )
+
+        mock_handler_result = HandlerResult(success=True, message="ok", data={})
+
+        with patch("handlers.meeting_handler.handle_meeting_upload", new_callable=AsyncMock) as mock_handler:
+            mock_handler.return_value = mock_handler_result
+            await bridge._handle_meeting_transcription(
+                room_id="r1",
+                account_id="a1",
+                sender_name="test",
+                params={"audio_data": b"fake"},
+            )
+
+            call_kwargs = mock_handler.call_args[1]
+            assert "get_ai_response_func" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_no_injection_when_no_llm_caller(self, mock_pool):
+        """llm_caller未設定時はフラグONでも注入されない"""
+        bridge = CapabilityBridge(
+            pool=mock_pool,
+            org_id="org_test",
+            feature_flags={"ENABLE_MEETING_MINUTES": True},
+            llm_caller=None,
+        )
+
+        mock_handler_result = HandlerResult(success=True, message="ok", data={})
+
+        with patch("handlers.meeting_handler.handle_meeting_upload", new_callable=AsyncMock) as mock_handler:
+            mock_handler.return_value = mock_handler_result
+            await bridge._handle_meeting_transcription(
+                room_id="r1",
+                account_id="a1",
+                sender_name="test",
+                params={"audio_data": b"fake"},
+            )
+
+            call_kwargs = mock_handler.call_args[1]
+            assert "get_ai_response_func" not in call_kwargs

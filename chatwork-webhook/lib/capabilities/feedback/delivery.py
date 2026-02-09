@@ -154,7 +154,7 @@ class FeedbackDelivery:
             self._logger = get_logger("feedback.delivery")
         except ImportError:
             import logging
-            self._logger = logging.getLogger("feedback.delivery")
+            self._logger = logging.getLogger("feedback.delivery")  # type: ignore[assignment]
 
     # =========================================================================
     # プロパティ
@@ -582,10 +582,10 @@ class FeedbackDelivery:
 
         try:
             # ChatWork APIを使用して送信
-            from lib.chatwork import post_message
+            from lib.chatwork import post_message  # type: ignore[attr-defined]
 
             message_id = post_message(room_id, message)
-            return message_id
+            return str(message_id) if message_id is not None else None
 
         except ImportError:
             self._logger.warning(

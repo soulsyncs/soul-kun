@@ -11,7 +11,14 @@
 #   ./scripts/sync_lib.sh --check # 差分確認のみ（変更なし）
 #   ./scripts/sync_lib.sh --brain # brain/のみ同期
 #
+# 同期方針:
+#   - 既存ファイル同期: ターゲットに同名ファイルが存在する場合は自動同期
+#   - 必須ファイル作成: __init__.pyのeager importが参照するモジュールは
+#     ターゲットに存在しなくても自動作成する（デプロイ失敗防止）
+#   - サブディレクトリ: ターゲットにディレクトリが存在する場合のみ同期
+#
 # v10.53.0: 初版作成（大規模修繕対応）
+# v10.54.0: 自動検出方式に変更（手動リスト→既存ファイル自動同期）
 # =============================================================================
 
 set -e
@@ -65,8 +72,8 @@ SYNCED_COUNT=0
 # =============================================================================
 
 sync_file() {
-    local src=$1
-    local dst=$2
+    local src="$1"
+    local dst="$2"
 
     if [ ! -f "$src" ]; then
         return 0
@@ -98,17 +105,26 @@ sync_file() {
 }
 
 sync_directory() {
-    local src=$1
-    local dst=$2
+    local src="$1"
+    local dst="$2"
 
     if [ ! -d "$src" ]; then
+        return 0
+    fi
+
+    # ターゲットディレクトリが存在しない場合
+    if [ ! -d "$dst" ]; then
+        if [ "$CHECK_ONLY" = true ]; then
+            echo -e "  ${RED}⚠️ Missing dir:${NC} $dst"
+            ERRORS_FOUND=1
+        fi
         return 0
     fi
 
     if [ "$CHECK_ONLY" = true ]; then
         # 差分確認（handler_wrappers.pyは本番専用なので除外）
         local diff_output
-        diff_output=$(diff -rq "$src" "$dst" --exclude="__pycache__" --exclude="*.pyc" --exclude="handler_wrappers.py" 2>/dev/null || true)
+        diff_output=$(diff -rq "$src" "$dst" --exclude="__pycache__" --exclude="*.pyc" --exclude="handler_wrappers.py" 2>&1 || true)
         if [ -n "$diff_output" ]; then
             echo -e "  ${RED}❌ Out of sync:${NC} $dst"
             echo "$diff_output" | head -5 | sed 's/^/      /'
@@ -119,7 +135,7 @@ sync_directory() {
     else
         echo -e "  ${GREEN}📁 Syncing:${NC} $dst"
         mkdir -p "$dst"
-        rsync -av --exclude="__pycache__" --exclude="*.pyc" "$src/" "$dst/" > /dev/null
+        rsync -av --exclude="__pycache__" --exclude="*.pyc" --exclude="handler_wrappers.py" "$src/" "$dst/" > /dev/null
         SYNCED_COUNT=$((SYNCED_COUNT + 1))
     fi
 }
@@ -158,79 +174,111 @@ if [ "$BRAIN_ONLY" = true ]; then
 fi
 
 # =============================================================================
-# 2. feature_flags.py
+# 2. __init__.pyのeager importが参照する必須ファイル
 # =============================================================================
+# lib/__init__.py が起動時にimportするモジュールは、全デプロイターゲットに
+# 存在しなければならない。存在しない場合は自動作成する。
 
-echo -e "${BLUE}📦 [2/4] feature_flags.py${NC}"
+echo -e "${BLUE}📦 [2/4] 必須モジュール（__init__.py eager imports）${NC}"
 echo ""
 
-for dir in chatwork-webhook proactive-monitor sync-chatwork-tasks remind-tasks watch-google-drive pattern-detection; do
-    if [ -d "$dir/lib" ]; then
-        sync_file "lib/feature_flags.py" "$dir/lib/feature_flags.py"
+# __init__.pyのeager importから参照されるモジュール一覧
+REQUIRED_MODULES=(
+    config.py
+    secrets.py
+    db.py
+    chatwork.py
+    tenant.py
+)
+
+# 主要デプロイターゲット（__init__.pyを持つサービス）
+DEPLOY_TARGETS=(
+    chatwork-webhook
+    proactive-monitor
+)
+
+for target in "${DEPLOY_TARGETS[@]}"; do
+    if [ ! -d "$target/lib" ]; then
+        continue
     fi
+    for module in "${REQUIRED_MODULES[@]}"; do
+        sync_file "lib/$module" "$target/lib/$module"
+    done
+    # __init__.py自体も必須
+    sync_file "lib/__init__.py" "$target/lib/__init__.py"
 done
 
 echo ""
 
 # =============================================================================
-# 3. 共通ファイル
+# 3. 全Cloud Functionのlib/を自動同期
+# =============================================================================
+# 方針: lib/ 内の各.pyファイルについて、ターゲットに同名ファイルが
+# 既に存在する場合は同期する。
 # =============================================================================
 
-echo -e "${BLUE}📦 [3/4] 共通ファイル${NC}"
+# 同期対象のCloud Function一覧
+SYNC_TARGETS=(
+    chatwork-webhook
+    proactive-monitor
+    pattern-detection
+    sync-chatwork-tasks
+    remind-tasks
+    watch-google-drive
+    check-reply-messages
+    cleanup-old-data
+    report-generator
+)
+
+echo -e "${BLUE}📦 [3/4] 共通ファイル（自動検出）${NC}"
 echo ""
 
-# text_utils.py
-for dir in remind-tasks sync-chatwork-tasks chatwork-webhook check-reply-messages cleanup-old-data pattern-detection; do
-    if [ -d "$dir/lib" ]; then
-        sync_file "lib/text_utils.py" "$dir/lib/text_utils.py"
+for target in "${SYNC_TARGETS[@]}"; do
+    if [ ! -d "$target/lib" ]; then
+        continue
     fi
+
+    # トップレベル .py ファイル同期（find -print0 でスペース安全）
+    while IFS= read -r -d '' lib_file; do
+        filename=$(basename "$lib_file")
+        dst="$target/lib/$filename"
+        if [ -f "$dst" ]; then
+            sync_file "$lib_file" "$dst"
+        fi
+    done < <(find lib -maxdepth 1 -name "*.py" -type f -print0 2>/dev/null)
 done
 
-# goal_setting.py
-sync_file "lib/goal_setting.py" "chatwork-webhook/lib/goal_setting.py"
-
-# mvv_context.py
-sync_file "lib/mvv_context.py" "chatwork-webhook/lib/mvv_context.py"
-sync_file "lib/mvv_context.py" "report-generator/lib/mvv_context.py"
-
-# report_generator.py
-sync_file "lib/report_generator.py" "chatwork-webhook/lib/report_generator.py"
-sync_file "lib/report_generator.py" "report-generator/lib/report_generator.py"
-
-# audit.py
-sync_file "lib/audit.py" "chatwork-webhook/lib/audit.py"
-sync_file "lib/audit.py" "sync-chatwork-tasks/lib/audit.py"
-sync_file "lib/audit.py" "pattern-detection/lib/audit.py"
-
-# business_day.py
-sync_file "lib/business_day.py" "remind-tasks/lib/business_day.py"
-sync_file "lib/business_day.py" "chatwork-webhook/lib/business_day.py"
-
-# config.py, db.py, secrets.py
-sync_file "lib/config.py" "chatwork-webhook/lib/config.py"
-sync_file "lib/db.py" "chatwork-webhook/lib/db.py"
-sync_file "lib/secrets.py" "chatwork-webhook/lib/secrets.py"
-
 echo ""
 
 # =============================================================================
-# 4. ディレクトリ同期
+# 4. サブディレクトリ同期（自動検出）
 # =============================================================================
 
-echo -e "${BLUE}📦 [4/4] ディレクトリ${NC}"
+echo -e "${BLUE}📦 [4/4] サブディレクトリ（自動検出）${NC}"
 echo ""
 
-# memory/
-echo "  → memory/"
-sync_directory "lib/memory" "chatwork-webhook/lib/memory"
+# lib/ 直下のサブディレクトリを列挙（find -print0 でスペース安全）
+while IFS= read -r -d '' lib_subdir; do
+    subdir_name=$(basename "$lib_subdir")
 
-# meetings/
-echo "  → meetings/"
-sync_directory "lib/meetings" "chatwork-webhook/lib/meetings"
+    # __pycache__ はスキップ
+    if [ "$subdir_name" = "__pycache__" ]; then
+        continue
+    fi
 
-# detection/
-echo "  → detection/"
-sync_directory "lib/detection" "pattern-detection/lib/detection"
+    # brain/ は Section 1 で処理済み
+    if [ "$subdir_name" = "brain" ]; then
+        continue
+    fi
+
+    for target in "${SYNC_TARGETS[@]}"; do
+        dst="$target/lib/$subdir_name"
+        if [ -d "$dst" ]; then
+            echo "  → $dst/"
+            sync_directory "$lib_subdir" "$dst"
+        fi
+    done
+done < <(find lib -maxdepth 1 -mindepth 1 -type d -print0 2>/dev/null)
 
 echo ""
 

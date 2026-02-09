@@ -546,7 +546,7 @@ MAX_IMAGE_FILE_SIZE_BYTES: int = 20 * 1024 * 1024  # 20MB（編集用アップ�
 # 画像生成コスト（円、参考値）
 # -----------------------------------------------------------------------------
 
-IMAGE_COST_JPY: Dict[str, Dict[str, float]] = {
+IMAGE_COST_JPY: Dict[str, float] = {
     # DALL-E 3
     f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_1024.value}": 6.0,
     f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.LANDSCAPE_1792.value}": 12.0,

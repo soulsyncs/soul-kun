@@ -1122,3 +1122,286 @@ class GoalService:
 def get_goal_service(pool=None) -> GoalService:
     """GoalServiceのインスタンスを取得"""
     return GoalService(pool=pool)
+
+
+# =============================================================================
+# 目標削除・整理用メソッド（v10.56.0）
+# 設計書: docs/05_phase2-5_goal_achievement.md セクション5.6, 5.7
+# =============================================================================
+
+def cancel_goals(
+    pool,
+    goal_ids: List[str],
+    organization_id: str,
+    updated_by: str,
+    reason: str = "user_request",
+    user_id: Optional[str] = None,
+) -> Tuple[int, List[str]]:
+    """
+    複数目標を一括キャンセル（status='cancelled'に変更）
+
+    Args:
+        pool: DB接続プール
+        goal_ids: キャンセル対象の目標IDリスト
+        organization_id: テナントID
+        updated_by: 更新者のuser_id
+        reason: キャンセル理由（user_request, duplicate, expired）
+        user_id: 対象ユーザーID（指定時は自分の目標のみキャンセル可能）
+
+    Returns:
+        (キャンセル件数, キャンセルされた目標タイトルリスト)
+
+    Security:
+        user_id が指定された場合、そのユーザーの目標のみキャンセル可能。
+        他ユーザーの目標を誤って削除することを防ぐ。
+    """
+    if not goal_ids:
+        return 0, []
+
+    cancelled_titles = []
+
+    with pool.connect() as conn:
+        # 対象目標のタイトルを取得（user_id制約付き）
+        placeholders = ", ".join([f":id_{i}" for i in range(len(goal_ids))])
+        params = {f"id_{i}": gid for i, gid in enumerate(goal_ids)}
+        params["organization_id"] = organization_id
+
+        query = f"""
+            SELECT id, title, classification FROM goals
+            WHERE id IN ({placeholders})
+              AND organization_id = :organization_id
+              AND status = 'active'
+        """
+        # user_id が指定されている場合、自分の目標のみに制限
+        if user_id:
+            query += " AND user_id = :user_id"
+            params["user_id"] = user_id
+
+        titles_result = conn.execute(text(query), params).fetchall()
+
+        if not titles_result:
+            return 0, []
+
+        # 対象IDとタイトルのマッピング
+        id_title_map = {str(row[0]): (row[1], row[2]) for row in titles_result}
+        valid_ids = list(id_title_map.keys())
+
+        # 一括キャンセル（user_id制約付き）
+        placeholders = ", ".join([f":id_{i}" for i in range(len(valid_ids))])
+        params = {f"id_{i}": gid for i, gid in enumerate(valid_ids)}
+        params["organization_id"] = organization_id
+        params["updated_by"] = updated_by
+
+        update_query = f"""
+            UPDATE goals
+            SET status = 'cancelled',
+                updated_at = CURRENT_TIMESTAMP,
+                updated_by = :updated_by
+            WHERE id IN ({placeholders})
+              AND organization_id = :organization_id
+        """
+        # user_id が指定されている場合、自分の目標のみに制限
+        if user_id:
+            update_query += " AND user_id = :user_id"
+            params["user_id"] = user_id
+
+        result = conn.execute(text(update_query), params)
+        conn.commit()
+
+        # 監査ログ記録（設計書5.6.4: 変更理由はaudit_logsに記録）
+        # CLAUDE.md 8-3: 名前・メール・本文は記録しない → goal_titleは含めない
+        import json
+        for gid in valid_ids:
+            title, classification = id_title_map[gid]
+            cancelled_titles.append(title)
+
+            try:
+                audit_details = json.dumps({
+                    "action": "cancel_goal",
+                    "goal_id": gid,
+                    "reason": reason,
+                    "new_status": "cancelled",
+                }, ensure_ascii=False)
+                conn.execute(
+                    text("""
+                        INSERT INTO audit_logs (
+                            organization_id, user_id, action, resource_type,
+                            resource_id, classification, details, created_at
+                        ) VALUES (
+                            :org_id, :user_id, 'cancel', 'goal',
+                            :resource_id, :classification,
+                            :details::jsonb, CURRENT_TIMESTAMP
+                        )
+                    """),
+                    {
+                        "org_id": organization_id,
+                        "user_id": updated_by,
+                        "resource_id": gid,
+                        "classification": classification or "internal",
+                        "details": audit_details,
+                    },
+                )
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Failed to log audit for goal cancellation: {e}")
+
+        logger.info(f"Goals cancelled: count={result.rowcount}, reason={reason}")
+
+    return result.rowcount, cancelled_titles
+
+
+def get_duplicate_goals(
+    pool,
+    user_id: str,
+    organization_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    重複目標を検出
+
+    重複判定ルール（設計書5.6.3）:
+    - 同一ユーザー
+    - 同一タイトル
+    - 同一期間（period_start / period_end）
+
+    Returns:
+        重複グループのリスト: [{"title": str, "period": str, "goal_ids": [str], "goals": [dict]}]
+    """
+    with pool.connect() as conn:
+        # 重複を検出（同一タイトル・同一期間で複数存在）
+        result = conn.execute(
+            text("""
+                SELECT title, period_start, period_end,
+                       ARRAY_AGG(id ORDER BY created_at DESC) as ids,
+                       ARRAY_AGG(target_value ORDER BY created_at DESC) as target_values,
+                       ARRAY_AGG(unit ORDER BY created_at DESC) as units,
+                       COUNT(*) as cnt
+                FROM goals
+                WHERE user_id = :user_id
+                  AND organization_id = :organization_id
+                  AND status = 'active'
+                GROUP BY title, period_start, period_end
+                HAVING COUNT(*) > 1
+                ORDER BY cnt DESC, title
+            """),
+            {"user_id": user_id, "organization_id": organization_id},
+        ).fetchall()
+
+    duplicates = []
+    for row in result:
+        ids = [str(i) for i in row[3]] if row[3] else []
+        target_values = row[4] if row[4] else []
+        units = row[5] if row[5] else []
+
+        goals = []
+        for i, gid in enumerate(ids):
+            goals.append({
+                "id": gid,
+                "target_value": target_values[i] if i < len(target_values) else None,
+                "unit": units[i] if i < len(units) else None,
+            })
+
+        duplicates.append({
+            "title": row[0],
+            "period_start": row[1].isoformat() if row[1] else None,
+            "period_end": row[2].isoformat() if row[2] else None,
+            "goal_ids": ids,
+            "goals": goals,
+            "count": row[6],
+        })
+
+    return duplicates
+
+
+def get_expired_goals(
+    pool,
+    user_id: str,
+    organization_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    期限切れ目標を検出
+
+    期限切れ判定ルール（設計書5.6.4）:
+    - period_end < 今日
+    - status = 'active'
+
+    Returns:
+        期限切れ目標のリスト: [{"id": str, "title": str, "period_end": str, "days_overdue": int}]
+    """
+    with pool.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT id, title, period_end, goal_type, target_value, current_value, unit
+                FROM goals
+                WHERE user_id = :user_id
+                  AND organization_id = :organization_id
+                  AND status = 'active'
+                  AND period_end < CURRENT_DATE
+                ORDER BY period_end ASC
+            """),
+            {"user_id": user_id, "organization_id": organization_id},
+        ).fetchall()
+
+    today = date.today()
+    expired = []
+    for row in result:
+        period_end = row[2]
+        days_overdue = (today - period_end).days if period_end else 0
+
+        expired.append({
+            "id": str(row[0]),
+            "title": row[1],
+            "period_end": period_end.isoformat() if period_end else None,
+            "days_overdue": days_overdue,
+            "goal_type": row[3],
+            "target_value": float(row[4]) if row[4] else None,
+            "current_value": float(row[5]) if row[5] else None,
+            "unit": row[6],
+        })
+
+    return expired
+
+
+def get_pending_goals(
+    pool,
+    user_id: str,
+    organization_id: str,
+) -> List[Dict[str, Any]]:
+    """
+    未定/相談中/新規（まだ進捗がない）目標を検出
+
+    Returns:
+        進捗がない目標のリスト
+    """
+    with pool.connect() as conn:
+        result = conn.execute(
+            text("""
+                SELECT g.id, g.title, g.period_start, g.period_end,
+                       g.goal_type, g.target_value, g.current_value, g.unit,
+                       g.created_at
+                FROM goals g
+                LEFT JOIN goal_progress gp ON g.id = gp.goal_id
+                WHERE g.user_id = :user_id
+                  AND g.organization_id = :organization_id
+                  AND g.status = 'active'
+                  AND gp.id IS NULL
+                  AND g.current_value = 0
+                ORDER BY g.created_at DESC
+            """),
+            {"user_id": user_id, "organization_id": organization_id},
+        ).fetchall()
+
+    pending = []
+    for row in result:
+        pending.append({
+            "id": str(row[0]),
+            "title": row[1],
+            "period_start": row[2].isoformat() if row[2] else None,
+            "period_end": row[3].isoformat() if row[3] else None,
+            "goal_type": row[4],
+            "target_value": float(row[5]) if row[5] else None,
+            "current_value": float(row[6]) if row[6] else None,
+            "unit": row[7],
+            "created_at": row[8].isoformat() if row[8] else None,
+        })
+
+    return pending

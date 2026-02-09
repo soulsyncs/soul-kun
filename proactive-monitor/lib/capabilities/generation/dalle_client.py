@@ -143,7 +143,7 @@ class DALLEClient:
         logger.info(f"DALL-E API call: model={model}, size={size.value}, quality={quality.value}")
 
         # リトライロジック
-        last_error = None
+        last_error: Optional[DALLEAPIError] = None
         for attempt in range(self._max_retries):
             try:
                 async with httpx.AsyncClient(timeout=self._timeout_seconds) as client:

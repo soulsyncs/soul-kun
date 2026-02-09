@@ -133,7 +133,7 @@ class FactCollector:
             self._logger = get_logger("feedback.fact_collector")
         except ImportError:
             import logging
-            self._logger = logging.getLogger("feedback.fact_collector")
+            self._logger = logging.getLogger("feedback.fact_collector")  # type: ignore[assignment]
 
     # =========================================================================
     # プロパティ
@@ -419,8 +419,10 @@ class FactCollector:
                     END) as oldest_overdue_days
                 FROM chatwork_tasks
                 WHERE assigned_to_account_id = :account_id
+                AND organization_id = :org_id
             """), {
                 "account_id": user.chatwork_account_id,
+                "org_id": str(self._org_id),
                 "today_ts": target_start_ts,
                 "stale_threshold": stale_threshold,
             })
@@ -453,8 +455,10 @@ class FactCollector:
                         END) as completed_today
                     FROM chatwork_tasks
                     WHERE assigned_to_account_id = :account_id
+                    AND organization_id = :org_id
                 """), {
                     "account_id": user.chatwork_account_id,
+                    "org_id": str(self._org_id),
                     "target_start": target_start,
                     "target_end": target_end,
                 })

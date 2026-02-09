@@ -112,6 +112,7 @@ class ImageGenerator(BaseGenerator):
             organization_id=organization_id,
             api_key=api_key,
         )
+        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
         self._openai_api_key = openai_api_key or os.environ.get("OPENAI_API_KEY")
         self._dalle_client = create_dalle_client(api_key=self._openai_api_key)
 
@@ -207,8 +208,9 @@ class ImageGenerator(BaseGenerator):
 
             # 6. ChatWorkに送信（オプション）
             if request.send_to_chatwork and request.chatwork_room_id:
+                _image_url = result.drive_url or result.image_url or ""
                 await self._send_to_chatwork(
-                    image_url=result.drive_url or result.image_url,
+                    image_url=_image_url,
                     room_id=request.chatwork_room_id,
                     message=self._build_chatwork_message(result),
                 )
@@ -281,7 +283,7 @@ class ImageGenerator(BaseGenerator):
             )
 
         # サイズチェック
-        supported_sizes = SUPPORTED_SIZES_BY_PROVIDER.get(request.provider.value, set())
+        supported_sizes: frozenset[str] = SUPPORTED_SIZES_BY_PROVIDER.get(request.provider.value, frozenset())
         if request.size.value not in supported_sizes:
             raise ImageInvalidSizeError(
                 size=request.size.value,
@@ -290,7 +292,7 @@ class ImageGenerator(BaseGenerator):
             )
 
         # 品質チェック
-        supported_qualities = SUPPORTED_QUALITY_BY_PROVIDER.get(request.provider.value, set())
+        supported_qualities: frozenset[str] = SUPPORTED_QUALITY_BY_PROVIDER.get(request.provider.value, frozenset())
         if request.quality.value not in supported_qualities:
             raise ImageInvalidQualityError(
                 quality=request.quality.value,
@@ -362,7 +364,14 @@ class ImageGenerator(BaseGenerator):
             return f"{prompt}, {modifier}"
         return prompt
 
-    async def _call_llm_json(self, prompt: str) -> Dict[str, Any]:
+    async def _call_llm_json(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        temperature: float = 0.3,
+        task_type: str = "content",
+        quality_level: Any = None,
+    ) -> Dict[str, Any]:
         """LLMを呼び出してJSONレスポンスを取得"""
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -404,13 +413,15 @@ class ImageGenerator(BaseGenerator):
         json_match = re.search(r'```json\s*(.*?)\s*```', content, re.DOTALL)
         if json_match:
             try:
-                return json.loads(json_match.group(1))
+                result: Dict[str, Any] = json.loads(json_match.group(1))
+                return result
             except json.JSONDecodeError:
                 pass
 
         # 直接JSONとして解析を試みる
         try:
-            return json.loads(content)
+            result_direct: Dict[str, Any] = json.loads(content)
+            return result_direct
         except json.JSONDecodeError:
             pass
 
@@ -438,7 +449,7 @@ class ImageGenerator(BaseGenerator):
     # コスト計算
     # =========================================================================
 
-    def _calculate_cost(self, request: ImageRequest) -> float:
+    def _calculate_cost(self, request: ImageRequest) -> float:  # type: ignore[override]
         """コストを計算"""
         key = f"{request.provider.value}_{request.quality.value}_{request.size.value}"
         return IMAGE_COST_JPY.get(key, 6.0)  # デフォルト6円

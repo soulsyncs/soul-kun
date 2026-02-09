@@ -669,8 +669,8 @@ class MultimodalCoordinator:
         if att_type == AttachmentType.IMAGE:
             if not self._is_feature_enabled(FEATURE_FLAG_IMAGE):
                 raise UnsupportedFormatError(
-                    format_type="image",
-                    message="画像処理機能は現在無効です",
+                    format_name="image",
+                    supported_formats=[],
                 )
 
             input_data = MultimodalInput(
@@ -681,14 +681,14 @@ class MultimodalCoordinator:
                 room_id=room_id,
                 user_id=user_id,
             )
-            return await self.image_processor.process(input_data)
+            return await self.image_processor.process(input_data)  # type: ignore[no-any-return]
 
         # PDF処理
         elif att_type == AttachmentType.PDF:
             if not self._is_feature_enabled(FEATURE_FLAG_PDF):
                 raise UnsupportedFormatError(
-                    format_type="pdf",
-                    message="PDF処理機能は現在無効です",
+                    format_name="pdf",
+                    supported_formats=[],
                 )
 
             input_data = MultimodalInput(
@@ -699,14 +699,14 @@ class MultimodalCoordinator:
                 room_id=room_id,
                 user_id=user_id,
             )
-            return await self.pdf_processor.process(input_data)
+            return await self.pdf_processor.process(input_data)  # type: ignore[no-any-return]
 
         # URL処理
         elif att_type == AttachmentType.URL:
             if not self._is_feature_enabled(FEATURE_FLAG_URL):
                 raise UnsupportedFormatError(
-                    format_type="url",
-                    message="URL処理機能は現在無効です",
+                    format_name="url",
+                    supported_formats=[],
                 )
 
             input_data = MultimodalInput(
@@ -717,27 +717,27 @@ class MultimodalCoordinator:
                 room_id=room_id,
                 user_id=user_id,
             )
-            return await self.url_processor.process(input_data)
+            return await self.url_processor.process(input_data)  # type: ignore[no-any-return]
 
         # 音声（Phase M2で実装）
         elif att_type == AttachmentType.AUDIO:
             raise UnsupportedFormatError(
-                format_type="audio",
-                message="音声処理機能はPhase M2で実装予定です",
+                format_name="audio",
+                supported_formats=[],
             )
 
         # 動画（Phase M3で実装）
         elif att_type == AttachmentType.VIDEO:
             raise UnsupportedFormatError(
-                format_type="video",
-                message="動画処理機能はPhase M3で実装予定です",
+                format_name="video",
+                supported_formats=[],
             )
 
         # 未対応フォーマット
         else:
             raise UnsupportedFormatError(
-                format_type=att_type.value,
-                message=f"このファイル形式（{attachment_info.filename}）は現在対応していません",
+                format_name=att_type.value,
+                supported_formats=[],
             )
 
     # =========================================================================
@@ -786,9 +786,9 @@ class MultimodalCoordinator:
             results = await asyncio.gather(*tasks, return_exceptions=True)
 
             # 例外をProcessedAttachmentに変換
-            processed_results = []
+            processed_results: List[ProcessedAttachment] = []
             for i, result in enumerate(results):
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     processed_results.append(ProcessedAttachment(
                         attachment_info=AttachmentInfo(
                             filename=attachments[i].get("filename", "unknown"),
@@ -804,7 +804,7 @@ class MultimodalCoordinator:
 
         else:
             # 順次処理
-            results = []
+            seq_results: List[ProcessedAttachment] = []
             for att in attachments:
                 result = await self.process_attachment(
                     file_data=att.get("data"),
@@ -815,9 +815,9 @@ class MultimodalCoordinator:
                     user_id=user_id,
                     instruction=instruction,
                 )
-                results.append(result)
+                seq_results.append(result)
 
-            return results
+            return seq_results
 
     # =========================================================================
     # テキスト内URL処理

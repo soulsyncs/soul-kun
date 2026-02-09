@@ -556,7 +556,7 @@ class PDFProcessor(BaseMultimodalProcessor):
             pix = page.get_pixmap(matrix=mat)
 
             # PNGとして出力
-            return pix.tobytes("png")
+            return bytes(pix.tobytes("png"))
 
         except ImportError:
             logger.warning("PyMuPDF not available for PDF rendering")
@@ -570,12 +570,14 @@ class PDFProcessor(BaseMultimodalProcessor):
         try:
             json_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group(1))
+                parsed: Dict[str, Any] = json.loads(json_match.group(1))
+                return parsed
 
             start = content.find('{')
             end = content.rfind('}')
             if start != -1 and end != -1:
-                return json.loads(content[start:end + 1])
+                parsed2: Dict[str, Any] = json.loads(content[start:end + 1])
+                return parsed2
 
         except Exception:
             pass

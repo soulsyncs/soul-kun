@@ -125,7 +125,7 @@ steps:
       - '--allow-unauthenticated'
       - '--memory=512Mi'
       - '--timeout=540s'
-      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true'
+      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings'
     waitFor: ['mypy-check']
 
   # =============================================================================

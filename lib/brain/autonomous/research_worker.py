@@ -59,6 +59,7 @@ class ResearchWorker(BaseWorker):
 
         return {
             "query": query,
+            "synthesis": synthesis,  # ナレッジ要約（タイトル+抜粋）— Brain合成用
             "results_count": len(knowledge_results),
             "synthesis_length": len(synthesis),
         }

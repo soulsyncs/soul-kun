@@ -143,6 +143,7 @@ class TestResearchWorker:
         assert result["query"] == "テスト検索"
         assert result["results_count"] == 0
         assert result["synthesis_length"] > 0
+        assert "synthesis" in result  # Brain合成用テキストが含まれる
 
     @pytest.mark.asyncio
     async def test_execute_reports_progress(self):
@@ -294,6 +295,7 @@ class TestReportWorker:
         assert result["data_points"] == 0
         assert result["status"] == "ready"
         assert result["report_length"] > 0
+        assert "report_text" in result  # Brain送信用テキストが含まれる
 
     @pytest.mark.asyncio
     async def test_generate_report_with_data(self):
@@ -423,6 +425,7 @@ class TestResearchWorkerDB:
 
         assert result["results_count"] == 1
         assert result["synthesis_length"] > 0
+        assert "手順書" in result["synthesis"]  # ナレッジタイトルが合成に含まれる
 
 
 # =============================================================================
@@ -536,6 +539,8 @@ class TestReportWorkerDB:
         assert result["status"] == "ready"
         assert result["data_points"] == 5
         assert result["report_length"] > 0
+        assert "report_text" in result  # Brain送信用テキストが含まれる
+        assert "日次レポート" in result["report_text"]
 
 
 # =============================================================================

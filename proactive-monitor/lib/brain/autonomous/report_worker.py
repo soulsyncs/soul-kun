@@ -58,6 +58,7 @@ class ReportWorker(BaseWorker):
         return {
             "status": "ready",
             "report_type": report_type,
+            "report_text": report_text,  # 集計メトリクスのみ（PII無し）— Brain送信用
             "data_points": len(data),
             "report_length": len(report_text),
             "room_id": room_id,

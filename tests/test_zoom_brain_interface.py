@@ -433,6 +433,39 @@ Speaker: test
         assert "準備中" in result.message
 
 
+class TestOuterExceptionHandler:
+    """process_zoom_minutes の最外 except ブランチ"""
+
+    @pytest.mark.asyncio
+    async def test_outer_except_returns_error_result(self, mock_pool, mock_zoom_client):
+        """DB create_meeting が例外を投げた場合、catch-all で安全に返る"""
+        # dedup check succeeds (no existing)
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+
+        dedup_result = MagicMock()
+        dedup_result.mappings.return_value.fetchone.return_value = None
+
+        # create_meeting raises
+        conn.execute = MagicMock(
+            side_effect=[dedup_result, RuntimeError("DB connection lost")]
+        )
+        conn.commit = MagicMock()
+        mock_pool.connect.return_value = conn
+
+        interface = ZoomBrainInterface(
+            mock_pool, "org_test", zoom_client=mock_zoom_client
+        )
+        result = await interface.process_zoom_minutes(
+            room_id="room_123",
+            account_id="user_456",
+        )
+        assert result.success is False
+        assert "エラー" in result.message
+        assert result.data.get("error") == "RuntimeError"
+
+
 class TestPiiProtection:
     """raw_transcript は PII 保護のため None で保存する"""
 

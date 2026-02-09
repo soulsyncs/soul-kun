@@ -25,7 +25,9 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TOKEN_TTL_SECONDS = 55 * 60  # 55分（実際は1時間有効、5分マージン）
-# Zoom公式エンドポイント（環境変数でオーバーライド可能、テスト/プロキシ用）
+# Zoom公式well-knownエンドポイント（RFC 8414準拠の固定URL）。
+# テスト/プロキシ環境でのオーバーライドのみを想定。
+# これらはデプロイ環境ごとに変わらないため、デフォルト値としてのハードコードは設計上許容。
 ZOOM_OAUTH_URL = os.environ.get("ZOOM_OAUTH_URL", "https://zoom.us/oauth/token")
 ZOOM_API_BASE = os.environ.get("ZOOM_API_BASE", "https://api.zoom.us/v2")
 

@@ -555,12 +555,14 @@ class BrainMemoryAccess:
     async def get_person_info(
         self,
         limit: int = 50,
+        person_id: Optional[str] = None,
     ) -> List[PersonInfo]:
         """
         登録されている人物情報を取得
 
         Args:
             limit: 最大取得件数
+            person_id: 指定時はこのIDの人物のみ取得
 
         Returns:
             List[PersonInfo]: 人物情報のリスト
@@ -568,21 +570,26 @@ class BrainMemoryAccess:
         try:
             with self.pool.connect() as conn:
                 # personsテーブルから人物を取得
+                params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
+                where_clause = "WHERE organization_id = CAST(:org_id AS uuid)"
+                if person_id:
+                    where_clause += " AND id = CAST(:person_id AS uuid)"
+                    params["person_id"] = person_id
                 result = conn.execute(
-                    text("""
+                    text(f"""
                         SELECT id, name
                         FROM persons
-                        WHERE organization_id = CAST(:org_id AS uuid)
+                        {where_clause}
                         ORDER BY name
                         LIMIT :limit
                     """),
-                    {"org_id": self.org_id, "limit": limit},
+                    params,
                 )
                 person_rows = result.fetchall()
 
                 persons = []
                 for row in person_rows:
-                    person_id = row[0]
+                    row_person_id = row[0]
                     name = row[1]
 
                     # person_attributesから属性を取得
@@ -590,18 +597,18 @@ class BrainMemoryAccess:
                         text("""
                             SELECT attribute_type, attribute_value
                             FROM person_attributes
-                            WHERE person_id = :person_id
+                            WHERE person_id = :pid
                               AND organization_id = CAST(:org_id AS uuid)
                             ORDER BY updated_at DESC
                         """),
-                        {"person_id": person_id, "org_id": self.org_id},
+                        {"pid": row_person_id, "org_id": self.org_id},
                     )
                     attr_rows = attr_result.fetchall()
                     attributes = {attr[0]: attr[1] for attr in attr_rows}
 
                     persons.append(
                         PersonInfo(
-                            person_id=str(person_id) if person_id else "",
+                            person_id=str(row_person_id) if row_person_id else "",
                             name=name,
                             attributes=attributes,
                         )

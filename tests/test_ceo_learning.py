@@ -392,6 +392,27 @@ class TestCEOLearningService:
         # 一般ユーザー
         assert service.is_ceo_user("1234567") is False
 
+    def test_is_ceo_user_with_ceo_user_id_match(self, mock_pool):
+        """ceo_user_id指定時、DB照合で一致すればTrue"""
+        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service._get_user_id_from_account_id = MagicMock(return_value="uuid-ceo-123")
+        assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is True
+
+    def test_is_ceo_user_with_ceo_user_id_mismatch(self, mock_pool):
+        """ceo_user_id指定時、DB照合で不一致ならFalse"""
+        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service._get_user_id_from_account_id = MagicMock(return_value="uuid-other-456")
+        assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is False
+
+    def test_is_ceo_user_with_ceo_user_id_db_miss_fallback(self, mock_pool):
+        """ceo_user_id指定時、DB照合失敗ならCEO_ACCOUNT_IDSにフォールバック"""
+        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service._get_user_id_from_account_id = MagicMock(return_value=None)
+        # CEO_ACCOUNT_IDSにある → True
+        assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is True
+        # CEO_ACCOUNT_IDSにない → False
+        assert service.is_ceo_user("9999999", ceo_user_id="uuid-ceo-123") is False
+
     def test_estimate_categories_mvv(self, mock_pool):
         """MVVカテゴリを推定できること"""
         service = CEOLearningService(mock_pool, "org_soulsyncs")

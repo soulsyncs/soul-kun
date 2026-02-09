@@ -872,13 +872,16 @@ class SoulkunBrain:
             context_used: Dict[str, Any] = {}
 
             # ユーザー情報を取得
-            # v10.54.4: get_person_infoはlimitのみ受け付け、リストを返す
-            # TODO: ユーザーID指定での検索を実装する
             user_info = None
             try:
                 if self.memory_access:
-                    user_info_list = await self.memory_access.get_person_info(limit=10)
-                    # user_idに対応する人物を検索（暫定実装）
+                    # person_idで直接検索を試みる
+                    user_info_list = await self.memory_access.get_person_info(
+                        limit=1, person_id=user_id,
+                    )
+                    if not user_info_list:
+                        # フォールバック: 全員取得して名前ありの最初の人物を使用
+                        user_info_list = await self.memory_access.get_person_info(limit=10)
                     if user_info_list:
                         for person in user_info_list:
                             if hasattr(person, 'name') and person.name:

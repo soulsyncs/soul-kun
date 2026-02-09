@@ -709,7 +709,7 @@ class KnowledgeHandler:
     # =====================================================
 
     def handle_learn_knowledge(self, params: Dict, room_id: str, account_id: str,
-                               sender_name: str, context: Dict = None) -> str:
+                               sender_name: str) -> str:
         """
         知識を学習するハンドラー
         - 管理者（カズさん）からは即時反映
@@ -784,7 +784,7 @@ class KnowledgeHandler:
                 return "😢 提案を記録しようとしたけどエラーが起きたウル..."
 
     def handle_forget_knowledge(self, params: Dict, room_id: str, account_id: str,
-                                sender_name: str, context: Dict = None) -> str:
+                                sender_name: str) -> str:
         """
         知識を削除するハンドラー
         - 管理者のみ実行可能
@@ -817,7 +817,7 @@ class KnowledgeHandler:
             return f"🤔 「{key}」という設定は見つからなかったウル..."
 
     def handle_list_knowledge(self, params: Dict, room_id: str, account_id: str,
-                              sender_name: str, context: Dict = None) -> str:
+                              sender_name: str) -> str:
         """
         学習した知識の一覧を表示するハンドラー
 
@@ -869,7 +869,7 @@ class KnowledgeHandler:
         return "\n".join(lines)
 
     def handle_query_company_knowledge(self, params: Dict, room_id: str, account_id: str,
-                                        sender_name: str, context: Dict = None) -> Union[str, Dict[str, Any]]:
+                                        sender_name: str) -> Union[str, Dict[str, Any]]:
         """
         会社知識の参照ハンドラー（Phase 3統合版）
 

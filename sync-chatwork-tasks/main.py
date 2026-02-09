@@ -4071,7 +4071,7 @@ def execute_local_command(action: str, groups: tuple, account_id: str, sender_na
             return f"🤔 「{key}」という設定は見つからなかったウル..."
     
     elif action == "list_knowledge":
-        return handle_list_knowledge({}, room_id, account_id, sender_name, None)
+        return handle_list_knowledge({}, room_id, account_id, sender_name)
     
     return None  # マッチしなかった場合はAI司令塔に委ねる
 

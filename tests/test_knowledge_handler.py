@@ -425,7 +425,7 @@ class TestHandleLearnKnowledge:
         handler = create_handler()
         result = handler.handle_learn_knowledge(
             params={}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "何を覚えればいいかわからなかった" in result
 
@@ -439,7 +439,7 @@ class TestHandleLearnKnowledge:
 
         result = handler.handle_learn_knowledge(
             params={"category": "rules", "key": "テスト", "value": "テスト値"},
-            room_id="123", account_id="admin", sender_name="管理者", context=None
+            room_id="123", account_id="admin", sender_name="管理者"
         )
         assert "覚えたウル" in result
 
@@ -453,7 +453,7 @@ class TestHandleLearnKnowledge:
 
         result = handler.handle_learn_knowledge(
             params={"category": "rules", "key": "テスト", "value": "テスト値"},
-            room_id="123", account_id="staff", sender_name="スタッフ", context=None
+            room_id="123", account_id="staff", sender_name="スタッフ"
         )
         assert "提案ID: 1" in result
         # v10.25.0: 「菊地さんに確認」→「ソウルくんが確認」に変更
@@ -469,7 +469,7 @@ class TestHandleLearnKnowledge:
 
         result = handler.handle_learn_knowledge(
             params={"category": "rules", "key": "テスト", "value": "テスト値"},
-            room_id="123", account_id="staff", sender_name="スタッフ", context=None
+            room_id="123", account_id="staff", sender_name="スタッフ"
         )
         assert "提案ID: 1" in result
         # v10.25.0: 通知失敗時もポジティブなメッセージに変更
@@ -488,7 +488,7 @@ class TestHandleForgetKnowledge:
         handler = create_handler()
         result = handler.handle_forget_knowledge(
             params={}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "何を忘れればいいかわからなかった" in result
 
@@ -497,7 +497,7 @@ class TestHandleForgetKnowledge:
         handler = create_handler(is_admin_func=MagicMock(return_value=False))
         result = handler.handle_forget_knowledge(
             params={"key": "テスト"}, room_id="123", account_id="staff",
-            sender_name="スタッフ", context=None
+            sender_name="スタッフ"
         )
         assert "菊地さんだけができる" in result
 
@@ -511,7 +511,7 @@ class TestHandleForgetKnowledge:
 
         result = handler.handle_forget_knowledge(
             params={"key": "テスト"}, room_id="123", account_id="admin",
-            sender_name="管理者", context=None
+            sender_name="管理者"
         )
         assert "忘れたウル" in result
 
@@ -533,7 +533,7 @@ class TestHandleListKnowledge:
 
         result = handler.handle_list_knowledge(
             params={}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "まだ何も覚えてない" in result
 
@@ -549,7 +549,7 @@ class TestHandleListKnowledge:
 
         result = handler.handle_list_knowledge(
             params={}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "覚えていること" in result
         assert "合計 1 件" in result
@@ -567,7 +567,7 @@ class TestHandleQueryCompanyKnowledge:
         handler = create_handler()
         result = handler.handle_query_company_knowledge(
             params={}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "何を調べればいいか" in result
 
@@ -576,7 +576,7 @@ class TestHandleQueryCompanyKnowledge:
         handler = create_handler(is_mvv_question_func=MagicMock(return_value=True))
         result = handler.handle_query_company_knowledge(
             params={"query": "ミッションは？"}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "MVV" in result
 
@@ -594,7 +594,7 @@ class TestHandleQueryCompanyKnowledge:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "存在しない情報"}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         assert "勉強中" in result
 
@@ -614,7 +614,7 @@ class TestHandleQueryCompanyKnowledge:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "有給休暇"}, room_id="123", account_id="456",
-            sender_name="テスト", context=None
+            sender_name="テスト"
         )
         # Phase 3.5: ハンドラーはdict形式の検索データを返す
         assert isinstance(result, dict)
@@ -794,7 +794,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "経費精算のルール"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         assert isinstance(result, dict)
@@ -816,7 +816,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "有給"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         assert result["needs_answer_synthesis"] is True
@@ -838,7 +838,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "出張手当"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         assert "formatted_context" in result
@@ -861,7 +861,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "年末調整"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         # Brain bypass禁止: ハンドラーはデータ返却のみ、LLM呼び出しなし
@@ -882,7 +882,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "存在しない情報"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         assert isinstance(result, str)
@@ -900,7 +900,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "テスト"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         # DBエラーはintegrated_knowledge_searchで吸収されるため、
@@ -924,7 +924,7 @@ class TestPhase35BrainIntegration:
 
         result = handler.handle_query_company_knowledge(
             params={"query": "休暇について"}, room_id="123",
-            account_id="456", sender_name="テスト", context=None
+            account_id="456", sender_name="テスト"
         )
 
         assert result["query"] == "休暇について"

@@ -671,3 +671,58 @@ class TestTaskQueueClaim:
         result = await tq.claim("task-001")
 
         assert result is False
+
+
+# =============================================================================
+# 3コピー同期検証テスト (§3-2 #17 横展開)
+# =============================================================================
+
+
+class TestThreeCopySync:
+    """lib/ → chatwork-webhook/lib/ → proactive-monitor/lib/ の同期検証"""
+
+    def _read_file(self, path: str) -> str:
+        import os
+        full = os.path.join(os.path.dirname(__file__), "..", path)
+        with open(full) as f:
+            return f.read()
+
+    def test_reminder_worker_synced(self):
+        """ReminderWorkerが3コピー同期されている"""
+        base = self._read_file("lib/brain/autonomous/reminder_worker.py")
+        cw = self._read_file("chatwork-webhook/lib/brain/autonomous/reminder_worker.py")
+        pm = self._read_file("proactive-monitor/lib/brain/autonomous/reminder_worker.py")
+        assert base == cw, "chatwork-webhook/lib と lib/ の reminder_worker.py が不一致"
+        assert base == pm, "proactive-monitor/lib と lib/ の reminder_worker.py が不一致"
+
+    def test_report_worker_synced(self):
+        """ReportWorkerが3コピー同期されている"""
+        base = self._read_file("lib/brain/autonomous/report_worker.py")
+        cw = self._read_file("chatwork-webhook/lib/brain/autonomous/report_worker.py")
+        pm = self._read_file("proactive-monitor/lib/brain/autonomous/report_worker.py")
+        assert base == cw, "chatwork-webhook/lib と lib/ の report_worker.py が不一致"
+        assert base == pm, "proactive-monitor/lib と lib/ の report_worker.py が不一致"
+
+    def test_research_worker_synced(self):
+        """ResearchWorkerが3コピー同期されている"""
+        base = self._read_file("lib/brain/autonomous/research_worker.py")
+        cw = self._read_file("chatwork-webhook/lib/brain/autonomous/research_worker.py")
+        pm = self._read_file("proactive-monitor/lib/brain/autonomous/research_worker.py")
+        assert base == cw, "chatwork-webhook/lib と lib/ の research_worker.py が不一致"
+        assert base == pm, "proactive-monitor/lib と lib/ の research_worker.py が不一致"
+
+    def test_task_queue_synced(self):
+        """TaskQueueが3コピー同期されている"""
+        base = self._read_file("lib/brain/autonomous/task_queue.py")
+        cw = self._read_file("chatwork-webhook/lib/brain/autonomous/task_queue.py")
+        pm = self._read_file("proactive-monitor/lib/brain/autonomous/task_queue.py")
+        assert base == cw, "chatwork-webhook/lib と lib/ の task_queue.py が不一致"
+        assert base == pm, "proactive-monitor/lib と lib/ の task_queue.py が不一致"
+
+    def test_worker_synced(self):
+        """BaseWorkerが3コピー同期されている"""
+        base = self._read_file("lib/brain/autonomous/worker.py")
+        cw = self._read_file("chatwork-webhook/lib/brain/autonomous/worker.py")
+        pm = self._read_file("proactive-monitor/lib/brain/autonomous/worker.py")
+        assert base == cw, "chatwork-webhook/lib と lib/ の worker.py が不一致"
+        assert base == pm, "proactive-monitor/lib と lib/ の worker.py が不一致"

@@ -193,6 +193,7 @@ class TaskQueue:
 
         try:
             from sqlalchemy import text
+            import asyncio  # noqa: F811 — Codex diff可視性のためローカルimport
 
             def _sync_claim():
                 with self.pool.connect() as conn:

@@ -57,6 +57,9 @@ class ContextType(str, Enum):
     INTENT = "intent"                # 意図判定
     ROUTE = "route"                  # ルーティング決定
 
+    # 感情分析（Task 7）
+    SENTIMENT = "sentiment"          # 感情・ニュアンス検出
+
 
 # =============================================================================
 # 観測ログのデータ構造
@@ -101,6 +104,7 @@ class ObservabilityLog:
             ContextType.BASIC_NEED: "💡",
             ContextType.INTENT: "🧠",
             ContextType.ROUTE: "🔀",
+            ContextType.SENTIMENT: "😊",
         }
         return emoji_map.get(self.context_type, "📊")
 
@@ -308,6 +312,41 @@ class BrainObservability:
             details=details,
         )
 
+    def log_sentiment(
+        self,
+        account_id: str,
+        detected: bool,
+        primary_emotion: str = "",
+        urgency_level: str = "",
+        confidence: float = 0.0,
+    ) -> None:
+        """
+        感情検出結果のログを出力（Task 7）
+
+        Args:
+            account_id: アカウントID
+            detected: 感情が検出されたか
+            primary_emotion: 主要な感情カテゴリ
+            urgency_level: 緊急度レベル
+            confidence: 全体の信頼度
+        """
+        details: Dict[str, Any] = {
+            "detected": detected,
+            "confidence": round(confidence, 2),
+        }
+        if primary_emotion:
+            details["emotion"] = primary_emotion
+        if urgency_level:
+            details["urgency"] = urgency_level
+
+        self.log_context(
+            context_type=ContextType.SENTIMENT,
+            path="emotion_reader",
+            applied=detected,
+            account_id=account_id,
+            details=details,
+        )
+
     # =========================================================================
     # 内部メソッド
     # =========================================================================
@@ -366,6 +405,8 @@ class BrainObservability:
 
             def _sync_flush():
                 with self.pool.connect() as conn:
+                    # PII除去してパラメータ準備
+                    prepared = []
                     for log in logs_to_flush:
                         safe_details = None
                         if log.details:
@@ -373,27 +414,37 @@ class BrainObservability:
                                 k: v for k, v in log.details.items()
                                 if k not in _PII_KEYS
                             }
+                        prepared.append({
+                            "org_id": self.org_id,
+                            "room_id": (safe_details or {}).get("room_id", ""),
+                            "user_id": log.account_id,
+                            "action": log.path,
+                            "classification": log.context_type.value,
+                            "created_at": log.timestamp,
+                        })
+                    # バッチINSERT（100件チャンク）
+                    for i in range(0, len(prepared), 100):
+                        chunk = prepared[i:i + 100]
+                        values_clauses = []
+                        params = {}
+                        for j, p in enumerate(chunk):
+                            key = f"_{j}"
+                            values_clauses.append(
+                                f"(:org_id{key}::uuid, :room_id{key},"
+                                f" :user_id{key}, :action{key},"
+                                f" :classification{key}, :created_at{key})"
+                            )
+                            for k, v in p.items():
+                                params[f"{k}{key}"] = v
                         conn.execute(
-                            text("""
-                                INSERT INTO brain_decision_logs
-                                    (organization_id, room_id, user_id,
-                                     selected_action, classification,
-                                     created_at)
-                                VALUES
-                                    (:org_id::uuid, :room_id, :user_id,
-                                     :action, :classification,
-                                     :created_at)
-                            """),
-                            {
-                                "org_id": self.org_id,
-                                "room_id": (safe_details or {}).get(
-                                    "room_id", ""
-                                ),
-                                "user_id": log.account_id,
-                                "action": log.path,
-                                "classification": log.context_type.value,
-                                "created_at": log.timestamp,
-                            },
+                            text(
+                                "INSERT INTO brain_decision_logs"
+                                " (organization_id, room_id, user_id,"
+                                " selected_action, classification,"
+                                " created_at)"
+                                " VALUES " + ", ".join(values_clauses)
+                            ),
+                            params,
                         )
                     conn.commit()
 

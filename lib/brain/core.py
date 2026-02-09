@@ -95,6 +95,7 @@ from lib.brain.understanding import BrainUnderstanding
 from lib.brain.decision import BrainDecision
 from lib.brain.execution import BrainExecution
 from lib.brain.learning import BrainLearning
+from lib.brain.learning_loop import create_learning_loop
 from lib.brain.memory_manager import BrainMemoryManager
 from lib.brain.session_orchestrator import SessionOrchestrator
 from lib.brain.authorization_gate import AuthorizationGate, AuthorizationResult
@@ -149,6 +150,7 @@ from lib.feature_flags import is_llm_brain_enabled
 # v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
 from lib.brain.tool_converter import get_tools_for_llm
 from lib.brain.context_builder import ContextBuilder
+from lib.brain.deep_understanding.emotion_reader import create_emotion_reader
 from lib.brain.llm_brain import LLMBrain, LLMBrainResult
 from lib.brain.guardian_layer import GuardianLayer, GuardianAction
 from lib.brain.state_manager import LLMStateManager, LLMSessionMode, LLMPendingAction
@@ -442,6 +444,12 @@ class SoulkunBrain:
             enable_learning=True,
         )
 
+        # Phase 2E: 学習ループの初期化（フィードバック→判断改善）
+        self.learning_loop = create_learning_loop(
+            pool=pool,
+            organization_id=org_id,
+        )
+
         # Phase 2D: CEO Learning層の初期化（memory_manager初期化後に参照）
         self.ceo_teaching_repo = CEOTeachingRepository(
             pool=pool,
@@ -529,6 +537,24 @@ class SoulkunBrain:
                     f"execution_excellence={self.execution_excellence is not None}")
 
     # =========================================================================
+    # Phase 2E: 学習データ同期
+    # =========================================================================
+
+    def _sync_learning_to_decision(self) -> None:
+        """LearningLoopの学習済みデータをDecision/Guardianに同期"""
+        try:
+            self.decision.set_learned_adjustments(
+                score_adjustments=self.learning_loop._applied_weight_adjustments,
+                exceptions=self.learning_loop.get_learned_exceptions(),
+            )
+            if self.llm_guardian:
+                self.llm_guardian.set_learned_rules(
+                    self.learning_loop.get_learned_rules()
+                )
+        except Exception as e:
+            logger.warning("[Phase2E] Sync to decision failed: %s", type(e).__name__)
+
+    # =========================================================================
     # メインエントリーポイント
     # =========================================================================
 
@@ -555,6 +581,17 @@ class SoulkunBrain:
             BrainResponse: 処理結果
         """
         start_time = time.time()
+
+        # Phase 2E: 初回呼び出し時に永続化済み改善を復元
+        if not self._initialized:
+            self._initialized = True
+            try:
+                loaded = await self.learning_loop.load_persisted_improvements()
+                if loaded > 0:
+                    self._sync_learning_to_decision()
+                    logger.info("[Phase2E] Loaded %d persisted improvements", loaded)
+            except Exception as e:
+                logger.warning("[Phase2E] Init load failed: %s", type(e).__name__)
 
         try:
             logger.info(
@@ -1593,6 +1630,7 @@ class SoulkunBrain:
             self.llm_state_manager = LLMStateManager(
                 brain_state_manager=self.state_manager,
             )
+            self.emotion_reader = create_emotion_reader()
             self.llm_context_builder = ContextBuilder(
                 pool=self.pool,
                 memory_access=self.memory_access,
@@ -1600,6 +1638,7 @@ class SoulkunBrain:
                 ceo_teaching_repository=self.ceo_teaching_repo,
                 phase2e_learning=self.learning.phase2e_learning,
                 outcome_learning=self.outcome_learning,
+                emotion_reader=self.emotion_reader,
             )
             logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
         except Exception as e:

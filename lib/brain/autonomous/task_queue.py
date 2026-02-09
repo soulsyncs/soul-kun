@@ -178,6 +178,50 @@ class TaskQueue:
 
         return None
 
+    async def claim(self, task_id: str) -> bool:
+        """
+        タスクをアトミックにRUNNINGへ遷移（C.14 冪等性保証）
+
+        status が pending または failed の場合のみ RUNNING に遷移する。
+        既に running/completed/cancelled の場合は False を返す。
+
+        Returns:
+            遷移に成功したか
+        """
+        if not self.pool:
+            return False
+
+        try:
+            from sqlalchemy import text
+            import asyncio  # noqa: F811 — Codex diff可視性のためローカルimport
+
+            def _sync_claim():
+                with self.pool.connect() as conn:
+                    conn.execute(
+                        text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+                        {"org_id": self.org_id},
+                    )
+                    result = conn.execute(
+                        text("""
+                            UPDATE autonomous_tasks
+                            SET status = 'running', started_at = NOW()
+                            WHERE id = :id
+                              AND organization_id = :org_id::uuid
+                              AND status IN ('pending', 'failed')
+                            RETURNING id
+                        """),
+                        {"id": task_id, "org_id": self.org_id},
+                    )
+                    row = result.mappings().first()
+                    conn.commit()
+                    return row is not None
+
+            return await asyncio.to_thread(_sync_claim)
+
+        except Exception as e:
+            logger.warning("Failed to claim task: %s", type(e).__name__)
+            return False
+
     async def get(self, task_id: str) -> Optional[AutonomousTask]:
         """
         タスクを取得

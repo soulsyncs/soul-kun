@@ -81,11 +81,16 @@ class BaseWorker(ABC):
         Returns:
             実行結果
         """
-        # 開始
-        await self.task_queue.update(
-            task.id,
-            status=TaskStatus.RUNNING,
-        )
+        # C.14 冪等性: 完了済み/キャンセル済みタスクの再実行防止
+        if task.status in (TaskStatus.COMPLETED, TaskStatus.CANCELLED):
+            logger.info("Task already %s, skip: id=%s", task.status.value, task.id)
+            return task.result or {}
+
+        # アトミッククレーム: pending/failed → running（二重実行防止）
+        claimed = await self.task_queue.claim(task.id)
+        if not claimed:
+            logger.info("Task claim failed (already running/completed): id=%s", task.id)
+            return {"skipped": True, "reason": "already_processed"}
 
         try:
             # 実行

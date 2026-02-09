@@ -391,7 +391,7 @@ class GuardianLayer:
 
         all_teachings = self.ceo_teachings + context.ceo_teachings
 
-        # TODO: より高度なCEO教え違反検出
+        # TODO Phase 2D-3: より高度なCEO教え違反検出
         # 現時点では基本的なチェックのみ
 
         return GuardianResult(action=GuardianAction.ALLOW)

@@ -155,7 +155,8 @@ class BrainObservability:
         self,
         org_id: str = "",
         enable_cloud_logging: bool = True,
-        enable_persistence: bool = False,  # 将来的にTrue
+        enable_persistence: bool = False,
+        pool=None,
     ):
         """
         観測機能を初期化
@@ -163,11 +164,13 @@ class BrainObservability:
         Args:
             org_id: 組織ID
             enable_cloud_logging: Cloud Loggingへの出力を有効にするか
-            enable_persistence: DBへの永続化を有効にするか（将来対応）
+            enable_persistence: DBへの永続化を有効にするか
+            pool: DBコネクションプール（永続化に使用）
         """
         self.org_id = org_id
         self.enable_cloud_logging = enable_cloud_logging
         self.enable_persistence = enable_persistence
+        self.pool = pool
 
         # ログバッファ（バッチ永続化用）
         self._log_buffer: List[ObservabilityLog] = []
@@ -337,19 +340,84 @@ class BrainObservability:
         """
         バッファのログをDBに永続化
 
-        TODO(Phase 4): brain_decision_logs テーブルへの記録
+        brain_decision_logs テーブルにバッチINSERT。
+        PII除去済みのdetailsのみ保存する。
         """
         if not self._log_buffer:
             return
 
-        # TODO: DBへの永続化処理
-        # await db.execute(
-        #     "INSERT INTO brain_decision_logs ...",
-        #     [log.to_dict() for log in self._log_buffer]
-        # )
+        if not self.pool:
+            logger.debug(
+                f"Flushing {len(self._log_buffer)} logs (no pool, skipping DB)"
+            )
+            self._log_buffer.clear()
+            return
 
-        logger.debug(f"Flushing {len(self._log_buffer)} logs to DB (not implemented)")
+        logs_to_flush = list(self._log_buffer)
         self._log_buffer.clear()
+
+        try:
+            from sqlalchemy import text
+
+            _PII_KEYS = {
+                "message", "body", "content", "text",
+                "sender_name", "user_name", "name", "email", "phone",
+            }
+
+            def _sync_flush():
+                with self.pool.connect() as conn:
+                    for log in logs_to_flush:
+                        safe_details = None
+                        if log.details:
+                            safe_details = {
+                                k: v for k, v in log.details.items()
+                                if k not in _PII_KEYS
+                            }
+                        conn.execute(
+                            text("""
+                                INSERT INTO brain_decision_logs
+                                    (organization_id, room_id, user_id,
+                                     selected_action, classification,
+                                     created_at)
+                                VALUES
+                                    (:org_id::uuid, :room_id, :user_id,
+                                     :action, :classification,
+                                     :created_at)
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "room_id": (safe_details or {}).get(
+                                    "room_id", ""
+                                ),
+                                "user_id": log.account_id,
+                                "action": log.path,
+                                "classification": log.context_type.value,
+                                "created_at": log.timestamp,
+                            },
+                        )
+                    conn.commit()
+
+            import concurrent.futures
+            _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = _executor.submit(_sync_flush)
+            future.add_done_callback(
+                lambda f: (
+                    logger.warning(
+                        "Flush to DB failed in background: %s",
+                        type(f.exception()).__name__,
+                    )
+                    if f.exception()
+                    else logger.debug(
+                        "Flushed %d logs to brain_decision_logs",
+                        len(logs_to_flush),
+                    )
+                )
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to flush observability logs to DB: %s",
+                type(e).__name__,
+            )
 
 
 # =============================================================================
@@ -360,6 +428,7 @@ def create_observability(
     org_id: str = "",
     enable_cloud_logging: bool = True,
     enable_persistence: bool = False,
+    pool=None,
 ) -> BrainObservability:
     """
     BrainObservabilityインスタンスを作成
@@ -368,6 +437,7 @@ def create_observability(
         org_id: 組織ID
         enable_cloud_logging: Cloud Loggingへの出力を有効にするか
         enable_persistence: DBへの永続化を有効にするか
+        pool: DBコネクションプール（永続化に使用）
 
     Returns:
         BrainObservability
@@ -376,6 +446,7 @@ def create_observability(
         org_id=org_id,
         enable_cloud_logging=enable_cloud_logging,
         enable_persistence=enable_persistence,
+        pool=pool,
     )
 
 

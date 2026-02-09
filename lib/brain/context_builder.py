@@ -706,8 +706,32 @@ class ContextBuilder:
         organization_id: str,
         sender_name: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """ユーザー基本情報を取得"""
-        # TODO: ユーザーテーブルから取得する実装を追加
+        """ユーザー基本情報をDBから取得"""
+        if self.pool:
+            try:
+                from sqlalchemy import text
+
+                def _query():
+                    with self.pool.connect() as conn:
+                        result = conn.execute(text("""
+                            SELECT u.name, r.name AS role_name
+                            FROM users u
+                            LEFT JOIN user_departments ud ON ud.user_id = u.id
+                            LEFT JOIN roles r ON ud.role_id = r.id
+                            WHERE u.chatwork_account_id = :account_id
+                            AND u.organization_id = CAST(:org_id AS TEXT)
+                            LIMIT 1
+                        """), {"account_id": user_id, "org_id": organization_id})
+                        return result.fetchone()
+
+                row = await asyncio.to_thread(_query)
+                if row:
+                    return {
+                        "name": row[0] or sender_name or "ユーザー",
+                        "role": row[1] or "",
+                    }
+            except Exception as e:
+                logger.warning("Failed to get user info from DB: %s", type(e).__name__)
         return {
             "name": sender_name or "ユーザー",
             "role": "",

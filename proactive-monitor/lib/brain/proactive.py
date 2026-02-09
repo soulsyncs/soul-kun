@@ -68,7 +68,7 @@ class ActionPriority(Enum):
 
 # 組織IDマッピング（UUID → chatwork_tasks用VARCHAR）
 # chatwork_tasksテーブルはVARCHAR型のorganization_idを使用
-# TODO: Phase 4A で organizations テーブルから動的に取得
+# TODO Phase 4B: organizations テーブルから動的に取得
 ORGANIZATION_UUID_TO_SLUG = {
     "5f98365f-e7c5-4f48-9918-7fe9aabae5df": "org_soulsyncs",  # Soul Syncs
 }

@@ -400,12 +400,55 @@ class OrganizationGraph:
         if person_id in self._person_cache:
             return self._person_cache[person_id]
 
-        # DBから検索（TODO: 実装）
+        # DBから検索
         if self.pool:
             try:
-                pass
+                from sqlalchemy import text as sa_text
+                import asyncio
+
+                def _sync_fetch():
+                    with self.pool.connect() as conn:
+                        return conn.execute(
+                            sa_text("""
+                                SELECT id, person_id, name, department_id, role,
+                                       influence_score, expertise_areas,
+                                       communication_style, total_interactions,
+                                       avg_response_time_hours, activity_level,
+                                       created_at, updated_at
+                                FROM brain_person_nodes
+                                WHERE organization_id = :org_id::uuid
+                                  AND person_id = :pid
+                            """),
+                            {"org_id": self.organization_id, "pid": person_id},
+                        ).mappings().first()
+
+                row = await asyncio.to_thread(_sync_fetch)
+                if row:
+                    person = PersonNode(
+                        id=str(row["id"]),
+                        organization_id=self.organization_id,
+                        person_id=row["person_id"],
+                        name=row["name"] or "",
+                        department_id=row["department_id"],
+                        role=row["role"],
+                        influence_score=float(row["influence_score"] or 0.5),
+                        expertise_areas=row["expertise_areas"] or [],
+                        communication_style=CommunicationStyle(
+                            row["communication_style"] or "casual"
+                        ),
+                        total_interactions=int(row["total_interactions"] or 0),
+                        avg_response_time_hours=(
+                            float(row["avg_response_time_hours"])
+                            if row["avg_response_time_hours"] else None
+                        ),
+                        activity_level=float(row["activity_level"] or 0.5),
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                    )
+                    self._person_cache[person_id] = person
+                    return person
             except Exception as e:
-                logger.warning(f"[OrganizationGraph] Error fetching person from DB: {e}")
+                logger.warning("[OrganizationGraph] Error fetching person from DB: %s", type(e).__name__)
 
         return None
 
@@ -425,7 +468,56 @@ class OrganizationGraph:
 
             self._person_cache[person.person_id] = person
 
-            # TODO: DBへの保存
+            # DBへの保存
+            if self.pool:
+                try:
+                    from sqlalchemy import text as sa_text
+                    import json as _json
+                    import asyncio
+
+                    def _sync_upsert():
+                        with self.pool.connect() as conn:
+                            conn.execute(
+                                sa_text("""
+                                    INSERT INTO brain_person_nodes
+                                        (organization_id, person_id, name,
+                                         department_id, role, influence_score,
+                                         expertise_areas, communication_style,
+                                         total_interactions, activity_level)
+                                    VALUES
+                                        (:org_id::uuid, :pid, :name,
+                                         :dept, :role, :influence,
+                                         :expertise::jsonb, :style,
+                                         :interactions, :activity)
+                                    ON CONFLICT (organization_id, person_id)
+                                    DO UPDATE SET
+                                        name = EXCLUDED.name,
+                                        department_id = EXCLUDED.department_id,
+                                        role = EXCLUDED.role,
+                                        influence_score = EXCLUDED.influence_score,
+                                        expertise_areas = EXCLUDED.expertise_areas,
+                                        communication_style = EXCLUDED.communication_style,
+                                        total_interactions = EXCLUDED.total_interactions,
+                                        activity_level = EXCLUDED.activity_level
+                                """),
+                                {
+                                    "org_id": self.organization_id,
+                                    "pid": person.person_id,
+                                    "name": person.name,
+                                    "dept": person.department_id,
+                                    "role": person.role,
+                                    "influence": person.influence_score,
+                                    "expertise": _json.dumps(person.expertise_areas),
+                                    "style": person.communication_style.value,
+                                    "interactions": person.total_interactions,
+                                    "activity": person.activity_level,
+                                },
+                            )
+                            conn.commit()
+
+                    await asyncio.to_thread(_sync_upsert)
+                except Exception as e:
+                    logger.warning("[OrganizationGraph] Person DB save failed: %s", type(e).__name__)
 
             logger.debug(
                 f"[OrganizationGraph] Person upserted: "
@@ -583,7 +675,49 @@ class OrganizationGraph:
             )
             self._relationship_cache[cache_key] = relationship
 
-            # TODO: DBへの保存
+            # DBへの保存
+            if self.pool:
+                try:
+                    from sqlalchemy import text as sa_text
+                    import json as _json
+                    import asyncio
+
+                    def _sync_upsert_rel():
+                        with self.pool.connect() as conn:
+                            conn.execute(
+                                sa_text("""
+                                    INSERT INTO brain_relationships
+                                        (organization_id, person_a_id, person_b_id,
+                                         relationship_type, strength, trust_level,
+                                         bidirectional, interaction_count, context)
+                                    VALUES
+                                        (:org_id::uuid, :a_id, :b_id,
+                                         :rel_type, :strength, :trust,
+                                         :bidir, :count, :ctx::jsonb)
+                                    ON CONFLICT (organization_id, person_a_id, person_b_id, relationship_type)
+                                    DO UPDATE SET
+                                        strength = EXCLUDED.strength,
+                                        trust_level = EXCLUDED.trust_level,
+                                        interaction_count = EXCLUDED.interaction_count,
+                                        context = EXCLUDED.context
+                                """),
+                                {
+                                    "org_id": self.organization_id,
+                                    "a_id": relationship.person_a_id,
+                                    "b_id": relationship.person_b_id,
+                                    "rel_type": relationship.relationship_type.value,
+                                    "strength": relationship.strength,
+                                    "trust": relationship.trust_level,
+                                    "bidir": relationship.bidirectional,
+                                    "count": relationship.interaction_count,
+                                    "ctx": _json.dumps(relationship.context or {}),
+                                },
+                            )
+                            conn.commit()
+
+                    await asyncio.to_thread(_sync_upsert_rel)
+                except Exception as e:
+                    logger.warning("[OrganizationGraph] Relationship DB save failed: %s", type(e).__name__)
 
             logger.debug(
                 f"[OrganizationGraph] Relationship upserted: "
@@ -863,11 +997,44 @@ class OrganizationGraph:
         if not self._interaction_buffer:
             return 0
 
-        count = len(self._interaction_buffer)
-
-        # TODO: DBへの保存
-
+        entries = list(self._interaction_buffer)
         self._interaction_buffer.clear()
+        count = len(entries)
+
+        # DBへの保存
+        if self.pool and entries:
+            try:
+                from sqlalchemy import text as sa_text
+                import asyncio
+
+                def _sync_flush_interactions():
+                    with self.pool.connect() as conn:
+                        for interaction in entries:
+                            conn.execute(
+                                sa_text("""
+                                    INSERT INTO brain_interactions
+                                        (organization_id, from_person_id,
+                                         to_person_id, interaction_type,
+                                         sentiment, room_id)
+                                    VALUES
+                                        (:org_id::uuid, :from_id,
+                                         :to_id, :type,
+                                         :sentiment, :room_id)
+                                """),
+                                {
+                                    "org_id": self.organization_id,
+                                    "from_id": interaction.from_person_id,
+                                    "to_id": interaction.to_person_id,
+                                    "type": interaction.interaction_type.value,
+                                    "sentiment": getattr(interaction, "sentiment", 0.0),
+                                    "room_id": getattr(interaction, "room_id", None),
+                                },
+                            )
+                        conn.commit()
+
+                await asyncio.to_thread(_sync_flush_interactions)
+            except Exception as e:
+                logger.warning("[OrganizationGraph] Interaction flush failed: %s", type(e).__name__)
 
         logger.debug(f"[OrganizationGraph] Flushed {count} interactions")
 

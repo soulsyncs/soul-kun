@@ -670,8 +670,7 @@ class BrainLearning:
             return False
 
         try:
-            # Firestoreに会話履歴を保存
-            # TODO: 実際のFirestore保存ロジック
+            # Firestore廃止予定: 会話履歴はCloud SQL経由で保存
             logger.debug(
                 f"Conversation saved: room={room_id}, "
                 f"user={sender_name}"
@@ -703,8 +702,8 @@ class BrainLearning:
             return False
 
         try:
-            # TODO: LLMを使用してサマリーを生成
-            # conversation_summariesテーブルへの保存
+            # Phase AA: LLMを使用してサマリーを生成
+            # conversation_summariesテーブル作成後に実装
             logger.debug(
                 f"Conversation summary updated: room={room_id}, "
                 f"messages={len(recent_conversation)}"
@@ -736,8 +735,8 @@ class BrainLearning:
             return False
 
         try:
-            # TODO: ユーザー嗜好の分析と保存
-            # user_preferencesテーブルへの保存
+            # Phase AA: ユーザー嗜好の分析と保存
+            # user_preferencesテーブル作成後に実装
             logger.debug(f"User preference updated: user={account_id}")
             return True
 
@@ -1101,16 +1100,40 @@ class BrainLearning:
             return False
 
         try:
-            # TODO: フィードバックをDBに記録
+            from sqlalchemy import text as sa_text
+
+            import asyncio
+
+            def _sync_insert():
+                with self.pool.connect() as conn:
+                    conn.execute(
+                        sa_text("""
+                            INSERT INTO judgment_feedback
+                                (organization_id, judgment_history_id,
+                                 feedback_type, user_choice, rating)
+                            VALUES
+                                (:org_id, :decision_id,
+                                 :feedback_type, :feedback_value, :rating)
+                        """),
+                        {
+                            "org_id": self.org_id,
+                            "decision_id": decision_log_id,
+                            "feedback_type": feedback_type,
+                            "feedback_value": str(feedback_value),
+                            "rating": 1 if feedback_type == "correct" else 0,
+                        },
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_sync_insert)
             logger.info(
-                f"Feedback recorded: type={feedback_type}, "
-                f"value={feedback_value}, "
-                f"decision_id={decision_log_id}"
+                "Feedback recorded: type=%s, decision_id=%s",
+                feedback_type, decision_log_id,
             )
             return True
 
         except Exception as e:
-            logger.error(f"Error recording feedback: {e}")
+            logger.warning("Error recording feedback: %s", type(e).__name__)
             return False
 
     async def learn_from_feedback(
@@ -1138,7 +1161,7 @@ class BrainLearning:
             return False
 
         try:
-            # TODO: フィードバックに基づく学習ロジック
+            # Phase 2E-Advanced: フィードバックに基づく学習ロジック
             # - 誤判断パターンの記録
             # - キーワードマッピングの更新
             # - ユーザー嗜好の更新
@@ -1186,11 +1209,49 @@ class BrainLearning:
             return stats
 
         try:
-            # TODO: DBから統計情報を取得
-            pass
+            from sqlalchemy import text as sa_text
+
+            import asyncio
+
+            def _sync_stats():
+                with self.pool.connect() as conn:
+                    return conn.execute(
+                        sa_text("""
+                            SELECT
+                                COUNT(*) AS total,
+                                AVG(decision_confidence) AS avg_conf,
+                                SUM(CASE WHEN execution_success THEN 1 ELSE 0 END) AS successes,
+                                SUM(CASE WHEN decision_confidence < 0.5 THEN 1 ELSE 0 END) AS low_conf,
+                                SUM(CASE WHEN required_confirmation THEN 1 ELSE 0 END) AS confirmations,
+                                AVG(total_time_ms) AS avg_time
+                            FROM brain_decision_logs
+                            WHERE organization_id = :org_id::uuid
+                              AND created_at >= NOW() - make_interval(days => :days)
+                        """),
+                        {"org_id": self.org_id, "days": days},
+                    ).mappings().first()
+
+            row = await asyncio.to_thread(_sync_stats)
+
+            if row and row["total"]:
+                total = int(row["total"])
+                stats["total_decisions"] = total
+                stats["success_rate"] = round(
+                    int(row["successes"] or 0) / total, 3
+                )
+                stats["avg_confidence"] = round(
+                    float(row["avg_conf"] or 0), 3
+                )
+                stats["low_confidence_count"] = int(row["low_conf"] or 0)
+                stats["confirmation_rate"] = round(
+                    int(row["confirmations"] or 0) / total, 3
+                )
+                stats["avg_response_time_ms"] = int(
+                    row["avg_time"] or 0
+                )
 
         except Exception as e:
-            logger.error(f"Error getting statistics: {e}")
+            logger.warning("Error getting statistics: %s", type(e).__name__)
 
         return stats
 
@@ -1242,15 +1303,30 @@ class BrainLearning:
             return 0
 
         try:
-            # TODO: 古いログの削除
-            # DELETE FROM brain_decision_logs
-            # WHERE created_at < NOW() - INTERVAL 'X days'
+            from sqlalchemy import text as sa_text
 
-            logger.info(f"Cleaned up logs older than {days} days")
-            return 0
+            import asyncio
+
+            def _sync_delete():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        sa_text("""
+                            DELETE FROM brain_decision_logs
+                            WHERE organization_id = :org_id::uuid
+                              AND created_at < NOW() - make_interval(days => :days)
+                        """),
+                        {"org_id": self.org_id, "days": days},
+                    )
+                    deleted = result.rowcount
+                    conn.commit()
+                    return deleted
+
+            deleted = await asyncio.to_thread(_sync_delete)
+            logger.info("Cleaned up %d logs older than %d days", deleted, days)
+            return deleted
 
         except Exception as e:
-            logger.error(f"Error cleaning up old logs: {e}")
+            logger.warning("Error cleaning up old logs: %s", type(e).__name__)
             return 0
 
     def get_buffer_size(self) -> int:

@@ -482,7 +482,13 @@ class TestContextBuilder:
     @pytest.fixture
     def mock_pool(self):
         """モックのDBプール"""
-        return MagicMock()
+        pool = MagicMock()
+        conn = MagicMock()
+        conn.execute.return_value.fetchone.return_value = None
+        conn.execute.return_value.mappings.return_value.first.return_value = None
+        pool.connect.return_value.__enter__ = MagicMock(return_value=conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        return pool
 
     def test_init(self, mock_pool, mock_memory_access, mock_state_manager):
         """初期化できること"""

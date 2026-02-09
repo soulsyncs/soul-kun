@@ -493,6 +493,27 @@ _LAZY_IMPORTS = {
     "FEATURE_FLAG_ORGANIZATION_CONTEXT": ("lib.brain.deep_understanding", "FEATURE_FLAG_ORGANIZATION_CONTEXT"),
     "FEATURE_FLAG_EMOTION_READING": ("lib.brain.deep_understanding", "FEATURE_FLAG_EMOTION_READING"),
     "FEATURE_FLAG_VOCABULARY_LEARNING": ("lib.brain.deep_understanding", "FEATURE_FLAG_VOCABULARY_LEARNING"),
+
+    # ----------------------------------------------------------------
+    # Phase 2M: Interpersonal Skills（対人力強化）
+    # ----------------------------------------------------------------
+    "BrainInterpersonal": ("lib.brain.interpersonal", "BrainInterpersonal"),
+    "create_interpersonal": ("lib.brain.interpersonal", "create_interpersonal"),
+    "is_interpersonal_enabled": ("lib.brain.interpersonal", "is_interpersonal_enabled"),
+
+    # ----------------------------------------------------------------
+    # Phase 2N: Self-Optimization（自己最適化）
+    # ----------------------------------------------------------------
+    "BrainSelfOptimization": ("lib.brain.self_optimization", "BrainSelfOptimization"),
+    "create_self_optimization": ("lib.brain.self_optimization", "create_self_optimization"),
+    "is_self_optimization_enabled": ("lib.brain.self_optimization", "is_self_optimization_enabled"),
+
+    # ----------------------------------------------------------------
+    # Phase 2O: Emergence（創発）
+    # ----------------------------------------------------------------
+    "BrainEmergence": ("lib.brain.emergence", "BrainEmergence"),
+    "create_emergence": ("lib.brain.emergence", "create_emergence"),
+    "is_emergence_enabled": ("lib.brain.emergence", "is_emergence_enabled"),
 }
 
 # キャッシュ（一度インポートしたモジュールを再利用）
@@ -904,4 +925,16 @@ __all__ = [
     "FEATURE_FLAG_ORGANIZATION_CONTEXT",
     "FEATURE_FLAG_EMOTION_READING",
     "FEATURE_FLAG_VOCABULARY_LEARNING",
+    # Phase 2M: Interpersonal Skills（対人力強化）(lazy)
+    "BrainInterpersonal",
+    "create_interpersonal",
+    "is_interpersonal_enabled",
+    # Phase 2N: Self-Optimization（自己最適化）(lazy)
+    "BrainSelfOptimization",
+    "create_self_optimization",
+    "is_self_optimization_enabled",
+    # Phase 2O: Emergence（創発）(lazy)
+    "BrainEmergence",
+    "create_emergence",
+    "is_emergence_enabled",
 ]

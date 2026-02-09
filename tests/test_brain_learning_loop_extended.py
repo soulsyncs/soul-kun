@@ -143,20 +143,22 @@ class TestGetDecisionFromDB:
 
     @pytest.mark.asyncio
     async def test_get_decision_from_db_with_pool(self):
-        """DBプールありの場合のDB検索 (lines 554-559)"""
+        """DBプールありの場合のDB検索 — 見つからない"""
         mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.mappings.return_value.first.return_value = None
         loop = LearningLoop(pool=mock_pool)
 
-        # Not in cache, falls through to DB search (TODO implementation)
         result = await loop._get_decision("dec-not-in-cache")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_get_decision_db_exception(self):
-        """DB検索中の例外 (lines 558-559)"""
+        """DB検索中の例外"""
         mock_pool = MagicMock()
-        # The pool exists, so the DB search branch is entered
-        # Currently it's a TODO, so it just passes and returns None
+        mock_pool.connect.side_effect = Exception("DB error")
         loop = LearningLoop(pool=mock_pool)
 
         result = await loop._get_decision("dec-missing")
@@ -714,40 +716,47 @@ class TestApplyImprovementDispatch:
 
     @pytest.mark.asyncio
     async def test_apply_weight_adjustment_dispatch(self):
-        """重み調整のディスパッチ (lines 1099-1100)"""
+        """重み調整のディスパッチ"""
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.WEIGHT_ADJUSTMENT,
+            target_action="test_action",
+            weight_changes={"score": 0.1},
         )
         result = await loop._apply_improvement(improvement)
         assert result == True
 
     @pytest.mark.asyncio
     async def test_apply_rule_addition_dispatch(self):
-        """ルール追加のディスパッチ (lines 1102-1103)"""
+        """ルール追加のディスパッチ"""
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.RULE_ADDITION,
+            rule_condition="test_cond",
+            rule_action="confirm",
         )
         result = await loop._apply_improvement(improvement)
         assert result == True
 
     @pytest.mark.asyncio
     async def test_apply_exception_addition_dispatch(self):
-        """例外追加のディスパッチ (lines 1105-1106)"""
+        """例外追加のディスパッチ"""
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.EXCEPTION_ADDITION,
+            target_action="test_action",
+            rule_condition="test_cond",
         )
         result = await loop._apply_improvement(improvement)
         assert result == True
 
     @pytest.mark.asyncio
     async def test_apply_confirmation_rule_dispatch(self):
-        """確認ルールのディスパッチ (lines 1108-1109)"""
+        """確認ルールのディスパッチ"""
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.CONFIRMATION_RULE,
+            target_action="test_action",
         )
         result = await loop._apply_improvement(improvement)
         assert result == True
@@ -901,6 +910,8 @@ class TestApplyImprovementMethods:
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.WEIGHT_ADJUSTMENT,
+            target_action="test_action",
+            weight_changes={"relevance": 0.1},
         )
         result = await loop._apply_weight_adjustment(improvement)
         assert result == True
@@ -913,6 +924,8 @@ class TestApplyImprovementMethods:
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.RULE_ADDITION,
+            rule_condition="dangerous_tool",
+            rule_action="block",
         )
         result = await loop._apply_rule_addition(improvement)
         assert result == True
@@ -924,6 +937,9 @@ class TestApplyImprovementMethods:
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.EXCEPTION_ADDITION,
+            target_action="some_action",
+            rule_condition="special_context",
+            rule_action="override_action",
         )
         result = await loop._apply_exception_addition(improvement)
         assert result == True
@@ -935,6 +951,7 @@ class TestApplyImprovementMethods:
         loop = LearningLoop()
         improvement = Improvement(
             improvement_type=ImprovementType.CONFIRMATION_RULE,
+            target_action="risky_action",
         )
         result = await loop._apply_confirmation_rule(improvement)
         assert result == True

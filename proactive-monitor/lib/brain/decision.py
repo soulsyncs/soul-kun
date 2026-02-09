@@ -304,12 +304,29 @@ class BrainDecision:
         # 設計書7.3準拠: CAPABILITY_KEYWORDSをSYSTEM_CAPABILITIESに統合
         self.capability_keywords = self._build_capability_keywords()
 
+        # Phase 2E: 学習済み調整（LearningLoopから注入）
+        self._learned_score_adjustments: Dict[str, Dict[str, float]] = {}
+        self._learned_exceptions: List[Dict[str, Any]] = []
+
         logger.info(
             f"BrainDecision initialized: "
             f"capabilities={len(self.enabled_capabilities)}, "
             f"capability_keywords={len(self.capability_keywords)}, "
             f"use_llm={use_llm}"
         )
+
+    # =========================================================================
+    # Phase 2E: 学習済み調整の注入
+    # =========================================================================
+
+    def set_learned_adjustments(
+        self,
+        score_adjustments: Dict[str, Dict[str, float]],
+        exceptions: List[Dict[str, Any]],
+    ) -> None:
+        """LearningLoopから学習済み調整を注入"""
+        self._learned_score_adjustments = score_adjustments
+        self._learned_exceptions = exceptions
 
     # =========================================================================
     # キーワード辞書の動的構築（v10.30.0）
@@ -809,7 +826,12 @@ class BrainDecision:
             life_axis_score * weights.get("life_axis_alignment", 0.15)
         )
 
-        final_score: float = min(1.0, total_score)
+        # Phase 2E: 学習済み重み調整を適用
+        learned = self._learned_score_adjustments.get(cap_key, {})
+        if learned:
+            total_score += sum(learned.values())
+
+        final_score: float = max(0.0, min(1.0, total_score))
         return final_score
 
     def _calculate_keyword_score(

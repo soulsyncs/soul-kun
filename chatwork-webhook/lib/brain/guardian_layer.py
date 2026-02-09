@@ -213,7 +213,14 @@ class GuardianLayer:
         self.ceo_teachings = ceo_teachings or []
         self.ng_patterns = SECURITY_NG_PATTERNS + (custom_ng_patterns or [])
 
+        # Phase 2E: 学習済みルール（LearningLoopから注入）
+        self._learned_rules: List[Dict[str, str]] = []
+
         logger.info(f"GuardianLayer initialized with {len(self.ceo_teachings)} CEO teachings")
+
+    def set_learned_rules(self, rules: List[Dict[str, str]]) -> None:
+        """LearningLoopから学習済みルールを注入"""
+        self._learned_rules = rules
 
     async def check(
         self,
@@ -383,16 +390,37 @@ class GuardianLayer:
         context: LLMContext,
     ) -> GuardianResult:
         """
-        優先度4: CEO教え違反チェック
+        優先度4: CEO教え違反チェック + Phase 2E学習済みルール
         """
-        # CEO教えがない場合はパス
+        # CEO教えチェック
         if not self.ceo_teachings and not context.ceo_teachings:
-            return GuardianResult(action=GuardianAction.ALLOW)
+            pass  # CEO教えなし — 学習済みルールのみチェック
+        else:
+            all_teachings = self.ceo_teachings + context.ceo_teachings
+            # TODO Phase 2D-3: より高度なCEO教え違反検出
 
-        all_teachings = self.ceo_teachings + context.ceo_teachings
-
-        # TODO Phase 2D-3: より高度なCEO教え違反検出
-        # 現時点では基本的なチェックのみ
+        # Phase 2E: 学習済みルールをチェック
+        tool_name = tool_call.tool_name if tool_call else ""
+        for rule in self._learned_rules:
+            condition = rule.get("condition", "")
+            if not condition:
+                continue
+            # ルール条件がツール名に一致するか確認
+            if condition.lower() in tool_name.lower():
+                rule_action = rule.get("action", "confirm")
+                if rule_action == "block":
+                    return GuardianResult(
+                        action=GuardianAction.BLOCK,
+                        reason=f"学習済みルール: {rule.get('description', condition)}",
+                        priority_level=4,
+                    )
+                elif rule_action == "confirm":
+                    return GuardianResult(
+                        action=GuardianAction.CONFIRM,
+                        confirmation_question=f"学習済みルールに基づく確認: {rule.get('description', condition)}",
+                        reason=f"学習済みルール: {rule.get('description', condition)}",
+                        priority_level=4,
+                    )
 
         return GuardianResult(action=GuardianAction.ALLOW)
 

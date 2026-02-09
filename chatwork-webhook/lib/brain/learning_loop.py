@@ -420,6 +420,11 @@ class LearningLoop:
         self._applied_patterns: Dict[str, List[str]] = {}  # action -> patterns
         self._applied_keywords: Dict[str, Dict[str, float]] = {}  # action -> {keyword: weight}
 
+        # Phase 2E: 高度な改善（メモリ内）
+        self._applied_rules: List[Dict[str, str]] = []  # [{condition, action, improvement_id}]
+        self._applied_exceptions: List[Dict[str, Any]] = []  # [{target_action, condition, ...}]
+        self._applied_weight_adjustments: Dict[str, Dict[str, float]] = {}  # action -> {component: delta}
+
         logger.debug(
             f"LearningLoop initialized: "
             f"org_id={organization_id}, "
@@ -495,7 +500,7 @@ class LearningLoop:
             return improvements
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error learning from feedback: {e}")
+            logger.error("[LearningLoop] Error learning from feedback: %s", type(e).__name__)
             return []
 
     async def record_decision(
@@ -529,7 +534,7 @@ class LearningLoop:
             return True
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error recording decision: {e}")
+            logger.error("[LearningLoop] Error recording decision: %s", type(e).__name__)
             return False
 
     # =========================================================================
@@ -574,10 +579,9 @@ class LearningLoop:
                 if row:
                     return DecisionSnapshot(
                         decision_id=str(row["id"]),
-                        action=row["selected_action"] or "",
-                        confidence=float(row["decision_confidence"] or 0),
-                        reasoning=row["decision_reasoning"] or "",
-                        timestamp=row["created_at"],
+                        selected_action=row["selected_action"] or "",
+                        action_confidence=float(row["decision_confidence"] or 0),
+                        created_at=row["created_at"],
                     )
             except Exception as e:
                 logger.warning("[LearningLoop] Error fetching decision from DB: %s", type(e).__name__)
@@ -1139,7 +1143,7 @@ class LearningLoop:
                 return False
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error applying improvement: {e}")
+            logger.error("[LearningLoop] Error applying improvement: %s", type(e).__name__)
             return False
 
     async def _apply_threshold_adjustment(self, improvement: Improvement) -> bool:
@@ -1205,32 +1209,300 @@ class LearningLoop:
         return False
 
     async def _apply_weight_adjustment(self, improvement: Improvement) -> bool:
-        """重み調整を適用（Phase 2E-Advanced: 実際の重み変更ロジック）"""
+        """重み調整を適用 — アクションのスコアリング重みを変更"""
+        if not improvement.target_action or not improvement.weight_changes:
+            return False
+
+        if improvement.target_action not in self._applied_weight_adjustments:
+            self._applied_weight_adjustments[improvement.target_action] = {}
+
+        for component, delta in improvement.weight_changes.items():
+            current = self._applied_weight_adjustments[improvement.target_action].get(component, 0.0)
+            # クランプ: -0.5 〜 +0.5 の範囲
+            clamped = max(-0.5, min(0.5, current + delta))
+            self._applied_weight_adjustments[improvement.target_action][component] = clamped
+
         improvement.status = LearningStatus.APPLIED
         improvement.applied_at = datetime.now()
-        logger.info("[LearningLoop] Weight adjustment applied: %s", improvement.id)
+        self._improvement_cache[improvement.id] = improvement
+
+        await self._save_improvement_to_db(improvement)
+
+        logger.info(
+            "[LearningLoop] Weight adjustment applied: %s changes=%s",
+            improvement.target_action, improvement.weight_changes,
+        )
         return True
 
     async def _apply_rule_addition(self, improvement: Improvement) -> bool:
-        """ルール追加を適用（Phase 2E-Advanced: ルールエンジン連携）"""
+        """ルール追加を適用 — Guardian Layerに学習済みルールを追加"""
+        if not improvement.rule_condition or not improvement.rule_action:
+            return False
+
+        self._applied_rules.append({
+            "condition": improvement.rule_condition,
+            "action": improvement.rule_action,
+            "improvement_id": improvement.id,
+            "target_action": improvement.target_action or "",
+            "description": improvement.description,
+        })
+
         improvement.status = LearningStatus.APPLIED
         improvement.applied_at = datetime.now()
-        logger.info("[LearningLoop] Rule addition applied: %s", improvement.id)
+        self._improvement_cache[improvement.id] = improvement
+
+        await self._save_improvement_to_db(improvement)
+
+        logger.info(
+            "[LearningLoop] Rule addition applied: %s",
+            improvement.rule_condition[:50],
+        )
         return True
 
     async def _apply_exception_addition(self, improvement: Improvement) -> bool:
-        """例外追加を適用（Phase 2E-Advanced: 例外ルール管理）"""
+        """例外追加を適用 — 特定文脈でアクション選択をオーバーライド"""
+        if not improvement.target_action or not improvement.rule_condition:
+            return False
+
+        self._applied_exceptions.append({
+            "target_action": improvement.target_action,
+            "condition": improvement.rule_condition,
+            "override_action": improvement.rule_action or "",
+            "improvement_id": improvement.id,
+            "description": improvement.description,
+        })
+
         improvement.status = LearningStatus.APPLIED
         improvement.applied_at = datetime.now()
-        logger.info("[LearningLoop] Exception addition applied: %s", improvement.id)
+        self._improvement_cache[improvement.id] = improvement
+
+        await self._save_improvement_to_db(improvement)
+
+        logger.info(
+            "[LearningLoop] Exception addition applied: %s -> %s",
+            improvement.target_action, improvement.rule_action,
+        )
         return True
 
     async def _apply_confirmation_rule(self, improvement: Improvement) -> bool:
-        """確認ルール追加を適用（Phase 2E-Advanced: 確認フロー強化）"""
+        """確認ルール追加を適用 — 失敗が多いアクションの確信度閾値を下げる"""
+        if not improvement.target_action:
+            return False
+
+        current = self._applied_thresholds.get(
+            improvement.target_action, THRESHOLD_MAX,
+        )
+        new_threshold = max(THRESHOLD_MIN, current - THRESHOLD_ADJUSTMENT_STEP)
+
+        self._applied_thresholds[improvement.target_action] = new_threshold
+
+        improvement.old_threshold = current
+        improvement.new_threshold = new_threshold
         improvement.status = LearningStatus.APPLIED
         improvement.applied_at = datetime.now()
-        logger.info("[LearningLoop] Confirmation rule applied: %s", improvement.id)
+        self._improvement_cache[improvement.id] = improvement
+
+        await self._save_improvement_to_db(improvement)
+
+        logger.info(
+            "[LearningLoop] Confirmation rule applied: %s threshold=%.2f->%.2f",
+            improvement.target_action, current, new_threshold,
+        )
         return True
+
+    # =========================================================================
+    # Phase 2E: 改善の永続化・復元
+    # =========================================================================
+
+    async def _save_improvement_to_db(self, improvement: Improvement) -> bool:
+        """改善をbrain_improvement_logsに永続化"""
+        if not self.pool:
+            return False
+        try:
+            from sqlalchemy import text as sa_text
+
+            details = json.dumps({
+                "improvement_id": improvement.id,
+                "target_action": improvement.target_action,
+                "target_intent": improvement.target_intent,
+                "weight_changes": improvement.weight_changes,
+                "rule_condition": improvement.rule_condition,
+                "rule_action": improvement.rule_action,
+                "keywords_to_add": improvement.keywords_to_add,
+                "keywords_to_remove": improvement.keywords_to_remove,
+                "keyword_weights": improvement.keyword_weights,
+                "old_threshold": improvement.old_threshold,
+                "new_threshold": improvement.new_threshold,
+                "pattern_regex": improvement.pattern_regex,
+                "description": improvement.description,
+                "priority": improvement.priority,
+                "status": improvement.status.value,
+                "expected_improvement": improvement.expected_improvement,
+            }, default=str)
+
+            def _sync_save():
+                with self.pool.connect() as conn:
+                    conn.execute(
+                        sa_text("""
+                            INSERT INTO brain_improvement_logs
+                                (organization_id, improvement_type, category,
+                                 previous_score, current_score,
+                                 trigger_event, recorded_at)
+                            VALUES
+                                (:org_id, :type, :status,
+                                 :prev_score, :curr_score,
+                                 :details, NOW())
+                        """),
+                        {
+                            "org_id": self.organization_id,
+                            "type": improvement.improvement_type.value,
+                            "status": improvement.status.value,
+                            "prev_score": improvement.old_threshold or 0.0,
+                            "curr_score": improvement.new_threshold or 0.0,
+                            "details": details,
+                        },
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_sync_save)
+            logger.debug("[LearningLoop] Improvement saved to DB: %s", improvement.id)
+            return True
+        except Exception as e:
+            logger.warning(
+                "[LearningLoop] Save improvement to DB failed: %s",
+                type(e).__name__,
+            )
+            return False
+
+    async def load_persisted_improvements(self) -> int:
+        """起動時にDBからAPPLIED状態の改善を復元"""
+        if not self.pool:
+            return 0
+        try:
+            from sqlalchemy import text as sa_text
+
+            def _sync_load():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        sa_text("""
+                            SELECT improvement_type, category, trigger_event
+                            FROM brain_improvement_logs
+                            WHERE organization_id = :org_id
+                              AND category = 'applied'
+                              AND recorded_at > NOW() - INTERVAL '180 days'
+                            ORDER BY recorded_at ASC
+                        """),
+                        {"org_id": self.organization_id},
+                    )
+                    return [dict(row) for row in result.mappings().all()]
+
+            rows = await asyncio.to_thread(_sync_load)
+            count = 0
+
+            for row in rows:
+                try:
+                    details = json.loads(row.get("trigger_event") or "{}")
+                    imp_type = row.get("improvement_type", "")
+
+                    improvement = Improvement(
+                        id=details.get("improvement_id", str(uuid4())),
+                        improvement_type=ImprovementType(imp_type),
+                        target_action=details.get("target_action"),
+                        target_intent=details.get("target_intent"),
+                        weight_changes=details.get("weight_changes", {}),
+                        rule_condition=details.get("rule_condition"),
+                        rule_action=details.get("rule_action"),
+                        keywords_to_add=details.get("keywords_to_add", []),
+                        keywords_to_remove=details.get("keywords_to_remove", []),
+                        keyword_weights=details.get("keyword_weights", {}),
+                        old_threshold=details.get("old_threshold"),
+                        new_threshold=details.get("new_threshold"),
+                        pattern_regex=details.get("pattern_regex"),
+                        description=details.get("description", ""),
+                        priority=details.get("priority", 5),
+                        status=LearningStatus.APPLIED,
+                    )
+
+                    await self._restore_improvement(improvement)
+                    self._improvement_cache[improvement.id] = improvement
+                    count += 1
+
+                except (ValueError, KeyError):
+                    continue
+
+            logger.info("[LearningLoop] Loaded %d persisted improvements", count)
+            return count
+
+        except Exception as e:
+            logger.warning(
+                "[LearningLoop] Load persisted improvements failed: %s",
+                type(e).__name__,
+            )
+            return 0
+
+    async def _restore_improvement(self, improvement: Improvement) -> bool:
+        """永続化済み改善をメモリに復元（DB保存なし）"""
+        itype = improvement.improvement_type
+
+        if itype == ImprovementType.THRESHOLD_ADJUSTMENT:
+            if improvement.target_action and improvement.new_threshold is not None:
+                self._applied_thresholds[improvement.target_action] = improvement.new_threshold
+                return True
+
+        elif itype == ImprovementType.PATTERN_ADDITION:
+            target = improvement.target_action or improvement.target_intent
+            if target and improvement.pattern_regex:
+                if target not in self._applied_patterns:
+                    self._applied_patterns[target] = []
+                self._applied_patterns[target].append(improvement.pattern_regex)
+                return True
+
+        elif itype == ImprovementType.KEYWORD_UPDATE:
+            if improvement.target_action and improvement.keywords_to_add:
+                if improvement.target_action not in self._applied_keywords:
+                    self._applied_keywords[improvement.target_action] = {}
+                for keyword in improvement.keywords_to_add:
+                    weight = improvement.keyword_weights.get(keyword, DEFAULT_KEYWORD_WEIGHT)
+                    self._applied_keywords[improvement.target_action][keyword] = weight
+                return True
+
+        elif itype == ImprovementType.WEIGHT_ADJUSTMENT:
+            if improvement.target_action and improvement.weight_changes:
+                if improvement.target_action not in self._applied_weight_adjustments:
+                    self._applied_weight_adjustments[improvement.target_action] = {}
+                for component, delta in improvement.weight_changes.items():
+                    current = self._applied_weight_adjustments[improvement.target_action].get(component, 0.0)
+                    self._applied_weight_adjustments[improvement.target_action][component] = max(-0.5, min(0.5, current + delta))
+                return True
+
+        elif itype == ImprovementType.RULE_ADDITION:
+            if improvement.rule_condition and improvement.rule_action:
+                self._applied_rules.append({
+                    "condition": improvement.rule_condition,
+                    "action": improvement.rule_action,
+                    "improvement_id": improvement.id,
+                    "target_action": improvement.target_action or "",
+                    "description": improvement.description,
+                })
+                return True
+
+        elif itype == ImprovementType.EXCEPTION_ADDITION:
+            if improvement.target_action and improvement.rule_condition:
+                self._applied_exceptions.append({
+                    "target_action": improvement.target_action,
+                    "condition": improvement.rule_condition,
+                    "override_action": improvement.rule_action or "",
+                    "improvement_id": improvement.id,
+                    "description": improvement.description,
+                })
+                return True
+
+        elif itype == ImprovementType.CONFIRMATION_RULE:
+            if improvement.target_action and improvement.new_threshold is not None:
+                self._applied_thresholds[improvement.target_action] = improvement.new_threshold
+                return True
+
+        return False
 
     # =========================================================================
     # 成功パターンの強化
@@ -1270,7 +1542,7 @@ class LearningLoop:
             return True
 
         except Exception as e:
-            logger.warning(f"[LearningLoop] Error reinforcing pattern: {e}")
+            logger.warning("[LearningLoop] Error reinforcing pattern: %s", type(e).__name__)
             return False
 
     # =========================================================================
@@ -1321,7 +1593,7 @@ class LearningLoop:
             return True
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error logging learning: {e}")
+            logger.error("[LearningLoop] Error logging learning: %s", type(e).__name__)
             return False
 
     async def _flush_learning_buffer(self) -> int:
@@ -1418,7 +1690,7 @@ class LearningLoop:
                         stats.reverted_improvements += 1
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error getting statistics: {e}")
+            logger.error("[LearningLoop] Error getting statistics: %s", type(e).__name__)
 
         return stats
 
@@ -1434,6 +1706,18 @@ class LearningLoop:
         """調整済み閾値を取得"""
         return self._applied_thresholds.get(action, default)
 
+    def get_weight_adjustments(self, action: str) -> Dict[str, float]:
+        """学習済み重み調整を取得（decision.py用）"""
+        return self._applied_weight_adjustments.get(action, {})
+
+    def get_learned_rules(self) -> List[Dict[str, str]]:
+        """学習済みルールを取得（guardian_layer.py用）"""
+        return list(self._applied_rules)
+
+    def get_learned_exceptions(self) -> List[Dict[str, Any]]:
+        """学習済み例外を取得（decision.py用）"""
+        return list(self._applied_exceptions)
+
     # =========================================================================
     # 効果測定
     # =========================================================================
@@ -1443,7 +1727,7 @@ class LearningLoop:
         improvement_id: str,
     ) -> Optional[float]:
         """
-        改善の効果を測定
+        改善の効果を測定 — brain_decision_logsの前後成功率を比較
 
         Args:
             improvement_id: 改善ID
@@ -1455,15 +1739,125 @@ class LearningLoop:
             return None
 
         improvement = self._improvement_cache.get(improvement_id)
-        if not improvement:
+        if not improvement or not improvement.applied_at:
             return None
 
-        # Phase AA: 効果測定はbrain_decision_logsの前後比較で実装予定
-        # - 適用前のN日間の成功率
-        # - 適用後のN日間の成功率
-        # - 差分を計算
+        if not self.pool:
+            return None
 
-        return None
+        target_action = improvement.target_action or ""
+        if not target_action:
+            return None
+
+        try:
+            from sqlalchemy import text as sa_text
+            applied_at = improvement.applied_at
+
+            def _sync_measure():
+                with self.pool.connect() as conn:
+                    # 適用前の成功率
+                    before = conn.execute(
+                        sa_text("""
+                            SELECT
+                                COUNT(*) FILTER (WHERE execution_success = true) as successes,
+                                COUNT(*) as total
+                            FROM brain_decision_logs
+                            WHERE organization_id = :org_id::uuid
+                              AND selected_action = :action
+                              AND created_at >= :start AND created_at < :end
+                        """),
+                        {
+                            "org_id": self.organization_id,
+                            "action": target_action,
+                            "start": applied_at - timedelta(days=EFFECTIVENESS_MEASUREMENT_DAYS),
+                            "end": applied_at,
+                        },
+                    ).mappings().first()
+
+                    # 適用後の成功率
+                    after = conn.execute(
+                        sa_text("""
+                            SELECT
+                                COUNT(*) FILTER (WHERE execution_success = true) as successes,
+                                COUNT(*) as total
+                            FROM brain_decision_logs
+                            WHERE organization_id = :org_id::uuid
+                              AND selected_action = :action
+                              AND created_at >= :start
+                        """),
+                        {
+                            "org_id": self.organization_id,
+                            "action": target_action,
+                            "start": applied_at,
+                        },
+                    ).mappings().first()
+
+                    return before, after
+
+            before, after = await asyncio.to_thread(_sync_measure)
+
+            before_total = before["total"] if before else 0
+            after_total = after["total"] if after else 0
+
+            if before_total == 0 or after_total < MIN_SAMPLES_FOR_IMPROVEMENT:
+                return None
+
+            before_rate = before["successes"] / before_total
+            after_rate = after["successes"] / after_total
+            improvement_rate = after_rate - before_rate
+
+            improvement.actual_improvement = improvement_rate
+
+            if improvement_rate > 0:
+                improvement.status = LearningStatus.EFFECTIVE
+            elif improvement_rate <= -0.1:
+                improvement.status = LearningStatus.INEFFECTIVE
+
+            return improvement_rate
+
+        except Exception as e:
+            logger.warning(
+                "[LearningLoop] Effectiveness measurement failed: %s",
+                type(e).__name__,
+            )
+            return None
+
+    async def check_and_auto_revert(self) -> int:
+        """
+        14日以上経過した改善の効果を測定し、効果なしなら自動リバート
+
+        Returns:
+            リバートした改善の数
+        """
+        reverted = 0
+        now = datetime.now()
+
+        for imp_id, improvement in list(self._improvement_cache.items()):
+            if improvement.status != LearningStatus.APPLIED:
+                continue
+            if not improvement.applied_at:
+                continue
+
+            days_since = (now - improvement.applied_at).days
+            if days_since < EFFECTIVENESS_MEASUREMENT_DAYS:
+                continue
+
+            rate = await self.measure_effectiveness(imp_id)
+            if rate is None:
+                continue
+
+            if rate <= 0:
+                await self.revert_improvement(imp_id)
+                reverted += 1
+                logger.info(
+                    "[LearningLoop] Auto-reverted ineffective improvement: %s (rate=%.2f)",
+                    imp_id, rate,
+                )
+
+        if reverted > 0:
+            logger.info("[LearningLoop] Auto-revert complete: %d reverted", reverted)
+
+        return reverted
 
     async def revert_improvement(
         self,
@@ -1483,30 +1877,55 @@ class LearningLoop:
             return False
 
         try:
-            if improvement.improvement_type == ImprovementType.THRESHOLD_ADJUSTMENT:
+            itype = improvement.improvement_type
+
+            if itype == ImprovementType.THRESHOLD_ADJUSTMENT:
                 if improvement.target_action and improvement.old_threshold is not None:
                     self._applied_thresholds[improvement.target_action] = improvement.old_threshold
 
-            elif improvement.improvement_type == ImprovementType.PATTERN_ADDITION:
+            elif itype == ImprovementType.PATTERN_ADDITION:
                 target = improvement.target_action or improvement.target_intent
                 if target and improvement.pattern_regex:
                     patterns = self._applied_patterns.get(target, [])
                     if improvement.pattern_regex in patterns:
                         patterns.remove(improvement.pattern_regex)
 
-            elif improvement.improvement_type == ImprovementType.KEYWORD_UPDATE:
+            elif itype == ImprovementType.KEYWORD_UPDATE:
                 if improvement.target_action:
                     for keyword in improvement.keywords_to_add:
                         self._applied_keywords.get(improvement.target_action, {}).pop(keyword, None)
 
+            elif itype == ImprovementType.WEIGHT_ADJUSTMENT:
+                if improvement.target_action and improvement.weight_changes:
+                    adjustments = self._applied_weight_adjustments.get(improvement.target_action, {})
+                    for component, delta in improvement.weight_changes.items():
+                        if component in adjustments:
+                            adjustments[component] = adjustments[component] - delta
+
+            elif itype == ImprovementType.RULE_ADDITION:
+                self._applied_rules = [
+                    r for r in self._applied_rules
+                    if r.get("improvement_id") != improvement_id
+                ]
+
+            elif itype == ImprovementType.EXCEPTION_ADDITION:
+                self._applied_exceptions = [
+                    e for e in self._applied_exceptions
+                    if e.get("improvement_id") != improvement_id
+                ]
+
+            elif itype == ImprovementType.CONFIRMATION_RULE:
+                if improvement.target_action and improvement.old_threshold is not None:
+                    self._applied_thresholds[improvement.target_action] = improvement.old_threshold
+
             improvement.status = LearningStatus.REVERTED
 
-            logger.info(f"[LearningLoop] Improvement reverted: {improvement_id}")
+            logger.info("[LearningLoop] Improvement reverted: %s", improvement_id)
 
             return True
 
         except Exception as e:
-            logger.error(f"[LearningLoop] Error reverting improvement: {e}")
+            logger.error("[LearningLoop] Error reverting improvement: %s", type(e).__name__)
             return False
 
 

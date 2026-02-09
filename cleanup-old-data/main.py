@@ -2529,31 +2529,45 @@ def cleanup_old_data(request):
     """
     Cloud Function: 古いデータを自動削除
     毎日03:00 JSTに実行される
-    
+
     削除対象:
     - room_messages: 30日以上前
     - processed_messages: 7日以上前
     - conversation_timestamps: 30日以上前
+    - brain_decision_logs: 90日以上前
+    - brain_improvement_logs: 180日以上前
+    - brain_interactions: 90日以上前
+    - ai_usage_logs: 90日以上前
+    - brain_outcome_events: 90日以上前
+    - brain_outcome_patterns: 90日以上前
     - Firestore conversations: 30日以上前
-    - Firestore pending_tasks: 1日以上前（NEW）
+    - Firestore pending_tasks: 1日以上前
     """
     print("=" * 50)
     print("🧹 クリーンアップ処理開始")
     print("=" * 50)
-    
+
     results = {
         "room_messages": 0,
         "processed_messages": 0,
         "conversation_timestamps": 0,
+        "brain_decision_logs": 0,
+        "brain_improvement_logs": 0,
+        "brain_interactions": 0,
+        "ai_usage_logs": 0,
+        "brain_outcome_events": 0,
+        "brain_outcome_patterns": 0,
         "firestore_conversations": 0,
         "firestore_pending_tasks": 0,
         "errors": []
     }
-    
+
     now = datetime.now(timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
     seven_days_ago = now - timedelta(days=7)
     one_day_ago = now - timedelta(days=1)
+    ninety_days_ago = now - timedelta(days=90)
+    one_eighty_days_ago = now - timedelta(days=180)
     
     # ===== PostgreSQL クリーンアップ =====
     try:
@@ -2563,9 +2577,8 @@ def cleanup_old_data(request):
             try:
                 result = conn.execute(
                     sqlalchemy.text("""
-                        DELETE FROM room_messages 
+                        DELETE FROM room_messages
                         WHERE created_at < :cutoff_date
-                        RETURNING id
                     """),
                     {"cutoff_date": thirty_days_ago}
                 )
@@ -2573,7 +2586,7 @@ def cleanup_old_data(request):
                 results["room_messages"] = deleted_count
                 print(f"✅ room_messages: {deleted_count}件削除")
             except Exception as e:
-                error_msg = f"room_messages削除エラー: {e}"
+                error_msg = f"room_messages削除エラー: {type(e).__name__}"
                 print(f"❌ {error_msg}")
                 results["errors"].append(error_msg)
             
@@ -2581,9 +2594,8 @@ def cleanup_old_data(request):
             try:
                 result = conn.execute(
                     sqlalchemy.text("""
-                        DELETE FROM processed_messages 
+                        DELETE FROM processed_messages
                         WHERE processed_at < :cutoff_date
-                        RETURNING message_id
                     """),
                     {"cutoff_date": seven_days_ago}
                 )
@@ -2591,7 +2603,7 @@ def cleanup_old_data(request):
                 results["processed_messages"] = deleted_count
                 print(f"✅ processed_messages: {deleted_count}件削除")
             except Exception as e:
-                error_msg = f"processed_messages削除エラー: {e}"
+                error_msg = f"processed_messages削除エラー: {type(e).__name__}"
                 print(f"❌ {error_msg}")
                 results["errors"].append(error_msg)
             
@@ -2599,9 +2611,8 @@ def cleanup_old_data(request):
             try:
                 result = conn.execute(
                     sqlalchemy.text("""
-                        DELETE FROM conversation_timestamps 
+                        DELETE FROM conversation_timestamps
                         WHERE updated_at < :cutoff_date
-                        RETURNING room_id
                     """),
                     {"cutoff_date": thirty_days_ago}
                 )
@@ -2609,14 +2620,119 @@ def cleanup_old_data(request):
                 results["conversation_timestamps"] = deleted_count
                 print(f"✅ conversation_timestamps: {deleted_count}件削除")
             except Exception as e:
-                error_msg = f"conversation_timestamps削除エラー: {e}"
+                error_msg = f"conversation_timestamps削除エラー: {type(e).__name__}"
                 print(f"❌ {error_msg}")
                 results["errors"].append(error_msg)
-            
+
+            # NOTE: brainテーブルのクリーンアップは全組織横断で実行
+            # 接続ユーザー(soulkun_user)はテーブルオーナーのためRLSバイパス
+
+            # 4. brain_decision_logs（90日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM brain_decision_logs
+                        WHERE created_at < :cutoff_date
+                    """),
+                    {"cutoff_date": ninety_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["brain_decision_logs"] = deleted_count
+                print(f"✅ brain_decision_logs: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"brain_decision_logs削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+            # 5. brain_improvement_logs（180日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM brain_improvement_logs
+                        WHERE recorded_at < :cutoff_date
+                    """),
+                    {"cutoff_date": one_eighty_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["brain_improvement_logs"] = deleted_count
+                print(f"✅ brain_improvement_logs: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"brain_improvement_logs削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+            # 6. brain_interactions（90日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM brain_interactions
+                        WHERE created_at < :cutoff_date
+                    """),
+                    {"cutoff_date": ninety_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["brain_interactions"] = deleted_count
+                print(f"✅ brain_interactions: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"brain_interactions削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+            # 7. ai_usage_logs（90日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM ai_usage_logs
+                        WHERE created_at < :cutoff_date
+                    """),
+                    {"cutoff_date": ninety_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["ai_usage_logs"] = deleted_count
+                print(f"✅ ai_usage_logs: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"ai_usage_logs削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+            # 8. brain_outcome_events（90日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM brain_outcome_events
+                        WHERE created_at < :cutoff_date
+                    """),
+                    {"cutoff_date": ninety_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["brain_outcome_events"] = deleted_count
+                print(f"✅ brain_outcome_events: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"brain_outcome_events削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+            # 9. brain_outcome_patterns（90日以上前を削除）
+            try:
+                result = conn.execute(
+                    sqlalchemy.text("""
+                        DELETE FROM brain_outcome_patterns
+                        WHERE created_at < :cutoff_date
+                    """),
+                    {"cutoff_date": ninety_days_ago}
+                )
+                deleted_count = result.rowcount
+                results["brain_outcome_patterns"] = deleted_count
+                print(f"✅ brain_outcome_patterns: {deleted_count}件削除")
+            except Exception as e:
+                error_msg = f"brain_outcome_patterns削除エラー: {type(e).__name__}"
+                print(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
             conn.commit()
             
     except Exception as e:
-        error_msg = f"PostgreSQL接続エラー: {e}"
+        error_msg = f"PostgreSQL接続エラー: {type(e).__name__}"
         print(f"❌ {error_msg}")
         results["errors"].append(error_msg)
     
@@ -2653,7 +2769,7 @@ def cleanup_old_data(request):
         print(f"✅ Firestore conversations: {deleted_count}件削除")
         
     except Exception as e:
-        error_msg = f"Firestoreクリーンアップエラー: {e}"
+        error_msg = f"Firestoreクリーンアップエラー: {type(e).__name__}"
         print(f"❌ {error_msg}")
         results["errors"].append(error_msg)
     
@@ -2686,7 +2802,7 @@ def cleanup_old_data(request):
         print(f"✅ Firestore pending_tasks: {deleted_count}件削除")
         
     except Exception as e:
-        error_msg = f"Firestore pending_tasksクリーンアップエラー: {e}"
+        error_msg = f"Firestore pending_tasksクリーンアップエラー: {type(e).__name__}"
         print(f"❌ {error_msg}")
         results["errors"].append(error_msg)
     
@@ -2696,6 +2812,12 @@ def cleanup_old_data(request):
     print(f"   - room_messages: {results['room_messages']}件削除")
     print(f"   - processed_messages: {results['processed_messages']}件削除")
     print(f"   - conversation_timestamps: {results['conversation_timestamps']}件削除")
+    print(f"   - brain_decision_logs: {results['brain_decision_logs']}件削除")
+    print(f"   - brain_improvement_logs: {results['brain_improvement_logs']}件削除")
+    print(f"   - brain_interactions: {results['brain_interactions']}件削除")
+    print(f"   - ai_usage_logs: {results['ai_usage_logs']}件削除")
+    print(f"   - brain_outcome_events: {results['brain_outcome_events']}件削除")
+    print(f"   - brain_outcome_patterns: {results['brain_outcome_patterns']}件削除")
     print(f"   - Firestore conversations: {results['firestore_conversations']}件削除")
     print(f"   - Firestore pending_tasks: {results['firestore_pending_tasks']}件削除")
     if results["errors"]:

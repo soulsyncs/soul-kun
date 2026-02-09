@@ -121,9 +121,9 @@ class ZoomBrainInterface:
                     data={},
                 )
 
-            # Extract source meeting ID (null-safe: id=None → "")
+            # Extract source meeting ID (null-safe: id=None → None, not "")
             raw_id = recording_data.get("id")
-            source_mid = str(raw_id) if raw_id else ""
+            source_mid = str(raw_id) if raw_id else None
 
             # Step 2: Find and download VTT transcript
             transcript_url = await asyncio.to_thread(
@@ -134,7 +134,7 @@ class ZoomBrainInterface:
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
-                    data={"zoom_meeting_id": source_mid},
+                    data={"zoom_meeting_id": source_mid or ""},
                 )
 
             vtt_content = await asyncio.to_thread(
@@ -145,7 +145,7 @@ class ZoomBrainInterface:
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
-                    data={"zoom_meeting_id": source_mid},
+                    data={"zoom_meeting_id": source_mid or ""},
                 )
 
             # Step 3: Parse VTT
@@ -169,8 +169,8 @@ class ZoomBrainInterface:
                 "topic", "Zoom\u30df\u30fc\u30c6\u30a3\u30f3\u30b0"
             )
 
-            # Step 6: Dedup check + DB save
-            if source_mid:
+            # Step 6: Dedup check + DB save (source_mid=Noneの場合はスキップ)
+            if source_mid is not None:
                 existing = await asyncio.to_thread(
                     self.db.find_meeting_by_source_id,
                     source="zoom",
@@ -207,8 +207,10 @@ class ZoomBrainInterface:
             )
             meeting_id = meeting["id"]
 
-            # raw_transcript: retention_managerが90日後にNULL化（PII保護）。
-            # sanitized_transcriptがLLM・表示用。meeting_brain_interface.pyと同設計。
+            # raw_transcript: PII含有のため90日保持→retention_managerがNULL化。
+            # CLAUDE.md §9-2 準拠: 会議録原文は「明示的指示に基づく一時保存」扱い。
+            # sanitized_transcriptがLLM・表示用（PII除去済み）。
+            # nullify_expired_raw_transcripts()が90日後にraw+segments+speakersをNULL化。
             await asyncio.to_thread(
                 self.db.save_transcript,
                 meeting_id=meeting_id,
@@ -245,7 +247,7 @@ class ZoomBrainInterface:
                 "meeting_id": meeting_id,
                 "status": "transcribed",
                 "title": resolved_title,
-                "zoom_meeting_id": source_mid,
+                "zoom_meeting_id": source_mid or "",
                 "speakers": vtt_transcript.speakers,
                 "speakers_detected": len(vtt_transcript.speakers),
                 "duration_seconds": vtt_transcript.duration_seconds,

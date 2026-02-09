@@ -14,6 +14,12 @@ import traceback
 import sqlalchemy
 from typing import Optional, List, Dict, Any, Callable, Union
 
+try:
+    from lib.bot_persona_memory import BotPersonaMemoryManager
+    _HAS_BOT_PERSONA_MEMORY = True
+except ImportError:
+    _HAS_BOT_PERSONA_MEMORY = False
+
 from lib.brain.hybrid_search import escape_ilike
 
 
@@ -821,12 +827,13 @@ class KnowledgeHandler:
         """
         学習した知識の一覧を表示するハンドラー
 
+        v10.40.9: メモリ分離対応（ボットペルソナと業務知識を分離表示）
+
         Args:
             params: パラメータ（未使用）
             room_id: ルームID
             account_id: アカウントID
             sender_name: 送信者名
-            context: コンテキスト情報
 
         Returns:
             レスポンスメッセージ
@@ -837,34 +844,55 @@ class KnowledgeHandler:
         except Exception as e:
             print(f"⚠️ 知識テーブル確認エラー: {e}")
 
+        lines = ["**覚えていること**ウル！🐺✨\n"]
+        total_count = 0
+
+        # v10.40.9: ボットペルソナ設定を先に表示
+        if _HAS_BOT_PERSONA_MEMORY:
+            try:
+                pool = self.get_pool()
+                manager = BotPersonaMemoryManager(pool, self.organization_id)
+                persona_settings = manager.get_all()
+
+                if persona_settings:
+                    lines.append("\n**🐺 ソウルくんの設定**")
+                    for s in persona_settings:
+                        lines.append(f"・{s['key']}: {s['value']}")
+                    total_count += len(persona_settings)
+            except Exception as e:
+                print(f"⚠️ ボットペルソナ取得エラー: {e}")
+
+        # 業務知識（soulkun_knowledge）を表示
         knowledge_list = self.get_all_knowledge()
 
-        if not knowledge_list:
+        if knowledge_list:
+            # カテゴリごとにグループ化（characterは除外 - bot_persona_memoryに移行済み）
+            by_category = {}
+            for k in knowledge_list:
+                cat = k["category"]
+                if _HAS_BOT_PERSONA_MEMORY and cat == "character":
+                    continue
+                if cat not in by_category:
+                    by_category[cat] = []
+                by_category[cat].append(f"・{k['key']}: {k['value']}")
+
+            # 整形
+            category_names = {
+                "rules": "📋 業務ルール",
+                "members": "👥 社員情報",
+                "other": "📝 その他"
+            }
+
+            for cat, items in by_category.items():
+                cat_name = category_names.get(cat, f"📁 {cat}")
+                lines.append(f"\n**{cat_name}**")
+                lines.extend(items)
+                total_count += len(items)
+
+        if total_count == 0:
             return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
 
-        # カテゴリごとにグループ化
-        by_category = {}
-        for k in knowledge_list:
-            cat = k["category"]
-            if cat not in by_category:
-                by_category[cat] = []
-            by_category[cat].append(f"・{k['key']}: {k['value']}")
-
-        # 整形
-        category_names = {
-            "character": "🐺 キャラ設定",
-            "rules": "📋 業務ルール",
-            "members": "👥 社員情報",
-            "other": "📝 その他"
-        }
-
-        lines = ["**覚えていること**ウル！🐺✨\n"]
-        for cat, items in by_category.items():
-            cat_name = category_names.get(cat, f"📁 {cat}")
-            lines.append(f"\n**{cat_name}**")
-            lines.extend(items)
-
-        lines.append(f"\n\n合計 {len(knowledge_list)} 件覚えてるウル！")
+        lines.append(f"\n\n合計 {total_count} 件覚えてるウル！")
 
         return "\n".join(lines)
 

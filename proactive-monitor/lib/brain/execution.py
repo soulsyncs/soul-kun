@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import dataclass, field
@@ -717,27 +718,28 @@ class BrainExecution:
         Returns:
             HandlerResult
         """
+        # contextを受け取るかシグネチャで判定
+        sig = inspect.signature(handler)
+        accepts_context = "context" in sig.parameters
+
+        kwargs: Dict[str, Any] = {
+            "params": params,
+            "room_id": room_id,
+            "account_id": account_id,
+            "sender_name": sender_name,
+        }
+        if accepts_context:
+            kwargs["context"] = context
+
         # ハンドラーが非同期関数かどうかを判定
         if asyncio.iscoroutinefunction(handler):
-            result = await handler(
-                params=params,
-                room_id=room_id,
-                account_id=account_id,
-                sender_name=sender_name,
-                context=context,
-            )
+            result = await handler(**kwargs)
         else:
             # 同期関数の場合はスレッドプールで実行
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None,
-                lambda: handler(
-                    params=params,
-                    room_id=room_id,
-                    account_id=account_id,
-                    sender_name=sender_name,
-                    context=context,
-                ),
+                lambda: handler(**kwargs),
             )
 
         # 結果をHandlerResultに変換

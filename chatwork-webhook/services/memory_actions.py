@@ -36,16 +36,8 @@ try:
 except ImportError:
     USE_LONG_TERM_MEMORY = False
 
-# ボットペルソナ記憶
-try:
-    from lib.bot_persona_memory import (
-        is_bot_persona_setting,
-        save_bot_persona,
-        BotPersonaMemoryManager,
-    )
-    USE_BOT_PERSONA_MEMORY = True
-except ImportError:
-    USE_BOT_PERSONA_MEMORY = False
+# ボットペルソナ記憶（v10.40.9: handle_list_knowledge統合により
+# BotPersonaMemoryManagerはknowledge_handler.pyに移動）
 
 # BOT名パターン
 BOT_NAME_PATTERNS = [
@@ -384,78 +376,6 @@ def handle_list_knowledge(params, room_id, account_id, sender_name):
 
     v10.24.7: handlers/knowledge_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
-    v10.40.9: メモリ分離対応（ボットペルソナと業務知識を分離表示）
+    v10.40.9: メモリ分離対応（ハンドラーに統合）
     """
-    lines = ["**覚えていること**ウル！🐺✨\n"]
-    total_count = 0
-
-    # v10.40.9: ボットペルソナ設定を先に表示
-    if USE_BOT_PERSONA_MEMORY:
-        try:
-            pool = get_pool()
-            # 組織IDを取得
-            with pool.connect() as conn:
-                user_result = conn.execute(
-                    sqlalchemy.text("""
-                        SELECT organization_id FROM users
-                        WHERE chatwork_account_id = :account_id
-                        LIMIT 1
-                    """),
-                    {"account_id": str(account_id)}
-                ).fetchone()
-
-                if user_result and user_result[0]:
-                    org_id = str(user_result[0])
-                else:
-                    # デフォルト組織を取得
-                    org_result = conn.execute(
-                        sqlalchemy.text("SELECT id FROM organizations LIMIT 1")
-                    ).fetchone()
-                    org_id = str(org_result[0]) if org_result else None
-
-            if org_id:
-                manager = BotPersonaMemoryManager(pool, org_id)
-                persona_settings = manager.get_all()
-
-                if persona_settings:
-                    lines.append("\n**🐺 ソウルくんの設定**")
-                    for s in persona_settings:
-                        lines.append(f"・{s['key']}: {s['value']}")
-                    total_count += len(persona_settings)
-        except Exception as e:
-            print(f"⚠️ ボットペルソナ取得エラー: {e}")
-
-    # 業務知識（soulkun_knowledge）を表示
-    # v10.33.1: ハンドラー必須化によりif handler:チェック削除
-    knowledge_list = _get_knowledge_handler().get_all_knowledge()
-
-    if knowledge_list:
-            # カテゴリごとにグループ化（characterは除外 - bot_persona_memoryに移行済み）
-            by_category = {}
-            for k in knowledge_list:
-                cat = k["category"]
-                # v10.40.9: characterカテゴリは除外（bot_persona_memoryに移行）
-                if cat == "character":
-                    continue
-                if cat not in by_category:
-                    by_category[cat] = []
-                by_category[cat].append(f"・{k['key']}: {k['value']}")
-
-            # 整形
-            category_names = {
-                "rules": "📋 業務ルール",
-                "members": "👥 社員情報",
-                "other": "📝 その他"
-            }
-
-            for cat, items in by_category.items():
-                cat_name = category_names.get(cat, f"📁 {cat}")
-                lines.append(f"\n**{cat_name}**")
-                lines.extend(items)
-                total_count += len(items)
-
-    if total_count == 0:
-        return "まだ何も覚えてないウル！🐺\n\n「設定：〇〇は△△」と教えてくれたら覚えるウル！"
-
-    lines.append(f"\n\n合計 {total_count} 件覚えてるウル！")
-    return "\n".join(lines)
+    return _get_knowledge_handler().handle_list_knowledge(params, room_id, account_id, sender_name)

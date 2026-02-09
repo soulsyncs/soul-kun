@@ -845,6 +845,69 @@ class TestRetry:
 # 統合テスト
 # =============================================================================
 
+class TestContextDispatch:
+    """contextパラメータの動的ディスパッチテスト"""
+
+    @pytest.mark.asyncio
+    async def test_handler_without_context_param(self, sample_context):
+        """contextを受け取らないハンドラーがTypeErrorなしで動作する"""
+        async def handler_no_context(params, room_id, account_id, sender_name):
+            return HandlerResult(success=True, message="no context ok")
+
+        execution = BrainExecution(
+            handlers={"no_context_action": handler_no_context},
+            org_id="org_test",
+        )
+
+        decision = DecisionResult(
+            action="no_context_action",
+            params={},
+            confidence=0.9,
+            needs_confirmation=False,
+        )
+
+        result = await execution.execute(
+            decision=decision,
+            context=sample_context,
+            room_id="123",
+            account_id="456",
+            sender_name="テスト",
+        )
+        assert result.success is True
+        assert "no context ok" in result.message
+
+    @pytest.mark.asyncio
+    async def test_handler_with_context_param(self, sample_context):
+        """contextを受け取るハンドラーにcontextが渡される"""
+        received_context = {}
+
+        async def handler_with_context(params, room_id, account_id, sender_name, context):
+            received_context["value"] = context
+            return HandlerResult(success=True, message="with context ok")
+
+        execution = BrainExecution(
+            handlers={"with_context_action": handler_with_context},
+            org_id="org_test",
+        )
+
+        decision = DecisionResult(
+            action="with_context_action",
+            params={},
+            confidence=0.9,
+            needs_confirmation=False,
+        )
+
+        result = await execution.execute(
+            decision=decision,
+            context=sample_context,
+            room_id="123",
+            account_id="456",
+            sender_name="テスト",
+        )
+        assert result.success is True
+        assert received_context["value"] is sample_context
+
+
 class TestIntegration:
     """統合テスト"""
 

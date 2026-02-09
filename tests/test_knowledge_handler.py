@@ -523,6 +523,7 @@ class TestHandleForgetKnowledge:
 class TestHandleListKnowledge:
     """handle_list_knowledgeのテスト"""
 
+    @patch("handlers.knowledge_handler._HAS_BOT_PERSONA_MEMORY", False)
     def test_handle_list_knowledge_empty(self):
         """空の知識リスト"""
         mock_pool, mock_conn = create_mock_pool()
@@ -537,6 +538,7 @@ class TestHandleListKnowledge:
         )
         assert "まだ何も覚えてない" in result
 
+    @patch("handlers.knowledge_handler._HAS_BOT_PERSONA_MEMORY", False)
     def test_handle_list_knowledge_with_data(self):
         """データがある場合"""
         mock_pool, mock_conn = create_mock_pool()
@@ -553,6 +555,35 @@ class TestHandleListKnowledge:
         )
         assert "覚えていること" in result
         assert "合計 1 件" in result
+
+    @patch("handlers.knowledge_handler._HAS_BOT_PERSONA_MEMORY", True)
+    @patch("handlers.knowledge_handler.BotPersonaMemoryManager")
+    def test_handle_list_knowledge_with_bot_persona(self, mock_manager_cls):
+        """ボットペルソナ統合時のテスト"""
+        mock_pool, mock_conn = create_mock_pool()
+        # soulkun_knowledge のデータ
+        mock_result = MagicMock()
+        mock_result.fetchall.return_value = [
+            ("rules", "テスト", "値", datetime.now()),
+        ]
+        mock_conn.execute.return_value = mock_result
+        handler = create_handler(mock_pool=mock_pool)
+
+        # BotPersonaMemoryManagerのモック
+        mock_manager = MagicMock()
+        mock_manager.get_all.return_value = [
+            {"key": "性格", "value": "元気"},
+        ]
+        mock_manager_cls.return_value = mock_manager
+
+        result = handler.handle_list_knowledge(
+            params={}, room_id="123", account_id="456",
+            sender_name="テスト"
+        )
+        assert "覚えていること" in result
+        assert "ソウルくんの設定" in result
+        assert "性格" in result
+        assert "合計 2 件" in result
 
 
 # =====================================================

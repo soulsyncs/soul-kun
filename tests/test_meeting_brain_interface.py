@@ -114,7 +114,7 @@ class TestProcessMeetingUpload:
 
         with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
              patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
-            mock_transcribe.side_effect = Exception("Whisper API error")
+            mock_transcribe.side_effect = Exception("Speech-to-Text API error")
             mock_gcs.return_value = None
 
             result = await interface.process_meeting_upload(
@@ -313,3 +313,79 @@ class TestDetectAudioFormat:
 
     def test_empty_bytes_defaults_to_mp3(self):
         assert MeetingBrainInterface._detect_audio_format(b"") == "mp3"
+
+
+class TestTranscribeAudioSpeechToText:
+    """Google Cloud Speech-to-Text 統合テスト"""
+
+    @pytest.mark.asyncio
+    async def test_uses_gcs_uri_for_long_running(self, interface):
+        """GCS URIがある場合はlong_running_recognizeを使用"""
+        mock_response = MagicMock()
+        mock_alt = MagicMock()
+        mock_alt.transcript = "テスト文字起こし結果"
+        mock_alt.confidence = 0.92
+        mock_result = MagicMock()
+        mock_result.alternatives = [mock_alt]
+        mock_response.results = [mock_result]
+
+        mock_client = MagicMock()
+        mock_operation = MagicMock()
+        mock_operation.result.return_value = mock_response
+        mock_client.long_running_recognize.return_value = mock_operation
+
+        with patch("asyncio.to_thread") as mock_thread:
+            # asyncio.to_threadに渡された関数を同期実行する
+            async def run_func(func, *args, **kwargs):
+                return func(*args, **kwargs)
+            mock_thread.side_effect = lambda fn: fn()
+
+            with patch("google.cloud.speech.SpeechClient", return_value=mock_client):
+                text, meta = await interface._transcribe_audio(
+                    b"data", gcs_uri="gs://bucket/audio.mp3",
+                )
+
+        assert text == "テスト文字起こし結果"
+        assert meta["confidence"] == pytest.approx(0.92)
+        mock_client.long_running_recognize.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_uses_inline_without_gcs_uri(self, interface):
+        """GCS URIがない場合はrecognize（インライン）を使用"""
+        mock_response = MagicMock()
+        mock_alt = MagicMock()
+        mock_alt.transcript = "短い音声"
+        mock_alt.confidence = 0.88
+        mock_result = MagicMock()
+        mock_result.alternatives = [mock_alt]
+        mock_response.results = [mock_result]
+
+        mock_client = MagicMock()
+        mock_client.recognize.return_value = mock_response
+
+        with patch("asyncio.to_thread") as mock_thread:
+            mock_thread.side_effect = lambda fn: fn()
+
+            with patch("google.cloud.speech.SpeechClient", return_value=mock_client):
+                text, meta = await interface._transcribe_audio(b"short_audio")
+
+        assert text == "短い音声"
+        mock_client.recognize.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_empty_response_returns_empty_string(self, interface):
+        """Speech APIが空結果を返した場合"""
+        mock_response = MagicMock()
+        mock_response.results = []
+
+        mock_client = MagicMock()
+        mock_client.recognize.return_value = mock_response
+
+        with patch("asyncio.to_thread") as mock_thread:
+            mock_thread.side_effect = lambda fn: fn()
+
+            with patch("google.cloud.speech.SpeechClient", return_value=mock_client):
+                text, meta = await interface._transcribe_audio(b"silence")
+
+        assert text == ""
+        assert meta["confidence"] == 0.0

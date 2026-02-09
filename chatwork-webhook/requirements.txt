@@ -6,5 +6,6 @@ pg8000==1.*
 google-cloud-firestore==2.*
 google-cloud-secret-manager==2.*
 google-cloud-logging>=3.5.0
+google-cloud-speech>=2.0.0
 jpholiday>=0.1.9
 pytz>=2024.1

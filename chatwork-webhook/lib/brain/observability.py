@@ -57,6 +57,9 @@ class ContextType(str, Enum):
     INTENT = "intent"                # 意図判定
     ROUTE = "route"                  # ルーティング決定
 
+    # 感情分析（Task 7）
+    SENTIMENT = "sentiment"          # 感情・ニュアンス検出
+
 
 # =============================================================================
 # 観測ログのデータ構造
@@ -101,6 +104,7 @@ class ObservabilityLog:
             ContextType.BASIC_NEED: "💡",
             ContextType.INTENT: "🧠",
             ContextType.ROUTE: "🔀",
+            ContextType.SENTIMENT: "😊",
         }
         return emoji_map.get(self.context_type, "📊")
 
@@ -304,6 +308,41 @@ class BrainObservability:
             context_type=ContextType.ROUTE,
             path=action,
             applied=success,
+            account_id=account_id,
+            details=details,
+        )
+
+    def log_sentiment(
+        self,
+        account_id: str,
+        detected: bool,
+        primary_emotion: str = "",
+        urgency_level: str = "",
+        confidence: float = 0.0,
+    ) -> None:
+        """
+        感情検出結果のログを出力（Task 7）
+
+        Args:
+            account_id: アカウントID
+            detected: 感情が検出されたか
+            primary_emotion: 主要な感情カテゴリ
+            urgency_level: 緊急度レベル
+            confidence: 全体の信頼度
+        """
+        details: Dict[str, Any] = {
+            "detected": detected,
+            "confidence": round(confidence, 2),
+        }
+        if primary_emotion:
+            details["emotion"] = primary_emotion
+        if urgency_level:
+            details["urgency"] = urgency_level
+
+        self.log_context(
+            context_type=ContextType.SENTIMENT,
+            path="emotion_reader",
+            applied=detected,
             account_id=account_id,
             details=details,
         )

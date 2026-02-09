@@ -149,6 +149,7 @@ from lib.feature_flags import is_llm_brain_enabled
 # v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
 from lib.brain.tool_converter import get_tools_for_llm
 from lib.brain.context_builder import ContextBuilder
+from lib.brain.deep_understanding.emotion_reader import create_emotion_reader
 from lib.brain.llm_brain import LLMBrain, LLMBrainResult
 from lib.brain.guardian_layer import GuardianLayer, GuardianAction
 from lib.brain.state_manager import LLMStateManager, LLMSessionMode, LLMPendingAction
@@ -1593,6 +1594,7 @@ class SoulkunBrain:
             self.llm_state_manager = LLMStateManager(
                 brain_state_manager=self.state_manager,
             )
+            self.emotion_reader = create_emotion_reader()
             self.llm_context_builder = ContextBuilder(
                 pool=self.pool,
                 memory_access=self.memory_access,
@@ -1600,6 +1602,7 @@ class SoulkunBrain:
                 ceo_teaching_repository=self.ceo_teaching_repo,
                 phase2e_learning=self.learning.phase2e_learning,
                 outcome_learning=self.outcome_learning,
+                emotion_reader=self.emotion_reader,
             )
             logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
         except Exception as e:

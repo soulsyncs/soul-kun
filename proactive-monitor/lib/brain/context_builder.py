@@ -168,6 +168,9 @@ class LLMContext:
     # === Phase 2F: 行動パターン ===
     outcome_patterns: str = ""
 
+    # === Task 7: 感情コンテキスト ===
+    emotion_context: str = ""
+
     # === メタ情報 ===
     current_datetime: datetime = field(default_factory=lambda: datetime.now(JST))
     organization_id: str = ""
@@ -240,6 +243,10 @@ class LLMContext:
         if self.outcome_patterns:
             sections.append(self.outcome_patterns)
 
+        # Task 7: 感情コンテキスト
+        if self.emotion_context:
+            sections.append(self.emotion_context)
+
         # 現在日時
         sections.append(f"【現在日時】\n{self.current_datetime.strftime('%Y年%m月%d日 %H:%M')}")
 
@@ -269,6 +276,7 @@ class ContextBuilder:
         ceo_teaching_repository=None,
         phase2e_learning=None,
         outcome_learning=None,
+        emotion_reader=None,
     ):
         """
         Args:
@@ -278,6 +286,7 @@ class ContextBuilder:
             ceo_teaching_repository: CEOTeachingRepositoryインスタンス
             phase2e_learning: Phase2ELearningインスタンス（学習基盤）
             outcome_learning: Phase 2F OutcomeLearningインスタンス
+            emotion_reader: EmotionReaderインスタンス（Task 7: 感情分析）
         """
         self.pool = pool
         self.memory_access = memory_access
@@ -285,6 +294,7 @@ class ContextBuilder:
         self.ceo_teaching_repository = ceo_teaching_repository
         self.phase2e_learning = phase2e_learning
         self.outcome_learning = outcome_learning
+        self.emotion_reader = emotion_reader
 
     async def build(
         self,
@@ -336,6 +346,7 @@ class ContextBuilder:
             self._get_user_info(user_id, organization_id, sender_name),
             phase2e_task,
             self._get_outcome_patterns(user_id),
+            self._get_emotion_context(message, organization_id, user_id),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -353,6 +364,7 @@ class ContextBuilder:
             user_info,
             phase2e_learnings,
             outcome_patterns,
+            emotion_context,
         ) = self._handle_results(results)
 
         return LLMContext(
@@ -372,6 +384,7 @@ class ContextBuilder:
             relevant_knowledge=None,  # 必要時に遅延取得
             phase2e_learnings=phase2e_learnings,
             outcome_patterns=outcome_patterns,
+            emotion_context=emotion_context,
             current_datetime=datetime.now(JST),
             organization_id=organization_id,
             room_id=room_id,
@@ -391,6 +404,7 @@ class ContextBuilder:
             "user_info",
             "phase2e_learnings",
             "outcome_patterns",
+            "emotion_context",
         ]
         defaults: List[Any] = [
             None,  # session_state
@@ -404,12 +418,13 @@ class ContextBuilder:
             {},    # user_info
             "",    # phase2e_learnings
             "",    # outcome_patterns
+            "",    # emotion_context
         ]
 
         processed = []
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.warning(f"Error fetching {field_names[i]}: {result}")
+                logger.warning("Error fetching %s: %s", field_names[i], type(result).__name__)
                 processed.append(defaults[i])
             else:
                 processed.append(result)
@@ -698,6 +713,52 @@ class ContextBuilder:
             return await asyncio.to_thread(_sync_fetch)
         except Exception as e:
             logger.warning("Phase 2F pattern fetch failed: %s", type(e).__name__)
+            return ""
+
+    async def _get_emotion_context(
+        self,
+        message: str,
+        organization_id: str,
+        user_id: Optional[str] = None,
+    ) -> str:
+        """Task 7: ユーザーの感情・ニュアンスを読み取る"""
+        if not self.emotion_reader:
+            return ""
+
+        try:
+            from lib.brain.deep_understanding.models import DeepUnderstandingInput
+
+            input_ctx = DeepUnderstandingInput(
+                message=message,
+                organization_id=organization_id,
+                user_id=user_id,
+            )
+            result = await self.emotion_reader.read(
+                message=message,
+                input_context=input_ctx,
+            )
+
+            if not result.emotions and not result.urgency:
+                return ""
+
+            lines = []
+            if result.primary_emotion:
+                em = result.primary_emotion
+                lines.append(
+                    f"- 主要感情: {em.category.value}"
+                    f"（強度: {em.intensity:.0%}, 信頼度: {em.confidence:.0%}）"
+                )
+            if result.urgency:
+                lines.append(f"- 緊急度: {result.urgency.level.value}")
+            if result.nuances:
+                nuance_strs = [n.nuance_type.value for n in result.nuances[:3]]
+                lines.append(f"- ニュアンス: {', '.join(nuance_strs)}")
+            if result.summary:
+                lines.append(f"- サマリー: {result.summary}")
+
+            return "【ユーザーの感情・ニュアンス】\n" + "\n".join(lines)
+        except Exception as e:
+            logger.warning("Emotion reading failed: %s", type(e).__name__)
             return ""
 
     async def _get_user_info(

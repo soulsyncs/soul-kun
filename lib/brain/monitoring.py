@@ -304,6 +304,9 @@ class LLMBrainMonitor:
         self._cache_time: Optional[datetime] = None
         self._cache_ttl = timedelta(seconds=30)
 
+        # アラート送信（オプション）
+        self._alert_sender = None
+
         logger.info(
             f"LLMBrainMonitor initialized: "
             f"window={aggregation_window_minutes}min"
@@ -544,12 +547,21 @@ class LLMBrainMonitor:
         elif metrics.guardian_confirm_rate >= self.thresholds.guardian_confirm_rate_info:
             issues.append(f"Guardian confirm rate high (info): {metrics.guardian_confirm_rate:.2%}")
 
-        return {
+        result = {
             "status": status,
             "issues": issues,
             "metrics": metrics.to_dict(),
             "checked_at": datetime.utcnow().isoformat(),
         }
+
+        # アラート送信（設定されている場合）
+        if self._alert_sender and status != "healthy":
+            try:
+                self._alert_sender.check_and_alert(result)
+            except Exception as e:
+                logger.warning("Alert sender error: %s", type(e).__name__)
+
+        return result
 
 
 # =============================================================================
@@ -570,6 +582,20 @@ def get_monitor() -> LLMBrainMonitor:
     if _monitor is None:
         _monitor = LLMBrainMonitor()
     return _monitor
+
+
+def enable_alerts(alert_sender=None) -> None:
+    """
+    アラート送信を有効化
+
+    Args:
+        alert_sender: AlertSender インスタンス（Noneなら自動生成）
+    """
+    monitor = get_monitor()
+    if alert_sender is None:
+        from lib.brain.alert_sender import AlertSender
+        alert_sender = AlertSender()
+    monitor._alert_sender = alert_sender
 
 
 def start_request(request_id: Optional[str] = None) -> str:

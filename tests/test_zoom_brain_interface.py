@@ -280,7 +280,8 @@ class TestProcessZoomMinutes:
         assert "minutes" not in result.data
 
     @pytest.mark.asyncio
-    async def test_speakers_extracted(self, mock_pool, mock_zoom_client):
+    async def test_speakers_count_returned_without_names(self, mock_pool, mock_zoom_client):
+        """PII保護: 話者名はresult_dataに含めず、人数のみ返す"""
         interface = ZoomBrainInterface(
             mock_pool, "org_test", zoom_client=mock_zoom_client
         )
@@ -289,8 +290,8 @@ class TestProcessZoomMinutes:
             account_id="user_456",
         )
         assert result.success is True
-        assert "田中" in result.data["speakers"]
-        assert "山田" in result.data["speakers"]
+        assert result.data["speakers_detected"] == 2
+        assert "speakers" not in result.data  # 話者名リストはPIIのため返さない
 
     @pytest.mark.asyncio
     async def test_duplicate_meeting_returns_existing(self, mock_pool, mock_zoom_client):

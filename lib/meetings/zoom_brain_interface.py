@@ -243,12 +243,13 @@ class ZoomBrainInterface:
                 )
 
             # Step 8: Build result
+            # CLAUDE.md §3-2 #8: speakersリスト（話者名=PII）はresult_dataに含めない。
+            # 人数のみ返す。LLM議事録にはsanitized_textから生成された情報のみ含まれる。
             result_data: Dict[str, Any] = {
                 "meeting_id": meeting_id,
                 "status": "transcribed",
                 "title": resolved_title,
                 "zoom_meeting_id": source_mid or "",
-                "speakers": vtt_transcript.speakers,
                 "speakers_detected": len(vtt_transcript.speakers),
                 "duration_seconds": vtt_transcript.duration_seconds,
                 "pii_removed_count": pii_count,
@@ -383,13 +384,13 @@ class ZoomBrainInterface:
     ) -> str:
         """Fallback message when LLM minutes generation is unavailable."""
         preview = sanitized[:500] + "..." if len(sanitized) > 500 else sanitized
-        speakers_list = ", ".join(vtt.speakers[:10])
+        speakers_count = len(vtt.speakers)
         duration_min = int(vtt.duration_seconds // 60)
         parts = [
             f"[info][title]{title} - \u6587\u5b57\u8d77\u3053\u3057[/title]",
         ]
-        if speakers_list:
-            parts.append(f"\u53c2\u52a0\u8005: {speakers_list}")
+        if speakers_count > 0:
+            parts.append(f"\u53c2\u52a0\u8005: {speakers_count}\u540d")
         parts.append(
             f"\u767a\u8a00\u6570: {len(vtt.segments)}, "
             f"\u6240\u8981\u6642\u9593: {duration_min}\u5206"

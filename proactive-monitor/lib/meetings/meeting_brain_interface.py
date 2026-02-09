@@ -16,7 +16,7 @@ Created: 2026-02-10
 
 import logging
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 # 安定データクラスのみimport（lib/brain/の内部ロジックには依存しない）
 from lib.brain.models import HandlerResult
@@ -57,14 +57,16 @@ class MeetingBrainInterface:
         title: Optional[str] = None,
         meeting_type: str = "unknown",
         metadata: Optional[Dict[str, Any]] = None,
+        get_ai_response_func: Optional[Callable] = None,
     ) -> HandlerResult:
         """
         会議音声をアップロードし、文字起こしを実行する。
 
+        get_ai_response_funcが渡された場合、文字起こし後に議事録を自動生成する（MVP1）。
         brain_approved=FALSEのまま返却し、ChatWork投稿の判断はBrainに委ねる。
 
         Returns:
-            HandlerResult with meeting_id, status, sanitized_transcript
+            HandlerResult with meeting_id, status, sanitized_transcript (+ minutes_text if generated)
         """
         import asyncio
 
@@ -146,17 +148,34 @@ class MeetingBrainInterface:
                 meeting_id, pii_count, len(sanitized),
             )
 
+            # 8. 議事録自動生成（get_ai_response_funcが渡された場合のみ）
+            minutes_text = None
+            if get_ai_response_func and sanitized:
+                minutes_text = await self._generate_chatwork_minutes(
+                    sanitized, title, get_ai_response_func,
+                )
+
+            result_data = {
+                "meeting_id": meeting_id,
+                "status": "transcribed",
+                "sanitized_transcript": sanitized[:4000],
+                "pii_removed_count": pii_count,
+                "duration_seconds": audio_meta.get("duration", 0),
+                "speakers_detected": audio_meta.get("speakers_count", 0),
+            }
+
+            if minutes_text:
+                result_data["minutes_text"] = minutes_text
+                return HandlerResult(
+                    success=True,
+                    message=minutes_text,
+                    data=result_data,
+                )
+
             return HandlerResult(
                 success=True,
                 message=self._build_summary_message(title, sanitized, pii_count),
-                data={
-                    "meeting_id": meeting_id,
-                    "status": "transcribed",
-                    "sanitized_transcript": sanitized[:4000],
-                    "pii_removed_count": pii_count,
-                    "duration_seconds": audio_meta.get("duration", 0),
-                    "speakers_detected": audio_meta.get("speakers_count", 0),
-                },
+                data=result_data,
             )
 
         except Exception as e:
@@ -420,6 +439,52 @@ class MeetingBrainInterface:
             logger.warning(
                 "GCS upload failed (continuing with transcription): %s",
                 type(e).__name__,
+            )
+            return None
+
+    async def _generate_chatwork_minutes(
+        self,
+        sanitized_text: str,
+        title: Optional[str],
+        get_ai_response_func: Callable,
+    ) -> Optional[str]:
+        """
+        サニタイズ済みテキストからChatWork用議事録を生成する。
+
+        LLM呼び出しはget_ai_response_func経由（Brain bypass防止）。
+        失敗時はNoneを返す（文字起こし結果にフォールバック）。
+
+        Returns:
+            ChatWork [info]タグ付き議事録テキスト or None
+        """
+        from lib.meetings.minutes_generator import (
+            CHATWORK_MINUTES_SYSTEM_PROMPT,
+            build_chatwork_minutes_prompt,
+            format_chatwork_minutes,
+        )
+
+        try:
+            user_prompt = build_chatwork_minutes_prompt(sanitized_text, title)
+            llm_response = await get_ai_response_func(
+                user_prompt,
+                system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
+            )
+
+            if not llm_response:
+                logger.warning("LLM returned empty response for minutes generation")
+                return None
+
+            formatted = format_chatwork_minutes(llm_response, title)
+            logger.info(
+                "ChatWork minutes generated: title=%s, length=%d",
+                title or "unknown", len(formatted),
+            )
+            return formatted
+
+        except Exception:
+            logger.warning(
+                "Minutes generation failed (falling back to transcript): %s",
+                title or "unknown",
             )
             return None
 

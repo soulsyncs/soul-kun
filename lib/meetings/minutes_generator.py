@@ -50,6 +50,36 @@ MINUTES_SYSTEM_PROMPT = """あなたは議事録作成の専門家です。
 
 MAX_TRANSCRIPT_CHARS = 12000
 
+# =============================================================================
+# ChatWork音声アップロード用プロンプト（Phase C MVP1）
+# =============================================================================
+# Zoom用（上記 MINUTES_SYSTEM_PROMPT）はJSON構造化形式。
+# ChatWork用は時系列セクション＋講義スタイルのプレーンテキスト形式。
+
+CHATWORK_MINUTES_SYSTEM_PROMPT = """あなたは議事録作成の専門家です。
+書き起こしテキストから、以下のルールで議事録を作成してください。
+
+【ルール】
+1. 内容が細かく具体的に理解できるように要約する。大事なことを記録する際に「なぜそうなったのか」がわかる背景も省かず詳細に記載する
+2. 例え話や実例、ワークテーマ、数字に関する話は省かずに全て書き出す
+3. あたかも読者に講義として教えているかのような書き方にする
+4. 「■主題（00:00〜）」のようにセクションごとに時系列通りに詳細に書く。タイムスタンプが不明な場合は「■主題（序盤〜）」「■主題（中盤〜）」のように相対位置で示す
+5. 最後に「■ タスク一覧」セクションで、会議中に発生した全てのTODOを一箇所にまとめる
+6. LINEやチャットでコピペできるプレーンテキストで出力する（HTMLタグやMarkdown記法は使わない）
+7. 個人情報（電話番号、メールアドレス等）は含めない
+8. 日本語の音声認識エラーは文脈から推測して修正する
+
+【出力形式の例】
+■ 主題1（00:00〜）
+ここでは〇〇について議論しました。背景として...
+
+■ 主題2（15:30〜）
+次に、△△の件について...
+
+■ タスク一覧
+- [ ] 担当者: タスク内容（期限: YYYY/MM/DD）← ■主題1で発生
+- [ ] 担当者: タスク内容 ← ■主題2で発生"""
+
 
 @dataclass
 class MeetingMinutes:
@@ -198,3 +228,62 @@ def _extract_json(text: str) -> Optional[str]:
                     return text[brace_start : i + 1]
 
     return None
+
+
+# =============================================================================
+# ChatWork議事録生成（Phase C MVP1）
+# =============================================================================
+
+
+def build_chatwork_minutes_prompt(
+    transcript_text: str, meeting_title: Optional[str] = None
+) -> str:
+    """
+    ChatWork音声アップロード用の議事録プロンプトを構築する。
+
+    Zoom用（build_minutes_prompt）はJSON出力。
+    こちらはプレーンテキスト出力（講義スタイル＋時系列セクション）。
+
+    Args:
+        transcript_text: サニタイズ済みトランスクリプト
+        meeting_title: 会議タイトル（あれば）
+
+    Returns:
+        LLMに渡すユーザーメッセージ
+    """
+    if len(transcript_text) > MAX_TRANSCRIPT_CHARS:
+        transcript_text = (
+            transcript_text[:MAX_TRANSCRIPT_CHARS] + "\n\n[... 省略 ...]"
+        )
+        logger.info(
+            "Transcript truncated to %d chars for ChatWork minutes",
+            MAX_TRANSCRIPT_CHARS,
+        )
+
+    title_line = (
+        f"会議タイトル: {meeting_title}\n\n" if meeting_title else ""
+    )
+    return (
+        f"{title_line}"
+        f"上記の書き起こしを議事録にしてください:\n\n"
+        f"{transcript_text}"
+    )
+
+
+def format_chatwork_minutes(
+    llm_response: str, title: Optional[str] = None
+) -> str:
+    """
+    LLMのプレーンテキスト議事録をChatWork投稿用にフォーマットする。
+
+    Args:
+        llm_response: LLMからの議事録テキスト（プレーンテキスト）
+        title: 会議タイトル
+
+    Returns:
+        ChatWork [info] タグで囲んだ投稿テキスト
+    """
+    meeting_name = title or "会議"
+    # LLMレスポンスの前後空白を除去
+    content = llm_response.strip()
+    return f"[info][title]{meeting_name} - 議事録[/title]\n{content}\n[/info]"

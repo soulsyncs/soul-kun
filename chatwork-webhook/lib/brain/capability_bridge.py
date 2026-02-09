@@ -75,6 +75,9 @@ DEFAULT_FEATURE_FLAGS = {
     # Meeting Transcription (Phase C)
     "ENABLE_MEETING_TRANSCRIPTION": False,  # Phase C MVP0: フィーチャーフラグで段階有効化
 
+    # Meeting Minutes Generation (Phase C MVP1)
+    "ENABLE_MEETING_MINUTES": False,  # Phase C MVP1: ChatWork音声→議事録自動生成
+
     # Zoom Meeting Minutes (Phase C Case C)
     "ENABLE_ZOOM_MEETING_MINUTES": False,  # Phase C Case C: フィーチャーフラグで段階有効化
 }
@@ -1263,6 +1266,11 @@ class CapabilityBridge:
         """会議文字起こしハンドラー — MeetingBrainInterfaceに委譲"""
         from handlers.meeting_handler import handle_meeting_upload
 
+        # Phase C MVP1: 議事録自動生成が有効な場合、LLM関数を注入
+        extra_kwargs = {}
+        if self.feature_flags.get("ENABLE_MEETING_MINUTES", False) and self.llm_caller:
+            extra_kwargs["get_ai_response_func"] = self.llm_caller
+
         return await handle_meeting_upload(
             room_id=room_id,
             account_id=account_id,
@@ -1270,6 +1278,7 @@ class CapabilityBridge:
             params=params,
             pool=self.pool,
             organization_id=self.org_id,
+            **extra_kwargs,
             **kwargs,
         )
 

@@ -125,6 +125,221 @@ class TestProcessMeetingUpload:
         assert "失敗" in result.message
 
 
+class TestProcessMeetingUploadWithMinutes:
+    """get_ai_response_func付きの議事録自動生成テスト（Phase C MVP1）"""
+
+    @pytest.mark.asyncio
+    async def test_minutes_generated_when_func_provided(self, interface):
+        """get_ai_response_funcがあれば議事録を生成"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(return_value="■ 主題1（序盤〜）\nテスト議事録内容\n\n■ タスク一覧\n- [ ] 担当: タスク")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=True,
+            )
+
+        assert result.success is True
+        assert "minutes_text" in result.data
+        assert "[info]" in result.data["minutes_text"]
+        assert "朝会 - 議事録" in result.data["minutes_text"]
+        # message にも議事録が入る
+        assert "[info]" in result.message
+        mock_llm.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_no_minutes_without_func(self, interface):
+        """get_ai_response_funcがなければ従来通り文字起こしのみ"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+        assert "文字起こしが完了しました" in result.message
+
+    @pytest.mark.asyncio
+    async def test_minutes_failure_falls_back_to_transcript(self, interface):
+        """LLM失敗時は文字起こし結果にフォールバック"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(side_effect=Exception("LLM API error"))
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=True,
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+        assert "文字起こしが完了しました" in result.message
+
+    @pytest.mark.asyncio
+    async def test_minutes_empty_response_falls_back(self, interface):
+        """LLMが空レスポンスを返した場合もフォールバック"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(return_value="")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=True,
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_no_minutes_when_enable_minutes_false(self, interface):
+        """enable_minutes=Falseならget_ai_response_funcがあっても議事録生成しない"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(return_value="議事録テキスト")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=False,
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+        assert "文字起こしが完了しました" in result.message
+        mock_llm.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_minutes_with_sync_llm_func(self, interface):
+        """同期関数が渡されてもasyncio.to_threadでクラッシュしない"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        # 同期関数（AsyncMockではなくMagicMock）
+        sync_llm = MagicMock(return_value="■ 主題1（序盤〜）\n同期LLMの議事録")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="同期テスト",
+                get_ai_response_func=sync_llm,
+                enable_minutes=True,
+            )
+
+        assert result.success is True
+        assert "minutes_text" in result.data
+        assert "[info]" in result.data["minutes_text"]
+        sync_llm.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_minutes_whitespace_only_response_falls_back(self, interface):
+        """LLMが空白のみを返した場合もフォールバック"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(return_value="   \n\n  ")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=True,
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+
+
 class TestApproveAndNotify:
     @pytest.mark.asyncio
     async def test_approve_success(self, interface):

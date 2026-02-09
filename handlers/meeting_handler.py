@@ -49,6 +49,9 @@ async def handle_meeting_upload(
             data={},
         )
 
+    get_ai_response_func = kwargs.get("get_ai_response_func")
+    enable_minutes = kwargs.get("enable_minutes", False)
+
     from lib.meetings.meeting_brain_interface import MeetingBrainInterface
 
     interface = MeetingBrainInterface(pool, organization_id)
@@ -58,6 +61,8 @@ async def handle_meeting_upload(
         account_id=account_id,
         title=params.get("meeting_title"),
         meeting_type=params.get("meeting_type", "unknown"),
+        get_ai_response_func=get_ai_response_func,
+        enable_minutes=enable_minutes,
     )
 
 

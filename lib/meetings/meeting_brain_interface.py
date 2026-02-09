@@ -58,11 +58,13 @@ class MeetingBrainInterface:
         meeting_type: str = "unknown",
         metadata: Optional[Dict[str, Any]] = None,
         get_ai_response_func: Optional[Callable] = None,
+        enable_minutes: bool = False,
     ) -> HandlerResult:
         """
         会議音声をアップロードし、文字起こしを実行する。
 
-        get_ai_response_funcが渡された場合、文字起こし後に議事録を自動生成する（MVP1）。
+        議事録自動生成はenable_minutes=Trueかつget_ai_response_funcが渡された場合のみ実行。
+        enable_minutesはCapabilityBridgeがENABLE_MEETING_MINUTESフラグに基づき設定する。
         brain_approved=FALSEのまま返却し、ChatWork投稿の判断はBrainに委ねる。
 
         Returns:
@@ -148,9 +150,9 @@ class MeetingBrainInterface:
                 meeting_id, pii_count, len(sanitized),
             )
 
-            # 8. 議事録自動生成（get_ai_response_funcが渡された場合のみ）
+            # 8. 議事録自動生成（enable_minutes=True かつ LLM関数ありの場合のみ）
             minutes_text = None
-            if get_ai_response_func and sanitized:
+            if enable_minutes and get_ai_response_func and sanitized:
                 minutes_text = await self._generate_chatwork_minutes(
                     sanitized, title, get_ai_response_func,
                 )

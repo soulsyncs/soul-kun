@@ -151,6 +151,7 @@ class TestProcessMeetingUploadWithMinutes:
                 account_id="user1",
                 title="朝会",
                 get_ai_response_func=mock_llm,
+                enable_minutes=True,
             )
 
         assert result.success is True
@@ -210,6 +211,7 @@ class TestProcessMeetingUploadWithMinutes:
                 account_id="user1",
                 title="朝会",
                 get_ai_response_func=mock_llm,
+                enable_minutes=True,
             )
 
         assert result.success is True
@@ -239,10 +241,42 @@ class TestProcessMeetingUploadWithMinutes:
                 account_id="user1",
                 title="朝会",
                 get_ai_response_func=mock_llm,
+                enable_minutes=True,
             )
 
         assert result.success is True
         assert "minutes_text" not in result.data
+
+    @pytest.mark.asyncio
+    async def test_no_minutes_when_enable_minutes_false(self, interface):
+        """enable_minutes=Falseならget_ai_response_funcがあっても議事録生成しない"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+
+        mock_llm = AsyncMock(return_value="議事録テキスト")
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = None
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+                get_ai_response_func=mock_llm,
+                enable_minutes=False,
+            )
+
+        assert result.success is True
+        assert "minutes_text" not in result.data
+        assert "文字起こしが完了しました" in result.message
+        mock_llm.assert_not_called()
 
 
 class TestApproveAndNotify:

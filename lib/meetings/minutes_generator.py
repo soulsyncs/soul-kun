@@ -284,6 +284,8 @@ def format_chatwork_minutes(
         ChatWork [info] タグで囲んだ投稿テキスト
     """
     meeting_name = title or "会議"
+    # ChatWorkタグ注入防止: [ ] を除去してタグ構造の崩壊を防ぐ
+    meeting_name = meeting_name.replace("[", "").replace("]", "")
     # LLMレスポンスの前後空白を除去
     content = llm_response.strip()
     return f"[info][title]{meeting_name} - 議事録[/title]\n{content}\n[/info]"

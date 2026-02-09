@@ -1808,6 +1808,7 @@ class TestMeetingMinutesFeatureFlag:
             call_kwargs = mock_handler.call_args[1]
             assert "get_ai_response_func" in call_kwargs
             assert call_kwargs["get_ai_response_func"] is mock_llm
+            assert call_kwargs.get("enable_minutes") is True
 
     @pytest.mark.asyncio
     async def test_no_injection_when_flag_off(self, mock_pool):
@@ -1833,6 +1834,7 @@ class TestMeetingMinutesFeatureFlag:
 
             call_kwargs = mock_handler.call_args[1]
             assert "get_ai_response_func" not in call_kwargs
+            assert "enable_minutes" not in call_kwargs
 
     @pytest.mark.asyncio
     async def test_no_injection_when_no_llm_caller(self, mock_pool):

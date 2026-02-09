@@ -1266,10 +1266,11 @@ class CapabilityBridge:
         """会議文字起こしハンドラー — MeetingBrainInterfaceに委譲"""
         from handlers.meeting_handler import handle_meeting_upload
 
-        # Phase C MVP1: 議事録自動生成が有効な場合、LLM関数を注入
+        # Phase C MVP1: 議事録自動生成が有効な場合、LLM関数とフラグを注入
         extra_kwargs = {}
         if self.feature_flags.get("ENABLE_MEETING_MINUTES", False) and self.llm_caller:
             extra_kwargs["get_ai_response_func"] = self.llm_caller
+            extra_kwargs["enable_minutes"] = True
 
         return await handle_meeting_upload(
             room_id=room_id,

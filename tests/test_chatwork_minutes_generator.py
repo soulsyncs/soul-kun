@@ -99,3 +99,17 @@ class TestFormatChatworkMinutes:
         assert "■ 主題1（序盤〜）" in result
         assert "■ タスク一覧" in result
         assert "- [ ] 担当者: タスク" in result
+
+    def test_title_tag_injection_sanitized(self):
+        """タイトルに[/title]等のChatWorkタグが含まれても安全"""
+        result = format_chatwork_minutes("内容", title="悪意[/title]攻撃[info]")
+        assert "[/title]攻撃" not in result
+        assert "悪意/title攻撃info - 議事録" in result
+        assert result.startswith("[info][title]")
+        assert result.count("[/title]") == 1  # フォーマットの正規[/title]のみ
+
+    def test_title_brackets_removed(self):
+        """タイトルの角括弧が除去される"""
+        result = format_chatwork_minutes("内容", title="[テスト]会議")
+        assert "[テスト]" not in result
+        assert "テスト会議 - 議事録" in result

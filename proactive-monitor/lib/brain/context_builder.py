@@ -719,7 +719,7 @@ class ContextBuilder:
                             LEFT JOIN user_departments ud ON ud.user_id = u.id
                             LEFT JOIN roles r ON ud.role_id = r.id
                             WHERE u.chatwork_account_id = :account_id
-                            AND u.organization_id = CAST(:org_id AS TEXT)
+                            AND u.organization_id = :org_id::uuid
                             LIMIT 1
                         """), {"account_id": user_id, "org_id": organization_id})
                         return result.fetchone()

@@ -400,6 +400,7 @@ class BrainObservability:
             import concurrent.futures
             _executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             future = _executor.submit(_sync_flush)
+            future.add_done_callback(lambda f: _executor.shutdown(wait=False))
             future.add_done_callback(
                 lambda f: (
                     logger.warning(

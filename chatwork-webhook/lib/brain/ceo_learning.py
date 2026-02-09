@@ -255,17 +255,18 @@ class CEOLearningService:
 
         Args:
             account_id: ChatWorkアカウントID
-            ceo_user_id: Phase 4A用のCEOユーザーID（未実装）
+            ceo_user_id: CEOユーザーID（UUID）。指定時はDB照合で判定
 
         Returns:
             CEOならTrue
         """
-        # Phase 4Aでは ceo_user_id を使用（未実装）
+        # Phase 4A: ceo_user_id が指定されている場合、DBからユーザーIDを照合
         if ceo_user_id:
-            # TODO: DBから ceo_user_id を検索
-            pass
+            resolved_user_id = self._get_user_id_from_account_id(account_id)
+            if resolved_user_id:
+                return resolved_user_id == ceo_user_id
 
-        # 現在はハードコードされたリストで判定
+        # フォールバック: ハードコードされたリストで判定
         return account_id in CEO_ACCOUNT_IDS
 
     def get_ceo_name(self, account_id: str) -> str:

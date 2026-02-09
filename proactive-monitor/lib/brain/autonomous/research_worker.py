@@ -69,7 +69,13 @@ class ResearchWorker(BaseWorker):
         organization_id: str,
         max_results: int = 5,
     ) -> list:
-        """ナレッジベースを検索"""
+        """
+        ナレッジベースを検索
+
+        NOTE: soulkun_knowledge.organization_id は VARCHAR(slug)、
+        autonomous_tasks.organization_id は UUID。
+        呼び出し元が適切なorg_idを渡す責務を持つ。
+        """
         if not self.pool:
             return []
 

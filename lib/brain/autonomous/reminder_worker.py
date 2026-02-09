@@ -2,12 +2,11 @@
 """
 Phase AA: リマインダーワーカー
 
-Brainが発行したスケジュールタスクの自動実行。
-タスク作成時にBrainが判断・承認済みの内容を定時配信する。
-送信メッセージはBrainがタスク生成時に決定しており、
-ワーカーはBrainの実行委譲先として動作する（§1準拠）。
+Brainが発行したスケジュールタスクの準備・検証を行う。
+送信メッセージはBrainがタスク生成時に決定済み。
+ワーカーは確認状態の検証のみ行い、実際の送信はBrainが行う（§1準拠）。
 
-CLAUDE.md S1: 全出力はBrainを通る（Brain→タスク生成→ワーカー実行）
+CLAUDE.md S1: 全出力はBrainを通る（ワーカーは準備のみ、送信はBrain）
 CLAUDE.md S8 鉄則#8: エラーに機密情報を含めない
 """
 
@@ -22,27 +21,26 @@ logger = logging.getLogger(__name__)
 
 class ReminderWorker(BaseWorker):
     """
-    リマインダーワーカー: スケジュール通知
+    リマインダーワーカー: スケジュール通知の準備・検証
+
+    送信はBrainの責務（§1準拠）。ワーカーは確認状態と送信準備のみ行い、
+    結果にroom_idとready=Trueを返す。Brainが結果を受けて送信を実行する。
 
     execution_plan:
-        message: リマインダーメッセージ
+        message: リマインダーメッセージ（Brain生成済み）
         room_id: 送信先ルームID
         account_id: 送信先アカウントID（DM用）
         confirmed: ユーザーが確認済みか（初回はfalse）
     """
 
-    def __init__(self, task_queue: TaskQueue, pool=None, send_func=None):
-        super().__init__(task_queue=task_queue, pool=pool)
-        self.send_func = send_func
-
     async def execute(self, task: AutonomousTask) -> Optional[Dict[str, Any]]:
-        """リマインダータスクを実行"""
+        """リマインダータスクを検証・準備"""
         if not task.organization_id:
             logger.warning("Task has empty organization_id: id=%s", task.id)
             return {"error": "missing_organization_id"}
 
         plan = task.execution_plan or {}
-        message = plan.get("message", task.description)
+        message = plan.get("message") or task.description or ""
         room_id = plan.get("room_id", task.room_id)
         confirmed = plan.get("confirmed", False)
 
@@ -57,25 +55,11 @@ class ReminderWorker(BaseWorker):
                 "room_id": room_id,
             }
 
-        # Step 2: メッセージ送信
-        await self.report_progress(task, 2, "メッセージ送信中")
-        sent = await self._send_message(room_id, message)
+        # Step 2: 送信準備完了（実際の送信はBrainが行う）
+        await self.report_progress(task, 2, "送信準備完了")
 
         return {
-            "status": "sent" if sent else "send_failed",
+            "status": "ready",
             "message_length": len(message),
             "room_id": room_id,
         }
-
-    async def _send_message(self, room_id: Optional[str], message: str) -> bool:
-        """メッセージを送信（Brain委譲実行: タスク生成時にBrainが承認済み）"""
-        if not self.send_func or not room_id:
-            logger.warning("Cannot send reminder: missing send_func or room_id")
-            return False
-
-        try:
-            await self.send_func(room_id=room_id, message=message)
-            return True
-        except Exception as e:
-            logger.warning("Reminder send failed: %s", type(e).__name__)
-            return False

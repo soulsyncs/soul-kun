@@ -2,12 +2,11 @@
 """
 Phase AA: レポートワーカー
 
-Brainが発行したレポートタスクの自動実行。
-DBメトリクスを定型フォーマットで整形し送信する。
-タスク作成時にBrainがレポート種別・送信先を決定しており、
-ワーカーはBrainの実行委譲先として動作する（§1準拠）。
+Brainが発行したレポートタスクのデータ収集・整形を行う。
+DBメトリクスを収集し定型フォーマットで整形して返す。
+ワーカーはデータ準備のみ行い、実際の送信はBrainが行う（§1準拠）。
 
-CLAUDE.md S1: 全出力はBrainを通る（Brain→タスク生成→ワーカー実行）
+CLAUDE.md S1: 全出力はBrainを通る（ワーカーは準備のみ、送信はBrain）
 CLAUDE.md S8 鉄則#8: エラーに機密情報を含めない
 """
 
@@ -22,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 class ReportWorker(BaseWorker):
     """
-    レポートワーカー: データ集計→定型整形→送信
+    レポートワーカー: データ集計→定型整形
+
+    送信はBrainの責務（§1準拠）。ワーカーはデータ収集と整形のみ行い、
+    結果にroom_idとready=Trueを返す。Brainが結果を受けて送信を実行する。
 
     execution_plan:
         report_type: レポート種別（daily_summary, weekly_summary, custom）
@@ -30,12 +32,8 @@ class ReportWorker(BaseWorker):
         metrics: 集計対象メトリクス名リスト
     """
 
-    def __init__(self, task_queue: TaskQueue, pool=None, send_func=None):
-        super().__init__(task_queue=task_queue, pool=pool)
-        self.send_func = send_func
-
     async def execute(self, task: AutonomousTask) -> Optional[Dict[str, Any]]:
-        """レポートタスクを実行"""
+        """レポートタスクを実行（データ収集・整形のみ、送信はBrain）"""
         if not task.organization_id:
             logger.warning("Task has empty organization_id: id=%s", task.id)
             return {"error": "missing_organization_id"}
@@ -44,7 +42,7 @@ class ReportWorker(BaseWorker):
         report_type = plan.get("report_type", "daily_summary")
         room_id = plan.get("room_id", task.room_id)
 
-        task.total_steps = 3
+        task.total_steps = 2
 
         # Step 1: データ収集
         await self.report_progress(task, 1, "データ収集中")
@@ -53,19 +51,16 @@ class ReportWorker(BaseWorker):
             report_type=report_type,
         )
 
-        # Step 2: レポート生成
-        await self.report_progress(task, 2, "レポート生成中")
+        # Step 2: レポート整形（送信はBrainが行う）
+        await self.report_progress(task, 2, "レポート整形中")
         report_text = self._generate_report(report_type, data)
 
-        # Step 3: 送信
-        await self.report_progress(task, 3, "送信中")
-        sent = await self._send_report(room_id, report_text)
-
         return {
+            "status": "ready",
             "report_type": report_type,
             "data_points": len(data),
-            "sent": sent,
             "report_length": len(report_text),
+            "room_id": room_id,
         }
 
     async def _collect_data(
@@ -129,7 +124,7 @@ class ReportWorker(BaseWorker):
             return {}
 
     def _generate_report(self, report_type: str, data: Dict[str, Any]) -> str:
-        """レポートテキストを生成"""
+        """レポートテキストを生成（送信はしない — Brain責務）"""
         if not data:
             return f"[info][title]{report_type}[/title]データがありません。[/info]"
 
@@ -137,8 +132,9 @@ class ReportWorker(BaseWorker):
         errors = data.get("error_count", 0)
         error_rate = (errors / total * 100) if total > 0 else 0
 
+        title = "日次レポート" if "daily" in report_type else "週次レポート"
         lines = [
-            f"[info][title]日次レポート[/title]",
+            f"[info][title]{title}[/title]",
             f"API呼出数: {data.get('call_count', 0)}",
             f"トークン数: {data.get('total_tokens', 0):,}",
             f"コスト: {data.get('total_cost', 0):.0f}円",
@@ -147,16 +143,3 @@ class ReportWorker(BaseWorker):
             f"[/info]",
         ]
         return "\n".join(lines)
-
-    async def _send_report(self, room_id: Optional[str], report: str) -> bool:
-        """レポートを送信（Brain委譲実行: タスク生成時にBrainが承認済み）"""
-        if not self.send_func or not room_id:
-            logger.warning("Cannot send report: missing send_func or room_id")
-            return False
-
-        try:
-            await self.send_func(room_id=room_id, message=report)
-            return True
-        except Exception as e:
-            logger.warning("Report send failed: %s", type(e).__name__)
-            return False

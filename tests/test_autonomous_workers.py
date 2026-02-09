@@ -3,7 +3,7 @@
 Task AA: 自律タスクワーカーテスト
 
 WorkerRegistry, ResearchWorker, ReminderWorker, ReportWorker のテスト。
-DB経路モックテスト + 冪等性テスト含む。
+DB経路モックテスト + 冪等性テスト + TaskQueue.claimテスト含む。
 """
 
 import pytest
@@ -43,6 +43,33 @@ def _make_queue() -> MagicMock:
     queue.update = AsyncMock(return_value=True)
     queue.claim = AsyncMock(return_value=True)
     return queue
+
+
+def _make_mock_pool(rows=None, mappings_result=None):
+    """DB接続プールのモックを作成"""
+    mock_result = MagicMock()
+    if mappings_result is not None:
+        mock_result.mappings.return_value.all.return_value = mappings_result
+        mock_result.mappings.return_value.first.return_value = (
+            mappings_result[0] if mappings_result else None
+        )
+    elif rows is not None:
+        mock_result.mappings.return_value.all.return_value = rows
+        mock_result.mappings.return_value.first.return_value = (
+            rows[0] if rows else None
+        )
+    else:
+        mock_result.mappings.return_value.all.return_value = []
+        mock_result.mappings.return_value.first.return_value = None
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value = mock_result
+
+    mock_pool = MagicMock()
+    mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+    mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+    return mock_pool, mock_conn
 
 
 # =============================================================================
@@ -145,6 +172,17 @@ class TestResearchWorker:
         assert "ガイド2" in synthesis
         assert "テスト" in synthesis
 
+    @pytest.mark.asyncio
+    async def test_missing_organization_id(self):
+        """organization_idが空の場合はエラーを返す"""
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=None)
+        task = _make_task(organization_id="")
+
+        result = await worker.execute(task)
+
+        assert result["error"] == "missing_organization_id"
+
 
 # =============================================================================
 # ReminderWorker
@@ -158,7 +196,7 @@ class TestReminderWorker:
     async def test_unconfirmed_returns_awaiting(self):
         """未確認の場合はawaiting_confirmationを返す"""
         queue = _make_queue()
-        worker = ReminderWorker(task_queue=queue, send_func=AsyncMock())
+        worker = ReminderWorker(task_queue=queue)
         task = _make_task(
             execution_plan={
                 "message": "テストリマインダー",
@@ -172,11 +210,10 @@ class TestReminderWorker:
         assert result["message_length"] == len("テストリマインダー")
 
     @pytest.mark.asyncio
-    async def test_confirmed_sends_message(self):
-        """確認済みの場合はメッセージを送信"""
-        send_func = AsyncMock()
+    async def test_confirmed_returns_ready(self):
+        """確認済みの場合はreadyステータスを返す（送信はBrain責務）"""
         queue = _make_queue()
-        worker = ReminderWorker(task_queue=queue, send_func=send_func)
+        worker = ReminderWorker(task_queue=queue)
         task = _make_task(
             execution_plan={
                 "message": "リマインダーメッセージ",
@@ -187,39 +224,50 @@ class TestReminderWorker:
 
         result = await worker.execute(task)
 
-        assert result["status"] == "sent"
+        assert result["status"] == "ready"
         assert result["message_length"] == len("リマインダーメッセージ")
-        send_func.assert_called_once_with(
-            room_id="room-456",
-            message="リマインダーメッセージ",
-        )
+        assert result["room_id"] == "room-456"
 
     @pytest.mark.asyncio
-    async def test_send_fails_gracefully(self):
-        """送信失敗時はsend_failedを返す"""
-        send_func = AsyncMock(side_effect=RuntimeError("send error"))
+    async def test_none_message_fallback(self):
+        """messageがNoneの場合、descriptionにフォールバック"""
         queue = _make_queue()
-        worker = ReminderWorker(task_queue=queue, send_func=send_func)
+        worker = ReminderWorker(task_queue=queue)
         task = _make_task(
-            execution_plan={"message": "test", "confirmed": True},
+            description="フォールバックメッセージ",
+            execution_plan={"confirmed": True},
         )
 
         result = await worker.execute(task)
 
-        assert result["status"] == "send_failed"
+        assert result["status"] == "ready"
+        assert result["message_length"] == len("フォールバックメッセージ")
 
     @pytest.mark.asyncio
-    async def test_no_send_func(self):
-        """send_funcが無い場合はsend_failed"""
+    async def test_none_message_and_description(self):
+        """message/descriptionが両方Noneの場合、空文字で安全"""
         queue = _make_queue()
-        worker = ReminderWorker(task_queue=queue, send_func=None)
+        worker = ReminderWorker(task_queue=queue)
         task = _make_task(
-            execution_plan={"message": "test", "confirmed": True},
+            description=None,
+            execution_plan={"confirmed": True},
         )
 
         result = await worker.execute(task)
 
-        assert result["status"] == "send_failed"
+        assert result["status"] == "ready"
+        assert result["message_length"] == 0
+
+    @pytest.mark.asyncio
+    async def test_missing_organization_id(self):
+        """organization_idが空の場合はエラーを返す"""
+        queue = _make_queue()
+        worker = ReminderWorker(task_queue=queue)
+        task = _make_task(organization_id="")
+
+        result = await worker.execute(task)
+
+        assert result["error"] == "missing_organization_id"
 
 
 # =============================================================================
@@ -233,9 +281,8 @@ class TestReportWorker:
     @pytest.mark.asyncio
     async def test_execute_without_pool(self):
         """pool無しの場合、データなしレポート"""
-        send_func = AsyncMock()
         queue = _make_queue()
-        worker = ReportWorker(task_queue=queue, pool=None, send_func=send_func)
+        worker = ReportWorker(task_queue=queue, pool=None)
         task = _make_task(
             execution_plan={"report_type": "daily_summary"},
         )
@@ -245,7 +292,7 @@ class TestReportWorker:
         assert result is not None
         assert result["report_type"] == "daily_summary"
         assert result["data_points"] == 0
-        assert result["sent"] is True
+        assert result["status"] == "ready"
         assert result["report_length"] > 0
 
     @pytest.mark.asyncio
@@ -267,19 +314,18 @@ class TestReportWorker:
         assert "50,000" in report
         assert "1234円" in report
         assert "エラー率: 4.0%" in report
+        assert "日次レポート" in report
 
     @pytest.mark.asyncio
-    async def test_execute_no_send_func(self):
-        """send_funcが無い場合は送信失敗"""
+    async def test_generate_report_weekly(self):
+        """週次レポートのタイトルが正しい"""
         queue = _make_queue()
-        worker = ReportWorker(task_queue=queue, pool=None, send_func=None)
-        task = _make_task(
-            execution_plan={"report_type": "daily_summary"},
-        )
+        worker = ReportWorker(task_queue=queue, pool=None)
 
-        result = await worker.execute(task)
-
-        assert result["sent"] is False
+        data = {"call_count": 10, "total_tokens": 1000, "total_cost": 100,
+                "error_count": 0, "total_decisions": 5}
+        report = worker._generate_report("weekly_summary", data)
+        assert "週次レポート" in report
 
     @pytest.mark.asyncio
     async def test_report_empty_data(self):
@@ -290,37 +336,21 @@ class TestReportWorker:
         report = worker._generate_report("weekly", {})
         assert "データがありません" in report
 
+    @pytest.mark.asyncio
+    async def test_missing_organization_id(self):
+        """organization_idが空の場合はエラーを返す"""
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=None)
+        task = _make_task(organization_id="")
+
+        result = await worker.execute(task)
+
+        assert result["error"] == "missing_organization_id"
+
 
 # =============================================================================
 # ResearchWorker DB経路テスト (A.4)
 # =============================================================================
-
-
-def _make_mock_pool(rows=None, mappings_result=None):
-    """DB接続プールのモックを作成"""
-    mock_result = MagicMock()
-    if mappings_result is not None:
-        mock_result.mappings.return_value.all.return_value = mappings_result
-        mock_result.mappings.return_value.first.return_value = (
-            mappings_result[0] if mappings_result else None
-        )
-    elif rows is not None:
-        mock_result.mappings.return_value.all.return_value = rows
-        mock_result.mappings.return_value.first.return_value = (
-            rows[0] if rows else None
-        )
-    else:
-        mock_result.mappings.return_value.all.return_value = []
-        mock_result.mappings.return_value.first.return_value = None
-
-    mock_conn = MagicMock()
-    mock_conn.execute.return_value = mock_result
-
-    mock_pool = MagicMock()
-    mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
-    mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
-
-    return mock_pool, mock_conn
 
 
 class TestResearchWorkerDB:
@@ -406,8 +436,6 @@ class TestReportWorkerDB:
     @pytest.mark.asyncio
     async def test_collect_data_with_pool(self):
         """DB経由でレポートデータを収集"""
-        # _collect_data は conn.execute を3回呼ぶ（set_config, usage, error）
-        # 各呼び出しごとに異なる結果を返すようモック
         usage_row = {
             "call_count": 42,
             "total_tokens": 10000,
@@ -425,14 +453,11 @@ class TestReportWorkerDB:
             call_count["n"] += 1
             result = MagicMock()
             if call_count["n"] == 1:
-                # set_config
                 return result
             elif call_count["n"] == 2:
-                # usage query
                 result.mappings.return_value.first.return_value = usage_row
                 return result
             else:
-                # error query
                 result.mappings.return_value.first.return_value = error_row
                 return result
 
@@ -472,8 +497,8 @@ class TestReportWorkerDB:
         assert data == {}
 
     @pytest.mark.asyncio
-    async def test_execute_with_pool_and_send(self):
-        """pool+send_func有りでフルパイプライン実行"""
+    async def test_execute_with_pool_returns_ready(self):
+        """pool有りでフルパイプライン実行（送信なし）"""
         usage_row = {
             "call_count": 10,
             "total_tokens": 5000,
@@ -502,17 +527,15 @@ class TestReportWorkerDB:
         mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
-        send_func = AsyncMock()
         queue = _make_queue()
-        worker = ReportWorker(task_queue=queue, pool=mock_pool, send_func=send_func)
+        worker = ReportWorker(task_queue=queue, pool=mock_pool)
         task = _make_task(execution_plan={"report_type": "daily_summary"})
 
         result = await worker.execute(task)
 
-        assert result["sent"] is True
+        assert result["status"] == "ready"
         assert result["data_points"] == 5
         assert result["report_length"] > 0
-        send_func.assert_called_once()
 
 
 # =============================================================================
@@ -536,7 +559,6 @@ class TestIdempotency:
         result = await worker.run(task)
 
         assert result == {"already": "done"}
-        # claim は呼ばれない
         queue.claim.assert_not_called()
 
     @pytest.mark.asyncio

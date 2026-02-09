@@ -121,6 +121,10 @@ class ZoomBrainInterface:
                     data={},
                 )
 
+            # Extract source meeting ID (null-safe: id=None → "")
+            raw_id = recording_data.get("id")
+            source_mid = str(raw_id) if raw_id else ""
+
             # Step 2: Find and download VTT transcript
             transcript_url = await asyncio.to_thread(
                 zoom_client.find_transcript_url,
@@ -130,7 +134,7 @@ class ZoomBrainInterface:
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
-                    data={"zoom_meeting_id": str(recording_data.get("id", ""))},
+                    data={"zoom_meeting_id": source_mid},
                 )
 
             vtt_content = await asyncio.to_thread(
@@ -141,7 +145,7 @@ class ZoomBrainInterface:
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
-                    data={"zoom_meeting_id": str(recording_data.get("id", ""))},
+                    data={"zoom_meeting_id": source_mid},
                 )
 
             # Step 3: Parse VTT
@@ -166,7 +170,6 @@ class ZoomBrainInterface:
             )
 
             # Step 6: Dedup check + DB save
-            source_mid = str(recording_data.get("id", ""))
             if source_mid:
                 existing = await asyncio.to_thread(
                     self.db.find_meeting_by_source_id,
@@ -204,6 +207,8 @@ class ZoomBrainInterface:
             )
             meeting_id = meeting["id"]
 
+            # raw_transcript: retention_managerが90日後にNULL化（PII保護）。
+            # sanitized_transcriptがLLM・表示用。meeting_brain_interface.pyと同設計。
             await asyncio.to_thread(
                 self.db.save_transcript,
                 meeting_id=meeting_id,
@@ -240,7 +245,7 @@ class ZoomBrainInterface:
                 "meeting_id": meeting_id,
                 "status": "transcribed",
                 "title": resolved_title,
-                "zoom_meeting_id": str(recording_data.get("id", "")),
+                "zoom_meeting_id": source_mid,
                 "speakers": vtt_transcript.speakers,
                 "speakers_detected": len(vtt_transcript.speakers),
                 "duration_seconds": vtt_transcript.duration_seconds,

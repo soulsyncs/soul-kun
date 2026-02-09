@@ -351,6 +351,88 @@ class TestProcessZoomMinutes:
         assert result.data["minutes"]["summary"] == "Async生成の要約"
 
 
+    @pytest.mark.asyncio
+    async def test_recording_id_none_safe(self):
+        """recording_data with id=None should not produce 'None' string."""
+        # Custom mock_pool: no dedup call (source_mid=""), so skip dedup result
+        pool = MagicMock()
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+
+        create_result = MagicMock()
+        create_result.mappings.return_value.fetchone.return_value = {
+            "id": "new-meeting-id",
+            "status": "pending",
+        }
+        save_result = MagicMock()
+        save_result.mappings.return_value.fetchone.return_value = {"id": "t1"}
+        update_result = MagicMock()
+        update_result.rowcount = 1
+
+        conn.execute = MagicMock(
+            side_effect=[create_result, save_result, update_result]
+        )
+        conn.commit = MagicMock()
+        pool.connect.return_value = conn
+
+        client = MagicMock()
+        client.list_recordings.return_value = [
+            {
+                "id": None,
+                "topic": "No ID Meeting",
+                "start_time": "2026-02-09T10:00:00Z",
+                "recording_files": [
+                    {"file_type": "TRANSCRIPT", "download_url": "https://zoom.us/vtt"},
+                ],
+            }
+        ]
+        client.find_transcript_url.return_value = "https://zoom.us/vtt"
+        client.download_transcript.return_value = """WEBVTT
+
+00:00:01.000 --> 00:00:05.000
+Speaker: test
+"""
+
+        interface = ZoomBrainInterface(
+            pool, "org_test", zoom_client=client
+        )
+        result = await interface.process_zoom_minutes(
+            room_id="room_123",
+            account_id="user_456",
+        )
+        assert result.success is True
+        # source_mid should be "" not "None"
+        assert result.data.get("zoom_meeting_id") == ""
+
+    @pytest.mark.asyncio
+    async def test_find_recording_fallback_no_transcript(self, mock_pool):
+        """_find_recording returns latest meeting even without transcript file."""
+        client = MagicMock()
+        client.list_recordings.return_value = [
+            {
+                "id": "m1",
+                "topic": "No Transcript",
+                "start_time": "2026-02-09T10:00:00Z",
+                "recording_files": [
+                    {"file_type": "MP4", "download_url": "https://zoom.us/mp4"},
+                ],
+            }
+        ]
+        client.find_transcript_url.return_value = None
+
+        interface = ZoomBrainInterface(
+            mock_pool, "org_test", zoom_client=client
+        )
+        result = await interface.process_zoom_minutes(
+            room_id="room_123",
+            account_id="user_456",
+        )
+        # Falls back to latest meeting, but transcript_url is None → "not ready"
+        assert result.success is False
+        assert "準備中" in result.message
+
+
 class TestParseZoomDatetime:
     def test_valid_iso_with_z(self):
         dt = _parse_zoom_datetime("2026-02-09T10:00:00Z")

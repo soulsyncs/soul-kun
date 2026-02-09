@@ -24,6 +24,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TOKEN_TTL_SECONDS = 55 * 60  # 55分（実際は1時間有効、5分マージン）
+# Zoom公式のwell-known OAuth/APIエンドポイント（デプロイ環境非依存）
 ZOOM_OAUTH_URL = "https://zoom.us/oauth/token"
 ZOOM_API_BASE = "https://api.zoom.us/v2"
 

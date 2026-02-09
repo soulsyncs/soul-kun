@@ -410,6 +410,91 @@ class MeetingDB:
             return result.rowcount
 
 
+    def find_meeting_by_source_id(
+        self,
+        source: str,
+        source_meeting_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """source_meeting_idで既存会議を検索する（重複チェック用）"""
+        if not source_meeting_id:
+            return None
+        with self.pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, title, status, source, source_meeting_id,
+                           created_at
+                    FROM meetings
+                    WHERE organization_id = :org_id
+                      AND source = :source
+                      AND source_meeting_id = :source_mid
+                      AND deleted_at IS NULL
+                    LIMIT 1
+                """),
+                {
+                    "org_id": self.organization_id,
+                    "source": source,
+                    "source_mid": source_meeting_id,
+                },
+            )
+            row = result.mappings().fetchone()
+            return dict(row) if row else None
+
+    def get_recent_meetings_by_source(
+        self,
+        source: str,
+        limit: int = 5,
+        days: int = 30,
+    ) -> List[Dict[str, Any]]:
+        """指定ソースの直近の会議を取得する"""
+        limit = min(limit, 100)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        with self.pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, title, meeting_type, meeting_date,
+                           status, source, source_meeting_id,
+                           brain_approved, created_by, room_id, created_at
+                    FROM meetings
+                    WHERE organization_id = :org_id
+                      AND source = :source
+                      AND created_at >= :cutoff
+                      AND deleted_at IS NULL
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                """),
+                {
+                    "org_id": self.organization_id,
+                    "source": source,
+                    "cutoff": cutoff,
+                    "limit": limit,
+                },
+            )
+            return [dict(row) for row in result.mappings().fetchall()]
+
+    def get_transcript_for_meeting(
+        self, meeting_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """会議のトランスクリプトを取得する"""
+        with self.pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, meeting_id, sanitized_transcript,
+                           segments_json, speakers_json,
+                           detected_language, word_count, confidence,
+                           created_at
+                    FROM meeting_transcripts
+                    WHERE organization_id = :org_id
+                      AND meeting_id = :meeting_id
+                      AND is_deleted = FALSE
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                """),
+                {"org_id": self.organization_id, "meeting_id": meeting_id},
+            )
+            row = result.mappings().fetchone()
+            return dict(row) if row else None
+
+
 def _json_str(obj: Any) -> Optional[str]:
     """JSONBカラム用にオブジェクトを文字列化する"""
     if obj is None:

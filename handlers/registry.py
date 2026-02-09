@@ -1300,6 +1300,59 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 4,
         },
     },
+
+    # =========================================================================
+    # Zoom議事録（Phase C Case C）
+    # =========================================================================
+    "zoom_meeting_minutes": {
+        "name": "Zoom議事録作成",
+        "description": "Zoomミーティングの録画から議事録を自動生成する。Zoomのクラウド録画と自動文字起こし機能を利用し、LLMで構造化された議事録（概要、議題、決定事項、アクションアイテム）を作成する。",
+        "category": "meeting",
+        "enabled": True,
+        "trigger_examples": [
+            "さっきのZoomミーティングの議事録まとめて",
+            "Zoom会議の議事録を作成して",
+            "Zoomの文字起こしから議事録にして",
+            "今日のZoomの会議メモ作って",
+            "Zoomミーティングの要約をお願い",
+        ],
+        "params_schema": {
+            "meeting_title": {
+                "type": "string",
+                "description": "会議タイトル（省略時はZoomの会議名を使用）",
+                "required": False,
+            },
+            "zoom_meeting_id": {
+                "type": "string",
+                "description": "ZoomミーティングID（省略時は直近のミーティングを自動検索）",
+                "required": False,
+            },
+            "zoom_user_email": {
+                "type": "string",
+                "description": "ZoomユーザーEmail（省略時はデフォルトユーザー）",
+                "required": False,
+            },
+        },
+        "handler": "zoom_meeting_minutes",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "room_id"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["Zoom議事録", "Zoomの議事録", "Zoom会議のまとめ", "Zoomの文字起こし"],
+                "secondary": ["Zoom", "ズーム", "zoom", "オンライン会議の議事録"],
+                "negative": ["タスク", "目標", "ナレッジ", "録音", "音声ファイル"],
+            },
+            "intent_keywords": {
+                "primary": ["Zoom議事録", "Zoom会議まとめ", "Zoomミーティング議事録"],
+                "secondary": ["Zoom", "ズーム", "ビデオ会議", "オンライン会議"],
+                "modifiers": ["まとめて", "作成", "作って", "お願い", "生成"],
+                "negative": ["音声ファイル", "録音アップロード"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 4,
+        },
+    },
 }
 
 
@@ -1336,6 +1389,7 @@ HANDLER_ALIASES: Dict[str, str] = {
     "handle_announcement_request": "announcement_create",
     "handle_general_chat": "general_conversation",
     "handle_api_limitation": "api_limitation",
+    "handle_zoom_meeting_minutes": "zoom_meeting_minutes",
 }
 
 

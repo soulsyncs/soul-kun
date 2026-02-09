@@ -74,6 +74,9 @@ DEFAULT_FEATURE_FLAGS = {
 
     # Meeting Transcription (Phase C)
     "ENABLE_MEETING_TRANSCRIPTION": False,  # Phase C MVP0: フィーチャーフラグで段階有効化
+
+    # Zoom Meeting Minutes (Phase C Case C)
+    "ENABLE_ZOOM_MEETING_MINUTES": False,  # Phase C Case C: フィーチャーフラグで段階有効化
 }
 
 
@@ -370,6 +373,10 @@ class CapabilityBridge:
         # Meeting Transcription (Phase C MVP0)
         if self.feature_flags.get("ENABLE_MEETING_TRANSCRIPTION", False):
             handlers["meeting_transcription"] = self._handle_meeting_transcription
+
+        # Zoom Meeting Minutes (Phase C Case C)
+        if self.feature_flags.get("ENABLE_ZOOM_MEETING_MINUTES", False):
+            handlers["zoom_meeting_minutes"] = self._handle_zoom_meeting_minutes
 
         # Connection Query（v10.44.0: DM可能な相手一覧）
         # Feature Flag不要（常に有効）
@@ -1257,6 +1264,31 @@ class CapabilityBridge:
         from handlers.meeting_handler import handle_meeting_upload
 
         return await handle_meeting_upload(
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            pool=self.pool,
+            organization_id=self.org_id,
+            **kwargs,
+        )
+
+    # =========================================================================
+    # Zoom Meeting Minutes（Phase C Case C）
+    # =========================================================================
+
+    async def _handle_zoom_meeting_minutes(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> "HandlerResult":
+        """Zoom議事録ハンドラー — ZoomBrainInterfaceに委譲"""
+        from handlers.zoom_meeting_handler import handle_zoom_meeting_minutes
+
+        return await handle_zoom_meeting_minutes(
             room_id=room_id,
             account_id=account_id,
             sender_name=sender_name,

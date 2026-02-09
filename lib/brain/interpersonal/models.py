@@ -11,7 +11,7 @@ PII保護: メッセージ本文・個人名は保存しない。
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -61,7 +61,7 @@ class CommunicationProfile:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -114,7 +114,7 @@ class MotivationProfile:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -160,7 +160,7 @@ class FeedbackOpportunity:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -209,7 +209,7 @@ class ConflictLog:
         if self.id is None:
             self.id = str(uuid4())
         if self.detected_at is None:
-            self.detected_at = datetime.now()
+            self.detected_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

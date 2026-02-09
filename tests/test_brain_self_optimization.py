@@ -27,8 +27,8 @@ from lib.brain.self_optimization import (
     # Enums
     MetricType,
     ProposalStatus,
-    TestStatus,
-    TestOutcome,
+    ABTestStatus,
+    ABTestOutcome,
     DeploymentStatus,
     # Constants
     METRIC_SCORE_DEFAULT,
@@ -102,7 +102,7 @@ def sample_ab_test():
         variant_b_score=0.82,
         variant_a_samples=100,
         variant_b_samples=100,
-        status=TestStatus.RUNNING,
+        status=ABTestStatus.RUNNING,
     )
 
 
@@ -266,12 +266,12 @@ class TestExperimentRunner:
     def test_analyze_results_insufficient_data(self, runner):
         test = ABTest(variant_a_samples=10, variant_b_samples=5)
         result = runner.analyze_results(test)
-        assert result["outcome"] == TestOutcome.INCONCLUSIVE.value
+        assert result["outcome"] == ABTestOutcome.INCONCLUSIVE.value
         assert result["ready"] is False
 
     def test_analyze_results_variant_b_wins(self, runner, sample_ab_test):
         result = runner.analyze_results(sample_ab_test)
-        assert result["outcome"] == TestOutcome.VARIANT_B_WINS.value
+        assert result["outcome"] == ABTestOutcome.VARIANT_B_WINS.value
         assert result["confidence"] > 0
 
     def test_analyze_results_no_difference(self, runner):
@@ -280,7 +280,7 @@ class TestExperimentRunner:
             variant_a_samples=100, variant_b_samples=100,
         )
         result = runner.analyze_results(test)
-        assert result["outcome"] == TestOutcome.NO_DIFFERENCE.value
+        assert result["outcome"] == ABTestOutcome.NO_DIFFERENCE.value
 
     def test_analyze_results_variant_a_wins(self, runner):
         test = ABTest(
@@ -288,7 +288,7 @@ class TestExperimentRunner:
             variant_a_samples=100, variant_b_samples=100,
         )
         result = runner.analyze_results(test)
-        assert result["outcome"] == TestOutcome.VARIANT_A_WINS.value
+        assert result["outcome"] == ABTestOutcome.VARIANT_A_WINS.value
 
 
 # =============================================================================
@@ -347,7 +347,7 @@ class TestModels:
 
     def test_ab_test_defaults(self):
         t = ABTest()
-        assert t.status == TestStatus.CREATED
+        assert t.status == ABTestStatus.CREATED
         assert t.traffic_split == 0.5
 
     def test_ab_test_to_dict(self):
@@ -367,8 +367,8 @@ class TestModels:
     def test_all_enum_values(self):
         assert len(MetricType) == 6
         assert len(ProposalStatus) == 7
-        assert len(TestStatus) == 5
-        assert len(TestOutcome) == 4
+        assert len(ABTestStatus) == 5
+        assert len(ABTestOutcome) == 4
         assert len(DeploymentStatus) == 5
 
 
@@ -600,7 +600,7 @@ class TestExperimentRunnerDB:
     @pytest.mark.asyncio
     async def test_complete_test_success(self, runner, mock_conn):
         result = await runner.complete_test(
-            mock_conn, "uuid-1", TestOutcome.VARIANT_B_WINS, 0.95,
+            mock_conn, "uuid-1", ABTestOutcome.VARIANT_B_WINS, 0.95,
         )
         assert result.success is True
 
@@ -642,6 +642,13 @@ class TestAutoDeployerDB:
     async def test_promote_to_full_success(self, deployer, mock_conn):
         result = await deployer.promote_to_full(mock_conn, "deploy-1", post_deploy_score=0.8)
         assert result.success is True
+
+    @pytest.mark.asyncio
+    async def test_promote_to_full_not_found(self, deployer, mock_conn):
+        mock_conn.execute.return_value.rowcount = 0
+        result = await deployer.promote_to_full(mock_conn, "nonexistent-id")
+        assert result.success is False
+        assert "not found" in result.message.lower()
 
     @pytest.mark.asyncio
     async def test_promote_to_full_db_error(self, deployer, mock_conn):

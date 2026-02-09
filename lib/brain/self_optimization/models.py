@@ -9,7 +9,7 @@ PII保護: メトリクスは集計値のみ。個人のメッセージ本文・
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -18,8 +18,8 @@ from .constants import (
     MetricType,
     METRIC_SCORE_DEFAULT,
     ProposalStatus,
-    TestOutcome,
-    TestStatus,
+    ABTestOutcome,
+    ABTestStatus,
 )
 
 
@@ -54,7 +54,7 @@ class PerformanceMetric:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -106,7 +106,7 @@ class ImprovementProposal:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -149,14 +149,14 @@ class ABTest:
     traffic_split: float = 0.5  # variant_bの割合
 
     # ステータス
-    status: TestStatus = TestStatus.CREATED
+    status: ABTestStatus = ABTestStatus.CREATED
 
     # 結果
     variant_a_score: Optional[float] = None
     variant_b_score: Optional[float] = None
     variant_a_samples: int = 0
     variant_b_samples: int = 0
-    outcome: Optional[TestOutcome] = None
+    outcome: Optional[ABTestOutcome] = None
     confidence: Optional[float] = None
 
     # タイムスタンプ
@@ -168,7 +168,7 @@ class ABTest:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -180,12 +180,12 @@ class ABTest:
             "variant_a_description": self.variant_a_description,
             "variant_b_description": self.variant_b_description,
             "traffic_split": self.traffic_split,
-            "status": self.status.value if isinstance(self.status, TestStatus) else self.status,
+            "status": self.status.value if isinstance(self.status, ABTestStatus) else self.status,
             "variant_a_score": self.variant_a_score,
             "variant_b_score": self.variant_b_score,
             "variant_a_samples": self.variant_a_samples,
             "variant_b_samples": self.variant_b_samples,
-            "outcome": self.outcome.value if isinstance(self.outcome, TestOutcome) else self.outcome,
+            "outcome": self.outcome.value if isinstance(self.outcome, ABTestOutcome) else self.outcome,
             "confidence": self.confidence,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": self.completed_at.isoformat() if self.completed_at else None,
@@ -226,7 +226,7 @@ class DeploymentLog:
         if self.id is None:
             self.id = str(uuid4())
         if self.created_at is None:
-            self.created_at = datetime.now()
+            self.created_at = datetime.now(timezone.utc)
 
     def to_dict(self) -> Dict[str, Any]:
         return {

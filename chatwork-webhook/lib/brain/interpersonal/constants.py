@@ -7,7 +7,6 @@ Phase 2M: 対人力強化（Interpersonal Skills）- 定数定義
 """
 
 from enum import Enum
-from typing import Dict, Set
 
 
 # ============================================================================

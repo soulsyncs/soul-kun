@@ -16,8 +16,8 @@ from .constants import (
     AB_TEST_MIN_SAMPLE_SIZE,
     TABLE_BRAIN_AB_TESTS,
     MetricType,
-    TestOutcome,
-    TestStatus,
+    ABTestOutcome,
+    ABTestStatus,
 )
 from .models import ABTest, OptimizationResult
 
@@ -71,7 +71,7 @@ class ExperimentRunner:
                     "variant_a": variant_a_desc,
                     "variant_b": variant_b_desc,
                     "split": traffic_split,
-                    "status": TestStatus.RUNNING.value,
+                    "status": ABTestStatus.RUNNING.value,
                     "proposal_id": proposal_id,
                 },
             )
@@ -112,12 +112,12 @@ class ExperimentRunner:
                     variant_a_description=row[5] or "control",
                     variant_b_description=row[6] or "treatment",
                     traffic_split=float(row[7]) if row[7] else 0.5,
-                    status=TestStatus(row[8]) if row[8] else TestStatus.CREATED,
+                    status=ABTestStatus(row[8]) if row[8] else ABTestStatus.CREATED,
                     variant_a_score=float(row[9]) if row[9] else None,
                     variant_b_score=float(row[10]) if row[10] else None,
                     variant_a_samples=row[11] or 0,
                     variant_b_samples=row[12] or 0,
-                    outcome=TestOutcome(row[13]) if row[13] else None,
+                    outcome=ABTestOutcome(row[13]) if row[13] else None,
                     confidence=float(row[14]) if row[14] else None,
                     started_at=row[15],
                     completed_at=row[16],
@@ -181,7 +181,7 @@ class ExperimentRunner:
         """
         if test.variant_a_samples < AB_TEST_MIN_SAMPLE_SIZE or test.variant_b_samples < AB_TEST_MIN_SAMPLE_SIZE:
             return {
-                "outcome": TestOutcome.INCONCLUSIVE.value,
+                "outcome": ABTestOutcome.INCONCLUSIVE.value,
                 "confidence": 0.0,
                 "ready": False,
                 "reason": f"Insufficient samples (A={test.variant_a_samples}, B={test.variant_b_samples}, min={AB_TEST_MIN_SAMPLE_SIZE})",
@@ -196,11 +196,11 @@ class ExperimentRunner:
         confidence = min(0.99, 1.0 - 1.0 / math.sqrt(max(1, total_samples)))
 
         if abs(diff) < 0.02:
-            outcome = TestOutcome.NO_DIFFERENCE
+            outcome = ABTestOutcome.NO_DIFFERENCE
         elif diff > 0:
-            outcome = TestOutcome.VARIANT_B_WINS
+            outcome = ABTestOutcome.VARIANT_B_WINS
         else:
-            outcome = TestOutcome.VARIANT_A_WINS
+            outcome = ABTestOutcome.VARIANT_A_WINS
 
         ready = confidence >= AB_TEST_CONFIDENCE_LEVEL
 
@@ -218,7 +218,7 @@ class ExperimentRunner:
         self,
         conn: Any,
         test_id: str,
-        outcome: TestOutcome,
+        outcome: ABTestOutcome,
         confidence: float,
     ) -> OptimizationResult:
         """テストを完了状態に更新"""
@@ -234,7 +234,7 @@ class ExperimentRunner:
                 {
                     "org_id": self.organization_id,
                     "test_id": test_id,
-                    "status": TestStatus.COMPLETED.value,
+                    "status": ABTestStatus.COMPLETED.value,
                     "outcome": outcome.value,
                     "confidence": confidence,
                 },
@@ -261,7 +261,7 @@ class ExperimentRunner:
                 {
                     "org_id": self.organization_id,
                     "test_id": test_id,
-                    "status": TestStatus.PAUSED.value,
+                    "status": ABTestStatus.PAUSED.value,
                 },
             )
             logger.info("Test %s paused (safety measure)", test_id)

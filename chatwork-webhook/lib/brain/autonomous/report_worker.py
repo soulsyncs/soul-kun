@@ -39,7 +39,7 @@ class ReportWorker(BaseWorker):
             return {"error": "missing_organization_id"}
 
         plan = task.execution_plan or {}
-        report_type = plan.get("report_type", "daily_summary")
+        report_type = plan.get("report_type") or "daily_summary"
         room_id = plan.get("room_id", task.room_id)
 
         task.total_steps = 2

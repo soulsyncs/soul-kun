@@ -349,6 +349,18 @@ class TestReportWorker:
 
         assert result["error"] == "missing_organization_id"
 
+    @pytest.mark.asyncio
+    async def test_report_type_none_defaults_to_daily(self):
+        """report_typeが明示的にNoneの場合、daily_summaryにフォールバック"""
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=None)
+        task = _make_task(execution_plan={"report_type": None})
+
+        result = await worker.execute(task)
+
+        assert result["report_type"] == "daily_summary"
+        assert "daily_summary" in result["report_text"]  # データなし時はreport_typeがタイトルに
+
 
 # =============================================================================
 # ResearchWorker DB経路テスト (A.4)

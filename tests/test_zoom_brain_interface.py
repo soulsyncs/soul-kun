@@ -208,6 +208,23 @@ class TestProcessZoomMinutes:
         )
 
     @pytest.mark.asyncio
+    async def test_specific_meeting_id_api_error(self, mock_pool):
+        """zoom_meeting_id指定時にAPI例外→None返却→「見つからなかった」"""
+        client = MagicMock()
+        client.get_meeting_recordings.side_effect = Exception("Zoom 404")
+
+        interface = ZoomBrainInterface(
+            mock_pool, "org_test", zoom_client=client
+        )
+        result = await interface.process_zoom_minutes(
+            room_id="room_123",
+            account_id="user_456",
+            zoom_meeting_id="nonexistent-meeting",
+        )
+        assert result.success is False
+        assert "見つからなかった" in result.message
+
+    @pytest.mark.asyncio
     async def test_api_error_returns_handler_result(self, mock_pool):
         client = MagicMock()
         # list_recordings returns empty (simulating catch in _find_recording)

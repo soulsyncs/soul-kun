@@ -141,6 +141,62 @@ def _bypass_handle_announcement(room_id, account_id, sender_name, message, conte
         return None
 
 
+async def _bypass_handle_meeting_audio(message, room_id, account_id, sender_name, context):
+    """
+    会議音声ファイルの文字起こしバイパスハンドラー
+
+    Phase C: ChatWork [download:FILE_ID] → 音声ダウンロード → 文字起こし
+    音声バイナリはbypass_contextに前処理済みで格納されている。
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        audio_data = context.get("meeting_audio_data")
+        audio_filename = context.get("meeting_audio_filename", "audio.mp3")
+
+        if not audio_data:
+            return None  # 音声データなし → 通常処理へフォールスルー
+
+        import sys
+        main = sys.modules.get("main")
+        if not main:
+            logger.warning("[bypass] main module not found for meeting audio")
+            return None
+
+        _get_capability_bridge = getattr(main, "_get_capability_bridge", None)
+        if not _get_capability_bridge:
+            return None
+
+        bridge = _get_capability_bridge()
+        if not bridge:
+            return None
+
+        result = await bridge._handle_meeting_transcription(
+            room_id=str(room_id),
+            account_id=str(account_id),
+            sender_name=sender_name,
+            params={
+                "audio_data": audio_data,
+                "meeting_title": audio_filename,
+            },
+        )
+
+        if result and result.success:
+            logger.info("Meeting transcription completed via bypass")
+            return result.message
+
+        logger.warning(
+            "Meeting transcription failed: success=%s",
+            getattr(result, "success", None),
+        )
+        return getattr(result, "message", None)
+
+    except Exception as e:
+        logger.error("Meeting audio bypass error: %s", type(e).__name__)
+        return None
+
+
 def build_bypass_handlers() -> Dict[str, Callable]:
     """
     バイパスハンドラーのマッピングを構築
@@ -156,6 +212,7 @@ def build_bypass_handlers() -> Dict[str, Callable]:
         # v10.39.3: goal_session バイパスを削除（脳が意図理解してからハンドラーを呼ぶ）
         # "goal_session": _bypass_handle_goal_session,
         "announcement_pending": _bypass_handle_announcement,
+        "meeting_audio": _bypass_handle_meeting_audio,
         # "task_pending" と "local_command" は既存の脳内処理で対応可能
     }
 

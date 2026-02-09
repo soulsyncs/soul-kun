@@ -1009,6 +1009,65 @@ def _get_brain_integration():
 
 
 # =====================================================
+# Phase C: 音声ファイル検出・ダウンロード（前処理）
+# =====================================================
+
+# 音声ファイルの拡張子リスト
+_AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "webm", "mp4", "mpeg", "mpga"}
+
+
+def _download_meeting_audio(body, room_id):
+    """
+    メッセージ本文から音声ファイルを検出し、ダウンロードする（前処理のみ）。
+
+    ChatWork webhook の body に含まれる [download:FILE_ID] タグを検出し、
+    音声ファイルであればダウンロードしてバイナリデータを返す。
+    文字起こし処理はBrainIntegrationのバイパス機構で実行される（CLAUDE.md §1準拠）。
+
+    Args:
+        body: ChatWorkメッセージ本文（raw）
+        room_id: ルームID
+
+    Returns:
+        (audio_data, filename): 音声バイナリとファイル名（成功時）
+        (None, None): 音声ファイルでない or 機能無効 or 失敗時
+    """
+    import re
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # 機能フラグ確認
+    if os.environ.get("ENABLE_MEETING_TRANSCRIPTION", "false").lower() != "true":
+        return None, None
+
+    # [download:FILE_ID] タグを検出
+    file_ids = re.findall(r'\[download:(\d+)\]', body)
+    if not file_ids:
+        return None, None
+
+    # ChatWork APIでファイルダウンロード + 音声判定
+    from infra.chatwork_api import download_chatwork_file
+
+    for file_id in file_ids:
+        # ダウンロード（ファイル情報取得 + バイナリ取得を1回のAPI呼び出しで）
+        audio_data, filename = download_chatwork_file(room_id, file_id)
+        if not audio_data or not filename:
+            continue
+
+        # 拡張子チェック
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in _AUDIO_EXTENSIONS:
+            continue
+
+        # 音声ファイル発見
+        logger.info("Audio file detected: file_id=%s, ext=%s", file_id, ext)
+        return audio_data, filename
+
+    # 音声ファイルなし
+    return None, None
+
+
+# =====================================================
 # v10.29.0: バイパスコンテキスト構築
 # =====================================================
 def _build_bypass_context(room_id: str, account_id: str) -> dict:
@@ -1782,6 +1841,16 @@ def chatwork_webhook(request):
                 # バイパスコンテキストとハンドラーを構築
                 bypass_context = _build_bypass_context(room_id, sender_account_id)
                 bypass_handlers = build_bypass_handlers()
+
+                # Phase C: 音声ファイル前処理（CLAUDE.md §1準拠）
+                # Brain LLMはバイナリデータを扱えないため、
+                # 音声ダウンロードはシステムレベルの前処理として実行し、
+                # 結果をbypass_contextに格納してBrainIntegration経由で処理する。
+                audio_data, audio_filename = _download_meeting_audio(body, room_id)
+                if audio_data:
+                    bypass_context["has_meeting_audio"] = True
+                    bypass_context["meeting_audio_data"] = audio_data
+                    bypass_context["meeting_audio_filename"] = audio_filename
 
                 # BrainIntegration経由で処理（フォールバックなし）
                 import asyncio

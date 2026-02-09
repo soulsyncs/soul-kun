@@ -704,3 +704,88 @@ def sync_room_members():
     except Exception as e:
         print(f"Error in sync_room_members: {e}")
         traceback.print_exc()
+
+
+# =====================================================
+# Phase C: ファイルダウンロード（会議文字起こし用）
+# =====================================================
+
+MAX_AUDIO_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+def download_chatwork_file(room_id, file_id):
+    """ChatWork APIからファイルをダウンロードする。
+
+    1. GET /rooms/{room_id}/files/{file_id}?create_download_url=1 でダウンロードURL取得
+    2. ファイルサイズ確認（100MB上限）
+    3. ダウンロードURLからファイル取得（30秒有効）
+
+    Args:
+        room_id: ChatWorkルームID
+        file_id: ChatWorkファイルID
+
+    Returns:
+        (file_bytes, filename) or (None, None) on failure
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    if not api_token:
+        logger.warning("CHATWORK_API_TOKEN not available for file download")
+        return None, None
+
+    try:
+        # Step 1: ファイル情報 + ダウンロードURL取得
+        response, success = call_chatwork_api_with_retry(
+            method="GET",
+            url=f"https://api.chatwork.com/v2/rooms/{room_id}/files/{file_id}",
+            headers={"X-ChatWorkToken": api_token},
+            params={"create_download_url": "1"},
+            timeout=15.0,
+        )
+
+        if not success or not response or response.status_code != 200:
+            logger.warning(
+                "Failed to get file info: file_id=%s, status=%s",
+                file_id, getattr(response, "status_code", None),
+            )
+            return None, None
+
+        file_info = response.json()
+        filename = file_info.get("filename", "")
+        download_url = file_info.get("download_url", "")
+
+        if not download_url:
+            logger.warning("No download_url in response: file_id=%s", file_id)
+            return None, None
+
+        # Step 2: ファイルサイズ確認（OOM防止）
+        file_size = file_info.get("filesize", 0)
+        if file_size > MAX_AUDIO_FILE_SIZE:
+            logger.warning(
+                "File too large: file_id=%s, size=%d, max=%d",
+                file_id, file_size, MAX_AUDIO_FILE_SIZE,
+            )
+            return None, None
+
+        # Step 3: ダウンロードURLからファイル取得（30秒有効）
+        with httpx.Client(timeout=60.0) as client:
+            dl_response = client.get(download_url)
+
+        if dl_response.status_code != 200:
+            logger.warning(
+                "File download failed: file_id=%s, status=%s",
+                file_id, dl_response.status_code,
+            )
+            return None, None
+
+        logger.info(
+            "File downloaded: file_id=%s, size=%d",
+            file_id, len(dl_response.content),
+        )
+        return dl_response.content, filename
+
+    except Exception as e:
+        logger.warning("File download error: file_id=%s, error=%s", file_id, type(e).__name__)
+        return None, None

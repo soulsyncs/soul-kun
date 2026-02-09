@@ -566,7 +566,7 @@ class LearningLoop:
                                 WHERE id = :id
                                   AND organization_id = :org_id::uuid
                             """),
-                            {"id": decision_id, "org_id": self.org_id},
+                            {"id": decision_id, "org_id": self.organization_id},
                         )
                         return result.mappings().first()
 
@@ -1340,26 +1340,33 @@ class LearningLoop:
 
                 def _sync_flush():
                     with self.pool.connect() as conn:
-                        for entry in entries:
+                        # バッチINSERT（100件チャンク）
+                        for i in range(0, len(entries), 100):
+                            chunk = entries[i:i + 100]
+                            values_clauses = []
+                            params = {}
+                            for j, entry in enumerate(chunk):
+                                key = f"_{j}"
+                                values_clauses.append(
+                                    f"(:org_id{key}, :type{key}, :category{key},"
+                                    f" :prev_score{key}, :curr_score{key},"
+                                    f" :trigger{key}, NOW())"
+                                )
+                                params[f"org_id{key}"] = self.organization_id
+                                params[f"type{key}"] = getattr(entry, "improvement_type", "unknown")
+                                params[f"category{key}"] = getattr(entry, "category", "learning")
+                                params[f"prev_score{key}"] = 0.0
+                                params[f"curr_score{key}"] = 0.0
+                                params[f"trigger{key}"] = getattr(entry, "trigger_event", "")
                             conn.execute(
-                                sa_text("""
-                                    INSERT INTO brain_improvement_logs
-                                        (organization_id, improvement_type,
-                                         category, previous_score, current_score,
-                                         trigger_event, recorded_at)
-                                    VALUES
-                                        (:org_id, :type, :category,
-                                         :prev_score, :curr_score,
-                                         :trigger, NOW())
-                                """),
-                                {
-                                    "org_id": self.org_id,
-                                    "type": getattr(entry, "improvement_type", "unknown"),
-                                    "category": getattr(entry, "category", "learning"),
-                                    "prev_score": 0.0,
-                                    "curr_score": 0.0,
-                                    "trigger": getattr(entry, "trigger_event", ""),
-                                },
+                                sa_text(
+                                    "INSERT INTO brain_improvement_logs"
+                                    " (organization_id, improvement_type,"
+                                    " category, previous_score, current_score,"
+                                    " trigger_event, recorded_at)"
+                                    " VALUES " + ", ".join(values_clauses)
+                                ),
+                                params,
                             )
                         conn.commit()
 

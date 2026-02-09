@@ -72,9 +72,8 @@ class ResearchWorker(BaseWorker):
         """
         ナレッジベースを検索
 
-        NOTE: soulkun_knowledge.organization_id は VARCHAR(slug)、
-        autonomous_tasks.organization_id は UUID。
-        呼び出し元が適切なorg_idを渡す責務を持つ。
+        documents + document_chunks（UUID org_id）を使用。
+        soulkun_knowledge は VARCHAR/slug の org_id のため使用しない。
         """
         if not self.pool:
             return []
@@ -91,10 +90,11 @@ class ResearchWorker(BaseWorker):
                     )
                     rows = conn.execute(
                         text("""
-                            SELECT title, content
-                            FROM soulkun_knowledge
-                            WHERE organization_id = :org_id::text
-                            ORDER BY updated_at DESC
+                            SELECT d.title, dc.content
+                            FROM document_chunks dc
+                            JOIN documents d ON d.id = dc.document_id
+                            WHERE d.organization_id = :org_id::uuid
+                            ORDER BY d.updated_at DESC
                             LIMIT :limit
                         """),
                         {"org_id": organization_id, "limit": max_results},

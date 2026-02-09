@@ -29,26 +29,20 @@ def interface(mock_pool):
 class TestProcessMeetingUpload:
     @pytest.mark.asyncio
     async def test_success_flow(self, interface):
-        """正常フロー: 会議作成→文字起こし→PII除去→DB保存"""
+        """正常フロー: 会議作成→GCSアップロード→文字起こし→PII除去→DB保存"""
         interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
         interface.db.update_meeting_status = MagicMock(return_value=True)
         interface.db.save_transcript = MagicMock()
+        interface.db.save_recording = MagicMock()
 
-        mock_result = MagicMock()
-        mock_result.transcript = "田中さんが電話090-1234-5678で連絡しました"
-        mock_result.segments = None
-        mock_result.speakers = None
-        mock_result.speakers_detected = 2
-        mock_result.detected_language = "ja"
-        mock_result.audio_duration_seconds = 3600
-        mock_result.confidence = 0.95
-
-        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe:
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
             mock_transcribe.return_value = (
                 "田中さんが電話090-1234-5678で連絡しました",
                 {"segments": None, "speakers": None, "speakers_count": 2,
                  "language": "ja", "duration": 3600, "confidence": 0.95},
             )
+            mock_gcs.return_value = None  # GCSバケット未設定
 
             result = await interface.process_meeting_upload(
                 audio_data=b"fake_audio",
@@ -61,6 +55,36 @@ class TestProcessMeetingUpload:
         assert result.data["meeting_id"] == "m1"
         assert result.data["status"] == "transcribed"
         assert result.data["pii_removed_count"] >= 0
+        interface.db.save_recording.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_success_flow_with_gcs(self, interface):
+        """正常フロー（GCS有効）: 音声GCSアップロード + DB録音レコード保存"""
+        interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
+        interface.db.update_meeting_status = MagicMock(return_value=True)
+        interface.db.save_transcript = MagicMock()
+        interface.db.save_recording = MagicMock()
+
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
+            mock_transcribe.return_value = (
+                "テスト文字起こし",
+                {"language": "ja", "duration": 600, "confidence": 0.9},
+            )
+            mock_gcs.return_value = "gs://soulkun-meeting-recordings/org_test/m1/audio.mp3"
+
+            result = await interface.process_meeting_upload(
+                audio_data=b"fake_audio",
+                room_id="room1",
+                account_id="user1",
+                title="朝会",
+            )
+
+        assert result.success is True
+        interface.db.save_recording.assert_called_once()
+        call_kwargs = interface.db.save_recording.call_args[1]
+        assert call_kwargs["meeting_id"] == "m1"
+        assert "gs://soulkun-meeting-recordings" in call_kwargs["gcs_path"]
 
     @pytest.mark.asyncio
     async def test_brain_approved_is_false(self, interface):
@@ -69,8 +93,10 @@ class TestProcessMeetingUpload:
         interface.db.update_meeting_status = MagicMock(return_value=True)
         interface.db.save_transcript = MagicMock()
 
-        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe:
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
             mock_transcribe.return_value = ("テスト", {"language": "ja", "duration": 0, "confidence": 0})
+            mock_gcs.return_value = None
 
             result = await interface.process_meeting_upload(
                 audio_data=b"fake", room_id="r1", account_id="u1",
@@ -86,8 +112,10 @@ class TestProcessMeetingUpload:
         interface.db.create_meeting = MagicMock(return_value={"id": "m1"})
         interface.db.update_meeting_status = MagicMock(return_value=True)
 
-        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe:
+        with patch.object(interface, "_transcribe_audio", new_callable=AsyncMock) as mock_transcribe, \
+             patch.object(interface, "_upload_audio_to_gcs", new_callable=AsyncMock) as mock_gcs:
             mock_transcribe.side_effect = Exception("Whisper API error")
+            mock_gcs.return_value = None
 
             result = await interface.process_meeting_upload(
                 audio_data=b"bad_audio", room_id="r1", account_id="u1",
@@ -225,3 +253,63 @@ class TestBuildSummaryMessage:
         long_text = "A" * 500
         msg = MeetingBrainInterface._build_summary_message("会議", long_text, 0)
         assert "..." in msg
+
+
+class TestUploadAudioToGcs:
+    @pytest.mark.asyncio
+    async def test_skips_when_no_bucket_env(self, interface):
+        """MEETING_GCS_BUCKET未設定時はNone返却"""
+        with patch.dict("os.environ", {}, clear=False):
+            # 明示的にMEETING_GCS_BUCKETを消す
+            import os
+            old = os.environ.pop("MEETING_GCS_BUCKET", None)
+            try:
+                result = await interface._upload_audio_to_gcs("m1", b"data")
+                assert result is None
+            finally:
+                if old is not None:
+                    os.environ["MEETING_GCS_BUCKET"] = old
+
+    @pytest.mark.asyncio
+    async def test_uploads_when_bucket_set(self, interface):
+        """MEETING_GCS_BUCKET設定時はGCSアップロード実行"""
+        with patch.dict("os.environ", {"MEETING_GCS_BUCKET": "test-bucket"}):
+            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+                mock_thread.return_value = None
+                result = await interface._upload_audio_to_gcs("m1", b"fake_mp3")
+
+        assert result is not None
+        assert "gs://test-bucket/org_test/m1/" in result
+
+    @pytest.mark.asyncio
+    async def test_gcs_failure_returns_none(self, interface):
+        """GCSアップロード失敗時はNone返却（文字起こしは継続）"""
+        with patch.dict("os.environ", {"MEETING_GCS_BUCKET": "test-bucket"}):
+            with patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread:
+                mock_thread.side_effect = Exception("GCS unavailable")
+                result = await interface._upload_audio_to_gcs("m1", b"data")
+
+        assert result is None
+
+
+class TestDetectAudioFormat:
+    def test_mp3_id3(self):
+        assert MeetingBrainInterface._detect_audio_format(b"ID3\x04\x00") == "mp3"
+
+    def test_mp3_sync(self):
+        assert MeetingBrainInterface._detect_audio_format(b"\xff\xfb\x90\x00") == "mp3"
+
+    def test_wav(self):
+        assert MeetingBrainInterface._detect_audio_format(b"RIFF\x00\x00") == "wav"
+
+    def test_flac(self):
+        assert MeetingBrainInterface._detect_audio_format(b"fLaC\x00\x00") == "flac"
+
+    def test_ogg(self):
+        assert MeetingBrainInterface._detect_audio_format(b"OggS\x00\x00") == "ogg"
+
+    def test_unknown_defaults_to_mp3(self):
+        assert MeetingBrainInterface._detect_audio_format(b"\x00\x00\x00\x00") == "mp3"
+
+    def test_empty_bytes_defaults_to_mp3(self):
+        assert MeetingBrainInterface._detect_audio_format(b"") == "mp3"

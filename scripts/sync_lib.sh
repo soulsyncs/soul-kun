@@ -224,6 +224,10 @@ echo ""
 echo "  → memory/"
 sync_directory "lib/memory" "chatwork-webhook/lib/memory"
 
+# meetings/
+echo "  → meetings/"
+sync_directory "lib/meetings" "chatwork-webhook/lib/meetings"
+
 # detection/
 echo "  → detection/"
 sync_directory "lib/detection" "pattern-detection/lib/detection"

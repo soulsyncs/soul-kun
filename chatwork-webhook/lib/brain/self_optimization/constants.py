@@ -54,7 +54,7 @@ class ProposalStatus(str, Enum):
     ROLLED_BACK = "rolled_back"
 
 
-class TestStatus(str, Enum):
+class ABTestStatus(str, Enum):
     """A/Bテストのステータス"""
     CREATED = "created"
     RUNNING = "running"
@@ -63,7 +63,7 @@ class TestStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class TestOutcome(str, Enum):
+class ABTestOutcome(str, Enum):
     """A/Bテストの結果"""
     VARIANT_A_WINS = "variant_a_wins"
     VARIANT_B_WINS = "variant_b_wins"

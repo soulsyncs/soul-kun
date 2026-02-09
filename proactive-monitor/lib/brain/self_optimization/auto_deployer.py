@@ -120,7 +120,7 @@ class AutoDeployer:
                 set_clauses.append("improvement_delta = :post_score - pre_deploy_score")
                 params["post_score"] = post_deploy_score
 
-            conn.execute(
+            result = conn.execute(
                 text(f"""
                     UPDATE {TABLE_BRAIN_DEPLOYMENT_LOGS}
                     SET {', '.join(set_clauses)}
@@ -128,6 +128,9 @@ class AutoDeployer:
                 """),
                 params,
             )
+            if result.rowcount == 0:
+                logger.warning("No deployment found for id=%s org=%s", deployment_id, self.organization_id)
+                return OptimizationResult(success=False, message="Deployment not found")
             return OptimizationResult(success=True, message="Promoted to full deployment")
         except Exception as e:
             logger.error("Failed to promote deployment %s: %s", deployment_id, e)

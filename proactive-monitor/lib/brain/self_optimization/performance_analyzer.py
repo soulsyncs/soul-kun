@@ -216,7 +216,7 @@ class PerformanceAnalyzer:
             return {
                 "direction": direction,
                 "change": round(change, 4),
-                "samples": sum(r[0] is not None for r in rows),
+                "samples": len(rows),
                 "data_points": len(rows),
             }
         except Exception as e:

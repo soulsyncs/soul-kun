@@ -35,8 +35,8 @@ from .constants import (
     DeploymentStatus,
     MetricType,
     ProposalStatus,
-    TestOutcome,
-    TestStatus,
+    ABTestOutcome,
+    ABTestStatus,
     # Thresholds
     AB_TEST_CONFIDENCE_LEVEL,
     AB_TEST_MIN_SAMPLE_SIZE,
@@ -300,8 +300,8 @@ __all__ = [
     # Enums
     "MetricType",
     "ProposalStatus",
-    "TestStatus",
-    "TestOutcome",
+    "ABTestStatus",
+    "ABTestOutcome",
     "DeploymentStatus",
     # Models
     "PerformanceMetric",

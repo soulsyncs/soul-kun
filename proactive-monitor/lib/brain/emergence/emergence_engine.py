@@ -219,10 +219,8 @@ class EmergenceEngine:
             level = "advanced"
         elif avg_confidence >= 0.6 and pattern_count >= 3:
             level = "intermediate"
-        elif pattern_count >= 1:
-            level = "basic"
         else:
-            level = "none"
+            level = "basic"
 
         top_patterns = [
             {

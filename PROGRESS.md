@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-09 JST**
+**最終更新: 2026-02-10 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -71,6 +71,45 @@
 ---
 
 ## 🚨 次回やること
+
+### ✅ Codex非ブロッキング指摘対応 + ブランチ整理（2026-02-09）
+
+**目的:** Phase 2M/2N/2O Codexレビューで検出された非ブロッキング指摘6件を修正 + 不要ブランチの整理
+
+**修正内容:**
+
+| # | 修正 | 対象ファイル |
+|---|------|-------------|
+| 1 | 未使用import `Dict, Set` 削除 | interpersonal/constants.py |
+| 2 | `datetime.now()` → `datetime.now(timezone.utc)` (8箇所) | interpersonal/models.py, self_optimization/models.py |
+| 3 | `TestStatus`/`TestOutcome` → `ABTestStatus`/`ABTestOutcome` (pytest警告回避) | self_optimization/ 全5ファイル + テスト |
+| 4 | `promote_to_full()` rowcount==0 チェック追加 | self_optimization/auto_deployer.py |
+| 5 | `analyze_trend()` samples フィールド修正 | self_optimization/performance_analyzer.py |
+| 6 | `assess_emergence_level()` デッドコード削除 | emergence/emergence_engine.py |
+
+**ブランチ整理:** 57本 → 3本（main + feat/phase-c-mvp0 + refactor/main-py-phase5-storage）
+
+**TODO監査:** 27件精査。18件はCategory A（将来Phase向け有効マーカー）、12件はCategory B（stub実装、将来Phase依存）。削除不要。
+
+**Codex:** 初回FAIL（models.py timezone漏れ）→ 修正 → 再レビューPASS
+**テスト:** 8552 passed, 25 skipped
+
+---
+
+### ✅ Phase 2M/2N/2O完了: 脳の全機能完成（2026-02-09）
+
+**PR:** #432（72ファイル、17,067行、12新テーブル）
+**本番:** DB 12テーブル作成 + RLS適用完了、Cloud Functions デプロイ完了
+
+| Phase | 名称 | テスト数 | 新テーブル |
+|-------|------|---------|-----------|
+| 2M | 対人力強化 | 82 | brain_communication_profiles, brain_motivation_profiles, brain_feedback_opportunities, brain_conflict_logs |
+| 2N | 自己最適化 | 82 | brain_performance_metrics, brain_improvement_proposals, brain_ab_tests, brain_deployment_logs |
+| 2O | 統合・創発 | 74 | brain_capability_graph, brain_emergent_behaviors, brain_strategic_insights, brain_org_snapshots |
+
+**Codex:** 3Phase全て3パスレビューPASS（初回FAIL → 修正 → 再レビューPASS）
+
+---
 
 ### ✅ Phase 4A完了: 全テーブルRLS有効化 + runtime org_id追加（2026-02-09）
 
@@ -1965,7 +2004,7 @@ else:
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-25 | 6段階権限、役職ドロップダウン |
 | X | アナウンス機能 | ✅ 完了 | 2026-01-25 | v10.26.0、PR #127/PR #129/PR #130 |
-| C | 会議系 | 📋 未着手 | - | 議事録自動化（Q3予定） |
+| C | 会議系 | 🔧 進行中 | - | MVP0完了（95テスト、Codex PASS）、PR作成待ち |
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後 |
 | 2D | CEO教え＆守護者層 | ✅ 完了 | 2026-01-27 | v10.32.1、DB+コード+統合+56テスト完了 |
 | 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |
@@ -1975,10 +2014,10 @@ else:
 | 2I | 理解力強化 | ✅ 完了 | 2026-01-27 | 8ファイル・58テスト完了 |
 | 2J | 判断力強化 | ✅ 完了 | 2026-01-27 | 8ファイル・テスト完了、DBマイグレ済み |
 | 2K | 能動性 | ✅ 完了 | 2026-01-27 | proactive.py 922行・40テスト・DB3テーブル・CF本番デプロイ済み |
-| 2L | 実行力強化 | 📋 計画中 | - | 2026年8-9月予定 |
-| 2M | 対人力強化 | 📋 計画中 | - | 2026年9-10月予定 |
-| 2N | 自己最適化 | 📋 計画中 | - | 2026年10-11月予定 |
-| 2O | 統合・創発 | 📋 計画中 | - | 2026年11-12月予定 |
+| 2L | 実行力強化 | ✅ 完了 | 2026-02-09 | PR #430、13テスト、Brain Hook + E2E/パフォーマンステスト |
+| 2M | 対人力強化 | ✅ 完了 | 2026-02-09 | PR #432、82テスト、コミュニケーション・動機付け・助言・調停 |
+| 2N | 自己最適化 | ✅ 完了 | 2026-02-09 | PR #432、82テスト、パフォーマンス分析・A/Bテスト・自動デプロイ |
+| 2O | 統合・創発 | ✅ 完了 | 2026-02-09 | PR #432、74テスト、能力統合・創発検出・戦略提案 |
 | **SM** | **スマートモデル管理** | ✅ 完了 | 2026-02-08 | model_orchestrator統合、15テスト |
 | **M1** | **Multimodal入力** | ✅ 完了 | 2026-01-27 | 画像/PDF/URL読み込み（Phase M1完了） |
 | **M2** | **音声入力** | ✅ 完了 | 2026-01-27 | 音声文字起こし・話者分離（Phase M2完了） |
@@ -1987,7 +2026,7 @@ else:
 | **App1** | **議事録自動生成** | ✅ 完了 | 2026-01-27 | M2+G1統合アプリ、42テスト完了 |
 | **F1** | **CEO Feedback** | ✅ 完了 | 2026-01-27 | 8ファイル・57テスト完了（Phase F1完了） |
 | **AA** | **Autonomous Agent** | 📋 設計完了 | - | 自律エージェント（6-8週間） |
-| 4A | テナント分離 | 🔧 進行中 | - | RLS全テーブル完了、runtime 6テーブルorg_id追加済み、マルチテナントUI未着手 |
+| 4A | テナント分離 | ✅ 完了 | 2026-02-09 | PR #425/#426、RLS全テーブル完了、runtime 6テーブルorg_id追加、本番マイグレーション完了 |
 | 4B | 外部連携API | 📋 未着手 | - | 公開API |
 
 ---

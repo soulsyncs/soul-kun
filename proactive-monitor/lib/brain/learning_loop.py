@@ -1612,31 +1612,33 @@ class LearningLoop:
 
                 def _sync_flush():
                     with self.pool.connect() as conn:
-                        for entry in entries:
+                        # バッチINSERT（100件チャンク）
+                        for i in range(0, len(entries), 100):
+                            chunk = entries[i:i + 100]
+                            values_clauses = []
+                            params = {}
+                            for j, entry in enumerate(chunk):
+                                key = f"_{j}"
+                                values_clauses.append(
+                                    f"(:org_id{key}, :type{key}, :category{key},"
+                                    f" :prev_score{key}, :curr_score{key},"
+                                    f" :trigger{key}, NOW())"
+                                )
+                                params[f"org_id{key}"] = self.organization_id
+                                params[f"type{key}"] = getattr(entry, "improvement_type", "unknown")
+                                params[f"category{key}"] = getattr(entry, "category", "learning")
+                                params[f"prev_score{key}"] = 0.0
+                                params[f"curr_score{key}"] = 0.0
+                                params[f"trigger{key}"] = getattr(entry, "trigger_event", "")
                             conn.execute(
-                                sa_text("""
-                                    INSERT INTO brain_improvement_logs
-                                        (organization_id, improvement_type,
-                                         category, previous_score, current_score,
-                                         trigger_event, recorded_at)
-                                    VALUES
-                                        (:org_id, :type, :category,
-                                         :prev_score, :curr_score,
-                                         :trigger, NOW())
-                                """),
-                                {
-                                    "org_id": self.organization_id,
-                                    "type": entry.failure_cause.value,
-                                    "category": "learning",
-                                    "prev_score": entry.baseline_success_rate,
-                                    "curr_score": entry.post_improvement_success_rate or 0.0,
-                                    "trigger": json.dumps({
-                                        "decision_id": entry.decision_id,
-                                        "feedback_id": entry.feedback_id,
-                                        "cause": entry.failure_cause.value,
-                                        "improvements_count": len(entry.improvements),
-                                    }, default=str),
-                                },
+                                sa_text(
+                                    "INSERT INTO brain_improvement_logs"
+                                    " (organization_id, improvement_type,"
+                                    " category, previous_score, current_score,"
+                                    " trigger_event, recorded_at)"
+                                    " VALUES " + ", ".join(values_clauses)
+                                ),
+                                params,
                             )
                         conn.commit()
 

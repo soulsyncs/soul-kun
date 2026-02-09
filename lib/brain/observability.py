@@ -366,6 +366,8 @@ class BrainObservability:
 
             def _sync_flush():
                 with self.pool.connect() as conn:
+                    # PII除去してパラメータ準備
+                    prepared = []
                     for log in logs_to_flush:
                         safe_details = None
                         if log.details:
@@ -373,27 +375,37 @@ class BrainObservability:
                                 k: v for k, v in log.details.items()
                                 if k not in _PII_KEYS
                             }
+                        prepared.append({
+                            "org_id": self.org_id,
+                            "room_id": (safe_details or {}).get("room_id", ""),
+                            "user_id": log.account_id,
+                            "action": log.path,
+                            "classification": log.context_type.value,
+                            "created_at": log.timestamp,
+                        })
+                    # バッチINSERT（100件チャンク）
+                    for i in range(0, len(prepared), 100):
+                        chunk = prepared[i:i + 100]
+                        values_clauses = []
+                        params = {}
+                        for j, p in enumerate(chunk):
+                            key = f"_{j}"
+                            values_clauses.append(
+                                f"(:org_id{key}::uuid, :room_id{key},"
+                                f" :user_id{key}, :action{key},"
+                                f" :classification{key}, :created_at{key})"
+                            )
+                            for k, v in p.items():
+                                params[f"{k}{key}"] = v
                         conn.execute(
-                            text("""
-                                INSERT INTO brain_decision_logs
-                                    (organization_id, room_id, user_id,
-                                     selected_action, classification,
-                                     created_at)
-                                VALUES
-                                    (:org_id::uuid, :room_id, :user_id,
-                                     :action, :classification,
-                                     :created_at)
-                            """),
-                            {
-                                "org_id": self.org_id,
-                                "room_id": (safe_details or {}).get(
-                                    "room_id", ""
-                                ),
-                                "user_id": log.account_id,
-                                "action": log.path,
-                                "classification": log.context_type.value,
-                                "created_at": log.timestamp,
-                            },
+                            text(
+                                "INSERT INTO brain_decision_logs"
+                                " (organization_id, room_id, user_id,"
+                                " selected_action, classification,"
+                                " created_at)"
+                                " VALUES " + ", ".join(values_clauses)
+                            ),
+                            params,
                         )
                     conn.commit()
 

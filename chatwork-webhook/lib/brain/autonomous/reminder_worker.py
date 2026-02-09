@@ -4,7 +4,11 @@ Phase AA: リマインダーワーカー
 
 スケジュールメッセージ送信（初回確認あり）。
 
-CLAUDE.md S1: 全出力はBrainを通る
+自動化通知（Brain不使用）: ユーザー確認済みスケジュールメッセージの定時配信。
+メッセージ内容はユーザーが事前に設定・確認済みのため、Brain判断不要。
+（AlertSender同様、インフラ/自動化通知はBrain bypass許容）
+
+CLAUDE.md S1: 全出力はBrainを通る（例外: 確認済み自動化通知）
 CLAUDE.md S8 鉄則#8: エラーに機密情報を含めない
 """
 
@@ -65,7 +69,7 @@ class ReminderWorker(BaseWorker):
         }
 
     async def _send_message(self, room_id: Optional[str], message: str) -> bool:
-        """メッセージを送信"""
+        """メッセージを送信（自動化通知: Brain bypass許容）"""
         if not self.send_func or not room_id:
             logger.warning("Cannot send reminder: missing send_func or room_id")
             return False

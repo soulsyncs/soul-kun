@@ -3,12 +3,14 @@
 Task AA: 自律タスクワーカーテスト
 
 WorkerRegistry, ResearchWorker, ReminderWorker, ReportWorker のテスト。
+DB経路モックテスト + 冪等性テスト含む。
 """
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from lib.brain.autonomous.task_queue import AutonomousTask, TaskQueue, TaskStatus
+from lib.brain.autonomous.worker import BaseWorker
 from lib.brain.autonomous.worker_registry import WorkerRegistry
 from lib.brain.autonomous.research_worker import ResearchWorker
 from lib.brain.autonomous.reminder_worker import ReminderWorker
@@ -39,6 +41,7 @@ def _make_queue() -> MagicMock:
     """モックTaskQueueを作成"""
     queue = MagicMock(spec=TaskQueue)
     queue.update = AsyncMock(return_value=True)
+    queue.claim = AsyncMock(return_value=True)
     return queue
 
 
@@ -286,3 +289,300 @@ class TestReportWorker:
 
         report = worker._generate_report("weekly", {})
         assert "データがありません" in report
+
+
+# =============================================================================
+# ResearchWorker DB経路テスト (A.4)
+# =============================================================================
+
+
+def _make_mock_pool(rows=None, mappings_result=None):
+    """DB接続プールのモックを作成"""
+    mock_result = MagicMock()
+    if mappings_result is not None:
+        mock_result.mappings.return_value.all.return_value = mappings_result
+        mock_result.mappings.return_value.first.return_value = (
+            mappings_result[0] if mappings_result else None
+        )
+    elif rows is not None:
+        mock_result.mappings.return_value.all.return_value = rows
+        mock_result.mappings.return_value.first.return_value = (
+            rows[0] if rows else None
+        )
+    else:
+        mock_result.mappings.return_value.all.return_value = []
+        mock_result.mappings.return_value.first.return_value = None
+
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value = mock_result
+
+    mock_pool = MagicMock()
+    mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+    mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+    return mock_pool, mock_conn
+
+
+class TestResearchWorkerDB:
+    """ResearchWorker DB経路テスト"""
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_with_pool(self):
+        """DB経由でナレッジ検索が実行される"""
+        db_rows = [
+            {"title": "ナレッジ1", "content": "テスト内容1"},
+            {"title": "ナレッジ2", "content": "テスト内容2"},
+        ]
+        mock_pool, mock_conn = _make_mock_pool(mappings_result=db_rows)
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=mock_pool)
+
+        results = await worker._search_knowledge(
+            query="テスト",
+            organization_id="org-test",
+            max_results=5,
+        )
+
+        assert len(results) == 2
+        assert results[0]["title"] == "ナレッジ1"
+        assert results[1]["title"] == "ナレッジ2"
+        # set_config が呼ばれていることを確認
+        assert mock_conn.execute.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_empty_result(self):
+        """DB検索結果が空の場合"""
+        mock_pool, _ = _make_mock_pool(mappings_result=[])
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=mock_pool)
+
+        results = await worker._search_knowledge(
+            query="存在しないクエリ",
+            organization_id="org-test",
+        )
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_search_knowledge_db_error(self):
+        """DB例外時は空リストを返す"""
+        mock_pool = MagicMock()
+        mock_pool.connect.side_effect = RuntimeError("connection error")
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=mock_pool)
+
+        results = await worker._search_knowledge(
+            query="test",
+            organization_id="org-test",
+        )
+
+        assert results == []
+
+    @pytest.mark.asyncio
+    async def test_execute_with_pool_returns_results(self):
+        """pool有りでexecute: ナレッジ結果を含む"""
+        db_rows = [
+            {"title": "手順書", "content": "手順の内容"},
+        ]
+        mock_pool, _ = _make_mock_pool(mappings_result=db_rows)
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=mock_pool)
+        task = _make_task(execution_plan={"query": "手順"})
+
+        result = await worker.execute(task)
+
+        assert result["results_count"] == 1
+        assert "手順書" in result["synthesis"]
+
+
+# =============================================================================
+# ReportWorker DB経路テスト (A.4)
+# =============================================================================
+
+
+class TestReportWorkerDB:
+    """ReportWorker DB経路テスト"""
+
+    @pytest.mark.asyncio
+    async def test_collect_data_with_pool(self):
+        """DB経由でレポートデータを収集"""
+        # _collect_data は conn.execute を3回呼ぶ（set_config, usage, error）
+        # 各呼び出しごとに異なる結果を返すようモック
+        usage_row = {
+            "call_count": 42,
+            "total_tokens": 10000,
+            "total_cost": 500.0,
+        }
+        error_row = {
+            "errors": 3,
+            "total": 100,
+        }
+
+        mock_conn = MagicMock()
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                # set_config
+                return result
+            elif call_count["n"] == 2:
+                # usage query
+                result.mappings.return_value.first.return_value = usage_row
+                return result
+            else:
+                # error query
+                result.mappings.return_value.first.return_value = error_row
+                return result
+
+        mock_conn.execute.side_effect = side_effect
+
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=mock_pool)
+
+        data = await worker._collect_data(
+            organization_id="org-test",
+            report_type="daily_summary",
+        )
+
+        assert data["call_count"] == 42
+        assert data["total_tokens"] == 10000
+        assert data["total_cost"] == 500.0
+        assert data["error_count"] == 3
+        assert data["total_decisions"] == 100
+
+    @pytest.mark.asyncio
+    async def test_collect_data_db_error(self):
+        """DB例外時は空辞書を返す"""
+        mock_pool = MagicMock()
+        mock_pool.connect.side_effect = RuntimeError("connection error")
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=mock_pool)
+
+        data = await worker._collect_data(
+            organization_id="org-test",
+            report_type="daily_summary",
+        )
+
+        assert data == {}
+
+    @pytest.mark.asyncio
+    async def test_execute_with_pool_and_send(self):
+        """pool+send_func有りでフルパイプライン実行"""
+        usage_row = {
+            "call_count": 10,
+            "total_tokens": 5000,
+            "total_cost": 250.0,
+        }
+        error_row = {"errors": 1, "total": 20}
+
+        mock_conn = MagicMock()
+        call_count = {"n": 0}
+
+        def side_effect(*args, **kwargs):
+            call_count["n"] += 1
+            result = MagicMock()
+            if call_count["n"] == 1:
+                return result
+            elif call_count["n"] == 2:
+                result.mappings.return_value.first.return_value = usage_row
+                return result
+            else:
+                result.mappings.return_value.first.return_value = error_row
+                return result
+
+        mock_conn.execute.side_effect = side_effect
+
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        send_func = AsyncMock()
+        queue = _make_queue()
+        worker = ReportWorker(task_queue=queue, pool=mock_pool, send_func=send_func)
+        task = _make_task(execution_plan={"report_type": "daily_summary"})
+
+        result = await worker.execute(task)
+
+        assert result["sent"] is True
+        assert result["data_points"] == 5
+        assert "API呼出数: 10" in result["report_preview"]
+        send_func.assert_called_once()
+
+
+# =============================================================================
+# 冪等性テスト (C.14)
+# =============================================================================
+
+
+class TestIdempotency:
+    """BaseWorker.run() の冪等性テスト"""
+
+    @pytest.mark.asyncio
+    async def test_completed_task_skipped(self):
+        """COMPLETED状態のタスクはスキップされる"""
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=None)
+        task = _make_task(
+            status=TaskStatus.COMPLETED,
+            result={"already": "done"},
+        )
+
+        result = await worker.run(task)
+
+        assert result == {"already": "done"}
+        # claim は呼ばれない
+        queue.claim.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_task_skipped(self):
+        """CANCELLED状態のタスクはスキップされる"""
+        queue = _make_queue()
+        worker = ResearchWorker(task_queue=queue, pool=None)
+        task = _make_task(status=TaskStatus.CANCELLED)
+
+        result = await worker.run(task)
+
+        assert result == {}
+        queue.claim.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_claim_failure_returns_skipped(self):
+        """claimに失敗した場合はskippedを返す"""
+        queue = _make_queue()
+        queue.claim = AsyncMock(return_value=False)
+        worker = ResearchWorker(task_queue=queue, pool=None)
+        task = _make_task(status=TaskStatus.PENDING)
+
+        result = await worker.run(task)
+
+        assert result["skipped"] is True
+        assert result["reason"] == "already_processed"
+
+    @pytest.mark.asyncio
+    async def test_claim_success_executes(self):
+        """claimに成功した場合は正常に実行される"""
+        queue = _make_queue()
+        queue.claim = AsyncMock(return_value=True)
+        worker = ResearchWorker(task_queue=queue, pool=None)
+        task = _make_task(
+            status=TaskStatus.PENDING,
+            execution_plan={"query": "テスト"},
+        )
+
+        result = await worker.run(task)
+
+        assert result["query"] == "テスト"
+        queue.claim.assert_called_once_with("task-001")
+        # COMPLETED update が呼ばれる
+        update_calls = [
+            c for c in queue.update.call_args_list
+            if c.kwargs.get("status") == TaskStatus.COMPLETED
+            or (len(c.args) > 1 and c.args[1] == TaskStatus.COMPLETED)
+        ]
+        assert len(update_calls) >= 1

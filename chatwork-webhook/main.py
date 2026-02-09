@@ -1016,17 +1016,21 @@ def _get_brain_integration():
 _AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac", "webm", "mp4", "mpeg", "mpga"}
 
 
-def _download_meeting_audio(body, room_id):
+def _download_meeting_audio(body, room_id, sender_account_id=None):
     """
     メッセージ本文から音声ファイルを検出し、ダウンロードする（前処理のみ）。
 
-    ChatWork webhook の body に含まれる [download:FILE_ID] タグを検出し、
-    音声ファイルであればダウンロードしてバイナリデータを返す。
+    検出方法（優先順）:
+    1. [download:FILE_ID] タグ（ファイル単体送信時）
+    2. 本文中の音声ファイル名 → ChatWork files APIで最新ファイルを検索
+       （テキスト+ファイル同時送信時、bodyに[download:]が含まれない）
+
     文字起こし処理はBrainIntegrationのバイパス機構で実行される（CLAUDE.md §1準拠）。
 
     Args:
         body: ChatWorkメッセージ本文（raw）
         room_id: ルームID
+        sender_account_id: 送信者アカウントID（ファイル検索用）
 
     Returns:
         (audio_data, filename): 音声バイナリとファイル名（成功時）
@@ -1040,30 +1044,40 @@ def _download_meeting_audio(body, room_id):
     if os.environ.get("ENABLE_MEETING_TRANSCRIPTION", "false").lower() != "true":
         return None, None
 
-    # [download:FILE_ID] タグを検出
-    file_ids = re.findall(r'\[download:(\d+)\]', body)
-    if not file_ids:
-        return None, None
-
-    # ChatWork APIでファイルダウンロード + 音声判定
     from infra.chatwork_api import download_chatwork_file
 
+    # 方法1: [download:FILE_ID] タグを検出（ファイル単体送信時）
+    file_ids = re.findall(r'\[download:(\d+)\]', body)
     for file_id in file_ids:
-        # ダウンロード（ファイル情報取得 + バイナリ取得を1回のAPI呼び出しで）
         audio_data, filename = download_chatwork_file(room_id, file_id)
         if not audio_data or not filename:
             continue
-
-        # 拡張子チェック
         ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
         if ext not in _AUDIO_EXTENSIONS:
             continue
-
-        # 音声ファイル発見
-        logger.info("Audio file detected: file_id=%s, ext=%s", file_id, ext)
+        logger.info("Audio file detected via download tag: file_id=%s, ext=%s", file_id, ext)
         return audio_data, filename
 
-    # 音声ファイルなし
+    # 方法2: 本文に音声ファイル名が含まれている場合、files APIで検索
+    # ChatWorkではテキスト+ファイル同時送信時、bodyにファイル名が含まれるが[download:]タグはない
+    audio_ext_pattern = r'[\w\s\(\)（）\-\._]+\.(' + '|'.join(_AUDIO_EXTENSIONS) + r')'
+    filename_match = re.search(audio_ext_pattern, body, re.IGNORECASE)
+    if filename_match and sender_account_id:
+        from infra.chatwork_api import get_room_recent_files
+        try:
+            recent_files = get_room_recent_files(room_id, sender_account_id)
+            for f in recent_files:
+                fname = f.get("filename", "")
+                fext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+                if fext in _AUDIO_EXTENSIONS:
+                    fid = str(f.get("file_id", ""))
+                    audio_data, dl_filename = download_chatwork_file(room_id, fid)
+                    if audio_data:
+                        logger.info("Audio file detected via files API: file_id=%s, ext=%s", fid, fext)
+                        return audio_data, dl_filename
+        except Exception as e:
+            logger.warning("Room files lookup failed: %s", type(e).__name__)
+
     return None, None
 
 
@@ -1846,7 +1860,7 @@ def chatwork_webhook(request):
                 # Brain LLMはバイナリデータを扱えないため、
                 # 音声ダウンロードはシステムレベルの前処理として実行し、
                 # 結果をbypass_contextに格納してBrainIntegration経由で処理する。
-                audio_data, audio_filename = _download_meeting_audio(body, room_id)
+                audio_data, audio_filename = _download_meeting_audio(body, room_id, sender_account_id)
                 if audio_data:
                     bypass_context["has_meeting_audio"] = True
                     bypass_context["meeting_audio_data"] = audio_data

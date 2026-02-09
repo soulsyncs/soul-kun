@@ -789,3 +789,46 @@ def download_chatwork_file(room_id, file_id):
     except Exception as e:
         logger.warning("File download error: file_id=%s, error=%s", file_id, type(e).__name__)
         return None, None
+
+
+def get_room_recent_files(room_id, account_id=None):
+    """ChatWorkルームの最新ファイル一覧を取得する。
+
+    GET /rooms/{room_id}/files?account_id={account_id}
+
+    Args:
+        room_id: ChatWorkルームID
+        account_id: 送信者でフィルタ（省略時は全ファイル）
+
+    Returns:
+        list: ファイル情報のリスト（新しい順）。エラー時は空リスト。
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        token = get_secret("CHATWORK_API_TOKEN")
+        if not token:
+            return []
+
+        params = {}
+        if account_id:
+            params["account_id"] = account_id
+
+        response, success = call_chatwork_api_with_retry(
+            url=f"https://api.chatwork.com/v2/rooms/{room_id}/files",
+            token=token,
+            params=params,
+        )
+
+        if not success or response.status_code != 200:
+            return []
+
+        files = response.json()
+        # 新しい順にソート（upload_timeの降順）
+        files.sort(key=lambda f: f.get("upload_time", 0), reverse=True)
+        return files[:5]  # 直近5件のみ返す
+
+    except Exception as e:
+        logger.warning("Room files lookup error: %s", type(e).__name__)
+        return []

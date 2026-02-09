@@ -148,7 +148,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "    --memory=512MB \\"
     echo "    --timeout=540s \\"
     echo "    --allow-unauthenticated \\"
-    echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
+    echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "${GREEN}✅ ドライラン完了（全チェックパス）${NC}"
@@ -167,7 +167,7 @@ gcloud functions deploy chatwork-webhook \
     --memory=512MB \
     --timeout=540s \
     --allow-unauthenticated \
-    --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
+    --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

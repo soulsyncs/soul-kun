@@ -509,7 +509,8 @@ class SoulkunBrain:
         self.observability = create_observability(
             org_id=org_id,
             enable_cloud_logging=True,
-            enable_persistence=False,  # 将来的にTrue
+            enable_persistence=True,
+            pool=pool,
         )
 
         # v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
@@ -1026,7 +1027,7 @@ class SoulkunBrain:
 
         # 最近の会話がネガティブな場合は慎重に
         if recent_conversations:
-            # TODO: 会話内容を分析して判断を調整
+            # TODO Phase 2N-Advanced: 会話内容のセンチメント分析で判断を調整
             pass
 
         return config
@@ -1175,18 +1176,19 @@ class SoulkunBrain:
                     created_at=datetime.now(),
                 )
 
-            # ユーザー嗜好（v10.54.4: 型定義との不整合があるため、暫定的にdictで代入）
-            # TODO: PreferenceDataの型定義と実際のデータ構造を統一する
+            # ユーザー嗜好 — UserPreferenceData/dictの両形式を正規化
             if memory_context.get("user_preferences"):
+                keywords = {}
+                for pref in memory_context["user_preferences"]:
+                    if isinstance(pref, UserPreferenceData):
+                        keywords[pref.preference_key] = str(pref.preference_value)
+                    elif isinstance(pref, dict):
+                        keywords[pref.get("preference_key", "")] = str(pref.get("preference_value", ""))
                 context.user_preferences = PreferenceData(
                     response_style=None,
                     feature_usage={},
                     preferred_times=[],
-                    custom_keywords={
-                        pref.preference_key if hasattr(pref, 'preference_key') else pref.get('preference_key', ''):
-                        str(pref.preference_value if hasattr(pref, 'preference_value') else pref.get('preference_value', ''))
-                        for pref in memory_context["user_preferences"]
-                    },
+                    custom_keywords=keywords,
                 )
 
             # 人物情報（v10.54: PersonInfoオブジェクトとして代入）

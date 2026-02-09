@@ -414,7 +414,7 @@ class BrainDecision:
             if len(multiple_actions) > 1:
                 # 最初のアクションを処理、残りはキューに入れる
                 logger.info(f"Multiple actions detected: {len(multiple_actions)}")
-                # TODO: 複数アクションのキュー管理（Phase F以降）
+                # TODO Phase AA: 複数アクションのキュー管理
 
             # ステップ3: 機能候補の抽出とスコアリング
             # v10.42.0 P2: contextを渡して人生軸との整合性も評価
@@ -1139,7 +1139,7 @@ class BrainDecision:
             return (True, question, options)
 
         # 複数候補がある場合で差が小さい場合
-        # TODO: other_candidatesとの比較
+        # TODO Phase 2E-Advanced: other_candidatesとの比較ロジック
 
         # 確認不要
         return (False, None, [])
@@ -1295,7 +1295,7 @@ class BrainDecision:
             response = self.get_ai_response([], prompt)
 
             # レスポンスをパース
-            # TODO: JSONパースとエラーハンドリング
+            # TODO Phase AA - LLM Decision: JSONパースとエラーハンドリング
 
             return None  # 現状は未実装
 

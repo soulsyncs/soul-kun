@@ -1189,23 +1189,37 @@ class TestCleanupOldLogs:
 
     @pytest.mark.asyncio
     async def test_cleanup_basic(self, brain_learning):
-        """基本的なクリーンアップ"""
-        result = await brain_learning.cleanup_old_logs(days=90)
+        """基本的なクリーンアップ — DB DELETE実行"""
+        conn = brain_learning.pool.connect().__enter__()
+        mock_result = MagicMock()
+        mock_result.rowcount = 5
+        conn.execute.return_value = mock_result
 
-        # 現在はTODO実装なので0
-        assert result == 0
+        result = await brain_learning.cleanup_old_logs(days=90)
+        assert result == 5
+        conn.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cleanup_custom_days(self, brain_learning):
         """日数指定でクリーンアップ"""
+        conn = brain_learning.pool.connect().__enter__()
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        conn.execute.return_value = mock_result
+
         result = await brain_learning.cleanup_old_logs(days=30)
         assert result == 0
 
     @pytest.mark.asyncio
     async def test_cleanup_uses_default_days(self, brain_learning):
         """デフォルト日数を使用"""
+        conn = brain_learning.pool.connect().__enter__()
+        mock_result = MagicMock()
+        mock_result.rowcount = 3
+        conn.execute.return_value = mock_result
+
         result = await brain_learning.cleanup_old_logs()
-        assert result == 0
+        assert result == 3
 
 
 # =============================================================================

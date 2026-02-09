@@ -234,6 +234,101 @@ class TestTranscriptOperations:
         assert params["raw"] == "田中さんが発言しました"
         assert params["sanitized"] == "[PERSON]が発言しました"
 
+    def test_find_meeting_by_source_id(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        mock_row = {
+            "id": "m1", "title": "Zoom Meeting", "status": "transcribed",
+            "source": "zoom", "source_meeting_id": "zm123",
+            "created_at": datetime.now(timezone.utc),
+        }
+        conn.execute.return_value.mappings.return_value.fetchone.return_value = mock_row
+
+        result = db.find_meeting_by_source_id("zoom", "zm123")
+        assert result is not None
+        assert result["source_meeting_id"] == "zm123"
+
+        params = conn.execute.call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["source"] == "zoom"
+        assert params["source_mid"] == "zm123"
+
+    def test_find_meeting_by_source_id_not_found(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        conn.execute.return_value.mappings.return_value.fetchone.return_value = None
+
+        result = db.find_meeting_by_source_id("zoom", "nonexistent")
+        assert result is None
+
+    def test_find_meeting_by_source_id_empty_id(self, db, mock_pool):
+        result = db.find_meeting_by_source_id("zoom", "")
+        assert result is None
+
+    def test_get_recent_meetings_by_source(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        mock_rows = [
+            {"id": "m1", "title": "Meeting 1", "source": "zoom",
+             "source_meeting_id": "zm1", "meeting_type": "zoom",
+             "meeting_date": None, "status": "transcribed",
+             "brain_approved": False, "created_by": "u1",
+             "room_id": "r1", "created_at": datetime.now(timezone.utc)},
+        ]
+        conn.execute.return_value.mappings.return_value.fetchall.return_value = mock_rows
+
+        result = db.get_recent_meetings_by_source("zoom")
+        assert len(result) == 1
+        assert result[0]["source"] == "zoom"
+
+        params = conn.execute.call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["source"] == "zoom"
+
+    def test_get_recent_meetings_by_source_empty(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        conn.execute.return_value.mappings.return_value.fetchall.return_value = []
+
+        result = db.get_recent_meetings_by_source("zoom")
+        assert result == []
+
+    def test_get_recent_meetings_by_source_limit_cap(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        conn.execute.return_value.mappings.return_value.fetchall.return_value = []
+
+        db.get_recent_meetings_by_source("zoom", limit=999)
+
+        params = conn.execute.call_args[0][1]
+        assert params["limit"] == 100  # capped at 100
+
+    def test_get_transcript_for_meeting(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        mock_row = {
+            "id": "t1",
+            "meeting_id": "m1",
+            "sanitized_transcript": "sanitized text",
+            "segments_json": "[]",
+            "speakers_json": "[]",
+            "detected_language": "ja",
+            "word_count": 10,
+            "confidence": 0.95,
+            "created_at": datetime.now(timezone.utc),
+        }
+        conn.execute.return_value.mappings.return_value.fetchone.return_value = mock_row
+
+        result = db.get_transcript_for_meeting("m1")
+        assert result is not None
+        assert result["meeting_id"] == "m1"
+        assert result["sanitized_transcript"] == "sanitized text"
+
+        params = conn.execute.call_args[0][1]
+        assert params["org_id"] == "org_test"
+        assert params["meeting_id"] == "m1"
+
+    def test_get_transcript_for_meeting_not_found(self, db, mock_pool):
+        conn = mock_pool.connect.return_value.__enter__.return_value
+        conn.execute.return_value.mappings.return_value.fetchone.return_value = None
+
+        result = db.get_transcript_for_meeting("nonexistent")
+        assert result is None
+
     def test_nullify_expired_raw_transcripts(self, db, mock_pool):
         conn = mock_pool.connect.return_value.__enter__.return_value
         conn.execute.return_value.rowcount = 3

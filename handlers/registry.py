@@ -1248,6 +1248,58 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 4,
         },
     },
+
+    # =========================================================================
+    # 会議文字起こし（Phase C MVP0）
+    # =========================================================================
+    "meeting_transcription": {
+        "name": "会議文字起こし",
+        "description": "音声ファイルから会議の文字起こしを行う。録音ファイルをアップロードすると自動的に文字起こしし、議事録作成の元データを生成する。",
+        "category": "meeting",
+        "enabled": True,
+        "trigger_examples": [
+            "会議の音声を文字起こしして",
+            "この録音を文字起こしして",
+            "議事録を作成して",
+            "ミーティングの文字起こし",
+        ],
+        "params_schema": {
+            "audio_data": {
+                "type": "string",
+                "description": "音声データ（Base64またはファイルパス）",
+                "required": True,
+            },
+            "meeting_title": {
+                "type": "string",
+                "description": "会議タイトル",
+                "required": False,
+            },
+            "meeting_type": {
+                "type": "string",
+                "description": "会議タイプ（regular/project/brainstorm/decision/one_on_one/client）",
+                "required": False,
+            },
+        },
+        "handler": "meeting_transcription",
+        "requires_confirmation": True,
+        "required_data": ["sender_account_id", "room_id"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["文字起こし", "議事録", "録音", "トランスクリプト"],
+                "secondary": ["会議", "ミーティング", "音声", "録画"],
+                "negative": ["タスク", "目標", "ナレッジ"],
+            },
+            "intent_keywords": {
+                "primary": ["文字起こし", "議事録作成", "音声変換"],
+                "secondary": ["録音", "音声", "会議"],
+                "modifiers": ["して", "作成", "お願い", "変換"],
+                "negative": [],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "medium",
+            "priority": 4,
+        },
+    },
 }
 
 

@@ -71,6 +71,7 @@ class TestBrainPipelineE2E:
             brain = SoulkunBrain.__new__(SoulkunBrain)
             brain.pool = mock_pool
             brain.org_id = "org_test"
+            brain._initialized = True
 
             # _get_contextをモック（コンテキスト取得成功）
             mock_context = BrainContext(
@@ -142,6 +143,7 @@ class TestBrainPipelineE2E:
             brain = SoulkunBrain.__new__(SoulkunBrain)
             brain.pool = mock_pool
             brain.org_id = "org_test"
+            brain._initialized = True
 
             # Phase 2E学習付きコンテキスト
             mock_context = BrainContext(

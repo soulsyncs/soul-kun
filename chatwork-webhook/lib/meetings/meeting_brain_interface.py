@@ -7,7 +7,7 @@ lib/brain/ の内部実装には依存せず、安定データクラス（Handle
 Brain Tool定義が変わってもこのファイルの修正で吸収する（Codex Fix #4）。
 
 フロー（Codex Fix #1: Brain bypass防止）:
-1. 音声アップロード → Whisper文字起こし → PII除去 → DB保存(brain_approved=FALSE)
+1. 音声アップロード → Google Speech-to-Text文字起こし → PII除去 → DB保存(brain_approved=FALSE)
 2. Brain Tool通知 → Brainが内容判断 → Guardian検証 → ChatWork投稿決定
 
 Author: Claude Opus 4.6
@@ -105,8 +105,10 @@ class MeetingBrainInterface:
                     format=self._detect_audio_format(audio_data),
                 )
 
-            # 4. 音声処理（AudioProcessor）
-            transcript_text, audio_meta = await self._transcribe_audio(audio_data)
+            # 4. 音声処理（Google Speech-to-Text）
+            transcript_text, audio_meta = await self._transcribe_audio(
+                audio_data, gcs_uri=gcs_path,
+            )
 
             # 5. PII除去
             sanitized, pii_count = self.sanitizer.sanitize(transcript_text)
@@ -301,53 +303,74 @@ class MeetingBrainInterface:
     # Private helpers
     # =========================================================================
 
-    async def _transcribe_audio(self, audio_data: bytes) -> tuple:
+    async def _transcribe_audio(
+        self, audio_data: bytes, gcs_uri: str = None,
+    ) -> tuple:
         """
-        AudioProcessorで文字起こしを実行する。
+        Google Cloud Speech-to-Text で文字起こしを実行する。
+
+        gcs_uri がある場合: long_running_recognize（長時間音声対応）
+        gcs_uri がない場合: recognize（インライン、短時間音声のみ）
 
         Returns:
             (transcript_text, metadata_dict)
         """
-        from lib.capabilities.multimodal import AudioProcessor, MultimodalInput, InputType
+        import asyncio
 
-        processor = AudioProcessor(
-            pool=self.pool,
-            organization_id=self.organization_id,
-            api_key=None,
-            openai_api_key=self._get_openai_key(),
-        )
+        def _do_transcribe():
+            from google.cloud import speech
 
-        input_data = MultimodalInput(
-            input_type=InputType.AUDIO,
-            audio_data=audio_data,
-        )
+            client = speech.SpeechClient()
+            config = speech.RecognitionConfig(
+                language_code="ja-JP",
+                enable_automatic_punctuation=True,
+                model="latest_long",
+            )
 
-        result = await processor.process(input_data)
+            if gcs_uri:
+                audio = speech.RecognitionAudio(uri=gcs_uri)
+                operation = client.long_running_recognize(
+                    config=config, audio=audio,
+                )
+                response = operation.result(timeout=600)
+            else:
+                max_inline = 10 * 1024 * 1024  # 10 MB
+                if len(audio_data) > max_inline:
+                    raise ValueError(
+                        "Audio too large for inline transcription "
+                        f"({len(audio_data)} bytes, max {max_inline})"
+                    )
+                audio = speech.RecognitionAudio(content=audio_data)
+                response = client.recognize(config=config, audio=audio)
+
+            transcript_parts = []
+            total_confidence = 0.0
+            result_count = 0
+            for result in response.results:
+                if result.alternatives:
+                    best = result.alternatives[0]
+                    transcript_parts.append(best.transcript)
+                    total_confidence += best.confidence
+                    result_count += 1
+
+            transcript = "".join(transcript_parts)
+            avg_confidence = (
+                total_confidence / result_count if result_count > 0 else 0.0
+            )
+
+            return transcript, avg_confidence
+
+        transcript, confidence = await asyncio.to_thread(_do_transcribe)
 
         return (
-            result.transcript or "",
+            transcript,
             {
-                "segments": result.segments if hasattr(result, "segments") else None,
-                "speakers": result.speakers if hasattr(result, "speakers") else None,
-                "speakers_count": result.speakers_detected if hasattr(result, "speakers_detected") else 0,
-                "language": result.detected_language if hasattr(result, "detected_language") else "ja",
-                "duration": result.audio_duration_seconds if hasattr(result, "audio_duration_seconds") else 0,
-                "confidence": result.confidence if hasattr(result, "confidence") else 0,
+                "language": "ja",
+                "duration": 0,
+                "confidence": confidence,
+                "speakers_count": 0,
             },
         )
-
-    @staticmethod
-    def _get_openai_key() -> str:
-        """OpenAI APIキーを取得する"""
-        import os
-        key = os.getenv("OPENAI_API_KEY", "")
-        if not key:
-            try:
-                from lib.secrets import get_secret_cached
-                key = get_secret_cached("OPENAI_API_KEY")
-            except Exception as e:
-                logger.warning("Failed to get OpenAI key from Secret Manager: %s", e)
-        return key
 
     async def _upload_audio_to_gcs(
         self,

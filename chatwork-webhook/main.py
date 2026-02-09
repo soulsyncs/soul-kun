@@ -858,6 +858,7 @@ def _get_capability_bridge():
                     "ENABLE_DOCUMENT_GENERATION": True,
                     "ENABLE_IMAGE_GENERATION": True,
                     "ENABLE_VIDEO_GENERATION": os.environ.get("ENABLE_VIDEO_GENERATION", "false").lower() == "true",
+                    "ENABLE_MEETING_TRANSCRIPTION": os.environ.get("ENABLE_MEETING_TRANSCRIPTION", "false").lower() == "true",
                 },
             )
             print("✅ CapabilityBridge initialized")

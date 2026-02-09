@@ -360,7 +360,7 @@ def handle_delete_memory(params, room_id, account_id, sender_name, context=None)
     
     return "\n".join(response_parts) if response_parts else "🤔 削除できなかったウル..."
 
-def handle_learn_knowledge(params, room_id, account_id, sender_name, context=None):
+def handle_learn_knowledge(params, room_id, account_id, sender_name):
     """
     知識を学習するハンドラー
     - 管理者（カズさん）からは即時反映
@@ -368,17 +368,17 @@ def handle_learn_knowledge(params, room_id, account_id, sender_name, context=Non
 
     v10.24.7: handlers/knowledge_handler.py に移動済み
     """
-    return _get_knowledge_handler().handle_learn_knowledge(params, room_id, account_id, sender_name, context)
+    return _get_knowledge_handler().handle_learn_knowledge(params, room_id, account_id, sender_name)
 
-def handle_forget_knowledge(params, room_id, account_id, sender_name, context=None):
+def handle_forget_knowledge(params, room_id, account_id, sender_name):
     """
     知識を削除するハンドラー（管理者のみ）
 
     v10.24.7: handlers/knowledge_handler.py に移動済み
     """
-    return _get_knowledge_handler().handle_forget_knowledge(params, room_id, account_id, sender_name, context)
+    return _get_knowledge_handler().handle_forget_knowledge(params, room_id, account_id, sender_name)
 
-def handle_list_knowledge(params, room_id, account_id, sender_name, context=None):
+def handle_list_knowledge(params, room_id, account_id, sender_name):
     """
     学習した知識の一覧を表示するハンドラー
 

@@ -1037,7 +1037,7 @@ async def _brain_handle_query_knowledge(params, room_id, account_id, sender_name
             return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
 
         handle_query_company_knowledge = getattr(main, 'handle_query_company_knowledge')
-        result = handle_query_company_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        result = handle_query_company_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
 
         # Phase 3.5: dict結果はBrain合成用のデータとして渡す
         if isinstance(result, dict):
@@ -1228,7 +1228,7 @@ async def _brain_handle_learn_knowledge(params, room_id, account_id, sender_name
             return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
 
         handle_learn_knowledge = getattr(main, 'handle_learn_knowledge')
-        result = handle_learn_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        result = handle_learn_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
         return HandlerResult(success=True, message=result if result else "知識を学習したウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"知識学習でエラーが発生したウル🐺")
@@ -1242,7 +1242,7 @@ async def _brain_handle_forget_knowledge(params, room_id, account_id, sender_nam
             return HandlerResult(success=False, message="システムエラーが発生したウル🐺")
 
         handle_forget_knowledge = getattr(main, 'handle_forget_knowledge')
-        result = handle_forget_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        result = handle_forget_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
         return HandlerResult(success=True, message=result if result else "知識を削除したウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"知識削除でエラーが発生したウル🐺")
@@ -1296,7 +1296,7 @@ async def _brain_handle_list_knowledge(params, room_id, account_id, sender_name,
                 return HandlerResult(success=True, message=str(result.get("message", "")))
             # 長期記憶がなければ従来処理にフォールバック
 
-        result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        result = handle_list_knowledge(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name)
         return HandlerResult(success=True, message=str(result) if result else "知識一覧を取得したウル🐺")
     except Exception as e:
         print(f"❌ list_knowledge error: {e}")

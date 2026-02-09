@@ -151,7 +151,7 @@ ChatWorkアプリで直接操作してほしいウル！
     
     return response
 
-def handle_query_company_knowledge(params, room_id, account_id, sender_name, context=None):
+def handle_query_company_knowledge(params, room_id, account_id, sender_name):
     """
     会社知識の参照ハンドラー（Phase 3統合版）
 
@@ -163,7 +163,6 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
         room_id: ChatWorkルームID
         account_id: ユーザーのアカウントID
         sender_name: 送信者名
-        context: コンテキスト情報
 
     Returns:
         回答テキスト
@@ -171,7 +170,7 @@ def handle_query_company_knowledge(params, room_id, account_id, sender_name, con
     v10.24.7: handlers/knowledge_handler.py に分割
     v10.32.0: フォールバック削除（ハンドラー必須化）
     """
-    return _get_knowledge_handler().handle_query_company_knowledge(params, room_id, account_id, sender_name, context)
+    return _get_knowledge_handler().handle_query_company_knowledge(params, room_id, account_id, sender_name)
 
 def handle_daily_reflection(params, room_id, account_id, sender_name, context=None):
     """daily_reflection_logs"""

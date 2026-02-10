@@ -456,7 +456,7 @@ class HybridSearcher:
                         AND d.is_active = true
                         AND d.is_searchable = true
                         AND dc.content ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
-                        ORDER BY dc.search_hit_count DESC, dc.id DESC
+                        ORDER BY dc.created_at DESC, dc.id DESC
                         LIMIT :limit
                     """),
                     {"query": escaped_query, "org_id": self.org_id, "limit": limit},

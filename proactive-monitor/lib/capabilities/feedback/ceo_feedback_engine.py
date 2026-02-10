@@ -186,7 +186,7 @@ class CEOFeedbackEngine:
         # ロガーの初期化
         try:
             from lib.logging import get_logger
-            self._logger = get_logger("feedback.engine")
+            self._logger: Any = get_logger("feedback.engine")
         except ImportError:
             import logging
             self._logger = logging.getLogger("feedback.engine")
@@ -648,7 +648,7 @@ class CEOFeedbackEngine:
         Returns:
             Dict[str, Any]: ヘルスチェック結果
         """
-        health = {
+        health: Dict[str, Any] = {
             "status": "healthy",
             "components": {},
             "checked_at": datetime.now().isoformat(),
@@ -733,7 +733,7 @@ async def get_ceo_feedback_engine_for_organization(
             SELECT
                 u.id,
                 u.name,
-                cu.chatwork_account_id
+                cu.account_id
             FROM users u
             LEFT JOIN chatwork_users cu ON u.id = cu.user_id
             WHERE u.organization_id = :org_id

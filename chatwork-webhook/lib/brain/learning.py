@@ -330,9 +330,9 @@ class BrainLearning:
                         user_id TEXT NOT NULL,
                         user_message TEXT NOT NULL,
 
-                        understanding_intent TEXT NOT NULL,
+                        understanding_result JSONB,
                         understanding_confidence FLOAT NOT NULL,
-                        understanding_entities JSONB,
+                        understanding_time_ms INT,
 
                         selected_action TEXT NOT NULL,
                         action_params JSONB,
@@ -480,12 +480,12 @@ class BrainLearning:
                         conn.execute(sqlalchemy.text("""
                             INSERT INTO brain_decision_logs (
                                 organization_id, room_id, user_id, user_message,
-                                understanding_intent, understanding_confidence, understanding_entities,
+                                understanding_result, understanding_confidence, understanding_time_ms,
                                 selected_action, action_params, decision_confidence, required_confirmation,
                                 execution_success, execution_error, total_time_ms
                             ) VALUES (
                                 :org_id, :room_id, :user_id, :user_message,
-                                :intent, :confidence, :entities,
+                                CAST(:understanding_result AS jsonb), :confidence, :understanding_time_ms,
                                 :action, :params, :decision_conf, :confirmation,
                                 :success, :error, :time_ms
                             )
@@ -494,9 +494,9 @@ class BrainLearning:
                             "room_id": log.room_id,
                             "user_id": log.user_id,
                             "user_message": log.user_message[:500] if log.user_message else "",
-                            "intent": log.understanding_intent,
+                            "understanding_result": json.dumps({"intent": log.understanding_intent, "entities": log.understanding_entities}),
                             "confidence": log.understanding_confidence,
-                            "entities": json.dumps(log.understanding_entities) if log.understanding_entities else None,
+                            "understanding_time_ms": log.understanding_time_ms,
                             "action": log.selected_action,
                             "params": json.dumps(log.action_params) if log.action_params else None,
                             "decision_conf": log.decision_confidence,
@@ -544,12 +544,12 @@ class BrainLearning:
                 conn.execute(sqlalchemy.text("""
                     INSERT INTO brain_decision_logs (
                         organization_id, room_id, user_id, user_message,
-                        understanding_intent, understanding_confidence, understanding_entities,
+                        understanding_result, understanding_confidence, understanding_time_ms,
                         selected_action, action_params, decision_confidence, required_confirmation,
                         execution_success, execution_error, total_time_ms
                     ) VALUES (
                         :org_id, :room_id, :user_id, :user_message,
-                        :intent, :confidence, :entities,
+                        CAST(:understanding_result AS jsonb), :confidence, :understanding_time_ms,
                         :action, :params, :decision_conf, :confirmation,
                         :success, :error, :time_ms
                     )
@@ -558,9 +558,9 @@ class BrainLearning:
                     "room_id": log_entry.room_id,
                     "user_id": log_entry.user_id,
                     "user_message": log_entry.user_message[:500] if log_entry.user_message else "",
-                    "intent": log_entry.understanding_intent,
+                    "understanding_result": json.dumps({"intent": log_entry.understanding_intent, "entities": log_entry.understanding_entities}),
                     "confidence": log_entry.understanding_confidence,
-                    "entities": json.dumps(log_entry.understanding_entities) if log_entry.understanding_entities else None,
+                    "understanding_time_ms": log_entry.understanding_time_ms,
                     "action": log_entry.selected_action,
                     "params": json.dumps(log_entry.action_params) if log_entry.action_params else None,
                     "decision_conf": log_entry.decision_confidence,

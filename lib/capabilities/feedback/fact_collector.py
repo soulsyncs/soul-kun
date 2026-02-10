@@ -288,7 +288,7 @@ class FactCollector:
                 SELECT
                     u.id,
                     u.name,
-                    cu.chatwork_account_id,
+                    cu.account_id,
                     ud.department_id,
                     d.name as department_name
                 FROM users u

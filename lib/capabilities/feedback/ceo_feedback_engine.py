@@ -733,7 +733,7 @@ async def get_ceo_feedback_engine_for_organization(
             SELECT
                 u.id,
                 u.name,
-                cu.chatwork_account_id
+                cu.account_id
             FROM users u
             LEFT JOIN chatwork_users cu ON u.id = cu.user_id
             WHERE u.organization_id = :org_id

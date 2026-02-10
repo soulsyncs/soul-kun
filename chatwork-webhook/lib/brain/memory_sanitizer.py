@@ -212,7 +212,7 @@ class MemoryViewer:
                     FROM user_preferences up
                     JOIN users u ON u.id = up.user_id
                     JOIN organizations o ON o.id = up.organization_id
-                    WHERE o.slug = :org_id
+                    WHERE o.organization_id = :org_id
                       AND u.chatwork_account_id = :user_id
                 """
                 params: Dict[str, Any] = {
@@ -351,12 +351,12 @@ class MemoryViewer:
                             DELETE FROM user_preferences
                             WHERE id = CAST(:memory_id AS UUID)
                               AND organization_id = (
-                                  SELECT id FROM organizations WHERE slug = :org_id
+                                  SELECT id FROM organizations WHERE organization_id = :org_id
                               )
                               AND user_id = (
                                   SELECT u.id FROM users u
                                   JOIN organizations o ON o.id = u.organization_id
-                                  WHERE o.slug = :org_id
+                                  WHERE o.organization_id = :org_id
                                     AND u.chatwork_account_id = :user_id
                               )
                         """),

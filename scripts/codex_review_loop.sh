@@ -106,6 +106,12 @@ print(json.dumps(schema.get('tables', {}), indent=1, ensure_ascii=False))
 " 2>/dev/null || echo "(schema load failed)"
     echo '```'
     echo
+  else
+    echo "## ⚠️ 本番DBスキーマ不在"
+    echo "db_schema.jsonが見つかりません。"
+    echo "項目18（SQLカラム名整合）は検証不可能なため、FAILにしてください。"
+    echo "スキーマを生成するには: scripts/dump_db_schema.sh"
+    echo
   fi
 
   cat <<'PROMPT'

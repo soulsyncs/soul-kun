@@ -292,7 +292,7 @@ class FactCollector:
                     ud.department_id,
                     d.name as department_name
                 FROM users u
-                LEFT JOIN chatwork_users cu ON u.id = cu.user_id
+                LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::text
                 LEFT JOIN user_departments ud ON u.id = ud.user_id
                     AND ud.is_primary = TRUE
                     AND ud.ended_at IS NULL

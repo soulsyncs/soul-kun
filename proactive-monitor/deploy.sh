@@ -69,16 +69,30 @@ fi
 echo -e "${BLUE}🔍 Step 1: lib/ 同期チェック${NC}"
 echo ""
 
-# lib/brain/ の同期確認（proactive-monitor用）
-if ! diff -rq lib/brain proactive-monitor/lib/brain --exclude='__pycache__' --exclude='*.pyc' > /dev/null 2>&1; then
-    echo -e "${RED}❌ lib/brain/ が同期されていません${NC}"
+if ! ./scripts/sync_lib.sh --check; then
+    echo ""
+    echo -e "${RED}❌ lib/ が同期されていません${NC}"
     echo ""
     echo "修正するには以下を実行:"
-    echo "  make sync"
+    echo "  ./scripts/sync_lib.sh"
+    echo ""
+    echo "または自動修正してデプロイ:"
+    echo "  ./scripts/sync_lib.sh && ./proactive-monitor/deploy.sh"
     exit 1
 fi
 
-echo -e "${GREEN}✅ lib/brain/ は同期されています${NC}"
+echo ""
+
+# Import smoke test: lib/がインポート可能か事前確認
+echo -e "${BLUE}🔍 Step 1.5: Import smoke test${NC}"
+echo ""
+if ! python3 -c "import sys; sys.path.insert(0, 'proactive-monitor'); import lib" 2>&1; then
+    echo ""
+    echo -e "${RED}❌ proactive-monitor/lib/ のインポートに失敗${NC}"
+    echo "  依存モジュールが不足している可能性があります"
+    exit 1
+fi
+echo -e "${GREEN}✅ Import smoke test passed${NC}"
 echo ""
 
 # =============================================================================

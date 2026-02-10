@@ -34,195 +34,28 @@ jobs:
         run: |
           echo "🔍 Checking all lib/ copies are in sync..."
           echo ""
+          # sync_lib.sh --check uses rsync mirror for chatwork-webhook and proactive-monitor
+          ./scripts/sync_lib.sh --check
 
-          ERRORS_FOUND=0
+  # =====================================================
+  # SQL Column Validation (B-5: --no-verify bypass protection)
+  # =====================================================
+  sql-column-check:
+    name: Validate SQL column references
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
 
-          # =====================================================
-          # 同期チェック関数
-          # =====================================================
-          check_sync() {
-            local source="$1"
-            local target="$2"
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-            if [ ! -f "$source" ]; then
-              echo "⚠️ Source not found: $source"
-              return 0
-            fi
-
-            if [ -f "$target" ]; then
-              if ! diff -q "$source" "$target" > /dev/null 2>&1; then
-                echo "❌ OUT OF SYNC: $source ≠ $target"
-                echo "   First 20 lines of diff:"
-                diff "$source" "$target" | head -20
-                echo ""
-                return 1
-              else
-                echo "✅ $target"
-                return 0
-              fi
-            else
-              echo "⚠️ Target not found: $target (may be intentional)"
-              return 0
-            fi
-          }
-
-          # =====================================================
-          # 1. text_utils.py
-          # =====================================================
-          echo "📦 [1/11] text_utils.py"
-          check_sync "lib/text_utils.py" "remind-tasks/lib/text_utils.py" || ERRORS_FOUND=1
-          check_sync "lib/text_utils.py" "sync-chatwork-tasks/lib/text_utils.py" || ERRORS_FOUND=1
-          check_sync "lib/text_utils.py" "chatwork-webhook/lib/text_utils.py" || ERRORS_FOUND=1
-          check_sync "lib/text_utils.py" "check-reply-messages/lib/text_utils.py" || ERRORS_FOUND=1
-          check_sync "lib/text_utils.py" "cleanup-old-data/lib/text_utils.py" || ERRORS_FOUND=1
-          check_sync "lib/text_utils.py" "pattern-detection/lib/text_utils.py" || ERRORS_FOUND=1
+      - name: Validate SQL columns against schema
+        run: |
+          echo "🔍 Validating SQL column references against db_schema.json..."
           echo ""
-
-          # =====================================================
-          # 2. goal_setting.py
-          # =====================================================
-          echo "📦 [2/11] goal_setting.py"
-          check_sync "lib/goal_setting.py" "chatwork-webhook/lib/goal_setting.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 3. mvv_context.py
-          # =====================================================
-          echo "📦 [3/11] mvv_context.py"
-          check_sync "lib/mvv_context.py" "chatwork-webhook/lib/mvv_context.py" || ERRORS_FOUND=1
-          check_sync "lib/mvv_context.py" "report-generator/lib/mvv_context.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 4. report_generator.py
-          # =====================================================
-          echo "📦 [4/11] report_generator.py"
-          check_sync "lib/report_generator.py" "chatwork-webhook/lib/report_generator.py" || ERRORS_FOUND=1
-          check_sync "lib/report_generator.py" "report-generator/lib/report_generator.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 5. audit.py
-          # =====================================================
-          echo "📦 [5/11] audit.py"
-          check_sync "lib/audit.py" "chatwork-webhook/lib/audit.py" || ERRORS_FOUND=1
-          check_sync "lib/audit.py" "sync-chatwork-tasks/lib/audit.py" || ERRORS_FOUND=1
-          check_sync "lib/audit.py" "pattern-detection/lib/audit.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 6. memory/ ディレクトリ
-          # =====================================================
-          echo "📦 [6/11] memory/ directory"
-          for file in lib/memory/*.py; do
-            if [ -f "$file" ]; then
-              basename=$(basename "$file")
-              check_sync "$file" "chatwork-webhook/lib/memory/$basename" || ERRORS_FOUND=1
-            fi
-          done
-          echo ""
-
-          # =====================================================
-          # 7. detection/ ディレクトリ
-          # =====================================================
-          echo "📦 [7/11] detection/ directory"
-          for file in lib/detection/*.py; do
-            if [ -f "$file" ]; then
-              basename=$(basename "$file")
-              check_sync "$file" "pattern-detection/lib/detection/$basename" || ERRORS_FOUND=1
-            fi
-          done
-          echo ""
-
-          # =====================================================
-          # 8. business_day.py (v10.24.9追加)
-          # =====================================================
-          echo "📦 [8/11] business_day.py"
-          check_sync "lib/business_day.py" "remind-tasks/lib/business_day.py" || ERRORS_FOUND=1
-          check_sync "lib/business_day.py" "chatwork-webhook/lib/business_day.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 9. brain/ ディレクトリ (v10.53.0追加)【重要】
-          # =====================================================
-          # LLM Brain（25章）の全ファイルを同期チェック
-          # handler_wrappers.py は本番専用なので除外
-          echo "📦 [9/11] brain/ directory (v10.53.0追加)"
-          echo "   Checking chatwork-webhook/lib/brain/..."
-          for file in lib/brain/*.py; do
-            if [ -f "$file" ]; then
-              basename=$(basename "$file")
-              check_sync "$file" "chatwork-webhook/lib/brain/$basename" || ERRORS_FOUND=1
-            fi
-          done
-          echo "   Checking proactive-monitor/lib/brain/..."
-          for file in lib/brain/*.py; do
-            if [ -f "$file" ]; then
-              basename=$(basename "$file")
-              check_sync "$file" "proactive-monitor/lib/brain/$basename" || ERRORS_FOUND=1
-            fi
-          done
-          # サブディレクトリも再帰的にチェック
-          echo "   Checking subdirectories..."
-          for subdir in advanced_judgment agents deep_understanding execution_excellence learning_foundation memory_enhancement model_orchestrator outcome_learning self_awareness; do
-            if [ -d "lib/brain/$subdir" ]; then
-              for file in lib/brain/$subdir/*.py; do
-                if [ -f "$file" ]; then
-                  relpath="${file#lib/brain/}"
-                  check_sync "$file" "chatwork-webhook/lib/brain/$relpath" || ERRORS_FOUND=1
-                  check_sync "$file" "proactive-monitor/lib/brain/$relpath" || ERRORS_FOUND=1
-                fi
-              done
-            fi
-          done
-          echo ""
-
-          # =====================================================
-          # 10. feature_flags.py (v10.53.0追加)
-          # =====================================================
-          echo "📦 [10/11] feature_flags.py"
-          check_sync "lib/feature_flags.py" "chatwork-webhook/lib/feature_flags.py" || ERRORS_FOUND=1
-          check_sync "lib/feature_flags.py" "proactive-monitor/lib/feature_flags.py" || ERRORS_FOUND=1
-          check_sync "lib/feature_flags.py" "sync-chatwork-tasks/lib/feature_flags.py" || ERRORS_FOUND=1
-          check_sync "lib/feature_flags.py" "remind-tasks/lib/feature_flags.py" || ERRORS_FOUND=1
-          check_sync "lib/feature_flags.py" "watch-google-drive/lib/feature_flags.py" || ERRORS_FOUND=1
-          check_sync "lib/feature_flags.py" "pattern-detection/lib/feature_flags.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 11. その他の共通ファイル (v10.53.0追加)
-          # =====================================================
-          echo "📦 [11/11] Other common files"
-          check_sync "lib/config.py" "chatwork-webhook/lib/config.py" || ERRORS_FOUND=1
-          check_sync "lib/db.py" "chatwork-webhook/lib/db.py" || ERRORS_FOUND=1
-          check_sync "lib/secrets.py" "chatwork-webhook/lib/secrets.py" || ERRORS_FOUND=1
-          echo ""
-
-          # =====================================================
-          # 結果
-          # =====================================================
-          if [ $ERRORS_FOUND -eq 1 ]; then
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            echo "❌ Some lib/ copies are OUT OF SYNC!"
-            echo ""
-            echo "To fix, run the sync script:"
-            echo "  make sync"
-            echo ""
-            echo "Or manually copy files:"
-            echo "  cp lib/<file>.py <target>/lib/<file>.py"
-            echo ""
-            echo "For directories:"
-            echo "  rsync -av --exclude='__pycache__' lib/brain/ chatwork-webhook/lib/brain/"
-            echo "  rsync -av --exclude='__pycache__' lib/brain/ proactive-monitor/lib/brain/"
-            echo "  cp -r lib/memory/* chatwork-webhook/lib/memory/"
-            echo "  cp -r lib/detection/* pattern-detection/lib/detection/"
-            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-            exit 1
-          fi
-
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "✅ All lib/ copies are in sync!"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          ./scripts/validate_sql_columns.sh --all
 
   # =====================================================
   # 2. デプロイ設定の整合性チェック（v10.53.1追加）
@@ -614,7 +447,7 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [lib-sync-check, deploy-config-check, forbidden-patterns-check, unit-tests, type-check]
+    needs: [lib-sync-check, sql-column-check, deploy-config-check, forbidden-patterns-check, unit-tests, type-check]
     steps:
       - name: All checks passed
         run: |

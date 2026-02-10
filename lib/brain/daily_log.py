@@ -230,7 +230,7 @@ class DailyLogGenerator:
                     FROM conversation_timestamps ct
                     JOIN chatwork_rooms cr ON cr.room_id::text = ct.room_id
                     JOIN organizations o ON o.id = cr.organization_id
-                    WHERE o.slug = :org_id
+                    WHERE o.organization_id = :org_id
                       AND ct.last_conversation_at >= CAST(:date_start AS DATE)
                       AND ct.last_conversation_at < CAST(:date_end AS DATE)
                 """),
@@ -259,7 +259,7 @@ class DailyLogGenerator:
                     SELECT COUNT(*)
                     FROM user_preferences up
                     JOIN organizations o ON o.id = up.organization_id
-                    WHERE o.slug = :org_id
+                    WHERE o.organization_id = :org_id
                       AND up.created_at >= CAST(:date_start AS DATE)
                       AND up.created_at < CAST(:date_end AS DATE)
                 """),
@@ -305,7 +305,7 @@ class DailyLogGenerator:
                     SELECT COUNT(*)
                     FROM brain_learnings bl
                     JOIN organizations o ON o.id = bl.organization_id
-                    WHERE o.slug = :org_id
+                    WHERE o.organization_id = :org_id
                       AND bl.created_at >= CAST(:date_start AS DATE)
                       AND bl.created_at < CAST(:date_end AS DATE)
                 """),

@@ -424,7 +424,7 @@ class AutoMemoryFlusher:
                                 'auto_flush', :confidence, 'internal'
                             FROM organizations o
                             JOIN users u ON u.organization_id = o.id
-                            WHERE o.slug = :org_id
+                            WHERE o.organization_id = :org_id
                               AND u.chatwork_account_id = :user_id
                             ON CONFLICT (organization_id, user_id, preference_type, preference_key)
                             DO UPDATE SET

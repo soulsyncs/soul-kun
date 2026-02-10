@@ -83,6 +83,18 @@ fi
 
 echo ""
 
+# Import smoke test: lib/がインポート可能か事前確認
+echo -e "${BLUE}🔍 Step 1.5: Import smoke test${NC}"
+echo ""
+if ! python3 -c "import sys; sys.path.insert(0, 'chatwork-webhook'); import lib" 2>&1; then
+    echo ""
+    echo -e "${RED}❌ chatwork-webhook/lib/ のインポートに失敗${NC}"
+    echo "  依存モジュールが不足している可能性があります"
+    exit 1
+fi
+echo -e "${GREEN}✅ Import smoke test passed${NC}"
+echo ""
+
 # =============================================================================
 # Step 2: テスト実行
 # =============================================================================

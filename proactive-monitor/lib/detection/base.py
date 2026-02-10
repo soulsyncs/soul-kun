@@ -202,6 +202,8 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
             detector_type: 検出器の種類
             insight_type: 生成するインサイトの種類
         """
+        if org_id is None:
+            raise ValueError("org_id is required and cannot be None")
         self._conn = conn
         self._org_id = org_id
         self._detector_type = detector_type

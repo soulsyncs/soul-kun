@@ -179,7 +179,7 @@ class Analyzer:
             self._logger = get_logger("feedback.analyzer")
         except ImportError:
             import logging
-            self._logger = logging.getLogger("feedback.analyzer")
+            self._logger = logging.getLogger("feedback.analyzer")  # type: ignore[assignment]
 
     # =========================================================================
     # メイン分析メソッド
@@ -345,8 +345,8 @@ class Analyzer:
         Returns:
             Tuple[List[DetectedAnomaly], List[PositiveFinding]]: 異常とポジティブな発見
         """
-        anomalies = []
-        positives = []
+        anomalies: List[DetectedAnomaly] = []
+        positives: List[PositiveFinding] = []
 
         if not task_facts:
             return anomalies, positives
@@ -587,8 +587,8 @@ class Analyzer:
         Returns:
             Tuple[List[DetectedAnomaly], List[PositiveFinding]]: 異常とポジティブな発見
         """
-        anomalies = []
-        positives = []
+        anomalies: List[DetectedAnomaly] = []
+        positives: List[PositiveFinding] = []
 
         if not team_fact:
             return anomalies, positives
@@ -735,7 +735,7 @@ class Analyzer:
         Returns:
             List[DetectedTrend]: 検出されたトレンド
         """
-        trends = []
+        trends: List[DetectedTrend] = []
 
         if len(historical_facts) < self._min_data_points_for_trend:
             return trends

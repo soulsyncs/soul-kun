@@ -132,6 +132,7 @@ class Settings:
     KNOWLEDGE_REFUSE_ON_LOW_SCORE: bool = field(default_factory=lambda: os.getenv(
         "KNOWLEDGE_REFUSE_ON_LOW_SCORE", "true"
     ).lower() == "true")
+    # 回答生成設定はPhase 3.5（Brain Tool統合）で追加予定
 
     # 環境識別
     ENVIRONMENT: str = field(default_factory=lambda: os.getenv(

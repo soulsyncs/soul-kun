@@ -30,11 +30,14 @@ Phase 4対応:
     - 接続の自動リサイクル（30分）
 """
 
+import logging
 import threading
 from typing import Optional, TYPE_CHECKING
 from contextlib import contextmanager
 
 import sqlalchemy
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import text
 from sqlalchemy.pool import QueuePool
 
@@ -192,6 +195,48 @@ def get_db_session():
         conn.close()
 
 
+@contextmanager
+def get_db_session_with_org(organization_id: str):
+    """
+    organization_idコンテキスト付きDBセッションを取得
+
+    RLS（Row Level Security）が有効なbrain_*テーブルに
+    アクセスする際に使用する。自動的にorganization_idを設定。
+
+    Args:
+        organization_id: 組織ID（UUID文字列）
+
+    使用例:
+        with get_db_session_with_org("xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx") as conn:
+            # RLSにより、このorganization_idのデータのみ取得可能
+            result = conn.execute(text("SELECT * FROM brain_learnings"))
+            conn.commit()
+
+    Raises:
+        ValueError: organization_idが空の場合
+    """
+    if not organization_id:
+        raise ValueError("organization_id is required for RLS")
+
+    pool = get_db_pool()
+    conn = pool.connect()
+    try:
+        # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
+        conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+            {"org_id": organization_id}
+        )
+        logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
+        yield conn
+    finally:
+        # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
+        try:
+            conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+        except Exception:
+            pass  # 接続が既に閉じられている場合は無視
+        conn.close()
+
+
 # =============================================================================
 # 非同期版（FastAPI用）
 # Phase 3.5 以降で使用
@@ -278,13 +323,54 @@ async def get_async_db_session():
         yield conn
 
 
+async def get_async_db_session_with_org(organization_id: str):
+    """
+    organization_idコンテキスト付き非同期DBセッションを取得
+
+    RLS（Row Level Security）が有効なbrain_*テーブルに
+    アクセスする際に使用する。自動的にorganization_idを設定。
+
+    Args:
+        organization_id: 組織ID（UUID文字列）
+
+    使用例（FastAPI）:
+        @app.get("/learnings")
+        async def get_learnings(org_id: str):
+            async for conn in get_async_db_session_with_org(org_id):
+                result = await conn.execute(text("SELECT * FROM brain_learnings"))
+                return result.fetchall()
+
+    Raises:
+        ValueError: organization_idが空の場合
+    """
+    if not organization_id:
+        raise ValueError("organization_id is required for RLS")
+
+    pool = await get_async_db_pool()
+    async with pool.connect() as conn:
+        # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
+        await conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+            {"org_id": organization_id}
+        )
+        logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
+        try:
+            yield conn
+        finally:
+            # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
+            try:
+                await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+            except Exception:
+                pass  # 接続が既に閉じられている場合は無視
+
+
 # =============================================================================
 # テナント対応（Phase 4準備）
 # =============================================================================
 
 def set_tenant_context(conn, tenant_id: str) -> None:
     """
-    接続にテナントコンテキストを設定
+    接続にテナントコンテキストを設定（レガシー互換）
 
     Phase 4 の Row Level Security で使用。
     PostgreSQL の SET 変数でテナントIDを設定し、
@@ -300,20 +386,74 @@ def set_tenant_context(conn, tenant_id: str) -> None:
             # 以降のクエリは自動的にテナントでフィルタ
             result = conn.execute(text("SELECT * FROM tasks"))
     """
+    # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
     conn.execute(
-        text("SET app.current_tenant = :tenant_id"),
+        text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
         {"tenant_id": tenant_id}
     )
+
+
+def set_organization_context(conn, organization_id: str) -> None:
+    """
+    接続にorganization_idコンテキストを設定（RLS用）
+
+    brain_* テーブルの Row Level Security で使用。
+    PostgreSQL の SET 変数で organization_id を設定し、
+    RLS ポリシーがこの値を参照する。
+
+    Args:
+        conn: DBコネクション（SQLAlchemy Connection）
+        organization_id: 組織ID（UUID文字列）
+
+    使用例:
+        with get_db_session() as conn:
+            set_organization_context(conn, "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx")
+            # 以降のクエリはRLSでorganization_idでフィルタ
+            result = conn.execute(text("SELECT * FROM brain_learnings"))
+
+    注意:
+        - organization_id が空文字やNoneの場合、クエリは全て拒否される
+        - RLSが有効なテーブルにアクセスする前に必ず呼び出すこと
+    """
+    if not organization_id:
+        raise ValueError("organization_id is required for RLS")
+
+    # pg8000ドライバはSET文でパラメータを使えないため、set_config()を使用
+    conn.execute(
+        text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+        {"org_id": organization_id}
+    )
+    logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
 
 
 async def set_tenant_context_async(conn, tenant_id: str) -> None:
     """
     非同期版: 接続にテナントコンテキストを設定
     """
+    # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
     await conn.execute(
-        text("SET app.current_tenant = :tenant_id"),
+        text("SELECT set_config('app.current_tenant', :tenant_id, false)"),
         {"tenant_id": tenant_id}
     )
+
+
+async def set_organization_context_async(conn, organization_id: str) -> None:
+    """
+    非同期版: 接続にorganization_idコンテキストを設定（RLS用）
+
+    Args:
+        conn: DBコネクション（AsyncConnection）
+        organization_id: 組織ID（UUID文字列）
+    """
+    if not organization_id:
+        raise ValueError("organization_id is required for RLS")
+
+    # pg8000/asyncpgドライバはSET文でパラメータを使えないため、set_config()を使用
+    await conn.execute(
+        text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+        {"org_id": organization_id}
+    )
+    logger.info(f"[RLS] SET app.current_organization_id = {organization_id[:8]}...")
 
 
 # =============================================================================

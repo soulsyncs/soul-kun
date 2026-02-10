@@ -584,7 +584,7 @@ async def handle_chatwork_message_with_attachments(
             account_id=account_id,
             sender_name=sender_name,
         )
-        return brain_response.message
+        return str(brain_response.message)
 
 
 # =============================================================================

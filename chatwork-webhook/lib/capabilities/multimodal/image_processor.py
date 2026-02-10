@@ -434,7 +434,8 @@ class ImageProcessor(BaseMultimodalProcessor):
             content_stripped = content.strip()
             if content_stripped.startswith('{') and content_stripped.endswith('}'):
                 try:
-                    return json.loads(content_stripped)
+                    parsed: Dict[str, Any] = json.loads(content_stripped)
+                    return parsed
                 except json.JSONDecodeError:
                     pass
 
@@ -442,7 +443,8 @@ class ImageProcessor(BaseMultimodalProcessor):
             json_match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', content, re.DOTALL)
             if json_match:
                 try:
-                    return json.loads(json_match.group(1))
+                    parsed2: Dict[str, Any] = json.loads(json_match.group(1))
+                    return parsed2
                 except json.JSONDecodeError:
                     pass
 
@@ -451,7 +453,8 @@ class ImageProcessor(BaseMultimodalProcessor):
             end = content.rfind('}')
             if start != -1 and end != -1 and end > start:
                 try:
-                    return json.loads(content[start:end + 1])
+                    parsed3: Dict[str, Any] = json.loads(content[start:end + 1])
+                    return parsed3
                 except json.JSONDecodeError:
                     pass
 

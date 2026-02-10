@@ -37,6 +37,12 @@ from .constants import (
     ResearchType,
     SourceType,
     ReportFormat,
+    # G5: 動画生成
+    VideoProvider,
+    VideoResolution,
+    VideoDuration,
+    VideoAspectRatio,
+    VideoStyle,
 )
 
 
@@ -449,8 +455,8 @@ class DocumentResult:
 
         elif self.status == GenerationStatus.PENDING and self.outline:
             lines.append("構成案:")
-            for section in self.outline.sections[:10]:
-                lines.append(f"  - {section.title}")
+            for outline_section in self.outline.sections[:10]:
+                lines.append(f"  - {outline_section.title}")
 
         return "\n".join(lines)
 
@@ -800,11 +806,11 @@ class VideoRequest:
     prompt: str                                     # 動画の説明
 
     # 動画設定
-    provider: "VideoProvider" = None               # 動画生成プロバイダー
-    resolution: "VideoResolution" = None           # 解像度
-    duration: "VideoDuration" = None               # 動画長さ
-    aspect_ratio: "VideoAspectRatio" = None        # アスペクト比
-    style: "VideoStyle" = None                     # スタイル
+    provider: Optional[VideoProvider] = None        # 動画生成プロバイダー
+    resolution: Optional[VideoResolution] = None    # 解像度
+    duration: Optional[VideoDuration] = None        # 動画長さ
+    aspect_ratio: Optional[VideoAspectRatio] = None # アスペクト比
+    style: Optional[VideoStyle] = None              # スタイル
 
     # 入力画像（画像→動画生成時）
     source_image_url: Optional[str] = None         # 入力画像URL
@@ -899,11 +905,11 @@ class VideoResult:
     # 生成情報
     prompt_used: Optional[str] = None                   # 実際に使用したプロンプト
     optimized_prompt: Optional[VideoOptimizedPrompt] = None
-    provider: "VideoProvider" = None
-    resolution: "VideoResolution" = None
-    duration: "VideoDuration" = None
-    aspect_ratio: "VideoAspectRatio" = None
-    style: "VideoStyle" = None
+    provider: Optional[VideoProvider] = None
+    resolution: Optional[VideoResolution] = None
+    duration: Optional[VideoDuration] = None
+    aspect_ratio: Optional[VideoAspectRatio] = None
+    style: Optional[VideoStyle] = None
     actual_duration_seconds: Optional[float] = None     # 実際の動画長（秒）
 
     # Runway固有情報

@@ -23,7 +23,7 @@ Phase 4対応:
     - リトライ機能
 """
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union, cast
 from dataclasses import dataclass
 import time
 
@@ -209,11 +209,12 @@ class ChatworkClient(ChatworkClientBase):
         if reply_to:
             message = f"[rp aid={reply_to}][/rp]\n{message}"
 
-        return self._request(
+        result: Dict[str, Any] = self._request(
             "POST",
             f"/rooms/{room_id}/messages",
             data={"body": message},
         )
+        return result
 
     def get_messages(
         self,
@@ -231,7 +232,7 @@ class ChatworkClient(ChatworkClientBase):
             メッセージのリスト
         """
         params = {"force": 1} if force else {}
-        result = self._request(
+        result: List[Dict[str, Any]] = self._request(
             "GET",
             f"/rooms/{room_id}/messages",
             params=params,
@@ -288,7 +289,8 @@ class ChatworkClient(ChatworkClientBase):
         Returns:
             メンバーのリスト
         """
-        return self._request("GET", f"/rooms/{room_id}/members")
+        result: List[Dict[str, Any]] = self._request("GET", f"/rooms/{room_id}/members")
+        return result
 
     # =========================================================================
     # タスク API
@@ -311,7 +313,7 @@ class ChatworkClient(ChatworkClientBase):
         Returns:
             ChatworkTask のリスト
         """
-        params = {"status": status}
+        params: Dict[str, Any] = {"status": status}
         if assigned_by_account_id:
             params["assigned_by_account_id"] = assigned_by_account_id
 
@@ -357,7 +359,7 @@ class ChatworkClient(ChatworkClientBase):
         Returns:
             {"task_ids": [...]}
         """
-        data = {
+        data: Dict[str, Any] = {
             "body": body,
             "to_ids": ",".join(map(str, to_ids)),
         }
@@ -365,11 +367,12 @@ class ChatworkClient(ChatworkClientBase):
             data["limit"] = limit_time
             data["limit_type"] = limit_type
 
-        return self._request(
+        result: Dict[str, Any] = self._request(
             "POST",
             f"/rooms/{room_id}/tasks",
             data=data,
         )
+        return result
 
 
 class ChatworkAsyncClient(ChatworkClientBase):
@@ -465,11 +468,12 @@ class ChatworkAsyncClient(ChatworkClientBase):
         if reply_to:
             message = f"[rp aid={reply_to}][/rp]\n{message}"
 
-        return await self._request(
+        result: Dict[str, Any] = await self._request(
             "POST",
             f"/rooms/{room_id}/messages",
             data={"body": message},
         )
+        return result
 
     async def get_rooms(self) -> List[ChatworkRoom]:
         """ルーム一覧を取得（非同期）"""

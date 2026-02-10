@@ -828,7 +828,7 @@ class MultimodalOutput:
         """脳のコンテキスト用文字列を生成"""
         result = self.get_result()
         if result and hasattr(result, 'to_brain_context'):
-            return result.to_brain_context()
+            return str(result.to_brain_context())
         return f"【{self.input_type.value}解析結果】{self.summary or '解析完了'}"
 
     def to_dict(self) -> Dict[str, Any]:

@@ -32,6 +32,7 @@ from .constants import (
     FeedbackTemplates,
     FeedbackType,
     InsightCategory,
+    TrendDirection,
 )
 from .models import (
     AnalysisResult,
@@ -111,7 +112,7 @@ class FeedbackGenerator:
         # ロガーの初期化
         try:
             from lib.logging import get_logger
-            self._logger = get_logger("feedback.generator")
+            self._logger: Any = get_logger("feedback.generator")
         except ImportError:
             import logging
             self._logger = logging.getLogger("feedback.generator")
@@ -169,7 +170,7 @@ class FeedbackGenerator:
 
         try:
             feedback_id = str(uuid4())
-            items = []
+            items: List[FeedbackItem] = []
 
             # 1. 異常から項目を生成（優先度順）
             for anomaly in sorted(

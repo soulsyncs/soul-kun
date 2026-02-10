@@ -9,7 +9,7 @@ Phase 2C-1: MVV・アチーブ連携 + ベテラン秘書機能
 - 5つの基本欲求分析
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 from dataclasses import dataclass
 from enum import Enum
 import re
@@ -63,7 +63,7 @@ class BasicNeedAnalysis:
     """基本欲求分析結果"""
     primary_need: Optional[BasicNeed] = None
     confidence: float = 0.0
-    matched_keywords: List[str] = None
+    matched_keywords: Optional[List[str]] = None
     recommended_question: Optional[str] = None
     approach_hint: Optional[str] = None
 
@@ -403,9 +403,10 @@ def detect_ng_pattern(message: str) -> NGPatternResult:
     ]
 
     for pattern_key in priority_order:
-        pattern = NG_PATTERNS.get(pattern_key)
-        if not pattern:
+        pattern_raw = NG_PATTERNS.get(pattern_key)
+        if not pattern_raw:
             continue
+        pattern = cast(Dict[str, Any], pattern_raw)
 
         for keyword in pattern["keywords"]:
             if keyword in message or keyword in message_lower:
@@ -466,15 +467,15 @@ def analyze_basic_needs(message: str) -> BasicNeedAnalysis:
             approach_hint=None
         )
 
-    config = BASIC_NEED_KEYWORDS[primary_need]
+    config = cast(Dict[str, Any], BASIC_NEED_KEYWORDS[primary_need])
     confidence = min(1.0, max_matches / 3)  # 3キーワード以上でconfidence=1.0
 
     return BasicNeedAnalysis(
         primary_need=primary_need,
         confidence=confidence,
         matched_keywords=matched_keywords,
-        recommended_question=config["question"],
-        approach_hint=config["approach"]
+        recommended_question=str(config["question"]),
+        approach_hint=str(config["approach"])
     )
 
 
@@ -515,7 +516,8 @@ class MVVContext:
         for guideline in self.guidelines:
             for keyword in context_keywords:
                 if keyword in guideline["title"] or keyword in guideline.get("soulkun_action", ""):
-                    return guideline
+                    result: Dict[str, Any] = guideline
+                    return result
         return None
 
     def get_context_for_prompt(
@@ -762,7 +764,7 @@ def get_full_mvv_info() -> str:
     Returns:
         MVVの詳細情報（プロンプト用）
     """
-    mvv = SOULSYNC_MVV
+    mvv: Dict[str, Any] = SOULSYNC_MVV
     guidelines = BEHAVIORAL_GUIDELINES_10
 
     # 行動指針10箇条をフォーマット（組織論理論の括弧書きは外部向けには不要）

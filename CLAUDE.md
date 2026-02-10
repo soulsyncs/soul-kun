@@ -347,10 +347,20 @@ CI（テスト・型チェック・sync確認）→ PR作成
 
 ### 13-3. Layer 3: デプロイ前チェック
 
-マージ後、本番デプロイ前に `scripts/pre_deploy_check.sh` を実行。
-- マイグレーション整合: コードが参照するテーブルが本番DBに存在するか
-- RLSポリシー整合: 全テーブルにRLSが適用されているか
-- 環境変数確認: 新しい環境変数が本番にセットされているか
+マージ後、本番デプロイ前に以下を実行。
+
+1. **`scripts/pre_deploy_check.sh`**: DB整合性チェック
+   - マイグレーション整合: コードが参照するテーブルが本番DBに存在するか
+   - RLSポリシー整合: 全テーブルにRLSが適用されているか
+   - 環境変数確認: 新しい環境変数が本番にセットされているか
+
+2. **`scripts/sync_lib.sh --check`**: lib/ファイル同期チェック
+   - chatwork-webhook/lib/ と proactive-monitor/lib/ が lib/ のミラーであること
+   - rsyncベースの完全ミラー検証（ハードコードリストではない）
+
+3. **Import smoke test**: `python3 -c "import sys; sys.path.insert(0, '<target>'); import lib"`
+   - chatwork-webhook と proactive-monitor の lib/ が正常にインポートできること
+   - deploy.sh 内で自動実行される
 
 ### 13-4. コミットメッセージ
 

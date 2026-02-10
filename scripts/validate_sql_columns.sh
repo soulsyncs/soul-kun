@@ -7,6 +7,9 @@ set -euo pipefail
 # git diff内のPythonファイルからSQL文を抽出し、
 # db_schema.json と照合してカラム名の不一致を検出する。
 #
+# 対応SQL文: SELECT, INSERT, UPDATE SET, WHERE, JOIN ON
+# 対応パターン: text(), sql_text(), sqlalchemy.text(), raw execute()
+#
 # Usage:
 #   scripts/validate_sql_columns.sh              # diff内の変更ファイルを検証
 #   scripts/validate_sql_columns.sh --all        # lib/配下の全ファイルを検証
@@ -27,8 +30,11 @@ if [[ ! -f "$SCHEMA_FILE" ]]; then
   exit 2
 fi
 
-# Check schema freshness (warn if older than 7 days)
-SCHEMA_MAX_AGE_DAYS=7
+# Check schema freshness
+# - 7 days: warning (results may be inaccurate)
+# - 14 days: hard block (exit 1)
+SCHEMA_WARN_DAYS=7
+SCHEMA_BLOCK_DAYS=14
 if [[ "$(uname)" == "Darwin" ]]; then
   schema_mtime=$(stat -f%m "$SCHEMA_FILE")
 else
@@ -36,10 +42,14 @@ else
 fi
 now=$(date +%s)
 schema_age_days=$(( (now - schema_mtime) / 86400 ))
-if [[ "$schema_age_days" -ge "$SCHEMA_MAX_AGE_DAYS" ]]; then
-  echo "⚠️  db_schema.json is ${schema_age_days} days old (max: ${SCHEMA_MAX_AGE_DAYS})."
+if [[ "$schema_age_days" -ge "$SCHEMA_BLOCK_DAYS" ]]; then
+  echo "❌ db_schema.json is ${schema_age_days} days old (limit: ${SCHEMA_BLOCK_DAYS})."
   echo "   Run 'scripts/dump_db_schema.sh' to refresh."
-  echo "   Continuing with stale schema (results may be inaccurate)."
+  echo "   Validation BLOCKED: schema too stale for reliable checking."
+  exit 1
+elif [[ "$schema_age_days" -ge "$SCHEMA_WARN_DAYS" ]]; then
+  echo "⚠️  db_schema.json is ${schema_age_days} days old (warn: ${SCHEMA_WARN_DAYS}, block: ${SCHEMA_BLOCK_DAYS})."
+  echo "   Run 'scripts/dump_db_schema.sh' to refresh."
   echo ""
 fi
 
@@ -82,42 +92,142 @@ with open(schema_file) as f:
     schema = json.load(f)
 tables = schema["tables"]
 
-# Known aliases/expressions to ignore (not real column names)
-IGNORE_COLUMNS = {
-    # SQL keywords/expressions
-    "id", "true", "false", "null", "not", "and", "or", "as", "on",
+# =============================================================================
+# Ignore lists (B-3 fix: separated SQL keywords from parameter placeholders)
+# =============================================================================
+
+# SQL keywords/functions - these are NEVER column names
+SQL_KEYWORDS = {
+    "true", "false", "null", "not", "and", "or", "as", "on",
     "is", "in", "set", "all", "asc", "desc", "case", "when", "then",
     "else", "end", "limit", "offset", "order", "by", "group", "having",
     "from", "where", "join", "left", "right", "inner", "outer", "cross",
     "select", "insert", "into", "update", "delete", "values", "exists",
-    "between", "like", "ilike", "cast", "coalesce", "greatest",
+    "between", "like", "ilike", "cast", "coalesce", "greatest", "least",
     "current_timestamp", "now", "count", "sum", "avg", "min", "max",
-    # Parameter placeholders
-    "org_id", "user_id", "room_id", "message_id", "person_id",
-    "learning_id", "limit", "query", "key", "value", "category",
-    "date_start", "date_end", "now", "confidence", "source",
-    "memory_id", "attr_type", "attr_value", "interval",
-    "pid", "name", "updated_at", "processed_at",
+    "distinct", "returning", "conflict", "do", "nothing", "interval",
+    "extract", "epoch", "date_trunc", "to_char", "lower", "upper",
+    "trim", "length", "substring", "replace", "concat", "string_agg",
+    "array_agg", "jsonb_build_object", "row_number", "over", "partition",
 }
 
-# Extract SQL strings from Python source
+# Parameter placeholder names (appear as :param in SQL)
+# Only ignored in unqualified context (not when table.column)
+PARAM_PLACEHOLDERS = {
+    "org_id", "user_id", "room_id", "message_id", "person_id",
+    "learning_id", "query", "date_start", "date_end",
+    "memory_id", "attr_type", "attr_value", "pid",
+    "session_id", "chunk_id", "doc_id", "task_id", "goal_id",
+}
+
+def is_sql_keyword(col_name):
+    """Check if a name is a SQL keyword (always ignore)"""
+    return col_name.lower() in SQL_KEYWORDS
+
+def is_param_placeholder(col_name):
+    """Check if a name is a known parameter placeholder"""
+    return col_name.lower() in PARAM_PLACEHOLDERS
+
+def should_ignore(col_name, is_qualified=False):
+    """Determine if a column reference should be ignored.
+
+    Args:
+        col_name: The column name
+        is_qualified: True if this is a table.column reference (more reliable)
+    """
+    if is_sql_keyword(col_name):
+        return True
+    # Parameter placeholders are only ignored in unqualified context
+    # If someone writes table.org_id, we should still validate it exists
+    if not is_qualified and is_param_placeholder(col_name):
+        return True
+    return False
+
+
+# =============================================================================
+# SQL extraction (B-2 fix: added raw SQL patterns)
+# =============================================================================
+
 def extract_sql_strings(content):
-    """Extract SQL from text('...') and text(\"\"\"...\"\"\") patterns"""
+    """Extract SQL from text()/sql_text()/sqlalchemy.text() and raw SQL strings"""
     sqls = []
-    # Triple-quoted strings after text( or sql_text(
+
+    # Pattern 1: Triple-quoted strings after text( or sql_text(
     pattern = r'(?:text|sql_text)\s*\(\s*(?:f\s*)?"""(.*?)"""'
     for match in re.finditer(pattern, content, re.DOTALL):
         sql = match.group(1)
-        # Strip f-string interpolation {variable} to avoid false positives
-        sql = re.sub(r'\{[^}]+\}', '', sql)
+        sql = re.sub(r'\{[^}]+\}', '', sql)  # Strip f-string interpolation
         sqls.append(sql)
-    # Single-quoted strings
+
+    # Pattern 2: Single-quoted strings after text( or sql_text(
     pattern2 = r'(?:text|sql_text)\s*\(\s*(?:f\s*)?"(.*?)"'
     for match in re.finditer(pattern2, content, re.DOTALL):
         sql = match.group(1)
         sql = re.sub(r'\{[^}]+\}', '', sql)
         sqls.append(sql)
+
+    # Pattern 3: Raw SQL in triple-quoted strings passed to execute() without text()
+    pattern3 = r'\.execute\s*\(\s*(?:f\s*)?"""(.*?)"""'
+    for match in re.finditer(pattern3, content, re.DOTALL):
+        sql = match.group(1)
+        if re.search(r'\b(SELECT|INSERT|UPDATE|DELETE)\b', sql, re.IGNORECASE):
+            sql = re.sub(r'\{[^}]+\}', '', sql)
+            sqls.append(sql)
+
+    # Pattern 4: Raw SQL in single-quoted strings passed to execute()
+    pattern4 = r'\.execute\s*\(\s*(?:f\s*)?"(.*?)"'
+    for match in re.finditer(pattern4, content, re.DOTALL):
+        sql = match.group(1)
+        if re.search(r'\b(SELECT|INSERT|UPDATE|DELETE)\b', sql, re.IGNORECASE):
+            sql = re.sub(r'\{[^}]+\}', '', sql)
+            sqls.append(sql)
+
     return sqls
+
+
+# =============================================================================
+# Alias map builder (B-6 fix: handles ALL FROM/JOIN clauses, not just first)
+# =============================================================================
+
+def build_alias_map(sql):
+    """Build alias -> real table name map from all FROM/JOIN clauses in SQL"""
+    alias_map = {}
+    reserved = {'WHERE', 'ORDER', 'GROUP', 'LIMIT', 'JOIN', 'LEFT', 'RIGHT',
+                'INNER', 'ON', 'AS', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT',
+                'SET', 'INTO', 'VALUES', 'RETURNING', 'AND', 'OR', 'NOT',
+                'CROSS', 'OUTER', 'FULL', 'NATURAL', 'USING', 'OFFSET',
+                'FETCH', 'FOR', 'UPDATE', 'DELETE', 'INSERT', 'SELECT'}
+
+    # All FROM table [AS] [alias] patterns
+    for fm in re.finditer(r'\bFROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', sql, re.IGNORECASE):
+        table = fm.group(1)
+        alias = fm.group(2)
+        if table.upper() not in reserved:
+            alias_map[table] = table
+        if alias and alias.upper() not in reserved:
+            alias_map[alias] = table
+
+    # All JOIN table [AS] alias ON patterns
+    for jm in re.finditer(r'JOIN\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?\s+ON', sql, re.IGNORECASE):
+        table = jm.group(1)
+        alias = jm.group(2)
+        if table.upper() not in reserved:
+            alias_map[table] = table
+        if alias and alias.upper() not in reserved:
+            alias_map[alias] = table
+
+    # UPDATE table pattern
+    for um in re.finditer(r'\bUPDATE\s+(\w+)\s+SET\b', sql, re.IGNORECASE):
+        table = um.group(1)
+        if table.upper() not in reserved:
+            alias_map[table] = table
+
+    return alias_map
+
+
+# =============================================================================
+# Column extraction from SQL
+# =============================================================================
 
 def extract_insert_columns(sql):
     """Extract table and columns from INSERT INTO table (col1, col2, ...)"""
@@ -130,68 +240,133 @@ def extract_insert_columns(sql):
             parts = col.strip().split()
             if not parts:
                 continue
-            col = parts[-1]  # Handle "col_name" vs just col
+            col = parts[-1]
             col = re.sub(r'[^a-zA-Z0-9_]', '', col)
-            if col and col.lower() not in IGNORE_COLUMNS:
+            if col and not should_ignore(col, is_qualified=False):
                 results.append((table, col))
     return results
 
-def extract_select_columns(sql):
-    """Extract table and columns from SELECT col1, col2 FROM table"""
+
+def strip_sql_comments(sql):
+    """Strip SQL single-line comments (-- to end of line)"""
+    return re.sub(r'--[^\n]*', '', sql)
+
+
+def extract_update_set_columns(sql):
+    """Extract table and columns from UPDATE table SET col1 = ..., col2 = ...
+
+    B-1 fix: Previously UPDATE SET columns were not validated at all.
+    """
     results = []
-    # Find FROM clause to get table names
-    from_match = re.search(r'\bFROM\s+(\w+)', sql, re.IGNORECASE)
-    if not from_match:
+    # Strip SQL comments to prevent comment text bleeding into column names
+    clean_sql = strip_sql_comments(sql)
+    # Match UPDATE table SET ... WHERE (or RETURNING or end of string)
+    # Use \s* instead of \s+ to handle f-string-stripped empty SET clauses
+    update_match = re.search(
+        r'UPDATE\s+(\w+)\s+SET\s*(.*?)(?:\s*\bWHERE\b|\s*\bRETURNING\b|\s*$)',
+        clean_sql, re.IGNORECASE | re.DOTALL
+    )
+    if not update_match:
+        # Also handle ON CONFLICT ... DO UPDATE SET
+        conflict_match = re.search(
+            r'DO\s+UPDATE\s+SET\s*(.*?)(?:\s*\bWHERE\b|\s*\bRETURNING\b|\s*$)',
+            clean_sql, re.IGNORECASE | re.DOTALL
+        )
+        if not conflict_match:
+            return results
+        # For ON CONFLICT DO UPDATE SET, get table from INSERT INTO
+        table_match = re.search(r'INSERT\s+INTO\s+(\w+)', clean_sql, re.IGNORECASE)
+        if not table_match:
+            return results
+        table = table_match.group(1).strip()
+        set_clause = conflict_match.group(1)
+    else:
+        table = update_match.group(1).strip()
+        set_clause = update_match.group(2)
+
+    # Extract column names from SET clause
+    # Handle nested parens: SET col = COALESCE(:val, col), col2 = :val2
+    depth = 0
+    current_col = ""
+    in_col = True
+    for char in set_clause:
+        if char == '(':
+            depth += 1
+            in_col = False
+        elif char == ')':
+            depth -= 1
+        elif char == '=' and depth == 0 and in_col:
+            col = current_col.strip()
+            col = re.sub(r'[^a-zA-Z0-9_]', '', col)
+            if col and not should_ignore(col, is_qualified=False):
+                results.append((table, col))
+            current_col = ""
+            in_col = False
+        elif char == ',' and depth == 0:
+            current_col = ""
+            in_col = True
+        elif in_col:
+            current_col += char
+
+    return results
+
+
+def extract_select_columns(sql):
+    """Extract qualified table.column references using alias map"""
+    results = []
+    alias_map = build_alias_map(sql)
+    if not alias_map:
         return results
-    main_table = from_match.group(1).strip()
 
-    # Build alias map: alias -> real table name
-    alias_map = {main_table: main_table}
-    # JOIN table alias ON ...
-    for jm in re.finditer(r'JOIN\s+(\w+)\s+(\w+)\s+ON', sql, re.IGNORECASE):
-        alias_map[jm.group(2)] = jm.group(1)
-    # FROM table alias
-    fm2 = re.search(r'\bFROM\s+(\w+)\s+(\w+)\s', sql, re.IGNORECASE)
-    if fm2 and fm2.group(2).upper() not in ('WHERE', 'ORDER', 'GROUP', 'LIMIT', 'JOIN', 'LEFT', 'RIGHT', 'INNER', 'ON', 'AS'):
-        alias_map[fm2.group(2)] = fm2.group(1)
-
-    # Find qualified column references: table.column or alias.column
+    # Find qualified column references: prefix.column
     for qm in re.finditer(r'\b(\w+)\.(\w+)\b', sql):
         prefix = qm.group(1)
         col = qm.group(2)
-        if prefix in alias_map and col.lower() not in IGNORE_COLUMNS:
+        if prefix in alias_map and not should_ignore(col, is_qualified=True):
             real_table = alias_map[prefix]
             results.append((real_table, col))
 
     return results
 
+
 def extract_where_columns(sql):
-    """Extract column references from WHERE/AND/SET clauses"""
+    """Extract qualified column references from WHERE/AND conditions"""
     results = []
-    # table.column = or table.column ILIKE etc
+    alias_map = build_alias_map(sql)
+
     for wm in re.finditer(r'\b(\w+)\.(\w+)\s*(?:=|!=|<>|>=|<=|>|<|ILIKE|LIKE|IS|IN)\b', sql, re.IGNORECASE):
         prefix = wm.group(1)
         col = wm.group(2)
-        if col.lower() not in IGNORE_COLUMNS:
-            results.append((prefix, col))
+        if not should_ignore(col, is_qualified=True):
+            if prefix in alias_map:
+                results.append((alias_map[prefix], col))
+            else:
+                results.append((prefix, col))
     return results
 
+
 def extract_cast_types(sql):
-    """Extract CAST type mismatches: column = CAST(:param AS type)"""
+    """Extract CAST type references for type compatibility checking"""
     results = []
-    # Pattern: table.column = CAST(:param AS type) or column = CAST(:param AS type)
+    alias_map = build_alias_map(sql)
+
     for cm in re.finditer(
         r'\b(\w+)\.(\w+)\s*=\s*CAST\s*\([^)]*\s+AS\s+(\w+)\)',
         sql, re.IGNORECASE
     ):
-        table = cm.group(1)
+        prefix = cm.group(1)
         col = cm.group(2)
         cast_type = cm.group(3).lower()
-        if col.lower() not in IGNORE_COLUMNS:
+        if not should_ignore(col, is_qualified=True):
+            table = alias_map.get(prefix, prefix)
             results.append((table, col, cast_type))
     return results
 
-# Map SQL CAST types to PostgreSQL actual types
+
+# =============================================================================
+# Validation
+# =============================================================================
+
 CAST_TYPE_MAP = {
     'uuid': {'uuid'},
     'text': {'text', 'character varying', 'character', 'varchar'},
@@ -200,30 +375,28 @@ CAST_TYPE_MAP = {
     'boolean': {'boolean'},
     'date': {'date', 'timestamp without time zone', 'timestamp with time zone'},
     'timestamp': {'timestamp without time zone', 'timestamp with time zone'},
+    'jsonb': {'jsonb', 'json'},
+    'json': {'json', 'jsonb'},
 }
 
 def validate_cast_type(table_name, column_name, cast_type, tables):
     """Check if CAST type is compatible with actual column type"""
     if table_name not in tables:
-        return True, None  # Can't validate alias
+        return True, None
     if column_name not in tables[table_name]:
-        return True, None  # Column validation handled elsewhere
+        return True, None
     actual_type = tables[table_name][column_name]
     compatible = CAST_TYPE_MAP.get(cast_type, set())
     if compatible and actual_type not in compatible:
-        return False, f"CAST type mismatch: {table_name}.{column_name} is '{actual_type}' but CAST AS {cast_type}. These are incompatible."
+        return False, f"CAST type mismatch: {table_name}.{column_name} is '{actual_type}' but CAST AS {cast_type}"
     return True, None
 
 def validate_column(table_name, column_name, tables):
     """Check if column exists in schema"""
-    # Try exact table match
     if table_name in tables:
         if column_name in tables[table_name]:
             return True, None
-        # Check for common aliases
         return False, f"Column '{column_name}' not found in table '{table_name}'. Available: {sorted(tables[table_name].keys())}"
-
-    # Table might be an alias - can't validate
     return True, None
 
 errors = []
@@ -254,6 +427,7 @@ for filepath in files:
         checked_sqls += 1
         refs = []
         refs.extend(extract_insert_columns(sql))
+        refs.extend(extract_update_set_columns(sql))
         refs.extend(extract_select_columns(sql))
         refs.extend(extract_where_columns(sql))
 
@@ -263,7 +437,6 @@ for filepath in files:
                 short_path = filepath.replace(repo_root + '/', '')
                 errors.append(f"  {short_path}: {msg}")
 
-        # CAST type validation
         cast_refs = extract_cast_types(sql)
         for table, col, cast_type in cast_refs:
             ok, msg = validate_cast_type(table, col, cast_type, tables)
@@ -273,7 +446,6 @@ for filepath in files:
 
 # Output results
 if errors:
-    # Deduplicate
     unique_errors = sorted(set(errors))
     print(f"❌ SQL Column Validation FAIL: {len(unique_errors)} issue(s) found")
     print()

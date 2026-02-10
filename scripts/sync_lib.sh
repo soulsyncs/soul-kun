@@ -11,7 +11,13 @@
 #   ./scripts/sync_lib.sh --check # 差分確認のみ（変更なし）
 #   ./scripts/sync_lib.sh --brain # brain/のみ同期
 #
+# 同期方式:
+#   - chatwork-webhook/lib/: rsyncミラー（lib/の完全コピー + 独自ファイル保護）
+#   - proactive-monitor/lib/: rsyncミラー（lib/の完全コピー）
+#   - その他Functions: 選択的ファイル同期（必要なファイルのみ）
+#
 # v10.53.0: 初版作成（大規模修繕対応）
+# v10.70.0: rsyncミラー方式に改修（Codexレビュー C-4/D-4 対応）
 # =============================================================================
 
 set -e
@@ -97,47 +103,82 @@ sync_file() {
     fi
 }
 
-sync_directory() {
+# rsyncミラー同期（lib/ → target/lib/ の完全ミラー）
+# target独自ファイルを保護するexcludeリスト対応
+sync_mirror() {
     local src=$1
     local dst=$2
+    shift 2
+    # 残りの引数はrsyncの--excludeオプション
+    local excludes=("$@")
 
     if [ ! -d "$src" ]; then
         return 0
     fi
 
+    # rsync用のexcludeオプションを構築
+    local rsync_excludes=("--exclude=__pycache__" "--exclude=*.pyc")
+    for exc in "${excludes[@]}"; do
+        rsync_excludes+=("--exclude=$exc")
+    done
+
     if [ "$CHECK_ONLY" = true ]; then
-        # 差分確認（handler_wrappers.pyは本番専用なので除外）
+        # --dry-run で差分確認
         local diff_output
-        diff_output=$(diff -rq "$src" "$dst" --exclude="__pycache__" --exclude="*.pyc" --exclude="handler_wrappers.py" 2>/dev/null || true)
+        diff_output=$(rsync -avcn --delete "${rsync_excludes[@]}" "$src/" "$dst/" 2>/dev/null | grep -v '^$' | grep -v '^sending' | grep -v '^sent ' | grep -v '^total ' | grep -v '^\./$' | grep -v '/$' | grep -v '^Transfer ' || true)
         if [ -n "$diff_output" ]; then
             echo -e "  ${RED}❌ Out of sync:${NC} $dst"
-            echo "$diff_output" | head -5 | sed 's/^/      /'
+            echo "$diff_output" | head -10 | sed 's/^/      /'
+            local count
+            count=$(echo "$diff_output" | wc -l | tr -d ' ')
+            if [ "$count" -gt 10 ]; then
+                echo "      ... and $((count - 10)) more"
+            fi
             ERRORS_FOUND=1
         else
             echo -e "  ${GREEN}✅ In sync:${NC} $dst"
         fi
     else
-        echo -e "  ${GREEN}📁 Syncing:${NC} $dst"
+        echo -e "  ${GREEN}📁 Mirror syncing:${NC} $dst"
         mkdir -p "$dst"
-        rsync -av --exclude="__pycache__" --exclude="*.pyc" "$src/" "$dst/" > /dev/null
+        rsync -av --delete "${rsync_excludes[@]}" "$src/" "$dst/" > /dev/null
         SYNCED_COUNT=$((SYNCED_COUNT + 1))
     fi
 }
 
 # =============================================================================
-# 1. brain/ ディレクトリ
+# 1. chatwork-webhook/lib/ (rsyncミラー)
 # =============================================================================
 
-echo -e "${BLUE}📦 [1/4] brain/ ディレクトリ${NC}"
+echo -e "${BLUE}📦 [1/3] chatwork-webhook/lib/ (ミラー同期)${NC}"
 echo ""
 
-# chatwork-webhook
-echo "  → chatwork-webhook/lib/brain/"
-sync_directory "lib/brain" "chatwork-webhook/lib/brain"
+if [ "$BRAIN_ONLY" = true ]; then
+    echo "  → brain/ のみ"
+    sync_mirror "lib/brain" "chatwork-webhook/lib/brain" "handler_wrappers.py"
+else
+    # chatwork-webhook独自ファイルを保護（lib/に存在しないもの）
+    # - brain/handler_wrappers.py: chatwork-webhook専用のハンドラーラッパー
+    # - persona/: chatwork-webhook専用のペルソナモジュール
+    sync_mirror "lib" "chatwork-webhook/lib" "brain/handler_wrappers.py" "persona"
+fi
 
-# proactive-monitor
-echo "  → proactive-monitor/lib/brain/"
-sync_directory "lib/brain" "proactive-monitor/lib/brain"
+echo ""
+
+# =============================================================================
+# 2. proactive-monitor/lib/ (rsyncミラー)
+# =============================================================================
+
+echo -e "${BLUE}📦 [2/3] proactive-monitor/lib/ (ミラー同期)${NC}"
+echo ""
+
+if [ "$BRAIN_ONLY" = true ]; then
+    echo "  → brain/ のみ"
+    sync_mirror "lib/brain" "proactive-monitor/lib/brain"
+else
+    # proactive-monitorには独自ファイルなし → 完全ミラー
+    sync_mirror "lib" "proactive-monitor/lib"
+fi
 
 echo ""
 
@@ -158,79 +199,48 @@ if [ "$BRAIN_ONLY" = true ]; then
 fi
 
 # =============================================================================
-# 2. feature_flags.py
+# 3. その他のCloud Functions（選択的同期）
 # =============================================================================
 
-echo -e "${BLUE}📦 [2/4] feature_flags.py${NC}"
+echo -e "${BLUE}📦 [3/3] その他のCloud Functions（選択的同期）${NC}"
 echo ""
 
-for dir in chatwork-webhook proactive-monitor sync-chatwork-tasks remind-tasks watch-google-drive pattern-detection; do
+# feature_flags.py
+for dir in sync-chatwork-tasks remind-tasks watch-google-drive pattern-detection; do
     if [ -d "$dir/lib" ]; then
         sync_file "lib/feature_flags.py" "$dir/lib/feature_flags.py"
     fi
 done
 
-echo ""
-
-# =============================================================================
-# 3. 共通ファイル
-# =============================================================================
-
-echo -e "${BLUE}📦 [3/4] 共通ファイル${NC}"
-echo ""
-
 # text_utils.py
-for dir in remind-tasks sync-chatwork-tasks chatwork-webhook check-reply-messages cleanup-old-data pattern-detection; do
+for dir in remind-tasks sync-chatwork-tasks check-reply-messages cleanup-old-data pattern-detection; do
     if [ -d "$dir/lib" ]; then
         sync_file "lib/text_utils.py" "$dir/lib/text_utils.py"
     fi
 done
 
-# goal_setting.py
-sync_file "lib/goal_setting.py" "chatwork-webhook/lib/goal_setting.py"
-
 # mvv_context.py
-sync_file "lib/mvv_context.py" "chatwork-webhook/lib/mvv_context.py"
 sync_file "lib/mvv_context.py" "report-generator/lib/mvv_context.py"
 
 # report_generator.py
-sync_file "lib/report_generator.py" "chatwork-webhook/lib/report_generator.py"
 sync_file "lib/report_generator.py" "report-generator/lib/report_generator.py"
 
 # audit.py
-sync_file "lib/audit.py" "chatwork-webhook/lib/audit.py"
-sync_file "lib/audit.py" "sync-chatwork-tasks/lib/audit.py"
-sync_file "lib/audit.py" "pattern-detection/lib/audit.py"
+for dir in sync-chatwork-tasks pattern-detection; do
+    if [ -d "$dir/lib" ]; then
+        sync_file "lib/audit.py" "$dir/lib/audit.py"
+    fi
+done
 
 # business_day.py
 sync_file "lib/business_day.py" "remind-tasks/lib/business_day.py"
-sync_file "lib/business_day.py" "chatwork-webhook/lib/business_day.py"
 
-# config.py, db.py, secrets.py
-sync_file "lib/config.py" "chatwork-webhook/lib/config.py"
-sync_file "lib/db.py" "chatwork-webhook/lib/db.py"
-sync_file "lib/secrets.py" "chatwork-webhook/lib/secrets.py"
-
-echo ""
-
-# =============================================================================
-# 4. ディレクトリ同期
-# =============================================================================
-
-echo -e "${BLUE}📦 [4/4] ディレクトリ${NC}"
-echo ""
-
-# memory/
-echo "  → memory/"
-sync_directory "lib/memory" "chatwork-webhook/lib/memory"
-
-# meetings/
-echo "  → meetings/"
-sync_directory "lib/meetings" "chatwork-webhook/lib/meetings"
-
-# detection/
-echo "  → detection/"
-sync_directory "lib/detection" "pattern-detection/lib/detection"
+# detection/ → pattern-detection
+if [ -d "pattern-detection/lib" ]; then
+    echo ""
+    echo "  → pattern-detection/lib/detection/"
+    sync_mirror "lib/detection" "pattern-detection/lib/detection"
+fi
 
 echo ""
 

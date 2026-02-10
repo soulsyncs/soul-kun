@@ -66,8 +66,13 @@ echo "Dumping schema from soulkun and soulkun_tasks..."
 
 # Dump schema from both databases as JSON
 # Format: {"database.table": {"column_name": "data_type", ...}, ...}
+export DB_PASS PROXY_PORT DB_USER
 python3 -c "
-import subprocess, json, sys
+import subprocess, json, sys, os
+
+_PROXY_PORT = os.environ['PROXY_PORT']
+_DB_USER = os.environ['DB_USER']
+_DB_PASS = os.environ['DB_PASS']
 
 def get_columns(db):
     sql = '''
@@ -77,12 +82,12 @@ def get_columns(db):
         ORDER BY table_name, ordinal_position
     '''
     cmd = [
-        'psql', '-h', '127.0.0.1', '-p', '${PROXY_PORT}',
-        '-U', '${DB_USER}', '-d', db,
+        'psql', '-h', '127.0.0.1', '-p', _PROXY_PORT,
+        '-U', _DB_USER, '-d', db,
         '-t', '-A', '-F', '|', '-c', sql
     ]
-    env = dict(__import__('os').environ)
-    env['PGPASSWORD'] = '''${DB_PASS}'''
+    env = dict(os.environ)
+    env['PGPASSWORD'] = _DB_PASS
     result = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         print(f'Warning: Could not query {db}: {result.stderr}', file=sys.stderr)

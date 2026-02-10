@@ -735,7 +735,7 @@ async def get_ceo_feedback_engine_for_organization(
                 u.name,
                 cu.account_id
             FROM users u
-            LEFT JOIN chatwork_users cu ON u.id = cu.user_id
+            LEFT JOIN chatwork_users cu ON u.chatwork_account_id = cu.account_id::text
             WHERE u.organization_id = :org_id
               AND u.is_active = TRUE
               AND (u.role = 'ceo' OR u.role = 'admin')

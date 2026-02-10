@@ -120,7 +120,8 @@ def get_secret(
     name = f"projects/{project}/secrets/{secret_id}/versions/{version}"
 
     response = client.access_secret_version(request={"name": name})
-    return response.payload.data.decode("UTF-8")
+    result: str = response.payload.data.decode("UTF-8")
+    return result
 
 
 @lru_cache(maxsize=32)

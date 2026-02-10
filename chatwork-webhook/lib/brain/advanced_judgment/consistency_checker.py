@@ -296,7 +296,7 @@ class ConsistencyChecker:
             async with self.pool.acquire() as conn:
                 rows = await conn.fetch(
                     """
-                    SELECT id, judgment_type, question, chosen_option, options_json,
+                    SELECT id, judgment_type, question, actual_choice AS chosen_option, options_json,
                            reasoning, outcome, outcome_score, created_at, metadata_json
                     FROM judgment_history
                     WHERE organization_id = $1
@@ -863,7 +863,7 @@ class ConsistencyChecker:
                         """
                         INSERT INTO judgment_history (
                             organization_id, judgment_type, question,
-                            chosen_option, options_json, reasoning,
+                            actual_choice, options_json, reasoning,
                             metadata_json, created_at
                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                         """,

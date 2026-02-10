@@ -209,7 +209,7 @@ gcloud functions deploy pattern-detection \
     --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
-    --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
+    --update-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
     --min-instances=0 \
     --max-instances=5
 
@@ -231,7 +231,7 @@ gcloud functions deploy personalization-detection \
     --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
-    --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
+    --update-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
     --min-instances=0 \
     --max-instances=3
 
@@ -253,7 +253,7 @@ gcloud functions deploy weekly-report \
     --no-allow-unauthenticated \
     --memory=512MB \
     --timeout=300s \
-    --set-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
+    --update-env-vars="DRY_RUN=$DRY_RUN,TEST_MODE=$TEST_MODE" \
     --min-instances=0 \
     --max-instances=1
 

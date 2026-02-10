@@ -160,7 +160,7 @@ if [ "$DRY_RUN" = true ]; then
     echo "    --memory=512MB \\"
     echo "    --timeout=540s \\"
     echo "    --no-allow-unauthenticated \\"
-    echo "    --set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
+    echo "    --update-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo -e "${GREEN}✅ ドライラン完了（全チェックパス）${NC}"
@@ -179,7 +179,7 @@ gcloud functions deploy proactive-monitor \
     --memory=512MB \
     --timeout=540s \
     --no-allow-unauthenticated \
-    --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
+    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
 
 echo ""
 

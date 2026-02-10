@@ -581,7 +581,6 @@ class SoulkunBrain:
             BrainResponse: 処理結果
         """
         start_time = time.time()
-        print(f"[DIAG-0] process_message ENTER: room={room_id}, _init={self._initialized}", flush=True)
 
         # Phase 2E: 初回呼び出し時に永続化済み改善を復元
         if not self._initialized:
@@ -594,25 +593,19 @@ class SoulkunBrain:
             except Exception as e:
                 logger.warning("[Phase2E] Init load failed: %s", type(e).__name__)
 
-        print(f"[DIAG-0.5] After init block, before main try: elapsed={time.time()-start_time:.1f}s", flush=True)
         try:
-            import sys
-            print(f"[DIAG-1] Brain processing start: room={room_id}", flush=True)
-            sys.stdout.flush()
             logger.info(
                 f"🧠 Brain processing: room={room_id}, user={sender_name}, "
                 f"message={message[:50]}..."
             )
 
             # 1. 記憶層: コンテキスト取得（メッセージも渡して関連知識を検索）
-            print("[DIAG-2] Before _get_context()", flush=True)
             context = await self._get_context(
                 room_id=room_id,
                 user_id=account_id,
                 sender_name=sender_name,
                 message=message,
             )
-            print(f"[DIAG-3] After _get_context() elapsed={time.time()-start_time:.1f}s", flush=True)
 
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
@@ -624,22 +617,17 @@ class SoulkunBrain:
                 )
 
             # 関連するCEO教えをコンテキストに追加
-            print("[DIAG-4] Before CEO teachings", flush=True)
             ceo_context = await self.memory_manager.get_ceo_teachings_context(
                 message, account_id
             )
             if ceo_context:
                 context.ceo_teachings = ceo_context
-            print(f"[DIAG-5] After CEO teachings elapsed={time.time()-start_time:.1f}s", flush=True)
 
             # =========================================================
             # v10.50.0: LLM Brain ルーティング
             # Feature Flag `ENABLE_LLM_BRAIN` が有効な場合、LLM脳で処理
             # =========================================================
-            llm_enabled = is_llm_brain_enabled()
-            has_llm_brain = self.llm_brain is not None
-            print(f"[DIAG-6] LLM check: enabled={llm_enabled}, has_brain={has_llm_brain}", flush=True)
-            if llm_enabled and has_llm_brain:
+            if is_llm_brain_enabled() and self.llm_brain is not None:
                 logger.info("🧠 Routing to LLM Brain (Claude Opus 4.5)")
                 return await self._process_with_llm_brain(
                     message=message,

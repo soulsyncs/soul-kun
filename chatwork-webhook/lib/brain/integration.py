@@ -476,7 +476,6 @@ class BrainIntegration:
 
         try:
             self._stats["brain_requests"] += 1
-            print(f"[DIAG-INT] Before brain.process_message: room={room_id}, brain={self.brain is not None}", flush=True)
 
             # タイムアウト付きで脳の処理を実行
             response = await asyncio.wait_for(

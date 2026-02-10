@@ -409,6 +409,11 @@ class LLMBrain:
             f"max_tokens={self.max_tokens}"
         )
 
+    async def close(self) -> None:
+        """httpxクライアントのリソース解放"""
+        if hasattr(self, '_http_client') and self._http_client:
+            await self._http_client.aclose()
+
     def _init_openrouter(
         self,
         model: Optional[str],

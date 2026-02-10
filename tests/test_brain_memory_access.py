@@ -456,19 +456,18 @@ class TestPersonInfoAdapter:
 
     @pytest.mark.asyncio
     async def test_get_person_info_success(self, brain_memory, mock_pool):
-        """正常に人物情報を取得"""
-        person_id = uuid4()
+        """正常に人物情報を取得（JOINクエリ）"""
+        person_id = 123
         mock_conn = Mock()
 
-        # 人物リストのモック
-        person_result = Mock()
-        person_result.fetchall.return_value = [(person_id, "山田太郎")]
+        # v10.74.0: JOINクエリは1回のexecuteで4カラム行を返す
+        join_result = Mock()
+        join_result.fetchall.return_value = [
+            (person_id, "山田太郎", "役職", "部長"),
+            (person_id, "山田太郎", "部署", "営業部"),
+        ]
 
-        # 属性のモック
-        attr_result = Mock()
-        attr_result.fetchall.return_value = [("役職", "部長"), ("部署", "営業部")]
-
-        mock_conn.execute.side_effect = [person_result, attr_result]
+        mock_conn.execute.return_value = join_result
         mock_pool.connect.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.connect.return_value.__exit__ = Mock(return_value=False)
 
@@ -476,6 +475,7 @@ class TestPersonInfoAdapter:
         assert len(result) == 1
         assert result[0].name == "山田太郎"
         assert result[0].attributes["役職"] == "部長"
+        assert result[0].attributes["部署"] == "営業部"
 
 
 # =============================================================================

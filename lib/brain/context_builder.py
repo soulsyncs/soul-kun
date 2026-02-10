@@ -327,7 +327,31 @@ class ContextBuilder:
         """
         logger.debug("Building LLM context")
 
-        # 並列で全ての情報を取得
+        # v10.74.0: DB系タスクはSemaphore(3)で並列数を制限
+        # pool_size=5に対してSemaphore(3)で安全に並列化（2接続の余裕確保）
+        # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
+        _db_sem = asyncio.Semaphore(3)
+
+        async def _db_limited(coro, name: str):
+            """DB系タスク: セマフォで並列数制限、エラーはログしてNone返却"""
+            async with _db_sem:
+                try:
+                    return await coro
+                except Exception as e:
+                    logger.warning(f"DB task {name} failed: {type(e).__name__}")
+                    return None
+
+        async def _safe_non_db(coro, name: str, timeout: float = 15.0):
+            """非DB系タスク: セマフォなし、タイムアウト付き"""
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"Non-DB task {name} timed out after {timeout}s")
+                return None
+            except Exception as e:
+                logger.warning(f"Non-DB task {name} failed: {type(e).__name__}")
+                return None
+
         # Phase 2E: _get_context()で既に取得済みの場合はDBクエリをスキップ
         phase2e_task = (
             self._return_prefetched(phase2e_learnings_prefetched)
@@ -335,18 +359,18 @@ class ContextBuilder:
             else self._get_phase2e_learnings(message, user_id, room_id)
         )
         tasks = [
-            self._get_session_state(user_id, room_id),
-            self._get_recent_messages(user_id, room_id, organization_id),
-            self._get_conversation_summary(user_id, organization_id),
-            self._get_user_preferences(user_id, organization_id),
-            self._get_known_persons(organization_id),
-            self._get_recent_tasks(user_id, room_id, organization_id),
-            self._get_active_goals(user_id, organization_id),
-            self._get_ceo_teachings(organization_id, message),
-            self._get_user_info(user_id, organization_id, sender_name),
-            phase2e_task,
-            self._get_outcome_patterns(user_id),
-            self._get_emotion_context(message, organization_id, user_id),
+            _safe_non_db(self._get_session_state(user_id, room_id), "session_state"),
+            _safe_non_db(self._get_recent_messages(user_id, room_id, organization_id), "messages"),
+            _db_limited(self._get_conversation_summary(user_id, organization_id), "summary"),
+            _db_limited(self._get_user_preferences(user_id, organization_id), "preferences"),
+            _db_limited(self._get_known_persons(organization_id), "persons"),
+            _db_limited(self._get_recent_tasks(user_id, room_id, organization_id), "tasks"),
+            _db_limited(self._get_active_goals(user_id, organization_id), "goals"),
+            _db_limited(self._get_ceo_teachings(organization_id, message), "ceo_teachings"),
+            _db_limited(self._get_user_info(user_id, organization_id, sender_name), "user_info"),
+            _db_limited(phase2e_task, "phase2e"),
+            _db_limited(self._get_outcome_patterns(user_id), "outcome_patterns"),
+            _safe_non_db(self._get_emotion_context(message, organization_id, user_id), "emotion"),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)

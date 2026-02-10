@@ -182,6 +182,37 @@ gcloud functions deploy proactive-monitor \
     --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true"
 
 echo ""
+
+# =============================================================================
+# Step 5: トラフィックルーティング確認
+# =============================================================================
+
+echo -e "${BLUE}🔍 Step 5: トラフィックルーティング確認${NC}"
+echo ""
+
+FUNC_NAME="proactive-monitor"
+REGION="asia-northeast1"
+
+LATEST_REV=$(gcloud run revisions list --service="$FUNC_NAME" --region="$REGION" \
+    --sort-by='~creationTimestamp' --limit=1 --format='value(name)' 2>/dev/null)
+TRAFFIC_REV=$(gcloud run services describe "$FUNC_NAME" --region="$REGION" \
+    --format='value(status.traffic[0].revisionName)' 2>/dev/null)
+
+if [ -n "$LATEST_REV" ] && [ -n "$TRAFFIC_REV" ]; then
+    if [ "$LATEST_REV" = "$TRAFFIC_REV" ]; then
+        echo -e "  ${GREEN}✅ トラフィック: ${LATEST_REV} (100%)${NC}"
+    else
+        echo -e "  ${YELLOW}⚠️ トラフィックが旧リビジョン: ${TRAFFIC_REV}${NC}"
+        echo -e "  ${BLUE}→ 最新リビジョン ${LATEST_REV} に切り替え中...${NC}"
+        gcloud run services update-traffic "$FUNC_NAME" --region="$REGION" \
+            --to-revisions="${LATEST_REV}=100" 2>&1
+        echo -e "  ${GREEN}✅ トラフィック切り替え完了: ${LATEST_REV} (100%)${NC}"
+    fi
+else
+    echo -e "  ${YELLOW}⚠️ リビジョン情報の取得に失敗。手動で確認してください${NC}"
+fi
+
+echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo -e "${GREEN}✅ デプロイ完了${NC}"
 echo ""

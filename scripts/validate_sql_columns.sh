@@ -7,7 +7,7 @@ set -euo pipefail
 # git diff内のPythonファイルからSQL文を抽出し、
 # db_schema.json と照合してカラム名の不一致を検出する。
 #
-# 対応SQL文: SELECT, INSERT, UPDATE SET, WHERE, JOIN ON
+# 対応SQL文: SELECT, INSERT, UPDATE SET, WHERE, JOIN ON, CTE (WITH...AS), CASE WHEN
 # 対応パターン: text(), sql_text(), sqlalchemy.text(), raw execute()
 #
 # Usage:
@@ -30,18 +30,41 @@ if [[ ! -f "$SCHEMA_FILE" ]]; then
   exit 2
 fi
 
-# Check schema freshness
+# Check schema freshness using generated_at field (not mtime, which git resets)
 # - 7 days: warning (results may be inaccurate)
 # - 14 days: hard block (exit 1)
 SCHEMA_WARN_DAYS=7
 SCHEMA_BLOCK_DAYS=14
-if [[ "$(uname)" == "Darwin" ]]; then
-  schema_mtime=$(stat -f%m "$SCHEMA_FILE")
+generated_at=$(python3 -c "
+import json, sys
+with open('$SCHEMA_FILE') as f:
+    d = json.load(f)
+ga = d.get('generated_at', '')
+if ga:
+    print(ga)
+else:
+    print('')
+" 2>/dev/null || true)
+
+if [[ -n "$generated_at" ]]; then
+  schema_epoch=$(python3 -c "
+from datetime import datetime
+dt = datetime.fromisoformat('$generated_at')
+print(int(dt.timestamp()))
+" 2>/dev/null || echo "0")
+  now=$(date +%s)
+  schema_age_days=$(( (now - schema_epoch) / 86400 ))
 else
-  schema_mtime=$(stat -c%Y "$SCHEMA_FILE")
+  # Fallback to mtime if generated_at is missing
+  if [[ "$(uname)" == "Darwin" ]]; then
+    schema_mtime=$(stat -f%m "$SCHEMA_FILE")
+  else
+    schema_mtime=$(stat -c%Y "$SCHEMA_FILE")
+  fi
+  now=$(date +%s)
+  schema_age_days=$(( (now - schema_mtime) / 86400 ))
 fi
-now=$(date +%s)
-schema_age_days=$(( (now - schema_mtime) / 86400 ))
+
 if [[ "$schema_age_days" -ge "$SCHEMA_BLOCK_DAYS" ]]; then
   echo "❌ db_schema.json is ${schema_age_days} days old (limit: ${SCHEMA_BLOCK_DAYS})."
   echo "   Run 'scripts/dump_db_schema.sh' to refresh."
@@ -190,13 +213,26 @@ def extract_sql_strings(content):
 # =============================================================================
 
 def build_alias_map(sql):
-    """Build alias -> real table name map from all FROM/JOIN clauses in SQL"""
+    """Build alias -> real table name map from all FROM/JOIN/CTE clauses in SQL"""
     alias_map = {}
     reserved = {'WHERE', 'ORDER', 'GROUP', 'LIMIT', 'JOIN', 'LEFT', 'RIGHT',
                 'INNER', 'ON', 'AS', 'HAVING', 'UNION', 'EXCEPT', 'INTERSECT',
                 'SET', 'INTO', 'VALUES', 'RETURNING', 'AND', 'OR', 'NOT',
                 'CROSS', 'OUTER', 'FULL', 'NATURAL', 'USING', 'OFFSET',
-                'FETCH', 'FOR', 'UPDATE', 'DELETE', 'INSERT', 'SELECT'}
+                'FETCH', 'FOR', 'UPDATE', 'DELETE', 'INSERT', 'SELECT',
+                'WITH', 'RECURSIVE', 'CASE', 'WHEN', 'THEN', 'ELSE', 'END'}
+
+    # CTE: WITH cte_name AS (SELECT ... FROM real_table ...)
+    # Register CTE names and resolve their source tables
+    for cte_match in re.finditer(r'\bWITH\s+(?:RECURSIVE\s+)?(\w+)\s+AS\s*\(', sql, re.IGNORECASE):
+        cte_name = cte_match.group(1)
+        if cte_name.upper() not in reserved:
+            # Find the FROM inside this CTE to resolve the real table
+            cte_start = cte_match.end()
+            # Simple: find the first FROM inside the CTE
+            inner_from = re.search(r'\bFROM\s+(\w+)', sql[cte_start:], re.IGNORECASE)
+            if inner_from and inner_from.group(1).upper() not in reserved:
+                alias_map[cte_name] = inner_from.group(1)
 
     # All FROM table [AS] [alias] patterns
     for fm in re.finditer(r'\bFROM\s+(\w+)(?:\s+(?:AS\s+)?(\w+))?', sql, re.IGNORECASE):

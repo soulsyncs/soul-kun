@@ -88,6 +88,16 @@
 | **Phase 3.5** | 中間レベル | 組織階層テーブル（departments等）にRLS適用 | 階層ベースのポリシー |
 | **Phase 4A** | 完全実装 | 全テーブルにRLS適用 + 検証テスト完備 | マルチテナント対応 |
 
+**本番達成状況（2026-02-10時点）:**
+
+| 項目 | 状態 | 備考 |
+|------|------|------|
+| RLS有効化テーブル数 | 54+ テーブル | Phase 4A 完了 |
+| organization_id カラム | 全テーブルに存在 | Phase 4 完了 |
+| RLSポリシー型キャスト | ::text統一（VARCHARカラム） | ::uuid誤用の本番障害を修正済み |
+| JWT認証連携 | `current_setting('app.current_organization_id', true)` | set_config()で設定 |
+| テナント分離テスト | CI自動実行 | test-coverage.yml |
+
 > **詳細:** `docs/RLS_POLICY_DESIGN.md`
 
 ### 3-2. コーディング時の18項目チェックリスト【v10.65更新】
@@ -362,12 +372,27 @@ CI（テスト・型チェック・sync確認）→ PR作成
    - chatwork-webhook と proactive-monitor の lib/ が正常にインポートできること
    - deploy.sh 内で自動実行される
 
-### 13-4. コミットメッセージ
+### 13-4. lib/ 3コピー同期（技術的負債）【v10.71追加】
+
+Cloud Functions Gen2は `--source=<dir>` でディレクトリ単位デプロイのため、共通コード（lib/）を各Function内にコピーする必要がある。
+
+| 項目 | 内容 |
+|------|------|
+| **なぜ必要か** | GCF Gen2は単一ディレクトリのみデプロイ可。lib/を参照できない |
+| **同期先** | lib/ → chatwork-webhook/lib/ → proactive-monitor/lib/ |
+| **同期方法** | `scripts/sync_lib.sh`（rsyncミラー + 独自ファイル保護） |
+| **検証方法** | `sync_lib.sh --check` + import smoke test（deploy.sh/CI内で自動実行） |
+| **解消条件** | Cloud Run移行（単一コンテナからlib/を直接参照可能になった時点） |
+| **リスク** | 同期忘れで本番障害。pre-push/CI/deploy.shの3箇所で検証して防止 |
+
+### 13-5. コミットメッセージ
 
 **コミットには必ずこれを付ける：**
 ```
 Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
+
+> **注意**: §13-4のセクション番号変更に伴い、旧§13-4（コミットメッセージ）は§13-5に移動。
 
 ---
 

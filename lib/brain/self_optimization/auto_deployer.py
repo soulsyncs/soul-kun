@@ -70,7 +70,7 @@ class AutoDeployer:
             return OptimizationResult(success=True, message="Canary deployment started")
         except Exception as e:
             logger.error("Failed to start canary for proposal %s: %s", proposal_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     def check_regression(
         self,
@@ -134,7 +134,7 @@ class AutoDeployer:
             return OptimizationResult(success=True, message="Promoted to full deployment")
         except Exception as e:
             logger.error("Failed to promote deployment %s: %s", deployment_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def rollback(
         self,
@@ -162,7 +162,7 @@ class AutoDeployer:
             return OptimizationResult(success=True, message=f"Rolled back: {reason}")
         except Exception as e:
             logger.error("Failed to rollback deployment %s: %s", deployment_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def get_deployment_history(
         self,

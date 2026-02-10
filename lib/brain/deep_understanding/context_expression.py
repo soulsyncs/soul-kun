@@ -401,7 +401,7 @@ class ContextExpressionResolver:
                         )
                     )
             except Exception as e:
-                logger.warning(f"Failed to lookup habit: {e}")
+                logger.warning(f"Failed to lookup habit: {type(e).__name__}")
 
         # 会話履歴から習慣的なパターンを検索
         for msg in self._history[:10]:
@@ -494,7 +494,7 @@ class ContextExpressionResolver:
                                 )
                             )
             except Exception as e:
-                logger.warning(f"Failed to get topic history: {e}")
+                logger.warning(f"Failed to get topic history: {type(e).__name__}")
 
         # 会話履歴から過去の出来事を抽出
         for msg in self._history[3:15]:  # 少し前の会話

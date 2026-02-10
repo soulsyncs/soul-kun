@@ -322,7 +322,7 @@ class BrainStateManager:
             return state
 
         except Exception as e:
-            logger.error(f"Error getting current state: {e}")
+            logger.error(f"Error getting current state: {type(e).__name__}")
             # エラー時は状態なしとして扱う（安全側）
             return None
 
@@ -444,9 +444,9 @@ class BrainStateManager:
             return new_state
 
         except Exception as e:
-            logger.error(f"Error in state transition: {e}")
+            logger.error(f"Error in state transition: {type(e).__name__}")
             raise StateError(
-                message=f"Failed to transition state: {e}",
+                message=f"Failed to transition state: {type(e).__name__}",
                 room_id=room_id,
                 user_id=user_id,
                 current_state=old_state.state_type.value if old_state else None,
@@ -651,9 +651,9 @@ class BrainStateManager:
         except StateError:
             raise
         except Exception as e:
-            logger.error(f"Error updating step: {e}")
+            logger.error(f"Error updating step: {type(e).__name__}")
             raise StateError(
-                message=f"Failed to update step: {e}",
+                message=f"Failed to update step: {type(e).__name__}",
                 room_id=room_id,
                 user_id=user_id,
             )
@@ -773,7 +773,7 @@ class BrainStateManager:
             return int(deleted_count) if deleted_count is not None else 0
 
         except Exception as e:
-            logger.error(f"Error cleaning up expired states: {e}")
+            logger.error(f"Error cleaning up expired states: {type(e).__name__}")
             return 0
 
     # =========================================================================
@@ -899,7 +899,7 @@ class BrainStateManager:
             return state
 
         except Exception as e:
-            logger.error(f"Error getting current state (sync): {e}")
+            logger.error(f"Error getting current state (sync): {type(e).__name__}")
             return None
 
     def transition_to_sync(
@@ -990,9 +990,9 @@ class BrainStateManager:
             return new_state
 
         except Exception as e:
-            logger.error(f"Error in state transition (sync): {e}")
+            logger.error(f"Error in state transition (sync): {type(e).__name__}")
             raise StateError(
-                message=f"Failed to transition state: {e}",
+                message=f"Failed to transition state: {type(e).__name__}",
                 room_id=room_id,
                 user_id=user_id,
                 target_state=state_type.value,
@@ -1027,7 +1027,7 @@ class BrainStateManager:
             logger.debug(f"State cleared (sync): reason={reason}")
 
         except Exception as e:
-            logger.error(f"Error clearing state (sync): {e}")
+            logger.error(f"Error clearing state (sync): {type(e).__name__}")
 
 
 # =============================================================================

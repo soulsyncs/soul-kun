@@ -138,7 +138,7 @@ class ToolConverter:
             }
 
         except Exception as e:
-            logger.error(f"Error converting {capability_key}: {e}")
+            logger.error(f"Error converting {capability_key}: {type(e).__name__}")
             return None
 
     def _build_description(self, capability: Dict[str, Any]) -> str:
@@ -155,7 +155,7 @@ class ToolConverter:
                 lines.append("")
                 lines.append("【使用例】")
                 for ex in examples[:self.config.max_examples]:
-                    lines.append(f"- 「{ex}」")
+                    lines.append(f"- 「{type(ex).__name__}」")
 
         # カテゴリ情報を追加
         category = capability.get("category")
@@ -461,7 +461,7 @@ class ToolMetadataRegistry:
             logger.info(f"Loaded {len(self._metadata)} tool metadata entries")
 
         except Exception as e:
-            logger.warning(f"Failed to load SYSTEM_CAPABILITIES: {e}")
+            logger.warning(f"Failed to load SYSTEM_CAPABILITIES: {type(e).__name__}")
             self._loaded = True  # エラー時も再ロードしない
 
     def get_all(self) -> List[ToolMetadata]:

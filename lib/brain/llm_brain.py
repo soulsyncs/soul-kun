@@ -304,7 +304,7 @@ def _get_openrouter_api_key() -> Optional[str]:
         logger.warning("lib.secrets module not available")
         return None
     except Exception as e:
-        logger.warning(f"Failed to get OpenRouter API key from Secret Manager: {e}")
+        logger.warning(f"Failed to get OpenRouter API key from Secret Manager: {type(e).__name__}")
         return None
 
 
@@ -535,8 +535,8 @@ class LLMBrain:
                 result = self._parse_anthropic_response(response)
 
         except Exception as e:
-            logger.error(f"API error: {e}", exc_info=True)
-            return self._create_error_result(str(e))
+            logger.error(f"API error: {type(e).__name__}", exc_info=True)
+            return self._create_error_result(type(e).__name__)
 
         # 4. 結果にメタデータを追加
         result.model_used = self.model
@@ -610,7 +610,7 @@ class LLMBrain:
             return None
 
         except Exception as e:
-            logger.error(f"Synthesis error: {e}", exc_info=True)
+            logger.error(f"Synthesis error: {type(e).__name__}", exc_info=True)
             return None
 
     # =========================================================================

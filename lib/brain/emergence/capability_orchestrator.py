@@ -81,7 +81,7 @@ class CapabilityOrchestrator:
             return EmergenceResult(success=True, message="Edge recorded")
         except Exception as e:
             logger.error("Failed to record edge %s->%s: %s", source_phase, target_phase, e)
-            return EmergenceResult(success=False, message=str(e))
+            return EmergenceResult(success=False, message=type(e).__name__)
 
     async def get_capability_graph(
         self,
@@ -202,7 +202,7 @@ class CapabilityOrchestrator:
             return EmergenceResult(success=True, message=f"Edge status updated to {status.value}")
         except Exception as e:
             logger.error("Failed to update edge %s: %s", edge_id, e)
-            return EmergenceResult(success=False, message=str(e))
+            return EmergenceResult(success=False, message=type(e).__name__)
 
 
 def create_capability_orchestrator(organization_id: str = "") -> CapabilityOrchestrator:

@@ -552,12 +552,12 @@ def __getattr__(name: str) -> Any:
             return value
         except ImportError as e:
             raise ImportError(
-                f"Cannot import '{name}' from '{module_path}': {e}. "
+                f"Cannot import '{name}' from '{module_path}': {type(e).__name__}. "
                 f"Make sure the required dependencies are installed."
             ) from e
         except AttributeError as e:
             raise AttributeError(
-                f"Module '{module_path}' has no attribute '{attr_name}': {e}"
+                f"Module '{module_path}' has no attribute '{attr_name}': {type(e).__name__}"
             ) from e
 
     raise AttributeError(f"module 'lib.brain' has no attribute '{name}'")

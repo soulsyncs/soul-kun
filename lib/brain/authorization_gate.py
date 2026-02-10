@@ -472,7 +472,7 @@ class AuthorizationGate:
                 confidence=ma_result.confidence,
             )
         except Exception as e:
-            logger.warning(f"Error logging soft conflict: {e}")
+            logger.warning(f"Error logging soft conflict: {type(e).__name__}")
 
     async def _evaluate_execution_excellence(
         self,
@@ -514,5 +514,5 @@ class AuthorizationGate:
                 ),
             )
         except Exception as e:
-            logger.warning(f"ExecutionExcellence failed, falling back to normal execution: {e}")
+            logger.warning(f"ExecutionExcellence failed, falling back to normal execution: {type(e).__name__}")
             return AuthorizationResult(decision=AuthorizationDecision.APPROVE)

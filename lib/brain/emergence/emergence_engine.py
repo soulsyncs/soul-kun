@@ -145,7 +145,7 @@ class EmergenceEngine:
             return EmergenceResult(success=True, message="Behavior recorded")
         except Exception as e:
             logger.error("Failed to record emergent behavior: %s", e)
-            return EmergenceResult(success=False, message=str(e))
+            return EmergenceResult(success=False, message=type(e).__name__)
 
     async def get_emergent_behaviors(
         self,

@@ -164,7 +164,7 @@ class DeepUnderstanding:
                     input_context=input_context,
                 )
             except Exception as e:
-                logger.warning(f"History analysis failed: {e}")
+                logger.warning(f"History analysis failed: {type(e).__name__}")
                 warnings.append("会話履歴の分析に失敗しました")
 
             # Step 2: 暗黙の意図推測
@@ -176,7 +176,7 @@ class DeepUnderstanding:
                         input_context=input_context,
                     )
                 except Exception as e:
-                    logger.warning(f"Intent inference failed: {e}")
+                    logger.warning(f"Intent inference failed: {type(e).__name__}")
                     warnings.append("意図推測に失敗しました")
 
             # Step 3: 組織文脈の解決
@@ -188,7 +188,7 @@ class DeepUnderstanding:
                         context=input_context,
                     )
                 except Exception as e:
-                    logger.warning(f"Organization context resolution failed: {e}")
+                    logger.warning(f"Organization context resolution failed: {type(e).__name__}")
                     warnings.append("組織文脈の解決に失敗しました")
 
             # Step 4: 感情・ニュアンスの読み取り
@@ -200,7 +200,7 @@ class DeepUnderstanding:
                         input_context=input_context,
                     )
                 except Exception as e:
-                    logger.warning(f"Emotion reading failed: {e}")
+                    logger.warning(f"Emotion reading failed: {type(e).__name__}")
                     warnings.append("感情読み取りに失敗しました")
 
             # Step 5: 強化されたメッセージの生成
@@ -253,7 +253,7 @@ class DeepUnderstanding:
             return result
 
         except Exception as e:
-            logger.error(f"Error in deep understanding: {e}")
+            logger.error(f"Error in deep understanding: {type(e).__name__}")
             return DeepUnderstandingOutput(
                 input=input_context,
                 enhanced_message=message,
@@ -261,7 +261,7 @@ class DeepUnderstanding:
                 needs_confirmation=True,
                 confirmation_reason="理解処理中にエラーが発生しました",
                 processing_time_ms=self._elapsed_ms(start_time),
-                errors=[str(e)],
+                errors=[type(e).__name__],
             )
 
     # =========================================================================
@@ -390,7 +390,7 @@ class DeepUnderstanding:
             if candidates:
                 logger.debug(f"Vocabulary learning candidates: {candidates}")
         except Exception as e:
-            logger.debug(f"Vocabulary learning failed: {e}")
+            logger.debug(f"Vocabulary learning failed: {type(e).__name__}")
 
     # =========================================================================
     # Feature Flags

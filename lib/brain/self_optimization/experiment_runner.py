@@ -78,7 +78,7 @@ class ExperimentRunner:
             return OptimizationResult(success=True, message=f"Test '{test_name}' created")
         except Exception as e:
             logger.error("Failed to create test '%s': %s", test_name, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def get_active_tests(
         self,
@@ -168,7 +168,7 @@ class ExperimentRunner:
             return OptimizationResult(success=True, message="Observation recorded")
         except Exception as e:
             logger.error("Failed to record observation for test %s: %s", test_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     def analyze_results(
         self,
@@ -242,7 +242,7 @@ class ExperimentRunner:
             return OptimizationResult(success=True, message=f"Test completed: {outcome.value}")
         except Exception as e:
             logger.error("Failed to complete test %s: %s", test_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def pause_test(
         self,
@@ -268,7 +268,7 @@ class ExperimentRunner:
             return OptimizationResult(success=True, message="Test paused")
         except Exception as e:
             logger.error("Failed to pause test %s: %s", test_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
 
 def create_experiment_runner(organization_id: str = "") -> ExperimentRunner:

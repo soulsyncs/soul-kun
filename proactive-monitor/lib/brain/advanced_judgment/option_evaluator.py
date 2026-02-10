@@ -294,7 +294,7 @@ class OptionEvaluator:
             return evaluations
 
         except Exception as e:
-            logger.error(f"LLM evaluation error: {e}", exc_info=True)
+            logger.error(f"LLM evaluation error: {type(e).__name__}", exc_info=True)
             return self._evaluate_rule_based(options, criteria, question, context)
 
     async def _call_llm(self, prompt: str) -> str:
@@ -313,7 +313,7 @@ class OptionEvaluator:
             return response if isinstance(response, str) else str(response)
 
         except Exception as e:
-            logger.error(f"LLM call error: {e}")
+            logger.error(f"LLM call error: {type(e).__name__}")
             return "{}"
 
     def _format_options_for_prompt(
@@ -429,7 +429,7 @@ class OptionEvaluator:
                 ))
 
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {e}")
+            logger.error(f"Error parsing LLM response: {type(e).__name__}")
             # フォールバック: ルールベース評価を返す
             return self._evaluate_rule_based(options, criteria, "", {})
 

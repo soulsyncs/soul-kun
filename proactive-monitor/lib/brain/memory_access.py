@@ -578,51 +578,48 @@ class BrainMemoryAccess:
         """
         try:
             def _sync_query():
+                # v10.74.0: N+1クエリをJOINに統合（11回→1回）
+                from collections import OrderedDict
                 with self.pool.connect() as conn:
                     params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
-                    where_clause = "WHERE organization_id = :org_id"
+                    where_clause = "WHERE p.organization_id = :org_id"
                     if person_id:
-                        where_clause += " AND id = CAST(:person_id AS integer)"
+                        where_clause += " AND p.id = CAST(:person_id AS integer)"
                         params["person_id"] = person_id
                     result = conn.execute(
                         text(f"""
-                            SELECT id, name
-                            FROM persons
+                            SELECT p.id, p.name,
+                                   pa.attribute_type, pa.attribute_value
+                            FROM persons p
+                            LEFT JOIN person_attributes pa
+                              ON pa.person_id = p.id
+                              AND pa.organization_id = p.organization_id
                             {where_clause}
-                            ORDER BY name
-                            LIMIT :limit
+                            ORDER BY p.name, pa.updated_at DESC
                         """),
                         params,
                     )
-                    person_rows = result.fetchall()
+                    rows = result.fetchall()
 
-                    persons = []
-                    for row in person_rows:
-                        row_person_id = row[0]
-                        name = row[1]
+                    # 人物ごとにグルーピング
+                    person_map: OrderedDict = OrderedDict()
+                    for row in rows:
+                        pid = row[0]
+                        if pid not in person_map:
+                            if len(person_map) >= limit:
+                                break
+                            person_map[pid] = {"name": row[1], "attributes": {}}
+                        if row[2]:  # attribute_type がNULLでない場合
+                            person_map[pid]["attributes"][row[2]] = row[3]
 
-                        attr_result = conn.execute(
-                            text("""
-                                SELECT attribute_type, attribute_value
-                                FROM person_attributes
-                                WHERE person_id = :pid
-                                  AND organization_id = :org_id
-                                ORDER BY updated_at DESC
-                            """),
-                            {"pid": row_person_id, "org_id": self.org_id},
+                    return [
+                        PersonInfo(
+                            person_id=str(pid) if pid else "",
+                            name=info["name"],
+                            attributes=info["attributes"],
                         )
-                        attr_rows = attr_result.fetchall()
-                        attributes = {attr[0]: attr[1] for attr in attr_rows}
-
-                        persons.append(
-                            PersonInfo(
-                                person_id=str(row_person_id) if row_person_id else "",
-                                name=name,
-                                attributes=attributes,
-                            )
-                        )
-
-                    return persons
+                        for pid, info in person_map.items()
+                    ]
 
             return await asyncio.to_thread(_sync_query)
 

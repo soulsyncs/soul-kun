@@ -533,7 +533,7 @@ JSON形式で回答してください:
             return self._parse_llm_response(response)
 
         except Exception as e:
-            logger.warning(f"LLM decomposition failed: {e}")
+            logger.warning(f"LLM decomposition failed: {type(e).__name__}")
             return None
 
     def _parse_llm_response(self, response: str) -> Optional[List[SubTask]]:
@@ -561,7 +561,7 @@ JSON形式で回答してください:
             return subtasks if subtasks else None
 
         except (json.JSONDecodeError, KeyError) as e:
-            logger.warning(f"Failed to parse LLM response: {e}")
+            logger.warning(f"Failed to parse LLM response: {type(e).__name__}")
             return None
 
     def _create_single_task(

@@ -237,7 +237,7 @@ class TruthResolver:
             except Exception as e:
                 last_error = e
                 logger.warning(
-                    f"TruthResolver: Failed to fetch from {source.name}: {e}"
+                    f"TruthResolver: Failed to fetch from {source.name}: {type(e).__name__}"
                 )
                 # フォールバックが許可されていれば次のソースを試行
                 if not allow_fallback:
@@ -388,7 +388,7 @@ class TruthResolver:
                             chatwork_client.get_my_tasks
                         )
             except Exception as e:
-                logger.warning(f"API fetch failed for {query_type}: {e}")
+                logger.warning(f"API fetch failed for {query_type}: {type(e).__name__}")
                 raise
 
         return None
@@ -431,7 +431,7 @@ class TruthResolver:
                 return await self._call_async_or_sync(method, **params)
 
         except Exception as e:
-            logger.warning(f"DB fetch failed for {query_type}: {e}")
+            logger.warning(f"DB fetch failed for {query_type}: {type(e).__name__}")
             raise
 
         return None
@@ -460,7 +460,7 @@ class TruthResolver:
                     self._spec_accessor.get_spec, query_type, params
                 )
         except Exception as e:
-            logger.warning(f"Spec fetch failed for {query_type}: {e}")
+            logger.warning(f"Spec fetch failed for {query_type}: {type(e).__name__}")
             raise
 
         return None
@@ -498,7 +498,7 @@ class TruthResolver:
                 return await self._call_async_or_sync(method, **params)
 
         except Exception as e:
-            logger.warning(f"Memory fetch failed for {query_type}: {e}")
+            logger.warning(f"Memory fetch failed for {query_type}: {type(e).__name__}")
             raise
 
         return None

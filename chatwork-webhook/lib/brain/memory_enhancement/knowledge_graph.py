@@ -163,7 +163,7 @@ class KnowledgeGraph:
             return node_id
 
         except Exception as e:
-            logger.error(f"Failed to add knowledge node: {e}")
+            logger.error(f"Failed to add knowledge node: {type(e).__name__}")
             raise
 
     def find_node_by_id(
@@ -201,7 +201,7 @@ class KnowledgeGraph:
                 return self._row_to_node(row)
             return None
         except Exception as e:
-            logger.error(f"Failed to find node by id: {e}")
+            logger.error(f"Failed to find node by id: {type(e).__name__}")
             return None
 
     def find_node_by_name(
@@ -258,7 +258,7 @@ class KnowledgeGraph:
                 return self._row_to_node(row)
             return None
         except Exception as e:
-            logger.error(f"Failed to find node by name: {e}")
+            logger.error(f"Failed to find node by name: {type(e).__name__}")
             return None
 
     def search_nodes(
@@ -314,7 +314,7 @@ class KnowledgeGraph:
             result = conn.execute(query, params)
             return [self._row_to_node(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to search nodes: {e}")
+            logger.error(f"Failed to search nodes: {type(e).__name__}")
             return []
 
     def update_node_activation(
@@ -350,7 +350,7 @@ class KnowledgeGraph:
             })
             return result.rowcount > 0
         except Exception as e:
-            logger.error(f"Failed to update node activation: {e}")
+            logger.error(f"Failed to update node activation: {type(e).__name__}")
             return False
 
     def apply_activation_decay(
@@ -381,7 +381,7 @@ class KnowledgeGraph:
             })
             return result.rowcount
         except Exception as e:
-            logger.error(f"Failed to apply activation decay: {e}")
+            logger.error(f"Failed to apply activation decay: {type(e).__name__}")
             return 0
 
     # =========================================================================
@@ -458,7 +458,7 @@ class KnowledgeGraph:
             return edge_id
 
         except Exception as e:
-            logger.error(f"Failed to add knowledge edge: {e}")
+            logger.error(f"Failed to add knowledge edge: {type(e).__name__}")
             raise
 
     def find_edges_from(
@@ -506,7 +506,7 @@ class KnowledgeGraph:
             result = conn.execute(query, params)
             return [self._row_to_edge(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find edges from node: {e}")
+            logger.error(f"Failed to find edges from node: {type(e).__name__}")
             return []
 
     def find_edges_to(
@@ -554,7 +554,7 @@ class KnowledgeGraph:
             result = conn.execute(query, params)
             return [self._row_to_edge(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find edges to node: {e}")
+            logger.error(f"Failed to find edges to node: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -905,7 +905,7 @@ class KnowledgeGraph:
                 "edges_by_type": edges_by_type,
             }
         except Exception as e:
-            logger.error(f"Failed to get statistics: {e}")
+            logger.error(f"Failed to get statistics: {type(e).__name__}")
             return {
                 "total_nodes": 0,
                 "nodes_by_type": {},

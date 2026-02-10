@@ -230,10 +230,22 @@ def get_db_session_with_org(organization_id: str):
         yield conn
     finally:
         # 接続をプールに返す前にRESETで値をクリア（データ漏洩防止）
+        # v10.74.0: state_manager.pyの堅牢パターンに統一
+        # rollback→retry→invalidate の3段階防御
         try:
             conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
-        except Exception:
-            pass  # 接続が既に閉じられている場合は無視
+        except Exception as reset_err:
+            logger.warning(f"[RLS] RESET failed, attempting rollback: {type(reset_err).__name__}")
+            try:
+                conn.rollback()
+                conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+            except Exception as retry_err:
+                # RESET不可→接続を無効化してプールに返さない（org_id残留によるデータ漏洩防止）
+                logger.error(f"[RLS] RESET retry failed, invalidating connection: {type(retry_err).__name__}")
+                try:
+                    conn.invalidate()
+                except Exception:
+                    pass
         conn.close()
 
 

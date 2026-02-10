@@ -521,7 +521,7 @@ class TradeoffAnalyzer:
             return self._parse_llm_response(response, evaluations, criteria)
 
         except Exception as e:
-            logger.error(f"LLM analysis error: {e}", exc_info=True)
+            logger.error(f"LLM analysis error: {type(e).__name__}", exc_info=True)
             return TradeoffAnalysisResult()
 
     async def _call_llm(self, prompt: str) -> str:
@@ -539,7 +539,7 @@ class TradeoffAnalyzer:
             return response if isinstance(response, str) else str(response)
 
         except Exception as e:
-            logger.error(f"LLM call error: {e}")
+            logger.error(f"LLM call error: {type(e).__name__}")
             return "{}"
 
     def _format_evaluations_for_prompt(
@@ -619,7 +619,7 @@ class TradeoffAnalyzer:
             )
 
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {e}")
+            logger.error(f"Error parsing LLM response: {type(e).__name__}")
             return TradeoffAnalysisResult()
 
     # =========================================================================

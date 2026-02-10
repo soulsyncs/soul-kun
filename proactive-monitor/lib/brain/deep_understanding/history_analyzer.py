@@ -158,7 +158,7 @@ class HistoryAnalyzer:
             return result
 
         except Exception as e:
-            logger.error(f"Error in history analysis: {e}")
+            logger.error(f"Error in history analysis: {type(e).__name__}")
             return RecoveredContext(
                 fragments=[],
                 summary="文脈の復元に失敗しました",

@@ -433,7 +433,7 @@ class RiskAssessor:
             return self._parse_risk_response(response, options)
 
         except Exception as e:
-            logger.error(f"LLM risk analysis error: {e}")
+            logger.error(f"LLM risk analysis error: {type(e).__name__}")
             return []
 
     def _parse_risk_response(
@@ -472,7 +472,7 @@ class RiskAssessor:
                 risks.append(risk)
 
         except Exception as e:
-            logger.error(f"Error parsing risk response: {e}")
+            logger.error(f"Error parsing risk response: {type(e).__name__}")
 
         return risks
 
@@ -722,7 +722,7 @@ class RiskAssessor:
             return self._parse_return_response(response, options)
 
         except Exception as e:
-            logger.error(f"LLM return analysis error: {e}")
+            logger.error(f"LLM return analysis error: {type(e).__name__}")
             return []
 
     def _parse_return_response(
@@ -761,7 +761,7 @@ class RiskAssessor:
                 returns.append(ret)
 
         except Exception as e:
-            logger.error(f"Error parsing return response: {e}")
+            logger.error(f"Error parsing return response: {type(e).__name__}")
 
         return returns
 
@@ -995,7 +995,7 @@ class RiskAssessor:
             return response if isinstance(response, str) else str(response)
 
         except Exception as e:
-            logger.error(f"LLM call error: {e}")
+            logger.error(f"LLM call error: {type(e).__name__}")
             return "{}"
 
 

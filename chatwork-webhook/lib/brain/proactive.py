@@ -400,7 +400,7 @@ class ProactiveMonitor:
                     result = await self._check_single_user(user_ctx)
                     results.append(result)
                 except Exception as e:
-                    logger.error(f"[Proactive] Error checking user {user_ctx.user_id}: {e}")
+                    logger.error(f"[Proactive] Error checking user {user_ctx.user_id}: {type(e).__name__}")
                     results.append(CheckResult(
                         user_id=user_ctx.user_id,
                         triggers_found=[],
@@ -416,7 +416,7 @@ class ProactiveMonitor:
                                 message="",
                             ),
                             success=False,
-                            error_message=str(e),
+                            error_message=type(e).__name__,
                         )],
                     ))
 
@@ -426,7 +426,7 @@ class ProactiveMonitor:
             logger.info(f"[Proactive] Complete: {total_triggers} triggers found, {total_actions} actions taken")
 
         except Exception as e:
-            logger.error(f"[Proactive] Critical error in check_and_act: {e}")
+            logger.error(f"[Proactive] Critical error in check_and_act: {type(e).__name__}")
 
         return results
 
@@ -476,7 +476,7 @@ class ProactiveMonitor:
                         result.actions_taken.append(action)
 
             except Exception as e:
-                logger.warning(f"[Proactive] Error checking {trigger_type.value}: {e}")
+                logger.warning(f"[Proactive] Error checking {trigger_type.value}: {type(e).__name__}")
 
         return result
 
@@ -533,7 +533,7 @@ class ProactiveMonitor:
                 )
 
         except Exception as e:
-            logger.warning(f"[Proactive] Goal abandoned check failed: {e}")
+            logger.warning(f"[Proactive] Goal abandoned check failed: {type(e).__name__}")
 
         return None
 
@@ -583,7 +583,7 @@ class ProactiveMonitor:
                 )
 
         except Exception as e:
-            logger.warning(f"[Proactive] Task overload check failed: {e}")
+            logger.warning(f"[Proactive] Task overload check failed: {type(e).__name__}")
 
         return None
 
@@ -635,7 +635,7 @@ class ProactiveMonitor:
                     )
 
         except Exception as e:
-            logger.warning(f"[Proactive] Emotion decline check failed: {e}")
+            logger.warning(f"[Proactive] Emotion decline check failed: {type(e).__name__}")
 
         return None
 
@@ -692,7 +692,7 @@ class ProactiveMonitor:
                 )
 
         except Exception as e:
-            logger.warning(f"[Proactive] Goal achieved check failed: {e}")
+            logger.warning(f"[Proactive] Goal achieved check failed: {type(e).__name__}")
 
         return None
 
@@ -745,7 +745,7 @@ class ProactiveMonitor:
                 )
 
         except Exception as e:
-            logger.warning(f"[Proactive] Task completed streak check failed: {e}")
+            logger.warning(f"[Proactive] Task completed streak check failed: {type(e).__name__}")
 
         return None
 
@@ -823,7 +823,7 @@ class ProactiveMonitor:
 
         except Exception as e:
             # テーブルが存在しない場合などはクールダウンなしとして扱う
-            logger.debug(f"[Proactive] Cooldown check failed (continuing): {e}")
+            logger.debug(f"[Proactive] Cooldown check failed (continuing): {type(e).__name__}")
             return False
 
     async def _take_action(
@@ -877,7 +877,7 @@ class ProactiveMonitor:
                 logger.info(f"[Proactive] Using brain-generated message")
 
             except Exception as e:
-                logger.warning(f"[Proactive] Brain message generation failed: {e}")
+                logger.warning(f"[Proactive] Brain message generation failed: {type(e).__name__}")
                 # フォールバック: テンプレートを使用
                 message = None
 
@@ -916,8 +916,8 @@ class ProactiveMonitor:
                 success = bool(result)
             except Exception as e:
                 success = False
-                error_message = str(e)
-                logger.error(f"[Proactive] Failed to send message: {e}")
+                error_message = type(e).__name__
+                logger.error(f"[Proactive] Failed to send message: {type(e).__name__}")
 
         # アクションをログに記録
         if success:
@@ -986,7 +986,7 @@ class ProactiveMonitor:
                 await conn.commit()
 
         except Exception as e:
-            logger.warning(f"[Proactive] Failed to log action: {e}")
+            logger.warning(f"[Proactive] Failed to log action: {type(e).__name__}")
 
     # --------------------------------------------------------
     # データ取得
@@ -1041,7 +1041,7 @@ class ProactiveMonitor:
             ]
 
         except Exception as e:
-            logger.error(f"[Proactive] Failed to get active users: {e}")
+            logger.error(f"[Proactive] Failed to get active users: {type(e).__name__}")
             return []
 
     async def _get_user_context(
@@ -1083,7 +1083,7 @@ class ProactiveMonitor:
                 )
 
         except Exception as e:
-            logger.error(f"[Proactive] Failed to get user context: {e}")
+            logger.error(f"[Proactive] Failed to get user context: {type(e).__name__}")
 
         return None
 

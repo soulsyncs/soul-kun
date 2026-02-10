@@ -143,7 +143,7 @@ class ImplicitFeedbackDetector:
             })
             rows = result.fetchall()
         except Exception as e:
-            logger.warning(f"Failed to query goal_progress: {e}")
+            logger.warning(f"Failed to query goal_progress: {type(e).__name__}")
             return self._detect_from_time_elapsed(conn, event)
 
         if not rows:
@@ -232,7 +232,7 @@ class ImplicitFeedbackDetector:
             result = conn.execute(query, {"task_id": task_id, "org_id": self.organization_id})
             row = result.fetchone()
         except Exception as e:
-            logger.warning(f"Failed to query chatwork_tasks: {e}")
+            logger.warning(f"Failed to query chatwork_tasks: {type(e).__name__}")
             return self._detect_from_time_elapsed(conn, event)
 
         if not row:
@@ -315,7 +315,7 @@ class ImplicitFeedbackDetector:
             })
             row = result.fetchone()
         except Exception as e:
-            logger.warning(f"Failed to query notification_logs: {e}")
+            logger.warning(f"Failed to query notification_logs: {type(e).__name__}")
             return self._detect_from_time_elapsed(conn, event)
 
         if row and row[0] == "success":
@@ -435,7 +435,7 @@ class ImplicitFeedbackDetector:
             row = result.fetchone()
             return bool(row and row[0])
         except Exception as e:
-            logger.debug(f"Failed to check user response: {e}")
+            logger.debug(f"Failed to check user response: {type(e).__name__}")
             return False
 
     def detect_batch(
@@ -459,7 +459,7 @@ class ImplicitFeedbackDetector:
                 if feedback:
                     feedbacks.append(feedback)
             except Exception as e:
-                logger.warning(f"Failed to detect feedback for event {event.id}: {e}")
+                logger.warning(f"Failed to detect feedback for event {event.id}: {type(e).__name__}")
         return feedbacks
 
 

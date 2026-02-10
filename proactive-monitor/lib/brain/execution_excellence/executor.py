@@ -737,7 +737,7 @@ class WorkflowExecutor:
             return self._create_result(plan, quality_report, escalations)
 
         except Exception as e:
-            logger.error(f"Workflow execution failed: {e}", exc_info=True)
+            logger.error(f"Workflow execution failed: {type(e).__name__}", exc_info=True)
             plan.status = SubTaskStatus.FAILED
             plan.completed_at = datetime.now()
 
@@ -746,7 +746,7 @@ class WorkflowExecutor:
                 plan_name=plan.name,
                 original_request=plan.original_request,
                 success=False,
-                message=f"ワークフローの実行中にエラーが発生しました: {e}",
+                message=f"ワークフローの実行中にエラーが発生しました: {type(e).__name__}",
                 escalations=escalations,
                 total_execution_time_ms=plan.total_execution_time_ms,
             )
@@ -805,9 +805,9 @@ class WorkflowExecutor:
 
         except Exception as e:
             subtask.status = SubTaskStatus.FAILED
-            subtask.error = str(e)
+            subtask.error = type(e).__name__
             subtask.completed_at = datetime.now()
-            logger.error(f"Subtask error: {subtask.name} - {e}")
+            logger.error(f"Subtask error: {subtask.name} - {type(e).__name__}")
 
             # リカバリー戦略を適用
             if subtask.recovery_strategy == RecoveryStrategy.SKIP and subtask.is_optional:

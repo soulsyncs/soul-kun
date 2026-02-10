@@ -169,7 +169,7 @@ class ModelRegistry:
                 return models
 
         except Exception as e:
-            logger.error(f"Failed to get all models: {e}")
+            logger.error(f"Failed to get all models: {type(e).__name__}")
             raise
 
     def get_model(self, model_id: str) -> Optional[ModelInfo]:
@@ -225,7 +225,7 @@ class ModelRegistry:
                 return model
 
         except Exception as e:
-            logger.error(f"Failed to get model {model_id}: {e}")
+            logger.error(f"Failed to get model {model_id}: {type(e).__name__}")
             raise
 
     def get_models_by_tier(self, tier: Tier) -> List[ModelInfo]:
@@ -279,7 +279,7 @@ class ModelRegistry:
                 return models
 
         except Exception as e:
-            logger.error(f"Failed to get models by tier {tier}: {e}")
+            logger.error(f"Failed to get models by tier {tier}: {type(e).__name__}")
             raise
 
     def get_default_model_for_tier(self, tier: Tier) -> Optional[ModelInfo]:
@@ -339,7 +339,7 @@ class ModelRegistry:
                 return model
 
         except Exception as e:
-            logger.error(f"Failed to get default model for tier {tier}: {e}")
+            logger.error(f"Failed to get default model for tier {tier}: {type(e).__name__}")
             raise
 
     def get_fallback_chain(self, tier: Tier) -> List[ModelInfo]:

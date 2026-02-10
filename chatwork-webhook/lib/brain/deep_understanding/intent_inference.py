@@ -257,7 +257,7 @@ class IntentInferenceEngine:
             return result
 
         except Exception as e:
-            logger.error(f"Error in intent inference: {e}")
+            logger.error(f"Error in intent inference: {type(e).__name__}")
             return IntentInferenceResult(
                 implicit_intents=[],
                 overall_confidence=0.0,
@@ -759,7 +759,7 @@ class IntentInferenceEngine:
                     ))
 
             except Exception as e:
-                logger.warning(f"Enhanced pronoun resolution failed for '{pronoun}': {e}")
+                logger.warning(f"Enhanced pronoun resolution failed for '{pronoun}': {type(e).__name__}")
                 # フォールバック: 通常の解決を試行
                 continue
 
@@ -811,7 +811,7 @@ class IntentInferenceEngine:
                     ))
 
         except Exception as e:
-            logger.warning(f"Enhanced context expression resolution failed: {e}")
+            logger.warning(f"Enhanced context expression resolution failed: {type(e).__name__}")
 
         return intents
 
@@ -884,7 +884,7 @@ class IntentInferenceEngine:
                     ))
 
             except Exception as e:
-                logger.warning(f"Person alias resolution failed for '{name_with_honorific}': {e}")
+                logger.warning(f"Person alias resolution failed for '{name_with_honorific}': {type(e).__name__}")
                 continue
 
         return intents
@@ -937,7 +937,7 @@ class IntentInferenceEngine:
                 return self._parse_llm_response(response, message)
 
         except Exception as e:
-            logger.warning(f"LLM inference failed: {e}")
+            logger.warning(f"LLM inference failed: {type(e).__name__}")
 
         return []
 

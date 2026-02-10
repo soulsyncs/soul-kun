@@ -327,7 +327,31 @@ class ContextBuilder:
         """
         logger.debug("Building LLM context")
 
-        # 並列で全ての情報を取得
+        # v10.74.0: DB系タスクはSemaphore(3)で並列数を制限
+        # pool_size=5に対してSemaphore(3)で安全に並列化（2接続の余裕確保）
+        # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
+        _db_sem = asyncio.Semaphore(3)
+
+        async def _db_limited(coro, name: str):
+            """DB系タスク: セマフォで並列数制限、エラーはログしてNone返却"""
+            async with _db_sem:
+                try:
+                    return await coro
+                except Exception as e:
+                    logger.warning(f"DB task {name} failed: {type(e).__name__}")
+                    return None
+
+        async def _safe_non_db(coro, name: str, timeout: float = 15.0):
+            """非DB系タスク: セマフォなし、タイムアウト付き"""
+            try:
+                return await asyncio.wait_for(coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                logger.warning(f"Non-DB task {name} timed out after {timeout}s")
+                return None
+            except Exception as e:
+                logger.warning(f"Non-DB task {name} failed: {type(e).__name__}")
+                return None
+
         # Phase 2E: _get_context()で既に取得済みの場合はDBクエリをスキップ
         phase2e_task = (
             self._return_prefetched(phase2e_learnings_prefetched)
@@ -335,18 +359,18 @@ class ContextBuilder:
             else self._get_phase2e_learnings(message, user_id, room_id)
         )
         tasks = [
-            self._get_session_state(user_id, room_id),
-            self._get_recent_messages(user_id, room_id, organization_id),
-            self._get_conversation_summary(user_id, organization_id),
-            self._get_user_preferences(user_id, organization_id),
-            self._get_known_persons(organization_id),
-            self._get_recent_tasks(user_id, room_id, organization_id),
-            self._get_active_goals(user_id, organization_id),
-            self._get_ceo_teachings(organization_id, message),
-            self._get_user_info(user_id, organization_id, sender_name),
-            phase2e_task,
-            self._get_outcome_patterns(user_id),
-            self._get_emotion_context(message, organization_id, user_id),
+            _safe_non_db(self._get_session_state(user_id, room_id), "session_state"),
+            _safe_non_db(self._get_recent_messages(user_id, room_id, organization_id), "messages"),
+            _db_limited(self._get_conversation_summary(user_id, organization_id), "summary"),
+            _db_limited(self._get_user_preferences(user_id, organization_id), "preferences"),
+            _db_limited(self._get_known_persons(organization_id), "persons"),
+            _db_limited(self._get_recent_tasks(user_id, room_id, organization_id), "tasks"),
+            _db_limited(self._get_active_goals(user_id, organization_id), "goals"),
+            _db_limited(self._get_ceo_teachings(organization_id, message), "ceo_teachings"),
+            _db_limited(self._get_user_info(user_id, organization_id, sender_name), "user_info"),
+            _db_limited(phase2e_task, "phase2e"),
+            _db_limited(self._get_outcome_patterns(user_id), "outcome_patterns"),
+            _safe_non_db(self._get_emotion_context(message, organization_id, user_id), "emotion"),
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -460,7 +484,7 @@ class ContextBuilder:
                 last_intent=state_step,
             )
         except Exception as e:
-            logger.warning(f"[状態取得エラー] error={e}")
+            logger.warning(f"[状態取得エラー] error={type(e).__name__}")
             return None
 
     async def _get_recent_messages(
@@ -485,7 +509,7 @@ class ContextBuilder:
                 for msg in messages
             ]
         except Exception as e:
-            logger.warning(f"Error getting recent messages: {e}")
+            logger.warning(f"Error getting recent messages: {type(e).__name__}")
             return []
 
     async def _get_conversation_summary(
@@ -504,7 +528,7 @@ class ContextBuilder:
                 return str(text) if text is not None else None
             return None
         except Exception as e:
-            logger.warning(f"Error getting conversation summary: {e}")
+            logger.warning(f"Error getting conversation summary: {type(e).__name__}")
             return None
 
     async def _get_user_preferences(
@@ -537,7 +561,7 @@ class ContextBuilder:
                         result.other_preferences[key] = value
             return result
         except Exception as e:
-            logger.warning(f"Error getting user preferences: {e}")
+            logger.warning(f"Error getting user preferences: {type(e).__name__}")
             return None
 
     async def _get_known_persons(
@@ -560,7 +584,7 @@ class ContextBuilder:
                 for p in persons[:10]  # 最大10人
             ]
         except Exception as e:
-            logger.warning(f"Error getting known persons: {e}")
+            logger.warning(f"Error getting known persons: {type(e).__name__}")
             return []
 
     async def _get_recent_tasks(
@@ -588,7 +612,7 @@ class ContextBuilder:
                 for t in tasks[:10]  # 最大10件
             ]
         except Exception as e:
-            logger.warning(f"Error getting recent tasks: {e}")
+            logger.warning(f"Error getting recent tasks: {type(e).__name__}")
             return []
 
     async def _get_active_goals(
@@ -614,7 +638,7 @@ class ContextBuilder:
                 result.append(goal_info)
             return result
         except Exception as e:
-            logger.warning(f"Error getting active goals: {e}")
+            logger.warning(f"Error getting active goals: {type(e).__name__}")
             return []
 
     async def _get_ceo_teachings(
@@ -642,7 +666,7 @@ class ContextBuilder:
                 for t in teachings
             ]
         except Exception as e:
-            logger.warning(f"Error getting CEO teachings: {e}")
+            logger.warning(f"Error getting CEO teachings: {type(e).__name__}")
             return []
 
     @staticmethod
@@ -680,7 +704,7 @@ class ContextBuilder:
                     )
             return await asyncio.to_thread(_sync_fetch)
         except Exception as e:
-            logger.warning(f"Error getting Phase 2E learnings: {e}")
+            logger.warning(f"Error getting Phase 2E learnings: {type(e).__name__}")
             return ""
 
     async def _get_outcome_patterns(
@@ -836,6 +860,6 @@ class ContextBuilder:
                 for k in knowledge[:5]
             ]
         except Exception as e:
-            logger.warning(f"Error enriching with knowledge: {e}")
+            logger.warning(f"Error enriching with knowledge: {type(e).__name__}")
 
         return context

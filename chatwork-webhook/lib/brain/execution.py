@@ -344,35 +344,35 @@ class BrainExecution:
             return execution_result
 
         except HandlerTimeoutError as e:
-            logger.error(f"Handler timeout: {action}, {e}")
+            logger.error(f"Handler timeout: {action}, {type(e).__name__}")
             return ExecutionResult(
                 success=False,
                 message=ERROR_MESSAGES["handler_timeout"],
                 action=action,
                 error_code="TIMEOUT",
-                error_details=str(e),
+                error_details=type(e).__name__,
                 execution_time_ms=self._elapsed_ms(start_time),
             )
 
         except ParameterValidationError as e:
-            logger.warning(f"Parameter validation failed: {action}, {e}")
+            logger.warning(f"Parameter validation failed: {action}, {type(e).__name__}")
             return ExecutionResult(
                 success=False,
-                message=str(e),
+                message=type(e).__name__,
                 action=action,
                 error_code="PARAMETER_ERROR",
-                error_details=str(e),
+                error_details=type(e).__name__,
                 execution_time_ms=self._elapsed_ms(start_time),
             )
 
         except Exception as e:
-            logger.error(f"Unexpected execution error: {action}, {e}")
+            logger.error(f"Unexpected execution error: {action}, {type(e).__name__}")
             return ExecutionResult(
                 success=False,
                 message=ERROR_MESSAGES["unexpected_error"],
                 action=action,
                 error_code="UNEXPECTED_ERROR",
-                error_details=str(e),
+                error_details=type(e).__name__,
                 execution_time_ms=self._elapsed_ms(start_time),
             )
 
@@ -466,7 +466,7 @@ class BrainExecution:
                     execution_time_ms=self._elapsed_ms(start_time),
                 )
             except Exception as e:
-                logger.error(f"Error generating AI response: {e}")
+                logger.error(f"Error generating AI response: {type(e).__name__}")
 
         # デフォルトメッセージ
         return ExecutionResult(
@@ -661,7 +661,7 @@ class BrainExecution:
                 error_type = type(e).__name__
                 logger.warning(
                     f"Handler error (attempt {attempt + 1}/{max_retries}): "
-                    f"{action}, {error_type}: {e}"
+                    f"{action}, {error_type}: {type(e).__name__}"
                 )
 
                 # リトライ可能かチェック

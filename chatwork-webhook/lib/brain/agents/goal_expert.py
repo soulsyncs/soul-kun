@@ -272,12 +272,12 @@ class GoalExpert(BaseAgent):
                     confidence=confidence,
                 )
             except Exception as e:
-                logger.error(f"Handler error: {action}: {e}", exc_info=True)
+                logger.error(f"Handler error: {action}: {type(e).__name__}", exc_info=True)
                 return AgentResponse(
                     request_id=message.id,
                     agent_type=self._agent_type,
                     success=False,
-                    error_message=str(e),
+                    error_message=type(e).__name__,
                 )
 
         # メッセージからアクションを推論
@@ -298,12 +298,12 @@ class GoalExpert(BaseAgent):
                     confidence=confidence,
                 )
             except Exception as e:
-                logger.error(f"Handler error: {inferred_action}: {e}", exc_info=True)
+                logger.error(f"Handler error: {inferred_action}: {type(e).__name__}", exc_info=True)
                 return AgentResponse(
                     request_id=message.id,
                     agent_type=self._agent_type,
                     success=False,
-                    error_message=str(e),
+                    error_message=type(e).__name__,
                 )
 
         # アクションが特定できない場合

@@ -276,7 +276,7 @@ class AdvancedJudgment:
             return output
 
         except Exception as e:
-            logger.error(f"Advanced judgment error: {e}", exc_info=True)
+            logger.error(f"Advanced judgment error: {type(e).__name__}", exc_info=True)
 
             elapsed_ms = int((time.time() - start_time) * 1000)
 
@@ -284,7 +284,7 @@ class AdvancedJudgment:
                 input=input_data,
                 judgment_type=input_data.judgment_type,
                 complexity=JudgmentComplexity.MODERATE.value,
-                errors=[str(e)],
+                errors=[type(e).__name__],
                 processing_time_ms=elapsed_ms,
             )
 
@@ -910,7 +910,7 @@ class AdvancedJudgment:
             await self.consistency_checker.save_judgment(judgment)
 
         except Exception as e:
-            logger.error(f"Error logging judgment: {e}")
+            logger.error(f"Error logging judgment: {type(e).__name__}")
 
     # =========================================================================
     # ユーティリティ

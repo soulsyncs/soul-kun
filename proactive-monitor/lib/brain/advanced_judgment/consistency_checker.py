@@ -331,13 +331,13 @@ class ConsistencyChecker:
                         judgments.append(judgment)
 
                 except Exception as e:
-                    logger.warning(f"Error parsing judgment row: {e}")
+                    logger.warning(f"Error parsing judgment row: {type(e).__name__}")
                     continue
 
             return judgments[:MAX_SIMILAR_JUDGMENTS]
 
         except Exception as e:
-            logger.error(f"Error fetching judgments from DB: {e}")
+            logger.error(f"Error fetching judgments from DB: {type(e).__name__}")
             return []
 
     def _calculate_similarity(
@@ -577,7 +577,7 @@ class ConsistencyChecker:
             return self._parse_llm_response(response)
 
         except Exception as e:
-            logger.error(f"LLM consistency analysis error: {e}")
+            logger.error(f"LLM consistency analysis error: {type(e).__name__}")
             return None
 
     def _format_past_judgments(
@@ -637,7 +637,7 @@ class ConsistencyChecker:
             return response if isinstance(response, str) else str(response)
 
         except Exception as e:
-            logger.error(f"LLM call error: {e}")
+            logger.error(f"LLM call error: {type(e).__name__}")
             return "{}"
 
     def _parse_llm_response(
@@ -676,7 +676,7 @@ class ConsistencyChecker:
             )
 
         except Exception as e:
-            logger.error(f"Error parsing LLM response: {e}")
+            logger.error(f"Error parsing LLM response: {type(e).__name__}")
             return None
 
     # =========================================================================
@@ -878,7 +878,7 @@ class ConsistencyChecker:
                     )
                 return True
             except Exception as e:
-                logger.error(f"Error saving judgment to DB: {e}")
+                logger.error(f"Error saving judgment to DB: {type(e).__name__}")
                 return False
 
         return True
@@ -908,7 +908,7 @@ class ConsistencyChecker:
                 )
             return True
         except Exception as e:
-            logger.error(f"Error updating judgment outcome: {e}")
+            logger.error(f"Error updating judgment outcome: {type(e).__name__}")
             return False
 
 

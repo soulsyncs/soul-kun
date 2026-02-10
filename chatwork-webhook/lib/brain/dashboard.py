@@ -413,7 +413,7 @@ class BrainDashboard:
                     slow_request_count=row['slow_request_count'] or 0,
                 )
         except Exception as e:
-            logger.error(f"Failed to get daily metrics for {organization_id}: {e}")
+            logger.error(f"Failed to get daily metrics for {organization_id}: {type(e).__name__}")
             return DashboardMetrics(
                 organization_id=organization_id,
                 metric_date=target_date,
@@ -478,12 +478,12 @@ class BrainDashboard:
                     "days_with_data": row['days_with_data'] or 0,
                 }
         except Exception as e:
-            logger.error(f"Failed to get weekly summary for {organization_id}: {e}")
+            logger.error(f"Failed to get weekly summary for {organization_id}: {type(e).__name__}")
             return {
                 "organization_id": organization_id,
                 "start_date": str(start_date),
                 "end_date": str(end_date),
-                "error": str(e),
+                "error": type(e).__name__,
             }
 
     async def get_monthly_cost(
@@ -539,12 +539,12 @@ class BrainDashboard:
                     "avg_cost_per_conversation": float(total_cost / total_conversations) if total_conversations > 0 else 0,
                 }
         except Exception as e:
-            logger.error(f"Failed to get monthly cost for {organization_id}: {e}")
+            logger.error(f"Failed to get monthly cost for {organization_id}: {type(e).__name__}")
             return {
                 "organization_id": organization_id,
                 "year": year,
                 "month": month,
-                "error": str(e),
+                "error": type(e).__name__,
             }
 
 

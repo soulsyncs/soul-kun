@@ -404,7 +404,7 @@ class GuardianService:
             return result
 
         except Exception as e:
-            logger.error(f"Teaching validation failed: {e}")
+            logger.error(f"Teaching validation failed: {type(e).__name__}")
             # エラー時は安全側に倒してアラートを推奨
             return TeachingValidationResult(
                 teaching=teaching,
@@ -499,7 +499,7 @@ overall_score >= 0.7 の場合は APPROVE、それ以外は ALERT を推奨し�
             )
             return self._parse_llm_response(response)
         except Exception as e:
-            logger.error(f"LLM validation failed: {e}")
+            logger.error(f"LLM validation failed: {type(e).__name__}")
             return {"overall_alignment": True, "overall_score": 0.8}
 
     def _parse_llm_response(self, response: str) -> Dict[str, Any]:
@@ -515,7 +515,7 @@ overall_score >= 0.7 の場合は APPROVE、それ以外は ALERT を推奨し�
             parsed: Dict[str, Any] = json.loads(json_str)
             return parsed
         except (json.JSONDecodeError, KeyError) as e:
-            logger.error(f"Failed to parse LLM response: {e}")
+            logger.error(f"Failed to parse LLM response: {type(e).__name__}")
             return {"overall_alignment": True, "overall_score": 0.8}
 
     def _parse_llm_validation_result(
@@ -643,7 +643,7 @@ conflict_type:
                     conflicting_teaching_id=existing_teaching.id,
                 )
         except Exception as e:
-            logger.error(f"Conflict check failed: {e}")
+            logger.error(f"Conflict check failed: {type(e).__name__}")
 
         return None
 
@@ -800,7 +800,7 @@ conflict_type:
                 return True
 
         except Exception as e:
-            logger.error(f"Failed to send alert: {e}")
+            logger.error(f"Failed to send alert: {type(e).__name__}")
 
         return False
 

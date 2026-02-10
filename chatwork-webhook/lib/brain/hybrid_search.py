@@ -450,9 +450,7 @@ class HybridSearcher:
                             dc.pinecone_id
                         FROM document_chunks dc
                         JOIN documents d ON d.id = dc.document_id
-                        WHERE d.organization_id = (
-                            SELECT id FROM organizations WHERE slug = :org_id LIMIT 1
-                        )
+                        WHERE d.organization_id = CAST(:org_id AS uuid)
                         AND d.is_active = true
                         AND d.is_searchable = true
                         AND dc.content ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'

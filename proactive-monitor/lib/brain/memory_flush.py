@@ -424,7 +424,7 @@ class AutoMemoryFlusher:
                                 'auto_flush', :confidence, 'internal'
                             FROM organizations o
                             JOIN users u ON u.organization_id = o.id
-                            WHERE o.slug = :org_id
+                            WHERE o.id = CAST(:org_id AS uuid)
                               AND u.chatwork_account_id = :user_id
                             ON CONFLICT (organization_id, user_id, preference_type, preference_key)
                             DO UPDATE SET
@@ -451,7 +451,7 @@ class AutoMemoryFlusher:
                             SELECT
                                 :org_id, :key, :value, :category, 'auto_flush', 'internal'
                             WHERE EXISTS (
-                                SELECT 1 FROM organizations WHERE slug = :org_id
+                                SELECT 1 FROM organizations WHERE id = CAST(:org_id AS uuid)
                             )
                             ON CONFLICT (organization_id, category, key) DO UPDATE SET
                                 value = EXCLUDED.value,

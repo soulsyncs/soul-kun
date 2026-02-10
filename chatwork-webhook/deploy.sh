@@ -167,7 +167,7 @@ gcloud functions deploy chatwork-webhook \
     --memory=512MB \
     --timeout=540s \
     --allow-unauthenticated \
-    --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
+    --set-env-vars="USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

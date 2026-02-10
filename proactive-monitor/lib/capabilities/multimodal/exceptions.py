@@ -51,7 +51,7 @@ class MultimodalBaseException(Exception):
 
     def to_dict(self) -> Dict[str, Any]:
         """例外を辞書形式で返す"""
-        result = {
+        result: Dict[str, Any] = {
             "error": self.error_code,
             "message": self.message,
         }

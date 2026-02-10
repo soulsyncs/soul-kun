@@ -72,6 +72,79 @@
 
 ## 🚨 次回やること
 
+### 優先順位（2026-02-10更新）
+
+| # | タスク | 種別 | 概要 | 備考 |
+|---|--------|------|------|------|
+| 1 | **Zoom本番デプロイ** | デプロイ | PR #448マージ済み。S2S OAuth App + Secret Manager登録 → deploy.sh | zoom-account-id, zoom-client-id, zoom-client-secret |
+| 2 | **Phase C MVP0 文字起こしE2Eデバッグ** | デバッグ | コードは正常。本番環境設定の確認（Google STT認証、DBマイグレーション） | `GOOGLE_APPLICATION_CREDENTIALS` 確認 |
+| 3 | **Phase C MVP1: 議事録自動生成** | 新機能 | ChatWork音声→議事録のLLM後処理（Case Cと同パターン） | Case CのMinutesGeneratorを再利用可能 |
+| 4 | **Google Meet連携** | 新機能 | Meet APIで録画取得→VTT/文字起こし→議事録 | Zoom Case Cと同アーキテクチャで横展開 |
+| 5 | **Phase 4B: 外部連携API** | 新機能 | 公開API | 未着手 |
+
+### ✅ 2026-02-10 PR #448 マージ完了（Phase C Case C: Zoom議事録自動生成）
+
+**PR:** #448（31ファイル、5,202行追加）
+**テスト:** 8885 passed
+**Codex対応:** 5ラウンド（冪等性、PII保護、URL環境変数化、3コピー同期、テストカバレッジ）
+
+**Codexで追加修正した内容:**
+- `source_mid` 空文字→None変換（冪等性）
+- `raw_transcript=None`, `speakers_json=None`, `segments_json=None`（PII非保存）
+- `result_data["speakers"]` 削除（人数のみ返す）
+- `ZOOM_OAUTH_URL`/`ZOOM_API_BASE` 環境変数化
+- `find_meeting_by_source_id` proactive-monitor同期
+- エラーパス+PII検証テスト7件追加
+
+### ✅ 2026-02-09 一括マージ完了（PR #446, #447, #449, #450）
+
+| PR | タイトル | 主な内容 |
+|----|---------|---------|
+| #446 | brain テーブルクリーンアップ + N+1バッチINSERT + DB復旧ランブック | 不要テーブル整理、バッチINSERT化、障害復旧手順書 |
+| #447 | エラー通知DM + コスト日次レポート | AlertSender（エラーDM自動通知）、CostReporter（日次コストレポート） |
+| #449 | Phase 2E フィードバック→判断改善（失敗から学ぶ） | LearningLoop強化、失敗原因分析→自動改善パイプライン |
+| #450 | Task 7 センチメント統合 + Task AA 自律タスクワーカー | EmotionReader（感情検出）、ResearchWorker/ReminderWorker/ReportWorker + TaskQueue.claim（冪等性） |
+
+**テスト:** 8732 passed（マージ後CI全グリーン）
+
+---
+
+### ✅ Phase C Case C: Zoom議事録自動生成（2026-02-10）
+
+**PR:** #448（31ファイル、4,995行追加）
+**ブランチ:** feat/phase-c-zoom-meeting-minutes
+
+**概要:** ZoomのBuilt-in文字起こし（VTT）を取得し、ソウルくんのLLMで後処理（誤認識修正・要約・アクションアイテム抽出）して構造化議事録を生成。追加コスト0円。
+
+**新規ファイル:**
+| ファイル | 行数 | 内容 |
+|---------|------|------|
+| `lib/meetings/zoom_api_client.py` | 202 | Zoom S2S OAuth2クライアント（トークンキャッシュ55分TTL） |
+| `lib/meetings/vtt_parser.py` | 205 | WebVTTパーサー（話者抽出・タイムスタンプ解析） |
+| `lib/meetings/minutes_generator.py` | 200 | LLM議事録プロンプト構築 + JSONパース |
+| `lib/meetings/zoom_brain_interface.py` | 412 | オーケストレーター（VTT→PII除去→DB→LLM議事録） |
+| `handlers/zoom_meeting_handler.py` | 56 | Brain連携ハンドラー |
+
+**変更ファイル:**
+- `capability_bridge.py`: フィーチャーフラグ `ENABLE_ZOOM_MEETING_MINUTES` + ハンドラー登録
+- `registry.py`: SYSTEM_CAPABILITIES + HANDLER_ALIASES追加
+- `meeting_db.py`: `find_meeting_by_source_id()`, `get_recent_meetings_by_source()`, `get_transcript_for_meeting()` 追加
+- `__init__.py`: export追加
+
+**Codexレビュー:** 3ラウンド実施、全指摘対応済み
+- Idempotency: `find_meeting_by_source_id()`で重複Zoom検出
+- Null-safe: `id=None` → `""` (not `"None"`)
+- Async check: `iscoroutinefunction()`で同期/非同期AI関数を正しくハンドリング
+
+**テスト:** 109件全PASS（zoom_brain_interface 21 + zoom_api_client 16 + vtt_parser 17 + minutes_generator 14 + meeting_db 24 + zoom_meeting_handler 5 + 新規8）
+
+**本番デプロイ前に必要:**
+1. Zoom Marketplace → Server-to-Server OAuth App作成（`recording:read:admin` スコープ）
+2. Secret Manager → `zoom-account-id`, `zoom-client-id`, `zoom-client-secret` 登録
+3. `cloudbuild.yaml` → `ENABLE_ZOOM_MEETING_MINUTES=true` 追加
+
+---
+
 ### ✅ Codex非ブロッキング指摘対応 + ブランチ整理（2026-02-09）
 
 **目的:** Phase 2M/2N/2O Codexレビューで検出された非ブロッキング指摘6件を修正 + 不要ブランチの整理
@@ -2004,7 +2077,7 @@ else:
 | 3 | ナレッジ検索 | ✅ 完了 | 2026-01 | v10.13.3、ハイブリッド検索 |
 | 3.5 | 組織階層連携 | ✅ 完了 | 2026-01-25 | 6段階権限、役職ドロップダウン |
 | X | アナウンス機能 | ✅ 完了 | 2026-01-25 | v10.26.0、PR #127/PR #129/PR #130 |
-| C | 会議系 | 🔧 進行中 | - | MVP0完了（95テスト、Codex PASS）、PR作成待ち |
+| C | 会議系 | 🔧 進行中 | - | MVP0完了、Case C Zoom議事録完了（PR #448）、MVP1未着手 |
 | C+ | 会議前準備支援 | 📋 未着手 | - | Phase C完了後 |
 | 2D | CEO教え＆守護者層 | ✅ 完了 | 2026-01-27 | v10.32.1、DB+コード+統合+56テスト完了 |
 | 2E | 学習基盤 | ✅ 完了 | 2026-01-27 | 12ファイル・119テスト完了 |

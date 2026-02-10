@@ -10,7 +10,7 @@ Created: 2026-01-27
 """
 
 from enum import Enum
-from typing import FrozenSet, Dict, Optional
+from typing import FrozenSet, Dict, Optional, Any, List
 
 
 # =============================================================================
@@ -546,7 +546,7 @@ MAX_IMAGE_FILE_SIZE_BYTES: int = 20 * 1024 * 1024  # 20MB（編集用アップ�
 # 画像生成コスト（円、参考値）
 # -----------------------------------------------------------------------------
 
-IMAGE_COST_JPY: Dict[str, Dict[str, float]] = {
+IMAGE_COST_JPY: Dict[str, float] = {
     # DALL-E 3
     f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.SQUARE_1024.value}": 6.0,
     f"{ImageProvider.DALLE3.value}_{ImageQuality.STANDARD.value}_{ImageSize.LANDSCAPE_1792.value}": 12.0,
@@ -927,4 +927,238 @@ RESEARCH_SUMMARY_PROMPT: str = """
 - 推奨アクション（あれば）
 
 簡潔かつ重要なポイントを漏らさないようにしてください。
+"""
+
+
+# =============================================================================
+# Phase G5: 動画生成定数
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# 列挙型
+# -----------------------------------------------------------------------------
+
+
+class VideoProvider(str, Enum):
+    """動画生成プロバイダー"""
+    RUNWAY_GEN3 = "runway_gen3"          # Runway Gen-3 Alpha
+    RUNWAY_GEN3_TURBO = "runway_gen3_turbo"  # Runway Gen-3 Alpha Turbo
+    PIKA = "pika"                        # Pika Labs（将来対応）
+
+
+class VideoResolution(str, Enum):
+    """動画解像度"""
+    HD_720P = "720p"                     # 1280x720
+    FULL_HD_1080P = "1080p"              # 1920x1080
+
+
+class VideoDuration(str, Enum):
+    """動画長さ"""
+    SHORT_5S = "5"                       # 5秒
+    STANDARD_10S = "10"                  # 10秒
+
+
+class VideoAspectRatio(str, Enum):
+    """動画アスペクト比"""
+    LANDSCAPE_16_9 = "16:9"              # 横長
+    PORTRAIT_9_16 = "9:16"               # 縦長（ショート動画向け）
+    SQUARE_1_1 = "1:1"                   # 正方形
+
+
+class VideoStyle(str, Enum):
+    """動画スタイル"""
+    REALISTIC = "realistic"              # リアルな映像
+    CINEMATIC = "cinematic"              # 映画的
+    ANIME = "anime"                      # アニメ調
+    CREATIVE = "creative"                # クリエイティブ
+
+
+# -----------------------------------------------------------------------------
+# API設定
+# -----------------------------------------------------------------------------
+
+RUNWAY_API_URL: str = "https://api.runwayml.com/v1"
+RUNWAY_API_TIMEOUT_SECONDS: int = 300    # 動画生成は時間がかかる
+RUNWAY_MAX_RETRIES: int = 3
+RUNWAY_RETRY_DELAY_SECONDS: float = 5.0
+RUNWAY_POLL_INTERVAL_SECONDS: float = 5.0  # ステータスポーリング間隔
+RUNWAY_MAX_POLL_ATTEMPTS: int = 120        # 最大ポーリング回数（10分）
+
+
+# -----------------------------------------------------------------------------
+# デフォルト値
+# -----------------------------------------------------------------------------
+
+DEFAULT_VIDEO_PROVIDER: VideoProvider = VideoProvider.RUNWAY_GEN3
+DEFAULT_VIDEO_RESOLUTION: VideoResolution = VideoResolution.FULL_HD_1080P
+DEFAULT_VIDEO_DURATION: VideoDuration = VideoDuration.STANDARD_10S
+DEFAULT_VIDEO_ASPECT_RATIO: VideoAspectRatio = VideoAspectRatio.LANDSCAPE_16_9
+DEFAULT_VIDEO_STYLE: VideoStyle = VideoStyle.REALISTIC
+
+
+# -----------------------------------------------------------------------------
+# モデル名
+# -----------------------------------------------------------------------------
+
+RUNWAY_GEN3_MODEL: str = "gen3a_turbo"
+RUNWAY_GEN3_TURBO_MODEL: str = "gen3a_turbo"
+
+
+# -----------------------------------------------------------------------------
+# プロバイダー別サポート設定
+# -----------------------------------------------------------------------------
+
+SUPPORTED_RESOLUTIONS_BY_PROVIDER: Dict[str, FrozenSet[str]] = {
+    VideoProvider.RUNWAY_GEN3.value: frozenset([
+        VideoResolution.HD_720P.value,
+        VideoResolution.FULL_HD_1080P.value,
+    ]),
+    VideoProvider.RUNWAY_GEN3_TURBO.value: frozenset([
+        VideoResolution.HD_720P.value,
+        VideoResolution.FULL_HD_1080P.value,
+    ]),
+}
+
+SUPPORTED_DURATIONS_BY_PROVIDER: Dict[str, FrozenSet[str]] = {
+    VideoProvider.RUNWAY_GEN3.value: frozenset([
+        VideoDuration.SHORT_5S.value,
+        VideoDuration.STANDARD_10S.value,
+    ]),
+    VideoProvider.RUNWAY_GEN3_TURBO.value: frozenset([
+        VideoDuration.SHORT_5S.value,
+        VideoDuration.STANDARD_10S.value,
+    ]),
+}
+
+SUPPORTED_ASPECT_RATIOS_BY_PROVIDER: Dict[str, FrozenSet[str]] = {
+    VideoProvider.RUNWAY_GEN3.value: frozenset([
+        VideoAspectRatio.LANDSCAPE_16_9.value,
+        VideoAspectRatio.PORTRAIT_9_16.value,
+        VideoAspectRatio.SQUARE_1_1.value,
+    ]),
+    VideoProvider.RUNWAY_GEN3_TURBO.value: frozenset([
+        VideoAspectRatio.LANDSCAPE_16_9.value,
+        VideoAspectRatio.PORTRAIT_9_16.value,
+        VideoAspectRatio.SQUARE_1_1.value,
+    ]),
+}
+
+
+# -----------------------------------------------------------------------------
+# 動画生成制限
+# -----------------------------------------------------------------------------
+
+MAX_VIDEO_PROMPT_LENGTH: int = 2000       # プロンプト最大文字数
+MAX_VIDEO_PER_DAY_PER_USER: int = 10      # ユーザーあたり日次上限
+MAX_CONCURRENT_VIDEO_GENERATIONS: int = 2  # 同時生成上限
+
+
+# -----------------------------------------------------------------------------
+# 動画生成コスト（円、参考値）
+# Runway Gen-3 Alpha: $0.05/秒 ≒ ¥7.5/秒（$1=¥150）
+# -----------------------------------------------------------------------------
+
+VIDEO_COST_PER_SECOND_JPY: Dict[str, float] = {
+    VideoProvider.RUNWAY_GEN3.value: 7.5,
+    VideoProvider.RUNWAY_GEN3_TURBO.value: 5.0,  # Turboは少し安い
+}
+
+# 事前計算されたコスト
+VIDEO_COST_JPY: Dict[str, float] = {
+    # Gen-3 Alpha
+    f"{VideoProvider.RUNWAY_GEN3.value}_{VideoDuration.SHORT_5S.value}": 37.5,
+    f"{VideoProvider.RUNWAY_GEN3.value}_{VideoDuration.STANDARD_10S.value}": 75.0,
+    # Gen-3 Alpha Turbo
+    f"{VideoProvider.RUNWAY_GEN3_TURBO.value}_{VideoDuration.SHORT_5S.value}": 25.0,
+    f"{VideoProvider.RUNWAY_GEN3_TURBO.value}_{VideoDuration.STANDARD_10S.value}": 50.0,
+}
+
+
+# -----------------------------------------------------------------------------
+# スタイルプロンプト修飾子
+# -----------------------------------------------------------------------------
+
+VIDEO_STYLE_PROMPT_MODIFIERS: Dict[str, str] = {
+    VideoStyle.REALISTIC.value: "photorealistic, ultra-detailed, natural lighting",
+    VideoStyle.CINEMATIC.value: "cinematic, dramatic lighting, film-like quality, epic",
+    VideoStyle.ANIME.value: "anime style, Japanese animation aesthetic, vibrant colors",
+    VideoStyle.CREATIVE.value: "artistic, creative, stylized, unique visual style",
+}
+
+
+# -----------------------------------------------------------------------------
+# 動画生成エラーメッセージ
+# -----------------------------------------------------------------------------
+
+VIDEO_ERROR_MESSAGES: Dict[str, str] = {
+    # 検証エラー
+    "EMPTY_PROMPT": "動画の説明（プロンプト）が指定されていません。",
+    "PROMPT_TOO_LONG": "プロンプトが長すぎます（最大{max}文字、現在{actual}文字）。",
+    "INVALID_RESOLUTION": "サポートされていない解像度です: {resolution}",
+    "INVALID_DURATION": "サポートされていない動画長さです: {duration}",
+    "INVALID_ASPECT_RATIO": "サポートされていないアスペクト比です: {aspect_ratio}",
+    "INVALID_IMAGE": "入力画像が無効です。",
+
+    # コンテンツポリシーエラー
+    "CONTENT_POLICY_VIOLATION": "コンテンツポリシーに違反する内容が含まれているため、動画を生成できません。",
+    "SAFETY_FILTER_TRIGGERED": "安全フィルターにより生成がブロックされました。",
+
+    # 生成エラー
+    "GENERATION_FAILED": "動画の生成に失敗しました。",
+    "GENERATION_TIMEOUT": "動画生成がタイムアウトしました。",
+    "GENERATION_CANCELLED": "動画生成がキャンセルされました。",
+
+    # API エラー
+    "RUNWAY_API_ERROR": "Runway APIエラー: {error}",
+    "RUNWAY_RATE_LIMIT": "Runway APIのレート制限に達しました。{retry_after}秒後に再試行してください。",
+    "RUNWAY_TIMEOUT": "Runway APIがタイムアウトしました。",
+    "RUNWAY_QUOTA_EXCEEDED": "APIクォータを超過しました。",
+    "RUNWAY_SERVER_ERROR": "Runwayサーバーエラーが発生しました。",
+
+    # その他
+    "SAVE_FAILED": "動画の保存に失敗しました。",
+    "UPLOAD_FAILED": "動画のアップロードに失敗しました。",
+    "FEATURE_DISABLED": "動画生成機能は現在無効です。",
+    "DAILY_LIMIT_EXCEEDED": "本日の動画生成上限（{limit}本）に達しました。",
+    "CONCURRENT_LIMIT_EXCEEDED": "同時生成上限に達しました。しばらく待ってから再試行してください。",
+}
+
+
+# -----------------------------------------------------------------------------
+# Feature Flag名
+# -----------------------------------------------------------------------------
+
+FEATURE_FLAG_VIDEO: str = "enable_video_generation"
+
+
+# -----------------------------------------------------------------------------
+# 動画プロンプト最適化テンプレート
+# -----------------------------------------------------------------------------
+
+VIDEO_PROMPT_OPTIMIZATION_TEMPLATE: str = """
+あなたは動画生成AIのプロンプトエンジニアです。
+以下の日本語の説明を、Runway Gen-3 Alphaで高品質な動画を生成するための英語プロンプトに変換してください。
+
+【入力】
+{original_prompt}
+
+【スタイル指定】
+{style}
+
+【出力形式】
+以下のJSON形式で出力してください：
+{{
+    "optimized_prompt": "最適化された英語プロンプト",
+    "japanese_summary": "生成される動画の日本語説明",
+    "warnings": ["注意点があれば配列で"]
+}}
+
+【ルール】
+- 動きや変化を具体的に記述する（例: "slowly zooming in", "camera pans left"）
+- 照明や雰囲気を詳しく記述する
+- 英語で出力する（Runway Gen-3は英語プロンプトが最適）
+- 不適切な内容は含めない
+- カメラワークや視点を明確にする
+- 簡潔かつ具体的に（200単語以内推奨）
 """

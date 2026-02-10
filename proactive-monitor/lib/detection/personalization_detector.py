@@ -206,7 +206,8 @@ class PersonalizationDetector(BaseDetector):
                         rm.send_time,
                         rm.body
                     FROM room_messages rm
-                    WHERE rm.send_time >= :cutoff_time
+                    WHERE rm.organization_id = CAST(:org_id AS uuid)
+                      AND rm.send_time >= :cutoff_time
                       AND (
                           rm.body LIKE '%[To:10909425]%'
                           OR rm.body LIKE '%ソウルくん%'
@@ -225,6 +226,7 @@ class PersonalizationDetector(BaseDetector):
                         u.name as responder_name
                     FROM questions q
                     JOIN room_messages rm ON rm.room_id = q.room_id
+                        AND rm.organization_id = CAST(:org_id AS uuid)
                         AND rm.send_time > q.send_time
                         AND rm.send_time <= q.send_time + INTERVAL '30 minutes'
                         AND rm.account_id != q.questioner_id

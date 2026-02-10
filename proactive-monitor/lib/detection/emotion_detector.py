@@ -25,7 +25,7 @@ Version: 1.0
 
 import json
 import os
-import traceback
+
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any, Optional
@@ -274,12 +274,14 @@ class EmotionDetector(BaseDetector):
                     account_name,
                     COUNT(*) as message_count
                 FROM room_messages
-                WHERE send_time >= :cutoff_date
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND send_time >= :cutoff_date
                   AND account_id IS NOT NULL
                 GROUP BY account_id, account_name
                 HAVING COUNT(*) >= :min_messages
                 ORDER BY message_count DESC
             """), {
+                "org_id": str(self._org_id),
                 "cutoff_date": cutoff_date,
                 "min_messages": self._min_messages,
             })
@@ -411,13 +413,15 @@ class EmotionDetector(BaseDetector):
                     body,
                     send_time
                 FROM room_messages
-                WHERE account_id = :account_id
+                WHERE organization_id = CAST(:org_id AS uuid)
+                  AND account_id = :account_id
                   AND send_time >= :cutoff_date
                   AND body IS NOT NULL
                   AND LENGTH(body) > 10
                 ORDER BY send_time DESC
                 LIMIT 50
             """), {
+                "org_id": str(self._org_id),
                 "account_id": account_id,
                 "cutoff_date": cutoff_date,
             })
@@ -899,7 +903,6 @@ class EmotionDetector(BaseDetector):
                 "Failed to save emotion alert",
                 extra={"error": str(e)}
             )
-            traceback.print_exc()
             return None
 
     def _create_insight_data(self, alert: dict[str, Any]) -> InsightData:

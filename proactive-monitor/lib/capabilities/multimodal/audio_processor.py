@@ -179,7 +179,7 @@ class WhisperAPIClient:
 
                 # レスポンス解析
                 if response_format in ("json", "verbose_json"):
-                    result = response.json()
+                    result: Dict[str, Any] = response.json()
                 else:
                     result = {"text": response.text}
 
@@ -659,7 +659,7 @@ class AudioProcessor(BaseMultimodalProcessor):
         現在は簡易的な実装。将来的にはpyannote-audio等を使用。
         """
         # 簡易実装: セグメント間の沈黙で話者を推定
-        speakers = []
+        speakers: List[Speaker] = []
         current_speaker_id = 1
         speakers_map: Dict[int, Speaker] = {}
 

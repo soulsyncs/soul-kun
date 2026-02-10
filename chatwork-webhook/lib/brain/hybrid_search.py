@@ -451,7 +451,7 @@ class HybridSearcher:
                         FROM document_chunks dc
                         JOIN documents d ON d.id = dc.document_id
                         WHERE d.organization_id = (
-                            SELECT id FROM organizations WHERE slug = :org_id LIMIT 1
+                            SELECT id FROM organizations WHERE organization_id = :org_id LIMIT 1
                         )
                         AND d.is_active = true
                         AND d.is_searchable = true

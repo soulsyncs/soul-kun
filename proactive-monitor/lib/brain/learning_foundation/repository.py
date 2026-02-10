@@ -238,8 +238,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
               AND id = :learning_id
@@ -293,8 +293,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
               AND is_active = true
@@ -389,8 +389,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
               AND is_active = true
@@ -441,8 +441,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
               AND category = :category
@@ -506,8 +506,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
         """
@@ -553,8 +553,8 @@ class LearningRepository:
                 taught_by_name, taught_in_room_id, source_message, source_context,
                 detection_pattern, detection_confidence, classification,
                 supersedes_id, superseded_by_id, related_learning_ids,
-                is_active, effectiveness_score, apply_count, positive_feedback_count,
-                negative_feedback_count, created_at, updated_at
+                is_active, effectiveness_score, applied_count, success_count,
+                failure_count, created_at, updated_at
             FROM {TABLE_BRAIN_LEARNINGS}
             WHERE organization_id = :organization_id
               AND taught_by_account_id = :user_id
@@ -709,7 +709,7 @@ class LearningRepository:
         """
         query = text(f"""
             UPDATE {TABLE_BRAIN_LEARNINGS}
-            SET apply_count = apply_count + 1,
+            SET applied_count = applied_count + 1,
                 updated_at = :updated_at
             WHERE organization_id = :organization_id
               AND id = :learning_id
@@ -739,7 +739,7 @@ class LearningRepository:
         Returns:
             成功したかどうか
         """
-        column = "positive_feedback_count" if is_positive else "negative_feedback_count"
+        column = "success_count" if is_positive else "failure_count"
 
         query = text(f"""
             UPDATE {TABLE_BRAIN_LEARNINGS}

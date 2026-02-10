@@ -531,10 +531,29 @@ class SoulkunBrain:
         # 内部状態
         self._initialized = False
 
+        # v10.74.0: fire-and-forgetタスク追跡（タスク消滅防止）
+        self._background_tasks: set = set()
+
         logger.debug(f"SoulkunBrain initialized: "
                     f"chain_of_thought={self.use_chain_of_thought}, "
                     f"self_critique={self.use_self_critique}, "
                     f"execution_excellence={self.execution_excellence is not None}")
+
+    # =========================================================================
+    # v10.74.0: fire-and-forgetタスク安全管理
+    # =========================================================================
+
+    def _fire_and_forget(self, coro) -> None:
+        """create_taskの安全ラッパー: 参照保持+エラーログ"""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._log_background_error)
+
+    @staticmethod
+    def _log_background_error(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception():
+            logger.warning("Background task failed: %s", type(task.exception()).__name__)
 
     # =========================================================================
     # Phase 2E: 学習データ同期
@@ -610,7 +629,7 @@ class SoulkunBrain:
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
             if self.memory_manager.is_ceo_user(account_id):
-                asyncio.create_task(
+                self._fire_and_forget(
                     self.memory_manager.process_ceo_message_safely(
                         message, room_id, account_id, sender_name
                     )
@@ -783,7 +802,7 @@ class SoulkunBrain:
 
             # 5.8 Phase 2F: 結果からの学習 — アクション記録（fire-and-forget）
             if getattr(self, '_trackable_actions', None) and decision.action in self._trackable_actions:
-                asyncio.create_task(
+                self._fire_and_forget(
                     self._record_outcome_event(
                         action=decision.action,
                         target_account_id=account_id,
@@ -794,7 +813,7 @@ class SoulkunBrain:
                 )
 
             # 6. 記憶更新（非同期で実行、エラーは無視）
-            asyncio.create_task(
+            self._fire_and_forget(
                 self.memory_manager.update_memory_safely(
                     message, result, context, room_id, account_id, sender_name
                 )
@@ -802,7 +821,7 @@ class SoulkunBrain:
 
             # 7. 判断ログ記録（非同期で実行）
             if SAVE_DECISION_LOGS:
-                asyncio.create_task(
+                self._fire_and_forget(
                     self.memory_manager.log_decision_safely(
                         message, understanding, decision, result, room_id, account_id
                     )
@@ -2108,7 +2127,7 @@ class SoulkunBrain:
                         )
 
             # 記憶更新（非同期）
-            asyncio.create_task(
+            self._fire_and_forget(
                 self.memory_manager.update_memory_safely(
                     message, result, context, room_id, account_id, sender_name
                 )

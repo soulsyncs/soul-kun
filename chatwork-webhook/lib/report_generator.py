@@ -565,13 +565,13 @@ class DailyReportGenerator:
         with self.pool.connect() as conn:
             result = conn.execute(text("""
                 SELECT
-                    t.chatwork_task_id,
+                    t.task_id,
                     t.body,
                     r.room_name,
                     t.updated_at
                 FROM chatwork_tasks t
                 LEFT JOIN chatwork_rooms r ON t.room_id = r.room_id
-                WHERE t.assigned_account_id = :account_id
+                WHERE t.assigned_to_account_id = :account_id
                   AND t.organization_id = :org_id
                   AND t.status = 'done'
                   AND DATE(t.updated_at) = :target_date

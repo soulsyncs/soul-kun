@@ -80,7 +80,7 @@ build_diff() {
 }
 
 # =============================================================================
-# Pass 1: Standard Review (17 check items)
+# Pass 1: Standard Review (18 check items)
 # =============================================================================
 review_prompt_pass1() {
   local docs_list
@@ -89,13 +89,32 @@ review_prompt_pass1() {
 ## 設計書参照
 PROMPT
   printf "%s\n\n" "$docs_list"
+
+  # db_schema.json があればスキーマ情報を埋め込む
+  local schema_file
+  schema_file="$(git rev-parse --show-toplevel 2>/dev/null || pwd)/db_schema.json"
+  if [[ -f "$schema_file" ]]; then
+    echo "## 本番DBスキーマ（db_schema.json）"
+    echo "以下は本番DBの全テーブル・カラム定義です。項目18のチェックで使用してください。"
+    echo '```json'
+    # tables セクションのみ抽出（コンパクトに）
+    python3 -c "
+import json, sys
+with open('$schema_file') as f:
+    schema = json.load(f)
+print(json.dumps(schema.get('tables', {}), indent=1, ensure_ascii=False))
+" 2>/dev/null || echo "(schema load failed)"
+    echo '```'
+    echo
+  fi
+
   cat <<'PROMPT'
 
 ## 変更内容
 差分レビュー（git diff）
 
 ## レビュー依頼
-以下の17項目で厳密にレビューしてください。1項目でも該当すればFAILです。
+以下の18項目で厳密にレビューしてください。1項目でも該当すればFAILです。
 
 ### A. 基本チェック（4項目）
 1. **重大バグ**: ロジックエラー、クラッシュの可能性、無限ループ
@@ -122,9 +141,12 @@ PROMPT
 ### D. 横展開チェック（1項目）— 修正漏れ防止
 17. **横展開（修正の波及確認）**: 変更箇所と同じパターン（同じSQL、同じ関数、同じファイル構造のコピー）がコードベース内の他の場所にも存在する場合、それらも同様に修正されているか。特にlib/→chatwork-webhook/lib/→proactive-monitor/lib/の3箇所同期を確認。1箇所だけ直して他が古いままの場合はFAIL
 
+### E. DBスキーマ整合チェック（1項目）— 2/9本番障害の再発防止
+18. **SQLカラム名整合**: diff内のSQL文（SELECT, INSERT, UPDATE, WHERE）で参照しているカラム名が、上記の本番DBスキーマ（db_schema.json）に実在するか確認。存在しないカラム名、テーブル名の参照はFAIL。型キャスト（CAST AS uuid/text/integer）がカラムの実際の型と一致しているかも確認
+
 ## 判定基準
-- **FAIL**: 項目1-17のいずれか1つでも該当すればFAIL
-- **PASS**: 全17項目で問題なしの場合のみPASS
+- **FAIL**: 項目1-18のいずれか1つでも該当すればFAIL
+- **PASS**: 全18項目で問題なしの場合のみPASS
 
 ## 回答形式（必ずこの形式で回答すること）
 ```
@@ -140,6 +162,9 @@ PROMPT
 - 各項目の結果
 
 ## D. 横展開チェック（項目17）
+- 結果
+
+## E. DBスキーマ整合チェック（項目18）
 - 結果
 
 ## 軽微な指摘（FAILにはならないが改善推奨）
@@ -167,7 +192,7 @@ PROMPT
 先ほどのレビューで**見落とした問題**がないか確認してください。
 
 特に以下に注意：
-- 17項目のうち、実際にはチェックしていなかった項目はないか？
+- 18項目のうち、実際にはチェックしていなかった項目はないか？
 - 「問題なし」と判定した箇所に、本当に問題はなかったか？
 - diff全体を通して読んだとき、個別には問題なくても組み合わせで問題になるケースはないか？
 
@@ -244,7 +269,7 @@ PROMPT
 # =============================================================================
 
 run_review_pass1() {
-  echo "  [Pass 1/3] Standard Review (17 items)..."
+  echo "  [Pass 1/3] Standard Review (18 items)..."
   {
     review_prompt_pass1
     echo

@@ -447,9 +447,9 @@ class AutoMemoryFlusher:
                     conn.execute(
                         sql_text("""
                             INSERT INTO soulkun_knowledge
-                                (organization_id, key, value, category, source, classification)
+                                (organization_id, key, value, category, created_by)
                             SELECT
-                                :org_id, :key, :value, :category, 'auto_flush', 'internal'
+                                :org_id, :key, :value, :category, 'auto_flush'
                             WHERE EXISTS (
                                 SELECT 1 FROM organizations WHERE slug = :org_id
                             )

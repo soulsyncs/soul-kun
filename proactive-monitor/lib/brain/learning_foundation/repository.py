@@ -739,7 +739,7 @@ class LearningRepository:
         Returns:
             成功したかどうか
         """
-        column = "positive_feedback_count" if is_positive else "negative_feedback_count"
+        column = "success_count" if is_positive else "failure_count"
 
         query = text(f"""
             UPDATE {TABLE_BRAIN_LEARNINGS}

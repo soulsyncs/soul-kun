@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # 目的:
-#   mainブランチへのマージ時に自動でCloud Runをデプロイ
+#   mainブランチへのマージ時に自動でchatwork-webhookをデプロイ
 #   ※テストが失敗したらデプロイしない
 #
 # トリガー設定（GCPコンソールで設定が必要）:
@@ -13,39 +13,66 @@
 #
 # v10.53.0: 初版作成（大規模修繕対応）
 # v10.54.3: テスト実行・mypy追加（デプロイ前に品質チェック）
+# v10.71.0: deploy.sh と整合（sync_lib.sh, SQL検証, gcloud functions deploy）
 # =============================================================================
 
 steps:
   # =============================================================================
-  # Step 1: lib/ 同期チェック
+  # Step 1: lib/ 同期チェック + Import smoke test
   # =============================================================================
-  - name: 'gcr.io/cloud-builders/git'
+  - name: 'python:3.11-slim'
     id: 'sync-check'
     entrypoint: 'bash'
     args:
       - '-c'
       - |
+        set -eo pipefail
         echo "🔍 lib/ 同期チェック..."
 
-        # デバッグ: ディレクトリの存在確認
-        echo "📋 ディレクトリ確認..."
-        ls -la lib/brain/ 2>/dev/null | head -5 || echo "  ❌ lib/brain/ NOT FOUND"
-        ls -la chatwork-webhook/lib/brain/ 2>/dev/null | head -5 || echo "  ❌ chatwork-webhook/lib/brain/ NOT FOUND"
+        # rsync をインストール（sync_lib.sh が必要とする）
+        apt-get update -qq && apt-get install -y -qq rsync > /dev/null 2>&1
 
-        # chatwork-webhook/lib/brain/ と lib/brain/ の差分チェック
-        echo ""
-        echo "📋 差分チェック..."
-        if diff -rq lib/brain chatwork-webhook/lib/brain --exclude='__pycache__' --exclude='*.pyc' --exclude='handler_wrappers.py'; then
-          echo "✅ lib/ は同期されています"
-        else
-          echo "❌ lib/brain/ が同期されていません！"
-          echo "デプロイを中止します。"
+        # sync_lib.sh --check で完全なミラーチェック
+        if ! ./scripts/sync_lib.sh --check; then
+          echo ""
+          echo "❌ lib/ が同期されていません！"
           echo "修正方法: ./scripts/sync_lib.sh を実行してください。"
           exit 1
         fi
 
+        echo ""
+        echo "🔍 Import smoke test..."
+        if ! python3 -c "import sys; sys.path.insert(0, 'chatwork-webhook'); import lib" 2>&1; then
+          echo "❌ chatwork-webhook/lib/ のインポートに失敗"
+          exit 1
+        fi
+        echo "✅ Import smoke test passed"
+
   # =============================================================================
-  # Step 2: Python環境セットアップ + テスト実行
+  # Step 2: SQLカラム検証（db_schema.json と照合）
+  # =============================================================================
+  - name: 'python:3.11-slim'
+    id: 'sql-validation'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -eo pipefail
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🔍 SQLカラム検証"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        if [ ! -f db_schema.json ]; then
+          echo "⚠️ db_schema.json が存在しません。SQL検証をスキップします。"
+          exit 0
+        fi
+
+        ./scripts/validate_sql_columns.sh --all
+        echo "✅ SQLカラム検証 PASS"
+    waitFor: ['sync-check']
+
+  # =============================================================================
+  # Step 3: Python環境セットアップ + テスト実行
   # =============================================================================
   - name: 'python:3.11-slim'
     id: 'run-tests'
@@ -53,6 +80,7 @@ steps:
     args:
       - '-c'
       - |
+        set -eo pipefail
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "🧪 テスト実行（失敗したらデプロイ中止）"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -62,24 +90,17 @@ steps:
         pip install --quiet -r chatwork-webhook/requirements.txt 2>/dev/null || true
 
         # 重要なテストのみ実行（高速化のため）
-        # 全テストは時間がかかるので、重要な統合テストに絞る
         echo ""
         echo "📋 重要機能テスト実行..."
         cd /workspace
         python -m pytest tests/test_critical_functions.py tests/test_brain_type_safety.py -v --tb=short
 
-        if [ $? -ne 0 ]; then
-          echo ""
-          echo "❌ テスト失敗！デプロイを中止します。"
-          exit 1
-        fi
-
         echo ""
         echo "✅ テスト成功"
-    waitFor: ['sync-check']
+    waitFor: ['sql-validation']
 
   # =============================================================================
-  # Step 3: 静的型チェック（mypy）
+  # Step 4: 静的型チェック（mypy）
   # =============================================================================
   - name: 'python:3.11-slim'
     id: 'mypy-check'
@@ -87,15 +108,13 @@ steps:
     args:
       - '-c'
       - |
+        set -eo pipefail
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "🔍 静的型チェック（存在しない関数の検出など）"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
         pip install --quiet mypy
 
-        # 重要なファイルのみチェック（エラーがあればデプロイ中止）
-        # --ignore-missing-imports: 外部ライブラリの型情報がなくてもOK
-        # --no-error-summary: 最後のサマリーを省略
         echo ""
         echo "📋 lib/brain/ の型チェック..."
         python -m mypy chatwork-webhook/lib/brain/models.py \
@@ -105,31 +124,67 @@ steps:
                        --no-error-summary 2>&1 | head -50
 
         # mypyはエラーがあっても警告レベルなので、今はデプロイを止めない
-        # 将来的には厳格化する
         echo ""
         echo "✅ 型チェック完了（警告は記録のみ）"
     waitFor: ['run-tests']
 
   # =============================================================================
-  # Step 4: chatwork-webhook をデプロイ
+  # Step 5: chatwork-webhook をデプロイ
   # =============================================================================
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     id: 'deploy-chatwork-webhook'
     entrypoint: 'gcloud'
     args:
-      - 'run'
+      - 'functions'
       - 'deploy'
       - 'chatwork-webhook'
       - '--source=chatwork-webhook'
+      - '--runtime=python311'
+      - '--trigger-http'
       - '--region=asia-northeast1'
-      - '--allow-unauthenticated'
-      - '--memory=512Mi'
+      - '--memory=512MB'
       - '--timeout=540s'
-      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings'
     waitFor: ['mypy-check']
 
   # =============================================================================
-  # Step 5: デプロイ完了通知
+  # Step 6: トラフィックルーティング確認
+  # =============================================================================
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'traffic-check'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -eo pipefail
+        echo "🔍 トラフィックルーティング確認..."
+
+        FUNC_NAME="chatwork-webhook"
+        REGION="asia-northeast1"
+
+        LATEST_REV=$(gcloud run revisions list --service="$FUNC_NAME" --region="$REGION" \
+            --sort-by='~creationTimestamp' --limit=1 --format='value(name)' 2>/dev/null || true)
+        TRAFFIC_REV=$(gcloud run services describe "$FUNC_NAME" --region="$REGION" \
+            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)
+
+        if [ -n "$LATEST_REV" ] && [ -n "$TRAFFIC_REV" ]; then
+          if [ "$LATEST_REV" = "$TRAFFIC_REV" ]; then
+            echo "✅ トラフィック: ${LATEST_REV} (100%)"
+          else
+            echo "⚠️ トラフィックが旧リビジョン: ${TRAFFIC_REV}"
+            echo "→ 最新リビジョン ${LATEST_REV} に切り替え中..."
+            gcloud run services update-traffic "$FUNC_NAME" --region="$REGION" \
+                --to-revisions="${LATEST_REV}=100" 2>&1
+            echo "✅ トラフィック切り替え完了: ${LATEST_REV} (100%)"
+          fi
+        else
+          echo "⚠️ リビジョン情報の取得に失敗。手動で確認してください"
+        fi
+    waitFor: ['deploy-chatwork-webhook']
+
+  # =============================================================================
+  # Step 7: デプロイ完了通知
   # =============================================================================
   - name: 'gcr.io/cloud-builders/curl'
     id: 'notify'
@@ -145,11 +200,14 @@ steps:
         echo "ブランチ: $BRANCH_NAME"
         echo ""
         echo "品質チェック:"
-        echo "  ✅ lib/ 同期チェック"
+        echo "  ✅ lib/ 同期チェック（sync_lib.sh --check）"
+        echo "  ✅ Import smoke test"
+        echo "  ✅ SQLカラム検証"
         echo "  ✅ テスト実行"
         echo "  ✅ 静的型チェック"
+        echo "  ✅ トラフィックルーティング確認"
         echo ""
-    waitFor: ['deploy-chatwork-webhook']
+    waitFor: ['traffic-check']
 
 # タイムアウト設定（15分 - テスト時間を考慮）
 timeout: '900s'

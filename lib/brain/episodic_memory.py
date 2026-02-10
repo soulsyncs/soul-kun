@@ -274,7 +274,7 @@ class EpisodicMemory:
                 self._memory_cache[episode.id] = episode
             return True
         except Exception as e:
-            logger.error(f"Failed to save episode: {e}")
+            logger.error(f"Failed to save episode: {type(e).__name__}")
             return False
 
     # =========================================================================

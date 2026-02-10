@@ -304,7 +304,7 @@ def _get_openrouter_api_key() -> Optional[str]:
         logger.warning("lib.secrets module not available")
         return None
     except Exception as e:
-        logger.warning(f"Failed to get OpenRouter API key from Secret Manager: {e}")
+        logger.warning(f"Failed to get OpenRouter API key from Secret Manager: {type(e).__name__}")
         return None
 
 
@@ -396,12 +396,23 @@ class LLMBrain:
         else:
             self._init_anthropic(model, api_key)
 
+        # v10.74.0: httpx.AsyncClientを再利用（TCPハンドシェイク節約: -100〜200ms/呼び出し）
+        self._http_client = httpx.AsyncClient(
+            timeout=httpx.Timeout(API_TIMEOUT_SECONDS, connect=10),
+            limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+        )
+
         logger.info(
             f"LLMBrain initialized: "
             f"model={self.model}, "
             f"provider={self.api_provider.value}, "
             f"max_tokens={self.max_tokens}"
         )
+
+    async def close(self) -> None:
+        """httpxクライアントのリソース解放"""
+        if hasattr(self, '_http_client') and self._http_client:
+            await self._http_client.aclose()
 
     def _init_openrouter(
         self,
@@ -529,8 +540,8 @@ class LLMBrain:
                 result = self._parse_anthropic_response(response)
 
         except Exception as e:
-            logger.error(f"API error: {e}", exc_info=True)
-            return self._create_error_result(str(e))
+            logger.error(f"API error: {type(e).__name__}", exc_info=True)
+            return self._create_error_result(type(e).__name__)
 
         # 4. 結果にメタデータを追加
         result.model_used = self.model
@@ -604,7 +615,7 @@ class LLMBrain:
             return None
 
         except Exception as e:
-            logger.error(f"Synthesis error: {e}", exc_info=True)
+            logger.error(f"Synthesis error: {type(e).__name__}", exc_info=True)
             return None
 
     # =========================================================================
@@ -801,33 +812,28 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             request_body["tools"] = openai_tools
             request_body["tool_choice"] = "auto"
 
-        # API呼び出し
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": HTTP_REFERER,
-                    "X-Title": APP_TITLE,
-                },
-                json=request_body,
-                timeout=API_TIMEOUT_SECONDS,
+        # API呼び出し（v10.74.0: 共有httpxクライアントで接続再利用）
+        response = await self._http_client.post(
+            self.api_url,
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": HTTP_REFERER,
+                "X-Title": APP_TITLE,
+            },
+            json=request_body,
+        )
+
+        if response.status_code != 200:
+            logger.error(
+                f"OpenRouter API error: status={response.status_code}"
+            )
+            raise Exception(
+                f"OpenRouter API error: {response.status_code}"
             )
 
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(
-                    f"OpenRouter API error: "
-                    f"status={response.status_code}, "
-                    f"body={error_text[:500]}"
-                )
-                raise Exception(
-                    f"OpenRouter API error: {response.status_code} - {error_text}"
-                )
-
-            result: Dict[str, Any] = response.json()
-            return result
+        result: Dict[str, Any] = response.json()
+        return result
 
     # =========================================================================
     # Anthropic API呼び出し
@@ -872,32 +878,27 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             request_body["tools"] = tools
             request_body["tool_choice"] = {"type": "auto"}
 
-        # API呼び出し
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                headers={
-                    "x-api-key": self.api_key or "",
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                },
-                json=request_body,
-                timeout=API_TIMEOUT_SECONDS,
+        # API呼び出し（v10.74.0: 共有httpxクライアントで接続再利用）
+        response = await self._http_client.post(
+            self.api_url,
+            headers={
+                "x-api-key": self.api_key or "",
+                "Content-Type": "application/json",
+                "anthropic-version": "2023-06-01",
+            },
+            json=request_body,
+        )
+
+        if response.status_code != 200:
+            logger.error(
+                f"Anthropic API error: status={response.status_code}"
+            )
+            raise Exception(
+                f"Anthropic API error: {response.status_code}"
             )
 
-            if response.status_code != 200:
-                error_text = response.text
-                logger.error(
-                    f"Anthropic API error: "
-                    f"status={response.status_code}, "
-                    f"body={error_text[:500]}"
-                )
-                raise Exception(
-                    f"Anthropic API error: {response.status_code} - {error_text}"
-                )
-
-            anthropic_result: Dict[str, Any] = response.json()
-            return anthropic_result
+        anthropic_result: Dict[str, Any] = response.json()
+        return anthropic_result
 
     # =========================================================================
     # レスポンス解析

@@ -318,7 +318,7 @@ def _safe_confidence_to_dict(raw_confidence: Any, location: str) -> Dict[str, An
         except Exception as e:
             logger.warning(
                 f"[境界型検証警告] {location}: "
-                f"to_dict() failed: {e}"
+                f"to_dict() failed: {type(e).__name__}"
             )
             return {"overall": _extract_confidence_value(raw_confidence, location)}
 
@@ -531,10 +531,29 @@ class SoulkunBrain:
         # 内部状態
         self._initialized = False
 
+        # v10.74.0: fire-and-forgetタスク追跡（タスク消滅防止）
+        self._background_tasks: set = set()
+
         logger.debug(f"SoulkunBrain initialized: "
                     f"chain_of_thought={self.use_chain_of_thought}, "
                     f"self_critique={self.use_self_critique}, "
                     f"execution_excellence={self.execution_excellence is not None}")
+
+    # =========================================================================
+    # v10.74.0: fire-and-forgetタスク安全管理
+    # =========================================================================
+
+    def _fire_and_forget(self, coro) -> None:
+        """create_taskの安全ラッパー: 参照保持+エラーログ"""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._log_background_error)
+
+    @staticmethod
+    def _log_background_error(task: asyncio.Task) -> None:
+        if not task.cancelled() and task.exception():
+            logger.warning("Background task failed: %s", type(task.exception()).__name__)
 
     # =========================================================================
     # Phase 2E: 学習データ同期
@@ -610,7 +629,7 @@ class SoulkunBrain:
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
             if self.memory_manager.is_ceo_user(account_id):
-                asyncio.create_task(
+                self._fire_and_forget(
                     self.memory_manager.process_ceo_message_safely(
                         message, room_id, account_id, sender_name
                     )
@@ -783,7 +802,7 @@ class SoulkunBrain:
 
             # 5.8 Phase 2F: 結果からの学習 — アクション記録（fire-and-forget）
             if getattr(self, '_trackable_actions', None) and decision.action in self._trackable_actions:
-                asyncio.create_task(
+                self._fire_and_forget(
                     self._record_outcome_event(
                         action=decision.action,
                         target_account_id=account_id,
@@ -794,7 +813,7 @@ class SoulkunBrain:
                 )
 
             # 6. 記憶更新（非同期で実行、エラーは無視）
-            asyncio.create_task(
+            self._fire_and_forget(
                 self.memory_manager.update_memory_safely(
                     message, result, context, room_id, account_id, sender_name
                 )
@@ -802,7 +821,7 @@ class SoulkunBrain:
 
             # 7. 判断ログ記録（非同期で実行）
             if SAVE_DECISION_LOGS:
-                asyncio.create_task(
+                self._fire_and_forget(
                     self.memory_manager.log_decision_safely(
                         message, understanding, decision, result, room_id, account_id
                     )
@@ -857,12 +876,12 @@ class SoulkunBrain:
                 total_time_ms=self._elapsed_ms(start_time),
             )
         except Exception as e:
-            logger.exception(f"Unexpected error in brain: {e}")
+            logger.exception(f"Unexpected error in brain: {type(e).__name__}")
             return BrainResponse(
                 message=ERROR_MESSAGE,
                 action_taken="error",
                 success=False,
-                debug_info={"error": str(e)},
+                debug_info={"error": type(e).__name__},
                 total_time_ms=self._elapsed_ms(start_time),
             )
 
@@ -945,7 +964,7 @@ class SoulkunBrain:
                                 context_used["user_department"] = getattr(person, 'department', '')
                                 break
             except Exception as e:
-                logger.warning(f"Failed to get user info: {e}")
+                logger.warning(f"Failed to get user info: {type(e).__name__}")
 
             # 最近の会話履歴を取得
             # v10.54.4: get_conversation_historyは未実装のため、get_recent_conversationを使用
@@ -959,7 +978,7 @@ class SoulkunBrain:
                     recent_conversations = all_conversations[:5]  # 最大5件に制限
                     context_used["recent_conversations_count"] = len(recent_conversations)
             except Exception as e:
-                logger.warning(f"Failed to get conversation history: {e}")
+                logger.warning(f"Failed to get conversation history: {type(e).__name__}")
 
             # 2. 理解層: トリガー状況の理解
             trigger_context = self._understand_trigger_context(
@@ -1007,12 +1026,12 @@ class SoulkunBrain:
             )
 
         except Exception as e:
-            logger.error(f"Error generating proactive message: {e}")
+            logger.error(f"Error generating proactive message: {type(e).__name__}")
             return ProactiveMessageResult(
                 should_send=False,
-                reason=f"Error: {str(e)}",
+                reason=f"Error: {type(e).__name__}",
                 confidence=0.0,
-                debug_info={"error": str(e)},
+                debug_info={"error": type(e).__name__},
             )
 
     def _understand_trigger_context(
@@ -1310,7 +1329,7 @@ class SoulkunBrain:
                     if result:
                         context.phase2e_learnings = result
                 except Exception as e:
-                    logger.warning(f"Error fetching Phase 2E learnings: {e}")
+                    logger.warning(f"Error fetching Phase 2E learnings: {type(e).__name__}")
 
             logger.debug(
                 f"Context loaded: conversation={len(context.recent_conversation)}, "
@@ -1319,7 +1338,7 @@ class SoulkunBrain:
             )
 
         except Exception as e:
-            logger.warning(f"Error fetching context via BrainMemoryAccess: {e}")
+            logger.warning(f"Error fetching context via BrainMemoryAccess: {type(e).__name__}")
             # コンテキスト取得に失敗しても処理は続行
 
         return context
@@ -1429,7 +1448,7 @@ class SoulkunBrain:
             return await user_state_manager.get_current_state(room_id, user_id)
 
         except Exception as e:
-            logger.error(f"❌ [状態取得] エラー: {e}")
+            logger.error(f"❌ [状態取得] エラー: {type(e).__name__}")
             return None
 
     async def _get_user_organization_id(self, user_id: str) -> Optional[str]:
@@ -1458,7 +1477,7 @@ class SoulkunBrain:
             return None
 
         except Exception as e:
-            logger.warning(f"⚠️ [org_id取得] エラー: {e}")
+            logger.warning(f"⚠️ [org_id取得] エラー: {type(e).__name__}")
             return None
 
     async def _transition_to_state(
@@ -1605,7 +1624,7 @@ class SoulkunBrain:
             )
             logger.info("ExecutionExcellence initialized successfully")
         except Exception as e:
-            logger.warning(f"Failed to initialize ExecutionExcellence: {e}")
+            logger.warning(f"Failed to initialize ExecutionExcellence: {type(e).__name__}")
             self.execution_excellence = None
 
     def _init_llm_brain(self) -> None:
@@ -1642,7 +1661,7 @@ class SoulkunBrain:
             )
             logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM Brain: {e}")
+            logger.warning(f"Failed to initialize LLM Brain: {type(e).__name__}")
             self.llm_brain = None
             self.llm_guardian = None
             self.llm_state_manager = None
@@ -1772,7 +1791,7 @@ class SoulkunBrain:
         try:
             return self.chain_of_thought.analyze(message, context)
         except Exception as e:
-            logger.warning(f"Chain-of-thought analysis failed: {e}")
+            logger.warning(f"Chain-of-thought analysis failed: {type(e).__name__}")
             # 失敗してもNoneを返すだけで処理は続行
             return None
 
@@ -1798,7 +1817,7 @@ class SoulkunBrain:
                 response, original_message, context
             )
         except Exception as e:
-            logger.warning(f"Self-critique failed: {e}")
+            logger.warning(f"Self-critique failed: {type(e).__name__}")
             # 失敗した場合は元の回答をそのまま返す
             from lib.brain.self_critique import RefinedResponse
             return RefinedResponse(
@@ -2108,7 +2127,7 @@ class SoulkunBrain:
                         )
 
             # 記憶更新（非同期）
-            asyncio.create_task(
+            self._fire_and_forget(
                 self.memory_manager.update_memory_safely(
                     message, result, context, room_id, account_id, sender_name
                 )
@@ -2137,7 +2156,7 @@ class SoulkunBrain:
             )
 
         except Exception as e:
-            logger.exception(f"LLM Brain error: {e}")
+            logger.exception(f"LLM Brain error: {type(e).__name__}")
 
             # フォールバック: 従来の処理に戻る
             logger.warning("🧠 LLM Brain failed, no fallback available in this version")
@@ -2145,7 +2164,7 @@ class SoulkunBrain:
                 message="申し訳ありませんウル、うまく処理できませんでしたウル🐺",
                 action_taken="llm_brain_error",
                 success=False,
-                debug_info={"error": str(e)},
+                debug_info={"error": type(e).__name__},
                 total_time_ms=self._elapsed_ms(start_time),
             )
 
@@ -2209,7 +2228,7 @@ class SoulkunBrain:
             return answer
 
         except Exception as e:
-            logger.error(f"Knowledge synthesis error: {e}", exc_info=True)
+            logger.error(f"Knowledge synthesis error: {type(e).__name__}", exc_info=True)
             return None
 
     def _parse_confirmation_response(

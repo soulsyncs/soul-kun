@@ -473,7 +473,7 @@ class PatternExtractor:
             })
             return [row[0] for row in result]
         except Exception as e:
-            logger.warning(f"Failed to get active users: {e}")
+            logger.warning(f"Failed to get active users: {type(e).__name__}")
             return []
 
 

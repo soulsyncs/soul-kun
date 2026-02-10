@@ -131,7 +131,7 @@ class EmotionReader:
             return result
 
         except Exception as e:
-            logger.error(f"Error in emotion reading: {e}")
+            logger.error(f"Error in emotion reading: {type(e).__name__}")
             return EmotionReadingResult(
                 emotions=[],
                 urgency=None,

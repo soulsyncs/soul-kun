@@ -446,7 +446,7 @@ class PersonAliasResolver:
             try:
                 return self._person_lookup.get_all_names()
             except Exception as e:
-                logger.error(f"Failed to get known names: {e}")
+                logger.error(f"Failed to get known names: {type(e).__name__}")
                 return self._known_persons
         return self._known_persons
 

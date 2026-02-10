@@ -144,7 +144,7 @@ class EpisodeRepository:
             return episode.id
 
         except Exception as e:
-            logger.error(f"Failed to save episode: {e}")
+            logger.error(f"Failed to save episode: {type(e).__name__}")
             raise
 
     def _save_entities(
@@ -227,7 +227,7 @@ class EpisodeRepository:
             })
             return result.rowcount > 0
         except Exception as e:
-            logger.error(f"Failed to update recall stats: {e}")
+            logger.error(f"Failed to update recall stats: {type(e).__name__}")
             return False
 
     def apply_decay(
@@ -268,7 +268,7 @@ class EpisodeRepository:
                 logger.info(f"Applied decay to {count} episodes")
             return count
         except Exception as e:
-            logger.error(f"Failed to apply decay: {e}")
+            logger.error(f"Failed to apply decay: {type(e).__name__}")
             return 0
 
     def delete_forgotten(self, conn: Connection) -> int:
@@ -298,7 +298,7 @@ class EpisodeRepository:
                 logger.info(f"Deleted {count} forgotten episodes")
             return count
         except Exception as e:
-            logger.error(f"Failed to delete forgotten episodes: {e}")
+            logger.error(f"Failed to delete forgotten episodes: {type(e).__name__}")
             return 0
 
     # =========================================================================
@@ -344,7 +344,7 @@ class EpisodeRepository:
                 return episode
             return None
         except Exception as e:
-            logger.error(f"Failed to find episode by id: {e}")
+            logger.error(f"Failed to find episode by id: {type(e).__name__}")
             return None
 
     def find_by_keywords(
@@ -400,7 +400,7 @@ class EpisodeRepository:
             result = conn.execute(query, params)
             return [self._row_to_episode(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find episodes by keywords: {e}")
+            logger.error(f"Failed to find episodes by keywords: {type(e).__name__}")
             return []
 
     def find_by_entities(
@@ -466,7 +466,7 @@ class EpisodeRepository:
             result = conn.execute(query, params)
             return [self._row_to_episode(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find episodes by entities: {e}")
+            logger.error(f"Failed to find episodes by entities: {type(e).__name__}")
             return []
 
     def find_by_time_range(
@@ -531,7 +531,7 @@ class EpisodeRepository:
             result = conn.execute(query, params)
             return [self._row_to_episode(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find episodes by time range: {e}")
+            logger.error(f"Failed to find episodes by time range: {type(e).__name__}")
             return []
 
     def find_similar(
@@ -594,7 +594,7 @@ class EpisodeRepository:
                     results.append((ep, similarity))
             return results
         except Exception as e:
-            logger.error(f"Failed to find similar episodes: {e}")
+            logger.error(f"Failed to find similar episodes: {type(e).__name__}")
             return []
 
     def find_recent(
@@ -652,7 +652,7 @@ class EpisodeRepository:
             result = conn.execute(query, params)
             return [self._row_to_episode(row) for row in result.fetchall()]
         except Exception as e:
-            logger.error(f"Failed to find recent episodes: {e}")
+            logger.error(f"Failed to find recent episodes: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -892,7 +892,7 @@ class EpisodeRepository:
                 ))
             return entities
         except Exception as e:
-            logger.warning(f"Failed to load entities: {e}")
+            logger.warning(f"Failed to load entities: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -963,7 +963,7 @@ class EpisodeRepository:
                 "total_recalls": total_recalls,
             }
         except Exception as e:
-            logger.error(f"Failed to get statistics: {e}")
+            logger.error(f"Failed to get statistics: {type(e).__name__}")
             return {
                 "total_episodes": 0,
                 "by_type": {},

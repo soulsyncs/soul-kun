@@ -66,7 +66,7 @@ class PerformanceAnalyzer:
             return OptimizationResult(success=True, message="Metric recorded")
         except Exception as e:
             logger.error("Failed to record metric %s: %s", metric_type.value, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def get_latest_metrics(
         self,

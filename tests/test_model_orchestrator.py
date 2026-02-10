@@ -1168,7 +1168,7 @@ class TestIntegrationWithMockedAPI:
             result = await orchestrator.call(prompt="テスト", task_type="conversation")
 
             assert result.success is False
-            assert "DB error" in (result.error_message or "")
+            assert "RuntimeError" in (result.error_message or "")
 
     @pytest.mark.asyncio
     async def test_no_api_key_raises_error(self, mock_pool):

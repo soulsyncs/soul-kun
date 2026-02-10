@@ -509,7 +509,7 @@ class BrainUnderstanding:
             return result
 
         except Exception as e:
-            logger.error(f"Error in understanding: {e}")
+            logger.error(f"Error in understanding: {type(e).__name__}")
             # v10.29.5: Codex指摘修正 - エラー詳細をユーザーに見せない（10の鉄則準拠）
             # 内部エラー情報はログのみに記録し、ユーザーには汎用メッセージを表示
             return UnderstandingResult(
@@ -589,7 +589,7 @@ class BrainUnderstanding:
             )
 
         except Exception as e:
-            logger.error(f"Error in LLM understanding: {e}")
+            logger.error(f"Error in LLM understanding: {type(e).__name__}")
             return self._understand_with_keywords(
                 message=message,
                 context=context,
@@ -615,7 +615,7 @@ class BrainUnderstanding:
                     return sync_result
             return None
         except Exception as e:
-            logger.error(f"Error calling LLM: {e}")
+            logger.error(f"Error calling LLM: {type(e).__name__}")
             return None
 
     def _parse_llm_response(self, response: str) -> Optional[Dict[str, Any]]:
@@ -633,7 +633,7 @@ class BrainUnderstanding:
                 return parsed
             return None
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse LLM response as JSON: {e}")
+            logger.warning(f"Failed to parse LLM response as JSON: {type(e).__name__}")
             return None
 
     def _format_context_for_prompt(self, context: BrainContext) -> str:

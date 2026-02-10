@@ -221,7 +221,7 @@ class BrainOutcomeLearning:
                     if success:
                         processed += 1
             except Exception as e:
-                logger.warning(f"Failed to process event {event.id}: {e}")
+                logger.warning(f"Failed to process event {event.id}: {type(e).__name__}")
 
         logger.info(f"Processed {processed} outcomes")
         return processed
@@ -398,7 +398,7 @@ class BrainOutcomeLearning:
             logger.info(f"Pattern promoted to learning: {pattern_id} -> {learning_id}")
             return learning_id
         except Exception as e:
-            logger.error(f"Failed to promote pattern: {e}")
+            logger.error(f"Failed to promote pattern: {type(e).__name__}")
             return None
 
     # ========================================================================

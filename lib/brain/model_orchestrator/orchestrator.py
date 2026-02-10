@@ -252,7 +252,7 @@ class ModelOrchestrator:
                     except Exception as e:
                         result = FallbackResult(
                             success=False,
-                            error_message=str(e),
+                            error_message=type(e).__name__,
                             model_used=selection.model,
                         )
 
@@ -321,12 +321,12 @@ class ModelOrchestrator:
             )
 
         except Exception as e:
-            logger.error(f"Orchestrator call failed: {e}")
+            logger.error(f"Orchestrator call failed: {type(e).__name__}")
             latency_ms = int((datetime.now() - start_time).total_seconds() * 1000)
 
             return OrchestratorResult(
                 success=False,
-                error_message=str(e),
+                error_message=type(e).__name__,
                 latency_ms=latency_ms,
             )
 

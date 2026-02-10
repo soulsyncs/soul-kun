@@ -84,7 +84,7 @@ class BrainMemoryManager:
                 sender_name=sender_name,
             )
         except Exception as e:
-            logger.warning(f"Error updating memory: {e}")
+            logger.warning(f"Error updating memory: {type(e).__name__}")
 
     # =========================================================================
     # 判断ログ
@@ -120,7 +120,7 @@ class BrainMemoryManager:
                 total_time_ms=total_time_ms,
             )
         except Exception as e:
-            logger.warning(f"Error logging decision: {e}")
+            logger.warning(f"Error logging decision: {type(e).__name__}")
 
     # =========================================================================
     # SOFT_CONFLICTログ
@@ -186,7 +186,7 @@ class BrainMemoryManager:
             )
 
         except Exception as e:
-            logger.warning(f"Error logging soft conflict: {e}")
+            logger.warning(f"Error logging soft conflict: {type(e).__name__}")
 
     # =========================================================================
     # CEO Learning層
@@ -241,7 +241,7 @@ class BrainMemoryManager:
                 logger.debug("No teachings detected in CEO message")
 
         except Exception as e:
-            logger.warning(f"Error processing CEO message: {e}")
+            logger.warning(f"Error processing CEO message: {type(e).__name__}")
 
     async def get_ceo_teachings_context(
         self,
@@ -277,5 +277,5 @@ class BrainMemoryManager:
             return ceo_context
 
         except Exception as e:
-            logger.warning(f"Error getting CEO teachings context: {e}")
+            logger.warning(f"Error getting CEO teachings context: {type(e).__name__}")
             return None

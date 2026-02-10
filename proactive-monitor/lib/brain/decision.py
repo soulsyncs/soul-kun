@@ -225,7 +225,7 @@ def _load_mvv_context():
             _mvv_context_loaded = True
             logger.debug("MVV context module loaded successfully")
         except ImportError as e:
-            logger.warning(f"Could not load mvv_context: {e}")
+            logger.warning(f"Could not load mvv_context: {type(e).__name__}")
             _mvv_context_loaded = True  # 再試行防止
 
 
@@ -554,12 +554,12 @@ class BrainDecision:
             )
 
         except Exception as e:
-            logger.error(f"Decision error: {e}", exc_info=True)
+            logger.error(f"Decision error: {type(e).__name__}", exc_info=True)
             return DecisionResult(
                 action="error",
-                params={"error": str(e)},
+                params={"error": type(e).__name__},
                 confidence=0.0,
-                reasoning=f"Error during decision: {e}",
+                reasoning=f"Error during decision: {type(e).__name__}",
                 processing_time_ms=self._elapsed_ms(start_time),
             )
 
@@ -1241,7 +1241,7 @@ class BrainDecision:
                     result.enforcement_action = EnforcementAction.WARN_ONLY
 
         except Exception as e:
-            logger.warning(f"Error checking MVV alignment: {e}")
+            logger.warning(f"Error checking MVV alignment: {type(e).__name__}")
 
         return result
 
@@ -1322,7 +1322,7 @@ class BrainDecision:
             return None  # 現状は未実装
 
         except Exception as e:
-            logger.error(f"LLM decision error: {e}")
+            logger.error(f"LLM decision error: {type(e).__name__}")
             return None
 
 

@@ -244,7 +244,7 @@ class MotivationEngine:
 
         except Exception as e:
             logger.error("Failed to update motivation profile for user %s: %s", user_id, e)
-            return InterpersonalResult(success=False, message=str(e))
+            return InterpersonalResult(success=False, message=type(e).__name__)
 
 
 def create_motivation_engine(organization_id: str = "") -> MotivationEngine:

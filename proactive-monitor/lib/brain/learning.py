@@ -236,7 +236,7 @@ class BrainLearning:
                 )
                 logger.info("Phase 2E Learning Foundation initialized")
             except Exception as e:
-                logger.warning(f"Phase 2E initialization failed: {e}")
+                logger.warning(f"Phase 2E initialization failed: {type(e).__name__}")
 
         logger.debug(
             f"BrainLearning initialized: "
@@ -367,7 +367,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.error(f"Error creating brain_decision_logs table: {e}")
+            logger.error(f"Error creating brain_decision_logs table: {type(e).__name__}")
             return False
 
     # =========================================================================
@@ -443,7 +443,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.warning(f"Error logging decision: {e}")
+            logger.warning(f"Error logging decision: {type(e).__name__}")
             return False
 
     async def _flush_decision_logs(self) -> int:
@@ -507,13 +507,13 @@ class BrainLearning:
                         })
                         saved_count += 1
                     except Exception as e:
-                        logger.warning(f"Error inserting log: {e}")
+                        logger.warning(f"Error inserting log: {type(e).__name__}")
 
             logger.info(f"🧠 Flushed {saved_count}/{len(logs_to_save)} decision logs to DB")
             return saved_count
 
         except Exception as e:
-            logger.error(f"Error flushing decision logs: {e}")
+            logger.error(f"Error flushing decision logs: {type(e).__name__}")
             return 0
 
     async def _save_decision_log_to_db(
@@ -574,7 +574,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.error(f"Error saving decision log to DB: {e}")
+            logger.error(f"Error saving decision log to DB: {type(e).__name__}")
             return False
 
     # =========================================================================
@@ -640,8 +640,8 @@ class BrainLearning:
                     update_result.learning_saved = True
 
         except Exception as e:
-            logger.warning(f"Error updating memory: {e}")
-            update_result.errors.append(str(e))
+            logger.warning(f"Error updating memory: {type(e).__name__}")
+            update_result.errors.append(type(e).__name__)
 
         return update_result
 
@@ -678,7 +678,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.warning(f"Error saving conversation: {e}")
+            logger.warning(f"Error saving conversation: {type(e).__name__}")
             return False
 
     async def _update_conversation_summary(
@@ -711,7 +711,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.warning(f"Error updating conversation summary: {e}")
+            logger.warning(f"Error updating conversation summary: {type(e).__name__}")
             return False
 
     async def _update_user_preference(
@@ -741,7 +741,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.warning(f"Error updating user preference: {e}")
+            logger.warning(f"Error updating user preference: {type(e).__name__}")
             return False
 
     def _should_update_preference(self, account_id: str) -> bool:
@@ -840,7 +840,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.warning(f"[Phase2E] Error processing feedback: {e}")
+            logger.warning(f"[Phase2E] Error processing feedback: {type(e).__name__}")
             return False
 
     # =========================================================================
@@ -881,7 +881,7 @@ class BrainLearning:
             logger.info(f"Pattern analysis completed: {len(insights)} insights found")
 
         except Exception as e:
-            logger.error(f"Error analyzing patterns: {e}")
+            logger.error(f"Error analyzing patterns: {type(e).__name__}")
 
         return insights
 
@@ -943,7 +943,7 @@ class BrainLearning:
             logger.info(f"🔍 Low confidence patterns: {len(insights)} found")
 
         except Exception as e:
-            logger.error(f"Error detecting low confidence patterns: {e}")
+            logger.error(f"Error detecting low confidence patterns: {type(e).__name__}")
 
         return insights
 
@@ -1002,7 +1002,7 @@ class BrainLearning:
             logger.info(f"🔍 Frequent errors: {len(insights)} found")
 
         except Exception as e:
-            logger.error(f"Error detecting frequent errors: {e}")
+            logger.error(f"Error detecting frequent errors: {type(e).__name__}")
 
         return insights
 
@@ -1067,7 +1067,7 @@ class BrainLearning:
             logger.info(f"🔍 Action success rates analyzed: {len(insights)} low-rate actions found")
 
         except Exception as e:
-            logger.error(f"Error analyzing action success rates: {e}")
+            logger.error(f"Error analyzing action success rates: {type(e).__name__}")
 
         return insights
 
@@ -1174,7 +1174,7 @@ class BrainLearning:
             return True
 
         except Exception as e:
-            logger.error(f"Error learning from feedback: {e}")
+            logger.error(f"Error learning from feedback: {type(e).__name__}")
             return False
 
     # =========================================================================

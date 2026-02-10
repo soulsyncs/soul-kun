@@ -149,7 +149,7 @@ class OutcomeTracker:
             )
             return event_id
         except Exception as e:
-            logger.error(f"Failed to record outcome event: {e}")
+            logger.error(f"Failed to record outcome event: {type(e).__name__}")
             raise
 
     def record_notification(
@@ -308,7 +308,7 @@ class OutcomeTracker:
                 logger.info(f"Outcome updated: event_id={event_id}, type={outcome_type}")
             return success
         except Exception as e:
-            logger.error(f"Failed to update outcome: {e}")
+            logger.error(f"Failed to update outcome: {type(e).__name__}")
             return False
 
     def get_event(

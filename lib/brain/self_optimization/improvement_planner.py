@@ -106,7 +106,7 @@ class ImprovementPlanner:
             return OptimizationResult(success=True, message="Proposal saved")
         except Exception as e:
             logger.error("Failed to save proposal: %s", e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     async def get_active_proposals(
         self,
@@ -186,7 +186,7 @@ class ImprovementPlanner:
             return OptimizationResult(success=True, message=f"Proposal status updated to {new_status.value}")
         except Exception as e:
             logger.error("Failed to update proposal %s: %s", proposal_id, e)
-            return OptimizationResult(success=False, message=str(e))
+            return OptimizationResult(success=False, message=type(e).__name__)
 
     def prioritize_proposals(
         self,

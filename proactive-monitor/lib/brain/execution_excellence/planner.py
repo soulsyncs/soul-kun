@@ -445,7 +445,7 @@ class ExecutionPlanner:
             if graph.has_cycle():
                 errors.append("循環依存が検出されました")
         except Exception as e:
-            errors.append(f"依存関係の検証に失敗: {e}")
+            errors.append(f"依存関係の検証に失敗: {type(e).__name__}")
 
         return len(errors) == 0, errors
 

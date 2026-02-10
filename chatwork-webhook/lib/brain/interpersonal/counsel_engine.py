@@ -185,7 +185,7 @@ class CounselEngine:
             return InterpersonalResult(success=True, message="Feedback opportunity recorded")
         except Exception as e:
             logger.error("Failed to record feedback opportunity for user %s: %s", user_id, e)
-            return InterpersonalResult(success=False, message=str(e))
+            return InterpersonalResult(success=False, message=type(e).__name__)
 
     async def get_recent_feedback(
         self,

@@ -225,7 +225,7 @@ class UsageLogger:
                 return log_id
 
         except Exception as e:
-            logger.error(f"Failed to log usage: {e}")
+            logger.error(f"Failed to log usage: {type(e).__name__}")
             return None
 
     # -------------------------------------------------------------------------
@@ -332,7 +332,7 @@ class UsageLogger:
                 )
 
         except Exception as e:
-            logger.error(f"Failed to get daily stats: {e}")
+            logger.error(f"Failed to get daily stats: {type(e).__name__}")
             return UsageStats(
                 total_requests=0,
                 total_cost_jpy=Decimal("0"),
@@ -422,7 +422,7 @@ class UsageLogger:
                 ]
 
         except Exception as e:
-            logger.error(f"Failed to get recent logs: {e}")
+            logger.error(f"Failed to get recent logs: {type(e).__name__}")
             return []
 
     # -------------------------------------------------------------------------
@@ -502,7 +502,7 @@ class UsageLogger:
                 }
 
         except Exception as e:
-            logger.error(f"Failed to get error summary: {e}")
+            logger.error(f"Failed to get error summary: {type(e).__name__}")
             return {
                 "by_model": [],
                 "top_errors": [],
@@ -560,7 +560,7 @@ class UsageLogger:
                 }
 
         except Exception as e:
-            logger.error(f"Failed to get fallback summary: {e}")
+            logger.error(f"Failed to get fallback summary: {type(e).__name__}")
             return {
                 "fallback_patterns": [],
                 "period_days": days,

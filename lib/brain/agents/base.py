@@ -537,7 +537,7 @@ class BaseAgent(ABC):
 
         except Exception as e:
             logger.error(
-                f"Error processing message in {self._agent_type.value}: {e}",
+                f"Error processing message in {self._agent_type.value}: {type(e).__name__}",
                 exc_info=True
             )
             self._stats.failed_requests += 1
@@ -546,7 +546,7 @@ class BaseAgent(ABC):
                 request_id=message.id,
                 agent_type=self._agent_type,
                 success=False,
-                error_message=str(e),
+                error_message=type(e).__name__,
             )
 
         finally:
@@ -682,7 +682,7 @@ class BaseAgent(ABC):
             target = self._agent_registry[target_agent]
             await target.handle_message(context, message)
         except Exception as e:
-            logger.error(f"Failed to send notification to {target_agent.value}: {e}")
+            logger.error(f"Failed to send notification to {target_agent.value}: {type(e).__name__}")
 
     def get_capability_for_action(self, action: str) -> Optional[AgentCapability]:
         """

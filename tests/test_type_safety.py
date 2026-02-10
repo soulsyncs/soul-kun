@@ -553,7 +553,7 @@ class TestValidateJsonSerializable:
         is_valid, error = validate_json_serializable({"func": lambda x: x})
         assert is_valid is False
         assert error is not None
-        assert "not JSON serializable" in error
+        assert "TypeError" in error
 
     def test_invalid_with_set(self):
         """set型はJSON化不可"""
@@ -579,7 +579,7 @@ class TestValidateJsonSerializable:
         with patch("lib.brain.type_safety.json.dumps", side_effect=ValueError("Circular ref")):
             is_valid, error = validate_json_serializable({"a": 1})
         assert is_valid is False
-        assert "Circular ref" in error
+        assert "ValueError" in error
 
     def test_unexpected_error_handling(self):
         """予期しないエラーのハンドリング (lines 197-198)"""
@@ -588,7 +588,6 @@ class TestValidateJsonSerializable:
         assert is_valid is False
         assert "Unexpected error" in error
         assert "OverflowError" in error
-        assert "Too big" in error
 
 
 # =============================================================================

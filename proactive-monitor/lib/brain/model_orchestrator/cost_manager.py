@@ -172,7 +172,7 @@ class CostManager:
                 return settings
 
         except Exception as e:
-            logger.error(f"Failed to get organization settings: {e}")
+            logger.error(f"Failed to get organization settings: {type(e).__name__}")
             return self._get_default_settings()
 
     def _get_default_settings(self) -> OrganizationSettings:
@@ -386,7 +386,7 @@ class CostManager:
                 return Decimal(str(row[0])) if row else Decimal("0")
 
         except Exception as e:
-            logger.error(f"Failed to get daily cost: {e}")
+            logger.error(f"Failed to get daily cost: {type(e).__name__}")
             return Decimal("0")
 
     def _get_monthly_summary(self) -> Dict[str, Any]:
@@ -437,7 +437,7 @@ class CostManager:
                 }
 
         except Exception as e:
-            logger.error(f"Failed to get monthly summary: {e}")
+            logger.error(f"Failed to get monthly summary: {type(e).__name__}")
             return {
                 "total_cost_jpy": Decimal("0"),
                 "total_requests": 0,
@@ -553,7 +553,7 @@ class CostManager:
                 conn.commit()
 
         except Exception as e:
-            logger.error(f"Failed to update monthly summary: {e}")
+            logger.error(f"Failed to update monthly summary: {type(e).__name__}")
             raise
 
     # -------------------------------------------------------------------------
@@ -613,4 +613,4 @@ class CostManager:
                 conn.commit()
 
         except Exception as e:
-            logger.error(f"Failed to ensure settings exist: {e}")
+            logger.error(f"Failed to ensure settings exist: {type(e).__name__}")

@@ -358,7 +358,7 @@ class FallbackManager:
 
             except Exception as e:
                 latency_ms = int((datetime.now() - start_time).total_seconds() * 1000)
-                error_message = str(e)
+                error_message = type(e).__name__
 
                 attempts.append(FallbackAttempt(
                     model_id=model.model_id,

@@ -127,7 +127,7 @@ class VocabularyManager:
             )
 
         except Exception as e:
-            logger.error(f"Failed to initialize VocabularyManager: {e}")
+            logger.error(f"Failed to initialize VocabularyManager: {type(e).__name__}")
             self._initialized = True  # 失敗しても続行
 
     async def _load_vocabulary_from_db(self) -> None:
@@ -180,7 +180,7 @@ class VocabularyManager:
                             self._vocabulary_cache[alias.lower()] = entry
 
         except Exception as e:
-            logger.warning(f"Failed to load vocabulary from DB: {e}")
+            logger.warning(f"Failed to load vocabulary from DB: {type(e).__name__}")
 
     # =========================================================================
     # 語彙の検索
@@ -607,7 +607,7 @@ class VocabularyManager:
                     entry.metadata,
                 )
         except Exception as e:
-            logger.warning(f"Failed to save vocabulary to DB: {e}")
+            logger.warning(f"Failed to save vocabulary to DB: {type(e).__name__}")
 
     # =========================================================================
     # 使用記録と自動学習
@@ -635,7 +635,7 @@ class VocabularyManager:
                         entry.id,
                     )
             except Exception as e:
-                logger.debug(f"Failed to record usage: {e}")
+                logger.debug(f"Failed to record usage: {type(e).__name__}")
 
     async def learn_from_message(
         self,

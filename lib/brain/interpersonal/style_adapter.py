@@ -196,7 +196,7 @@ class CommunicationStyleAdapter:
 
         except Exception as e:
             logger.error("Failed to update communication profile for user %s: %s", user_id, e)
-            return InterpersonalResult(success=False, message=str(e))
+            return InterpersonalResult(success=False, message=type(e).__name__)
 
     def _is_good_timing(self, preferred: PreferredTiming) -> bool:
         """現在時刻がユーザーの好ましいタイミングかを判定"""

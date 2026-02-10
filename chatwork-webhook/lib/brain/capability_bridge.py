@@ -260,10 +260,10 @@ class CapabilityBridge:
             return full_text, multimodal_context
 
         except ImportError as e:
-            logger.warning(f"[CapabilityBridge] Multimodal module not available: {e}")
+            logger.warning(f"[CapabilityBridge] Multimodal module not available: {type(e).__name__}")
             return message, None
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Multimodal preprocessing failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Multimodal preprocessing failed: {type(e).__name__}", exc_info=True)
             # エラー時は元のメッセージをそのまま返す
             return message, None
 
@@ -315,7 +315,7 @@ class CapabilityBridge:
                 except Exception as e:
                     logger.warning(
                         f"[CapabilityBridge] Failed to download attachment "
-                        f"{att.get('filename')}: {e}"
+                        f"{att.get('filename')}: {type(e).__name__}"
                     )
 
         return downloaded
@@ -504,7 +504,7 @@ class CapabilityBridge:
                 message="文書生成機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Document generation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Document generation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="文書の作成中にエラーが発生したウル🐺",
@@ -618,7 +618,7 @@ class CapabilityBridge:
                 message="画像生成機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Image generation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Image generation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="画像の作成中にエラーが発生したウル🐺",
@@ -717,7 +717,7 @@ class CapabilityBridge:
                 message="動画生成機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Video generation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Video generation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="動画の作成中にエラーが発生したウル🐺",
@@ -795,7 +795,7 @@ class CapabilityBridge:
                 message="フィードバック機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Feedback generation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Feedback generation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="フィードバックの生成中にエラーが発生したウル🐺",
@@ -929,7 +929,7 @@ class CapabilityBridge:
                 message="ディープリサーチ機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Deep research failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Deep research failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="調査中にエラーが発生したウル🐺",
@@ -998,7 +998,7 @@ class CapabilityBridge:
                 message="スプレッドシート機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Read spreadsheet failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Read spreadsheet failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="スプレッドシートの読み込みに失敗したウル🐺",
@@ -1062,7 +1062,7 @@ class CapabilityBridge:
                 message="スプレッドシート機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Write spreadsheet failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Write spreadsheet failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="スプレッドシートへの書き込みに失敗したウル🐺",
@@ -1115,7 +1115,7 @@ class CapabilityBridge:
                 message="スプレッドシート機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Create spreadsheet failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Create spreadsheet failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="スプレッドシートの作成に失敗したウル🐺",
@@ -1180,7 +1180,7 @@ class CapabilityBridge:
                 message="プレゼンテーション機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Read presentation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Read presentation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="プレゼンテーションの読み込みに失敗したウル🐺",
@@ -1245,7 +1245,7 @@ class CapabilityBridge:
                 message="プレゼンテーション機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Create presentation failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Create presentation failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="プレゼンテーションの作成に失敗したウル🐺",
@@ -1374,13 +1374,13 @@ class CapabilityBridge:
             )
 
         except ImportError as e:
-            logger.error(f"[CapabilityBridge] Connection query import error: {e}")
+            logger.error(f"[CapabilityBridge] Connection query import error: {type(e).__name__}")
             return HandlerResult(
                 success=False,
                 message="接続クエリ機能が利用できないウル🐺",
             )
         except Exception as e:
-            logger.error(f"[CapabilityBridge] Connection query failed: {e}", exc_info=True)
+            logger.error(f"[CapabilityBridge] Connection query failed: {type(e).__name__}", exc_info=True)
             return HandlerResult(
                 success=False,
                 message="接続情報の取得に失敗したウル🐺",

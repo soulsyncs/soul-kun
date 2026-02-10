@@ -302,7 +302,7 @@ class CEOLearningService:
                     return str(row[0])
                 return None
         except Exception as e:
-            logger.error(f"Failed to get user_id from account_id: {e}")
+            logger.error(f"Failed to get user_id from account_id: {type(e).__name__}")
             return None
 
     # -------------------------------------------------------------------------
@@ -384,10 +384,10 @@ class CEOLearningService:
             )
 
         except Exception as e:
-            logger.error(f"CEO message processing failed: {e}")
+            logger.error(f"CEO message processing failed: {type(e).__name__}")
             return ProcessingResult(
                 success=False,
-                message=f"処理中にエラーが発生しました: {str(e)}",
+                message=f"処理中にエラーが発生しました: {type(e).__name__}",
             )
 
     async def _extract_teachings(
@@ -444,7 +444,7 @@ class CEOLearningService:
             return filtered
 
         except Exception as e:
-            logger.error(f"Teaching extraction failed: {e}")
+            logger.error(f"Teaching extraction failed: {type(e).__name__}")
             return []
 
     def _parse_extraction_response(self, response: str) -> List[ExtractedTeaching]:
@@ -476,7 +476,7 @@ class CEOLearningService:
             return teachings
 
         except (json.JSONDecodeError, KeyError, ValueError) as e:
-            logger.error(f"Failed to parse extraction response: {e}")
+            logger.error(f"Failed to parse extraction response: {type(e).__name__}")
             return []
 
     def _create_teaching_from_extracted(
@@ -719,7 +719,7 @@ class CEOLearningService:
             self._usage_repo.log_usage(usage)
             self._teaching_repo.increment_usage(teaching_id)
         except Exception as e:
-            logger.error(f"Failed to log teaching usage: {e}")
+            logger.error(f"Failed to log teaching usage: {type(e).__name__}")
 
     def update_teaching_feedback(
         self,
@@ -747,7 +747,7 @@ class CEOLearningService:
             if was_helpful:
                 self._teaching_repo.increment_usage(teaching_id, was_helpful=True)
         except Exception as e:
-            logger.error(f"Failed to update teaching feedback: {e}")
+            logger.error(f"Failed to update teaching feedback: {type(e).__name__}")
 
     # -------------------------------------------------------------------------
     # コンテキスト生成

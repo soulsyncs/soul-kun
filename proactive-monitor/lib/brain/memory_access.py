@@ -291,7 +291,7 @@ class BrainMemoryAccess:
 
         for i, result in enumerate(results):
             if isinstance(result, Exception):
-                logger.warning(f"Memory access error for {field_names[i]}: {result}")
+                logger.warning(f"Memory access error for {field_names[i]}: {type(result).__name__}")
             else:
                 context[field_names[i]] = result
 
@@ -350,7 +350,7 @@ class BrainMemoryAccess:
                 name=f"memory_flush:{user_id}:{room_id}",
             )
         except Exception as e:
-            logger.warning(f"Auto memory flush scheduling failed: {e}")
+            logger.warning(f"Auto memory flush scheduling failed: {type(e).__name__}")
 
     async def _run_flush_background(
         self,
@@ -367,7 +367,7 @@ class BrainMemoryAccess:
                     f"for user={user_id} room={room_id}"
                 )
         except Exception as e:
-            logger.warning(f"Auto memory flush failed (background): {e}")
+            logger.warning(f"Auto memory flush failed (background): {type(e).__name__}")
 
     # =========================================================================
     # 会話履歴（Firestore）
@@ -393,15 +393,19 @@ class BrainMemoryAccess:
             return []
 
         try:
-            doc_ref = self.firestore_db.collection("conversations").document(
-                f"{room_id}_{user_id}"
-            )
-            doc = doc_ref.get()
+            def _sync_firestore():
+                doc_ref = self.firestore_db.collection("conversations").document(
+                    f"{room_id}_{user_id}"
+                )
+                doc = doc_ref.get()
+                if not doc.exists:
+                    return None
+                return doc.to_dict()
 
-            if not doc.exists:
+            data = await asyncio.to_thread(_sync_firestore)
+            if data is None:
                 return []
 
-            data = doc.to_dict()
             updated_at = data.get("updated_at")
 
             # 有効期限チェック
@@ -424,7 +428,7 @@ class BrainMemoryAccess:
             ]
 
         except Exception as e:
-            logger.warning(f"Error fetching conversation history: {e}")
+            logger.warning(f"Error fetching conversation history: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -451,44 +455,46 @@ class BrainMemoryAccess:
             return None
 
         try:
-            # Note: user_idはChatWork account_idなので、users.chatwork_account_idと照合が必要
-            with self.pool.connect() as conn:
-                result = conn.execute(
-                    text("""
-                        SELECT
-                            cs.id,
-                            cs.summary_text,
-                            cs.key_topics,
-                            cs.mentioned_persons,
-                            cs.mentioned_tasks,
-                            cs.message_count,
-                            cs.created_at
-                        FROM conversation_summaries cs
-                        JOIN users u ON cs.user_id = u.id
-                        WHERE u.chatwork_account_id = :user_id
-                          AND cs.organization_id = CAST(:org_id AS uuid)
-                        ORDER BY cs.created_at DESC
-                        LIMIT 1
-                    """),
-                    {"user_id": user_id, "org_id": self.org_id},
-                )
-                row = result.fetchone()
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT
+                                cs.id,
+                                cs.summary_text,
+                                cs.key_topics,
+                                cs.mentioned_persons,
+                                cs.mentioned_tasks,
+                                cs.message_count,
+                                cs.created_at
+                            FROM conversation_summaries cs
+                            JOIN users u ON cs.user_id = u.id
+                            WHERE u.chatwork_account_id = :user_id
+                              AND cs.organization_id = CAST(:org_id AS uuid)
+                            ORDER BY cs.created_at DESC
+                            LIMIT 1
+                        """),
+                        {"user_id": user_id, "org_id": self.org_id},
+                    )
+                    return result.fetchone()
 
-                if not row:
-                    return None
+            row = await asyncio.to_thread(_sync_query)
 
-                return ConversationSummaryData(
-                    id=row[0],
-                    summary_text=row[1] or "",
-                    key_topics=row[2] or [],
-                    mentioned_persons=row[3] or [],
-                    mentioned_tasks=row[4] or [],
-                    message_count=row[5] or 0,
-                    created_at=row[6],
-                )
+            if not row:
+                return None
+
+            return ConversationSummaryData(
+                id=row[0],
+                summary_text=row[1] or "",
+                key_topics=row[2] or [],
+                mentioned_persons=row[3] or [],
+                mentioned_tasks=row[4] or [],
+                message_count=row[5] or 0,
+                created_at=row[6],
+            )
 
         except Exception as e:
-            logger.warning(f"Error fetching conversation summary: {e}")
+            logger.warning(f"Error fetching conversation summary: {type(e).__name__}")
             return None
 
     # =========================================================================
@@ -515,37 +521,40 @@ class BrainMemoryAccess:
             return []
 
         try:
-            with self.pool.connect() as conn:
-                result = conn.execute(
-                    text("""
-                        SELECT
-                            up.preference_type,
-                            up.preference_key,
-                            up.preference_value,
-                            up.confidence
-                        FROM user_preferences up
-                        JOIN users u ON up.user_id = u.id
-                        WHERE u.chatwork_account_id = :user_id
-                          AND up.organization_id = CAST(:org_id AS uuid)
-                        ORDER BY up.confidence DESC
-                        LIMIT 20
-                    """),
-                    {"user_id": user_id, "org_id": self.org_id},
-                )
-                rows = result.fetchall()
-
-                return [
-                    UserPreferenceData(
-                        preference_type=row[0] or "",
-                        preference_key=row[1] or "",
-                        preference_value=row[2],
-                        confidence=row[3] or 0.5,
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT
+                                up.preference_type,
+                                up.preference_key,
+                                up.preference_value,
+                                up.confidence
+                            FROM user_preferences up
+                            JOIN users u ON up.user_id = u.id
+                            WHERE u.chatwork_account_id = :user_id
+                              AND up.organization_id = CAST(:org_id AS uuid)
+                            ORDER BY up.confidence DESC
+                            LIMIT 20
+                        """),
+                        {"user_id": user_id, "org_id": self.org_id},
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            return [
+                UserPreferenceData(
+                    preference_type=row[0] or "",
+                    preference_key=row[1] or "",
+                    preference_value=row[2],
+                    confidence=row[3] or 0.5,
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning(f"Error fetching user preferences: {e}")
+            logger.warning(f"Error fetching user preferences: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -568,56 +577,54 @@ class BrainMemoryAccess:
             List[PersonInfo]: 人物情報のリスト
         """
         try:
-            with self.pool.connect() as conn:
-                # personsテーブルから人物を取得
-                params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
-                where_clause = "WHERE organization_id = :org_id"
-                if person_id:
-                    where_clause += " AND id = CAST(:person_id AS integer)"
-                    params["person_id"] = person_id
-                result = conn.execute(
-                    text(f"""
-                        SELECT id, name
-                        FROM persons
-                        {where_clause}
-                        ORDER BY name
-                        LIMIT :limit
-                    """),
-                    params,
-                )
-                person_rows = result.fetchall()
-
-                persons = []
-                for row in person_rows:
-                    row_person_id = row[0]
-                    name = row[1]
-
-                    # person_attributesから属性を取得
-                    attr_result = conn.execute(
-                        text("""
-                            SELECT attribute_type, attribute_value
-                            FROM person_attributes
-                            WHERE person_id = :pid
-                              AND organization_id = :org_id
-                            ORDER BY updated_at DESC
+            def _sync_query():
+                # v10.74.0: N+1クエリをJOINに統合（11回→1回）
+                from collections import OrderedDict
+                with self.pool.connect() as conn:
+                    params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
+                    where_clause = "WHERE p.organization_id = :org_id"
+                    if person_id:
+                        where_clause += " AND p.id = CAST(:person_id AS integer)"
+                        params["person_id"] = person_id
+                    result = conn.execute(
+                        text(f"""
+                            SELECT p.id, p.name,
+                                   pa.attribute_type, pa.attribute_value
+                            FROM persons p
+                            LEFT JOIN person_attributes pa
+                              ON pa.person_id = p.id
+                              AND pa.organization_id = p.organization_id
+                            {where_clause}
+                            ORDER BY p.name, pa.updated_at DESC
                         """),
-                        {"pid": row_person_id, "org_id": self.org_id},
+                        params,
                     )
-                    attr_rows = attr_result.fetchall()
-                    attributes = {attr[0]: attr[1] for attr in attr_rows}
+                    rows = result.fetchall()
 
-                    persons.append(
+                    # 人物ごとにグルーピング
+                    person_map: OrderedDict = OrderedDict()
+                    for row in rows:
+                        pid = row[0]
+                        if pid not in person_map:
+                            if len(person_map) >= limit:
+                                break
+                            person_map[pid] = {"name": row[1], "attributes": {}}
+                        if row[2]:  # attribute_type がNULLでない場合
+                            person_map[pid]["attributes"][row[2]] = row[3]
+
+                    return [
                         PersonInfo(
-                            person_id=str(row_person_id) if row_person_id else "",
-                            name=name,
-                            attributes=attributes,
+                            person_id=str(pid) if pid else "",
+                            name=info["name"],
+                            attributes=info["attributes"],
                         )
-                    )
+                        for pid, info in person_map.items()
+                    ]
 
-                return persons
+            return await asyncio.to_thread(_sync_query)
 
         except Exception as e:
-            logger.warning(f"Error fetching person info: {e}")
+            logger.warning(f"Error fetching person info: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -640,75 +647,75 @@ class BrainMemoryAccess:
             List[TaskInfo]: タスク情報のリスト
         """
         try:
-            import time
-            now_timestamp = int(time.time())
+            import time as time_mod
+            now_timestamp = int(time_mod.time())
 
-            with self.pool.connect() as conn:
-                # limit_time は BIGINT (Unix timestamp) なので to_timestamp() で比較
-                result = conn.execute(
-                    text("""
-                        SELECT
-                            task_id,
-                            body,
-                            summary,
-                            status,
-                            limit_time,
-                            room_id,
-                            room_name,
-                            assigned_to_name,
-                            assigned_by_name
-                        FROM chatwork_tasks
-                        WHERE assigned_to_account_id = :user_id
-                          AND status = 'open'
-                          AND organization_id = :org_id
-                        ORDER BY
-                            CASE WHEN limit_time IS NOT NULL AND to_timestamp(limit_time) < NOW()
-                                 THEN 0 ELSE 1 END,
-                            limit_time ASC NULLS LAST
-                        LIMIT :limit
-                    """),
-                    {"user_id": user_id, "limit": limit, "org_id": self.org_id},
-                )
-                rows = result.fetchall()
-
-                def _parse_limit_time(lt):
-                    """limit_timeをdatetimeに変換（int or datetime対応）"""
-                    if lt is None:
-                        return None
-                    if isinstance(lt, datetime):
-                        return lt
-                    if isinstance(lt, (int, float)):
-                        return datetime.fromtimestamp(lt)
-                    return None
-
-                def _is_overdue(lt):
-                    """期限超過判定（int or datetime対応）"""
-                    if lt is None:
-                        return False
-                    if isinstance(lt, datetime):
-                        return lt < datetime.now()
-                    if isinstance(lt, (int, float)):
-                        return lt < now_timestamp
-                    return False
-
-                return [
-                    TaskInfo(
-                        task_id=str(row[0]) if row[0] else "",
-                        body=row[1] or "",
-                        summary=row[2],
-                        status=row[3] or "open",
-                        due_date=_parse_limit_time(row[4]),  # limit_time -> due_date
-                        room_id=str(row[5]) if row[5] else None,
-                        room_name=row[6],
-                        assignee_name=row[7],  # assigned_to_name -> assignee_name
-                        assigned_by_name=row[8],
-                        is_overdue=_is_overdue(row[4]),
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT
+                                task_id,
+                                body,
+                                summary,
+                                status,
+                                limit_time,
+                                room_id,
+                                room_name,
+                                assigned_to_name,
+                                assigned_by_name
+                            FROM chatwork_tasks
+                            WHERE assigned_to_account_id = :user_id
+                              AND status = 'open'
+                              AND organization_id = :org_id
+                            ORDER BY
+                                CASE WHEN limit_time IS NOT NULL AND to_timestamp(limit_time) < NOW()
+                                     THEN 0 ELSE 1 END,
+                                limit_time ASC NULLS LAST
+                            LIMIT :limit
+                        """),
+                        {"user_id": user_id, "limit": limit, "org_id": self.org_id},
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            def _parse_limit_time(lt):
+                if lt is None:
+                    return None
+                if isinstance(lt, datetime):
+                    return lt
+                if isinstance(lt, (int, float)):
+                    return datetime.fromtimestamp(lt)
+                return None
+
+            def _is_overdue(lt):
+                if lt is None:
+                    return False
+                if isinstance(lt, datetime):
+                    return lt < datetime.now()
+                if isinstance(lt, (int, float)):
+                    return lt < now_timestamp
+                return False
+
+            return [
+                TaskInfo(
+                    task_id=str(row[0]) if row[0] else "",
+                    body=row[1] or "",
+                    summary=row[2],
+                    status=row[3] or "open",
+                    due_date=_parse_limit_time(row[4]),
+                    room_id=str(row[5]) if row[5] else None,
+                    room_name=row[6],
+                    assignee_name=row[7],
+                    assigned_by_name=row[8],
+                    is_overdue=_is_overdue(row[4]),
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning(f"Error fetching recent tasks: {e}")
+            logger.warning(f"Error fetching recent tasks: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -734,47 +741,48 @@ class BrainMemoryAccess:
             return []
 
         try:
-            with self.pool.connect() as conn:
-                # 実際のgoalsテーブルスキーマに合わせたクエリ
-                # カラム: id, title, description, target_value, current_value, deadline, status
-                result = conn.execute(
-                    text("""
-                        SELECT
-                            g.id,
-                            g.title,
-                            g.description,
-                            g.target_value,
-                            g.current_value,
-                            g.status,
-                            g.deadline
-                        FROM goals g
-                        JOIN users u ON g.user_id = u.id
-                        WHERE u.chatwork_account_id = :user_id
-                          AND g.organization_id = CAST(:org_id AS uuid)
-                          AND g.status = 'active'
-                        ORDER BY g.created_at DESC
-                        LIMIT 5
-                    """),
-                    {"user_id": user_id, "org_id": self.org_id},
-                )
-                rows = result.fetchall()
-
-                return [
-                    GoalInfo(
-                        goal_id=str(row[0]) if row[0] else "",  # id -> goal_id
-                        title=row[1] or "",
-                        why=None,  # goalsテーブルにwhy_reasonカラムは存在しない
-                        what=row[2],  # descriptionをwhatとして使用
-                        how=None,  # goalsテーブルにhow_methodカラムは存在しない
-                        status=row[5] or "active",
-                        progress=float(row[4] / row[3] * 100) if row[3] and row[4] else 0.0,
-                        deadline=row[6],
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT
+                                g.id,
+                                g.title,
+                                g.description,
+                                g.target_value,
+                                g.current_value,
+                                g.status,
+                                g.deadline
+                            FROM goals g
+                            JOIN users u ON g.user_id = u.id
+                            WHERE u.chatwork_account_id = :user_id
+                              AND g.organization_id = CAST(:org_id AS uuid)
+                              AND g.status = 'active'
+                            ORDER BY g.created_at DESC
+                            LIMIT 5
+                        """),
+                        {"user_id": user_id, "org_id": self.org_id},
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            return [
+                GoalInfo(
+                    goal_id=str(row[0]) if row[0] else "",
+                    title=row[1] or "",
+                    why=None,
+                    what=row[2],
+                    how=None,
+                    status=row[5] or "active",
+                    progress=float(row[4] / row[3] * 100) if row[3] and row[4] else 0.0,
+                    deadline=row[6],
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning(f"Error fetching active goals: {e}")
+            logger.warning(f"Error fetching active goals: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -829,7 +837,7 @@ class BrainMemoryAccess:
             ]
 
         except Exception as e:
-            logger.warning("Hybrid search failed, falling back to ILIKE: %s", e)
+            logger.warning("Hybrid search failed, falling back to ILIKE: %s", type(e).__name__)
             return await self._ilike_knowledge_search(query, limit)
 
     async def _ilike_knowledge_search(
@@ -842,41 +850,43 @@ class BrainMemoryAccess:
         escaped_query = escape_ilike(query)
 
         try:
-            with self.pool.connect() as conn:
-                # Phase 4完了: org_idカラムでテナント分離（key_prefixフィルタ不要）
-                result = conn.execute(
-                    text("""
-                        SELECT
-                            id,
-                            key,
-                            value,
-                            category
-                        FROM soulkun_knowledge
-                        WHERE organization_id = :org_id
-                        AND (
-                            key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
-                            OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
-                        )
-                        ORDER BY id DESC
-                        LIMIT :limit
-                    """),
-                    {"org_id": self.org_id, "query": escaped_query, "limit": limit},
-                )
-                rows = result.fetchall()
-
-                return [
-                    KnowledgeInfo(
-                        id=row[0],
-                        keyword=row[1] or "",
-                        answer=row[2] or "",
-                        category=row[3],
-                        relevance_score=1.0,
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT
+                                id,
+                                key,
+                                value,
+                                category
+                            FROM soulkun_knowledge
+                            WHERE organization_id = :org_id
+                            AND (
+                                key ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                                OR value ILIKE '%' || CAST(:query AS TEXT) || '%' ESCAPE '\\'
+                            )
+                            ORDER BY id DESC
+                            LIMIT :limit
+                        """),
+                        {"org_id": self.org_id, "query": escaped_query, "limit": limit},
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            return [
+                KnowledgeInfo(
+                    id=row[0],
+                    keyword=row[1] or "",
+                    answer=row[2] or "",
+                    category=row[3],
+                    relevance_score=1.0,
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning("Error fetching relevant knowledge: %s", e)
+            logger.warning("Error fetching relevant knowledge: %s", type(e).__name__)
             return []
 
     # =========================================================================
@@ -904,61 +914,63 @@ class BrainMemoryAccess:
             return []
 
         try:
-            with self.pool.connect() as conn:
-                # 重要度フィルタの組み立て
-                importance_clause = ""
-                params = {"org_id": self.org_id, "limit": limit}
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    importance_clause = ""
+                    params = {"org_id": self.org_id, "limit": limit}
 
-                if importance_filter:
-                    importance_clause = "AND importance = ANY(:importances)"
-                    params["importances"] = importance_filter
+                    if importance_filter:
+                        importance_clause = "AND importance = ANY(:importances)"
+                        params["importances"] = importance_filter
 
-                result = conn.execute(
-                    text(f"""
-                        SELECT
-                            id,
-                            insight_type,
-                            importance,
-                            title,
-                            description,
-                            recommended_action,
-                            status,
-                            created_at
-                        FROM soulkun_insights
-                        WHERE organization_id = CAST(:org_id AS uuid)
-                          AND status IN ('new', 'acknowledged')
-                          {importance_clause}
-                        ORDER BY
-                            CASE importance
-                                WHEN 'critical' THEN 0
-                                WHEN 'high' THEN 1
-                                WHEN 'medium' THEN 2
-                                WHEN 'low' THEN 3
-                                ELSE 4
-                            END,
-                            created_at DESC
-                        LIMIT :limit
-                    """),
-                    params,
-                )
-                rows = result.fetchall()
-
-                return [
-                    InsightInfo(
-                        id=row[0],
-                        insight_type=row[1] or "",
-                        importance=row[2] or "medium",
-                        title=row[3] or "",
-                        description=row[4] or "",
-                        recommended_action=row[5],
-                        status=row[6] or "new",
-                        created_at=row[7],
+                    result = conn.execute(
+                        text(f"""
+                            SELECT
+                                id,
+                                insight_type,
+                                importance,
+                                title,
+                                description,
+                                recommended_action,
+                                status,
+                                created_at
+                            FROM soulkun_insights
+                            WHERE organization_id = CAST(:org_id AS uuid)
+                              AND status IN ('new', 'acknowledged')
+                              {importance_clause}
+                            ORDER BY
+                                CASE importance
+                                    WHEN 'critical' THEN 0
+                                    WHEN 'high' THEN 1
+                                    WHEN 'medium' THEN 2
+                                    WHEN 'low' THEN 3
+                                    ELSE 4
+                                END,
+                                created_at DESC
+                            LIMIT :limit
+                        """),
+                        params,
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            return [
+                InsightInfo(
+                    id=row[0],
+                    insight_type=row[1] or "",
+                    importance=row[2] or "medium",
+                    title=row[3] or "",
+                    description=row[4] or "",
+                    recommended_action=row[5],
+                    status=row[6] or "new",
+                    created_at=row[7],
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning(f"Error fetching recent insights: {e}")
+            logger.warning(f"Error fetching recent insights: {type(e).__name__}")
             return []
 
     # =========================================================================
@@ -984,51 +996,49 @@ class BrainMemoryAccess:
         """
         try:
             from lib.brain.hybrid_search import escape_ilike
-            with self.pool.connect() as conn:
-                # 基本クエリ
-                params = {
-                    "org_id": self.org_id,
-                    "query": f"%{escape_ilike(query)}%",
-                    "limit": limit,
-                }
+            search_params = {
+                "org_id": self.org_id,
+                "query": f"%{escape_ilike(query)}%",
+                "limit": limit,
+            }
 
-                user_clause = ""
-                if user_id:
-                    user_clause = "AND ci.user_id = (SELECT id FROM users WHERE chatwork_account_id = :user_id)"
-                    params["user_id"] = user_id
+            user_clause = ""
+            if user_id:
+                user_clause = "AND ci.user_id = (SELECT id FROM users WHERE chatwork_account_id = :user_id)"
+                search_params["user_id"] = user_id
 
-                # v10.29.5: Codex指摘修正 - カラム名をDBスキーマに合わせる
-                # - role → message_type (CHECK: 'user', 'assistant')
-                # - message → message_text
-                # - keywords @> ARRAY[:query] は動作しないため、単純なキーワードANY検索に変更
-                result = conn.execute(
-                    text(f"""
-                        SELECT
-                            ci.message_type,
-                            ci.message_text,
-                            ci.message_time
-                        FROM conversation_index ci
-                        WHERE ci.organization_id = CAST(:org_id AS uuid)
-                          AND ci.message_text ILIKE :query ESCAPE '\\'
-                          {user_clause}
-                        ORDER BY ci.message_time DESC
-                        LIMIT :limit
-                    """),
-                    params,
-                )
-                rows = result.fetchall()
-
-                return [
-                    ConversationMessage(
-                        role=row[0] or "user",  # message_type: 'user' or 'assistant'
-                        content=row[1] or "",   # message_text
-                        timestamp=row[2],       # message_time
+            def _sync_query():
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text(f"""
+                            SELECT
+                                ci.message_type,
+                                ci.message_text,
+                                ci.message_time
+                            FROM conversation_index ci
+                            WHERE ci.organization_id = CAST(:org_id AS uuid)
+                              AND ci.message_text ILIKE :query ESCAPE '\\'
+                              {user_clause}
+                            ORDER BY ci.message_time DESC
+                            LIMIT :limit
+                        """),
+                        search_params,
                     )
-                    for row in rows
-                ]
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync_query)
+
+            return [
+                ConversationMessage(
+                    role=row[0] or "user",
+                    content=row[1] or "",
+                    timestamp=row[2],
+                )
+                for row in rows
+            ]
 
         except Exception as e:
-            logger.warning(f"Error searching conversation: {e}")
+            logger.warning(f"Error searching conversation: {type(e).__name__}")
             return []
 
     # =========================================================================

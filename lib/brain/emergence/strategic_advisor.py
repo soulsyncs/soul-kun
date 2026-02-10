@@ -151,7 +151,7 @@ class StrategicAdvisor:
             return EmergenceResult(success=True, message="Insight saved")
         except Exception as e:
             logger.error("Failed to save insight: %s", e)
-            return EmergenceResult(success=False, message=str(e))
+            return EmergenceResult(success=False, message=type(e).__name__)
 
     async def get_recent_insights(
         self,
@@ -236,7 +236,7 @@ class StrategicAdvisor:
             return EmergenceResult(success=True, message="Snapshot created")
         except Exception as e:
             logger.error("Failed to create snapshot: %s", e)
-            return EmergenceResult(success=False, message=str(e))
+            return EmergenceResult(success=False, message=type(e).__name__)
 
     async def get_snapshot_history(
         self,

@@ -191,11 +191,11 @@ def validate_json_serializable(obj: Any) -> Tuple[bool, Optional[str]]:
         json.dumps(obj, ensure_ascii=False)
         return (True, None)
     except TypeError as e:
-        return (False, str(e))
+        return (False, type(e).__name__)
     except ValueError as e:
-        return (False, str(e))
+        return (False, type(e).__name__)
     except Exception as e:
-        return (False, f"Unexpected error: {type(e).__name__}: {e}")
+        return (False, f"Unexpected error: {type(e).__name__}")
 
 
 def ensure_json_serializable(obj: Any, *, max_depth: int = 10) -> Dict[str, Any]:

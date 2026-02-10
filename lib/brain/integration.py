@@ -66,7 +66,7 @@ BYPASS_ROUTE_PATTERNS: List[str] = [
 INTEGRATION_MAX_RETRIES: int = 2
 
 # 統合タイムアウト（秒）
-INTEGRATION_TIMEOUT_SECONDS: float = 60.0
+INTEGRATION_TIMEOUT_SECONDS: float = 55.0  # Cloud Functions 60秒制限に対し5秒の余裕
 
 # フォールバックが必要なエラータイプ
 FALLBACK_ERROR_TYPES: Tuple[Type[BaseException], ...] = (
@@ -320,7 +320,7 @@ class BrainIntegration:
             )
             logger.info("SoulkunBrain initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize SoulkunBrain: {e}")
+            logger.error(f"Failed to initialize SoulkunBrain: {type(e).__name__}")
             self.brain = None
             # 脳の初期化に失敗した場合はDISABLEDモードに変更
             self.config.mode = IntegrationMode.DISABLED
@@ -417,7 +417,7 @@ class BrainIntegration:
                                     f"🔄 Bypass handler returned empty, continuing to brain"
                                 )
                             except Exception as e:
-                                logger.error(f"Bypass handler error: {e}")
+                                logger.error(f"Bypass handler error: {type(e).__name__}")
                                 import traceback
                                 traceback.print_exc()
                                 # ハンドラーがエラーの場合は脳で処理を試みる
@@ -437,13 +437,13 @@ class BrainIntegration:
 
         except Exception as e:
             self._stats["errors"] += 1
-            logger.error(f"Integration error: {e}")
+            logger.error(f"Integration error: {type(e).__name__}")
 
             # フォールバック
             if self.config.fallback_enabled and fallback_func:
                 return await self._process_fallback(
                     message, room_id, account_id, sender_name,
-                    fallback_func, start_time, error=str(e)
+                    fallback_func, start_time, error=type(e).__name__
                 )
 
             return IntegrationResult(
@@ -452,7 +452,7 @@ class BrainIntegration:
                 used_brain=False,
                 fallback_used=False,
                 processing_time_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
+                error=type(e).__name__,
             )
 
     async def _process_with_brain(
@@ -500,13 +500,13 @@ class BrainIntegration:
             )
 
         except FALLBACK_ERROR_TYPES as e:
-            logger.warning(f"Brain processing timeout, falling back: {e}")
+            logger.warning(f"Brain processing timeout, falling back: {type(e).__name__}")
 
             if self.config.fallback_enabled and fallback_func:
                 return await self._process_fallback(
                     message, room_id, account_id, sender_name,
                     fallback_func, start_time,
-                    error=f"Timeout: {e}"
+                    error=f"Timeout: {type(e).__name__}"
                 )
 
             return IntegrationResult(
@@ -515,17 +515,17 @@ class BrainIntegration:
                 used_brain=True,
                 fallback_used=False,
                 processing_time_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
+                error=type(e).__name__,
             )
 
         except Exception as e:
-            logger.error(f"Brain processing error: {e}")
+            logger.error(f"Brain processing error: {type(e).__name__}")
 
             if self.config.fallback_enabled and fallback_func:
                 return await self._process_fallback(
                     message, room_id, account_id, sender_name,
                     fallback_func, start_time,
-                    error=str(e)
+                    error=type(e).__name__
                 )
 
             return IntegrationResult(
@@ -534,7 +534,7 @@ class BrainIntegration:
                 used_brain=True,
                 fallback_used=False,
                 processing_time_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
+                error=type(e).__name__,
             )
 
     async def _process_fallback(
@@ -597,14 +597,14 @@ class BrainIntegration:
                 )
 
         except Exception as e:
-            logger.error(f"Fallback processing error: {e}")
+            logger.error(f"Fallback processing error: {type(e).__name__}")
             return IntegrationResult(
                 success=False,
                 message="申し訳ありません、処理中にエラーが発生しましたウル",
                 used_brain=False,
                 fallback_used=True,
                 processing_time_ms=int((time.time() - start_time) * 1000),
-                error=str(e),
+                error=type(e).__name__,
             )
 
     async def _process_shadow(
@@ -783,7 +783,7 @@ class BrainIntegration:
             return str_result
 
         except Exception as e:
-            logger.error(f"Error calling bypass handler: {e}")
+            logger.error(f"Error calling bypass handler: {type(e).__name__}")
             raise
 
     def _detect_bypass(

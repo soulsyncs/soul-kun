@@ -527,7 +527,7 @@ class OrganizationGraph:
             return True
 
         except Exception as e:
-            logger.error(f"[OrganizationGraph] Error upserting person: {e}")
+            logger.error(f"[OrganizationGraph] Error upserting person: {type(e).__name__}")
             return False
 
     async def update_person_influence(
@@ -728,7 +728,7 @@ class OrganizationGraph:
             return True
 
         except Exception as e:
-            logger.error(f"[OrganizationGraph] Error upserting relationship: {e}")
+            logger.error(f"[OrganizationGraph] Error upserting relationship: {type(e).__name__}")
             return False
 
     async def get_relationships_for_person(
@@ -848,7 +848,7 @@ class OrganizationGraph:
             return True
 
         except Exception as e:
-            logger.error(f"[OrganizationGraph] Error recording interaction: {e}")
+            logger.error(f"[OrganizationGraph] Error recording interaction: {type(e).__name__}")
             return False
 
     async def _learn_from_interaction(self, interaction: Interaction) -> bool:
@@ -923,7 +923,7 @@ class OrganizationGraph:
             return True
 
         except Exception as e:
-            logger.error(f"[OrganizationGraph] Error learning from interaction: {e}")
+            logger.error(f"[OrganizationGraph] Error learning from interaction: {type(e).__name__}")
             return False
 
     def _infer_relationship_type(

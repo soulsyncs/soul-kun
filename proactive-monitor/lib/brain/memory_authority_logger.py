@@ -121,7 +121,7 @@ class MemoryAuthorityLogger:
                     f"logger_name={self.CLOUD_LOGGER_NAME}"
                 )
             except Exception as e:
-                logger.warning(f"Failed to initialize Cloud Logging client: {e}")
+                logger.warning(f"Failed to initialize Cloud Logging client: {type(e).__name__}")
                 self._cloud_logger = None
         elif self.enabled and not CLOUD_LOGGING_AVAILABLE:
             logger.warning(
@@ -261,7 +261,7 @@ class MemoryAuthorityLogger:
             )
             return True
         except Exception as e:
-            logger.error(f"Failed to write to Cloud Logging: {e}")
+            logger.error(f"Failed to write to Cloud Logging: {type(e).__name__}")
             # 失敗したらペンディングに戻す
             self._pending_logs[log_id] = log_entry
             return False
@@ -318,7 +318,7 @@ class MemoryAuthorityLogger:
             try:
                 self._cloud_logger.log_struct(log_dict, severity="INFO")
             except Exception as e:
-                logger.warning(f"Cloud Logging failed: {e}")
+                logger.warning(f"Cloud Logging failed: {type(e).__name__}")
                 # フォールバック: 標準ログに出力
                 logger.info(f"[SOFT_CONFLICT_LOG] {log_dict}")
         else:

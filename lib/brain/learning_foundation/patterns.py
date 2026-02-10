@@ -66,7 +66,7 @@ class DetectionPattern:
                     re.compile(pattern, re.IGNORECASE | re.UNICODE)
                 )
             except re.error as e:
-                print(f"Warning: Invalid regex pattern '{pattern}': {e}")
+                print(f"Warning: Invalid regex pattern '{pattern}': {type(e).__name__}")
 
     def match(self, text: str) -> Optional[Dict[str, Any]]:
         """テキストにパターンをマッチング

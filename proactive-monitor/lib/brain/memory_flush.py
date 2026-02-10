@@ -236,9 +236,9 @@ class AutoMemoryFlusher:
                     else:
                         result.skipped_count += 1  # PIIスキップ等
                 except Exception as e:
-                    logger.warning(f"Failed to persist flush item: {e}")
+                    logger.warning(f"Failed to persist flush item: {type(e).__name__}")
                     result.error_count += 1
-                    result.errors.append(str(e))
+                    result.errors.append(type(e).__name__)
 
             logger.info(
                 f"Memory flush completed: {result.flushed_count} saved, "
@@ -246,9 +246,9 @@ class AutoMemoryFlusher:
             )
 
         except Exception as e:
-            logger.error(f"Memory flush failed: {e}")
+            logger.error(f"Memory flush failed: {type(e).__name__}")
             result.error_count += 1
-            result.errors.append(str(e))
+            result.errors.append(type(e).__name__)
 
         return result
 
@@ -282,7 +282,7 @@ class AutoMemoryFlusher:
             return self._parse_extraction_response(response)
 
         except Exception as e:
-            logger.warning(f"LLM extraction failed, falling back to rule-based: {e}")
+            logger.warning(f"LLM extraction failed, falling back to rule-based: {type(e).__name__}")
             return self._rule_based_extraction(conversation_history)
 
     def _format_conversation(
@@ -331,7 +331,7 @@ class AutoMemoryFlusher:
             return result
 
         except (json.JSONDecodeError, ValueError, KeyError) as e:
-            logger.warning(f"Failed to parse LLM extraction response: {e}")
+            logger.warning(f"Failed to parse LLM extraction response: {type(e).__name__}")
             return []
 
     def _rule_based_extraction(
@@ -482,6 +482,6 @@ class AutoMemoryFlusher:
                 # Codexレビュー指摘#3: 明示的なロールバック
                 try:
                     conn.rollback()
-                except Exception:
-                    pass
+                except Exception as rb_err:
+                    logger.warning("Rollback failed: %s", type(rb_err).__name__)
                 raise

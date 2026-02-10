@@ -159,7 +159,7 @@ class SessionOrchestrator:
                     room_id, account_id, sender_name, start_time
                 )
         except Exception as e:
-            logger.warning(f"Goal setting intent understanding failed: {e}")
+            logger.warning(f"Goal setting intent understanding failed: {type(e).__name__}")
             # 意図理解に失敗した場合は従来通り継続
 
         # =====================================================
@@ -207,7 +207,7 @@ class SessionOrchestrator:
                     )
 
             except Exception as e:
-                logger.warning(f"Goal setting handler error: {e}")
+                logger.warning(f"Goal setting handler error: {type(e).__name__}")
                 await self.state_manager.clear_state(room_id, account_id, "goal_setting_error")
                 return BrainResponse(
                     message="目標設定の処理中にエラーが発生したウル... もう一度最初からお願いするウル🐺",
@@ -374,7 +374,7 @@ class SessionOrchestrator:
                 try:
                     interrupt_handler(room_id, account_id, interrupted_session)
                 except Exception as e:
-                    logger.warning(f"Failed to save interrupted session: {e}")
+                    logger.warning(f"Failed to save interrupted session: {type(e).__name__}")
 
             await self.state_manager.clear_state(room_id, account_id, "goal_setting_interrupted")
 
@@ -427,7 +427,7 @@ class SessionOrchestrator:
             )
 
         except Exception as e:
-            logger.error(f"Failed to handle interrupted goal setting: {e}")
+            logger.error(f"Failed to handle interrupted goal setting: {type(e).__name__}")
             await self.state_manager.clear_state(room_id, account_id, "goal_setting_interrupt_error")
             return BrainResponse(
                 message="分かったウル！他に何かあれば聞いてねウル🐺",
@@ -455,7 +455,7 @@ class SessionOrchestrator:
                     return result
                 return HandlerResult(success=True, message=str(result) if result else "")
             except Exception as e:
-                logger.warning(f"General conversation handler error: {e}")
+                logger.warning(f"General conversation handler error: {type(e).__name__}")
         return None
 
     async def _continue_announcement(
@@ -511,7 +511,7 @@ class SessionOrchestrator:
                     )
 
             except Exception as e:
-                logger.warning(f"Announcement handler error: {e}")
+                logger.warning(f"Announcement handler error: {type(e).__name__}")
                 await self.state_manager.clear_state(room_id, account_id, "announcement_error")
                 return BrainResponse(
                     message="アナウンス処理中にエラーが発生したウル... もう一度お願いするウル🐺",
@@ -770,7 +770,7 @@ class SessionOrchestrator:
                     )
 
             except Exception as e:
-                logger.warning(f"Task pending handler error: {e}")
+                logger.warning(f"Task pending handler error: {type(e).__name__}")
                 await self.state_manager.clear_state(room_id, account_id, "task_pending_error")
                 return BrainResponse(
                     message="タスク作成中にエラーが発生したウル... もう一度最初からお願いするウル🐺",
@@ -885,7 +885,7 @@ class SessionOrchestrator:
                     )
 
             except Exception as e:
-                logger.warning(f"List context handler error: {e}")
+                logger.warning(f"List context handler error: {type(e).__name__}")
                 await self.state_manager.clear_state(room_id, account_id, "list_context_error")
                 return BrainResponse(
                     message="処理中にエラーが発生したウル... もう一度お願いするウル🐺",

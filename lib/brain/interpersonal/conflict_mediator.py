@@ -174,7 +174,7 @@ class ConflictMediator:
             return InterpersonalResult(success=True, message="Conflict logged")
         except Exception as e:
             logger.error("Failed to record conflict: %s", e)
-            return InterpersonalResult(success=False, message=str(e))
+            return InterpersonalResult(success=False, message=type(e).__name__)
 
     async def update_conflict_status(
         self,
@@ -210,7 +210,7 @@ class ConflictMediator:
             return InterpersonalResult(success=True, message=f"Conflict status updated to {new_status.value}")
         except Exception as e:
             logger.error("Failed to update conflict %s: %s", conflict_id, e)
-            return InterpersonalResult(success=False, message=str(e))
+            return InterpersonalResult(success=False, message=type(e).__name__)
 
     async def get_active_conflicts(
         self,

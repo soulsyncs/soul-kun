@@ -224,7 +224,7 @@ class ImplicitFeedbackDetector:
                 updated_at,
                 limit_time
             FROM chatwork_tasks
-            WHERE id = CAST(:task_id AS uuid)
+            WHERE id = CAST(:task_id AS integer)
             AND organization_id = :org_id
         """)
 
@@ -298,7 +298,7 @@ class ImplicitFeedbackDetector:
                 updated_at,
                 metadata
             FROM notification_logs
-            WHERE organization_id = CAST(:organization_id AS uuid)
+            WHERE organization_id = :organization_id
               AND target_id = :target_id
               AND notification_date = :notification_date
             ORDER BY updated_at DESC

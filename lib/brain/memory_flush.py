@@ -451,7 +451,7 @@ class AutoMemoryFlusher:
                             SELECT
                                 :org_id, :key, :value, :category, 'auto_flush'
                             WHERE EXISTS (
-                                SELECT 1 FROM organizations WHERE slug = :org_id
+                                SELECT 1 FROM organizations WHERE organization_id = :org_id
                             )
                             ON CONFLICT (organization_id, category, key) DO UPDATE SET
                                 value = EXCLUDED.value,

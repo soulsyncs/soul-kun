@@ -571,9 +571,9 @@ class BrainMemoryAccess:
             with self.pool.connect() as conn:
                 # personsテーブルから人物を取得
                 params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
-                where_clause = "WHERE organization_id = CAST(:org_id AS uuid)"
+                where_clause = "WHERE organization_id = :org_id"
                 if person_id:
-                    where_clause += " AND id = CAST(:person_id AS uuid)"
+                    where_clause += " AND id = CAST(:person_id AS integer)"
                     params["person_id"] = person_id
                 result = conn.execute(
                     text(f"""
@@ -598,7 +598,7 @@ class BrainMemoryAccess:
                             SELECT attribute_type, attribute_value
                             FROM person_attributes
                             WHERE person_id = :pid
-                              AND organization_id = CAST(:org_id AS uuid)
+                              AND organization_id = :org_id
                             ORDER BY updated_at DESC
                         """),
                         {"pid": row_person_id, "org_id": self.org_id},

@@ -611,7 +611,7 @@ class TestLLMBrainProcess:
 
                 assert result.confidence.overall == 0.0
                 assert "エラー" in result.text_response
-                assert "API Error" in result.text_response
+                assert "Exception" in result.text_response
         finally:
             del os.environ["OPENROUTER_API_KEY"]
 

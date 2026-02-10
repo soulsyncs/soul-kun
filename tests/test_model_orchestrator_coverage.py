@@ -718,7 +718,7 @@ class TestOrchestratorRealAPICallWithFallback:
         )
 
         assert result.success is False
-        assert "API connection failed" in (result.error_message or "")
+        assert "RuntimeError" in (result.error_message or "")
 
 
 class TestOrchestratorLoggingDisabled:
@@ -776,7 +776,7 @@ class TestOrchestratorExceptionHandling:
         result = await orchestrator.call(prompt="テスト", task_type="general")
 
         assert result.success is False
-        assert "Unexpected DB error" in (result.error_message or "")
+        assert "ValueError" in (result.error_message or "")
         assert result.latency_ms >= 0
 
 

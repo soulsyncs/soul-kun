@@ -167,7 +167,7 @@ class TestIntegrationConstants:
 
     def test_integration_timeout(self):
         """統合タイムアウト"""
-        assert INTEGRATION_TIMEOUT_SECONDS == 60.0
+        assert INTEGRATION_TIMEOUT_SECONDS == 55.0
         assert INTEGRATION_TIMEOUT_SECONDS > 0
 
 
@@ -858,7 +858,7 @@ class TestFallbackProcessing:
 
         assert result.success is False
         assert "エラー" in result.message
-        assert result.error == "フォールバックエラー"
+        assert result.error == "Exception"
 
 
 # =============================================================================

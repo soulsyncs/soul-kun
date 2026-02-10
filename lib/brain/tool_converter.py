@@ -155,7 +155,7 @@ class ToolConverter:
                 lines.append("")
                 lines.append("【使用例】")
                 for ex in examples[:self.config.max_examples]:
-                    lines.append(f"- 「{type(ex).__name__}」")
+                    lines.append(f"- 「{ex}」")
 
         # カテゴリ情報を追加
         category = capability.get("category")

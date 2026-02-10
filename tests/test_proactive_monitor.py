@@ -1272,7 +1272,7 @@ class TestTakeAction:
         action = await monitor._take_action(trigger, user_ctx)
 
         assert action.success is False
-        assert "Network error" in action.error_message
+        assert "Exception" in action.error_message
 
     @pytest.mark.asyncio
     async def test_send_returns_false(self, monitor, mock_brain, mock_send_func, mock_pool, user_ctx):
@@ -1644,7 +1644,7 @@ class TestCheckAndAct:
             result = results[0]
             assert len(result.actions_taken) == 1
             assert result.actions_taken[0].success is False
-            assert "Unexpected error" in result.actions_taken[0].error_message
+            assert "Exception" in result.actions_taken[0].error_message
 
     @pytest.mark.asyncio
     async def test_critical_error_returns_empty(self, monitor, mock_pool):

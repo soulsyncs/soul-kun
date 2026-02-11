@@ -78,13 +78,18 @@ async def create_brain_for_proactive(pool):
         from lib.brain.core import SoulkunBrain
         from lib.brain.memory_access import BrainMemoryAccess
 
+        # 組織IDを取得（環境変数 > デフォルト値）
+        org_id = os.environ.get(
+            "SOULKUN_ORG_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
+        )
+
         # 記憶層を作成
-        memory_access = BrainMemoryAccess(pool=pool)
+        memory_access = BrainMemoryAccess(pool=pool, org_id=org_id)
 
         # 脳を作成（最小限の設定）
         brain = SoulkunBrain(
             pool=pool,
-            org_id=None,  # 全組織対象
+            org_id=org_id,
             handlers={},  # Proactiveではハンドラー不要
             capabilities={},  # Proactiveではcapabilities不要
             get_ai_response_func=None,  # メッセージ生成にはLLM不要（テンプレートベース）

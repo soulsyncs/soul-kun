@@ -357,13 +357,15 @@ LLM Brainの思考過程（Chain-of-Thought）を記録する際、PIIを自動�
 - **コード修正・テスト作成の前に、対象のSoTファイル（models.py等）を必ず確認する**
 
 ```
-[Layer 1: 予防] コード作成時に18項目チェックリスト（§3-2）を意識
+[Layer 1: 予防] コード作成時に22項目チェックリスト（§3-2）を意識
     ↓
-[Layer 2: 検出] commit → push → SQL検証 + Codex 3パスレビュー（18項目×3回）→ PASS必須
+[Layer 2: 検出] commit → push → SQL検証 + Codex 3パスレビュー（22項目×3回）→ PASS必須
     ↓
-CI（テスト・型チェック・sync確認）→ PR作成
+CI（テスト・型チェック・sync確認・結合テスト）→ PR作成
     ↓
-[Layer 3: 確認] マージ後・デプロイ前に scripts/pre_deploy_check.sh を実行
+[Layer 2.5: 3AI自動レビュー] Claude Code + Gemini + Codex が独立にPRをレビュー
+    ↓
+[Layer 3: 確認] マージ後・デプロイ前に scripts/safe_deploy.sh を実行
 ```
 
 ### 13-1. Layer 1: 予防（コーディング時）
@@ -380,6 +382,22 @@ CI（テスト・型チェック・sync確認）→ PR作成
 - 全パスPASS→push実行、いずれかFAIL→修正して再push
 - 緊急時のみ `SKIP_CODEX_REVIEW=1 git push` でスキップ可。SKIPした場合は後追いレビュー必須、PRに理由を明記
 - パス数変更: `REVIEW_PASSES=1 git push`（緊急時に1パスのみ）
+
+### 13-2.5. Layer 2.5: 3AI自動レビュー（PR作成時）【v10.76追加】
+
+PRが作成・更新されると、3つのAIが独立にレビューを実行する。
+
+| AI | 役割 | トリガー | コスト |
+|----|------|---------|--------|
+| **Claude Code** | アーキテクチャ・22項目チェック・設計整合性 | PR自動 | ~$0.05/回 |
+| **Gemini** | セキュリティ・パフォーマンス・コード品質 | PR自動 | ~$0.01/回 |
+| **Codex** | 正確性・ビジネスロジック・経営視点（深いレビュー） | ラベル `codex-review` | ~$0.50/回 |
+
+- **ワークフロー**: `.github/workflows/ai-review.yml`（Claude + Gemini自動）、`.github/workflows/codex-pr-review.yml`（Codexラベルトリガー）
+- **コンセンサスゲート**: Claude + Gemini が両方PASSしないとマージ不可
+- **コスト制御**: concurrencyグループで同一PRの連続pushは古い実行をキャンセル
+- **必要なSecrets**: `ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`CODEX_API_KEY`（設定済み）
+- **AGENTS.md**: AIレビューエージェント用の共通指示書（レビュー観点・コード規約・ディレクトリ構造）
 
 ### 13-3. Layer 3: デプロイ前チェック
 

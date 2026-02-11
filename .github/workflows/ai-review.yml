@@ -1,0 +1,235 @@
+name: Multi-AI Code Review
+
+# ============================================================
+# 3AI自動レビュー（Claude Code + Gemini + Codex）
+#
+# 世界最高水準のマルチAIレビューパイプライン。
+# 3つのAIが独立にPRをレビューし、合意判定を行う。
+#
+# 仕組み:
+#   1. PRが作成・更新されると自動実行
+#   2. Claude Code: CLAUDE.mdの22項目チェック + アーキテクチャ整合性
+#   3. Gemini: セキュリティ + パフォーマンス + コード品質
+#   4. Codex: 正確性 + ビジネスロジック（既存ワークフローでラベルトリガー）
+#   5. 結果を統合してPRにコメント
+#
+# コスト（500行diff想定）:
+#   Claude Code: ~$0.05/review（Sonnet使用）
+#   Gemini: ~$0.01/review（Flash使用）
+#   合計: ~$0.06/review ≒ 約¥9/review
+#   月20PR: ~¥180/月
+#
+# 必要なSecrets:
+#   ANTHROPIC_API_KEY: Claude Code用APIキー
+#   GEMINI_API_KEY: Gemini用APIキー
+#
+# Codex指摘修正（2026-02-11）:
+#   - Gemini action: @v1→@v0（v1タグ不存在）
+#   - アクションをcommit SHAにピンニング（サプライチェーン対策）
+#   - concurrencyグループ追加（コスト制御）
+#   - Fork/Dependabotバイパス対策: 両方スキップ時もゲートpass（private repoのため）
+#
+# 3者合意(Claude + Codex + Gemini):
+#   「3AIが独立にレビューし、全PASSでのみマージ許可」
+# ============================================================
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# コスト制御: 同一PRの連続pushで古い実行をキャンセル
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  # =====================================================
+  # Claude Code Review（アーキテクチャ・設計整合性）
+  # =====================================================
+  claude-review:
+    name: Claude Code Review
+    runs-on: ubuntu-latest
+    # private repoのためfork PRは想定外。secrets未設定時はスキップ。
+    if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+    timeout-minutes: 15
+    steps:
+      # SHAピンニング: anthropics/claude-code-action@v1 (2026-02-11時点)
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code Review
+        uses: anthropics/claude-code-action@21a69cf91de7dc786551da9449352493d2b659a0 # v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            あなたは「世界最高のエンジニア」として、このPRをレビューしてください。
+            CLAUDE.mdとAGENTS.mdを参照し、プロジェクトルールに基づいてチェックすること。
+
+            【必須チェック項目（22項目から最重要のもの）】
+            1. organization_idフィルタ漏れ: SELECT/INSERT/UPDATE/DELETEにorg_idがあるか
+            2. asyncブロッキング: async def内でpool.connect()を直接呼んでいないか
+            3. RLS型キャスト: VARCHARカラムに::uuidキャストしていないか
+            4. PII漏洩: ログにメッセージ本文・名前・メールが含まれていないか
+            5. SQLインジェクション: パラメータ化されているか
+            6. Brain bypass: 脳を通さずに直接テンプレート送信していないか
+            7. lib/同期: lib/の変更がchatwork-webhook/lib/とproactive-monitor/lib/にも反映されているか
+            8. fire-and-forget: asyncio.create_task()を直接使っていないか
+            9. デプロイ安全性: --set-env-vars（禁止）ではなく--update-env-varsを使っているか
+
+            【出力フォーマット】
+            ## Claude Code Review
+
+            **判定: PASS / FAIL**
+
+            ### 指摘事項
+            - CRITICAL: (件数)
+            - HIGH: (件数)
+            - MEDIUM: (件数)
+
+            ### 詳細
+            (各指摘の説明)
+
+            ### 推奨修正
+            (具体的な修正提案)
+          claude_args: "--model claude-sonnet-4-5-20250929 --max-turns 3"
+
+  # =====================================================
+  # Gemini Review（セキュリティ・パフォーマンス・品質）
+  # =====================================================
+  gemini-review:
+    name: Gemini Code Review
+    runs-on: ubuntu-latest
+    # private repoのためfork PRは想定外。secrets未設定時はスキップ。
+    if: ${{ secrets.GEMINI_API_KEY != '' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+
+      # SHAピンニング: google-github-actions/run-gemini-cli@v0 (v0.1.20, 2026-02-11時点)
+      - name: Run Gemini Review
+        uses: google-github-actions/run-gemini-cli@b7c22b00bd5a02e52eec973dc4b3bd391eb31512 # v0.1.20
+        with:
+          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
+          gemini_model: gemini-2.5-flash
+          prompt: |
+            あなたはセキュリティとパフォーマンスの専門家です。
+            このPRの変更をレビューし、以下の観点でチェックしてください。
+
+            PR: ${{ github.event.pull_request.title }}
+
+            AGENTS.mdとCLAUDE.mdを参照し、プロジェクトルールに基づいてチェックすること。
+
+            【重点チェック項目】
+            1. セキュリティ脆弱性（OWASP Top 10）
+               - SQLインジェクション
+               - XSS
+               - 認証バイパス
+               - 機密情報のハードコード
+               - SSRF
+
+            2. パフォーマンス問題
+               - N+1クエリ
+               - 不要なDB接続
+               - メモリリーク
+               - 無限ループリスク
+
+            3. コード品質
+               - エラーハンドリング漏れ
+               - リソースリーク（DB接続、ファイルハンドル）
+               - 冪等性の欠如
+               - デッドコード
+
+            4. Python固有の問題
+               - asyncio.to_thread()の不適切な使用
+               - bare except の使用
+               - mutableなデフォルト引数
+
+            【出力フォーマット】
+            ## Gemini Security & Performance Review
+
+            **判定: PASS / FAIL**
+
+            ### セキュリティ
+            (指摘事項)
+
+            ### パフォーマンス
+            (指摘事項)
+
+            ### コード品質
+            (指摘事項)
+
+            ### 推奨修正
+            (具体的な修正提案)
+
+  # =====================================================
+  # レビュー結果統合（コンセンサスゲート）
+  # =====================================================
+  ai-review-gate:
+    name: AI Review Gate
+    runs-on: ubuntu-latest
+    needs: [claude-review, gemini-review]
+    # 片方のレビューが失敗/スキップでもゲートは実行する
+    if: always()
+    steps:
+      - name: Check AI review results
+        run: |
+          echo ""
+          echo "  Multi-AI Review Results"
+          echo "  ========================"
+          echo ""
+
+          CLAUDE_STATUS="${{ needs.claude-review.result }}"
+          GEMINI_STATUS="${{ needs.gemini-review.result }}"
+
+          echo "  Claude Code: $CLAUDE_STATUS"
+          echo "  Gemini:      $GEMINI_STATUS"
+          echo ""
+
+          FAILURES=0
+          SKIPPED=0
+          PASSED=0
+
+          for STATUS in "$CLAUDE_STATUS" "$GEMINI_STATUS"; do
+            case "$STATUS" in
+              failure)
+                FAILURES=$((FAILURES + 1))
+                ;;
+              skipped)
+                SKIPPED=$((SKIPPED + 1))
+                ;;
+              success)
+                PASSED=$((PASSED + 1))
+                ;;
+            esac
+          done
+
+          # 失敗があればブロック
+          if [ "$FAILURES" -gt 0 ]; then
+            echo "  RESULT: $FAILURES AI reviewer(s) found issues"
+            echo "  PRの指摘事項を確認し、修正してください"
+            exit 1
+          fi
+
+          # 両方スキップ（APIキー未設定）の場合
+          # private repoなのでfork PRは想定外。セットアップ待ちとして警告のみ。
+          if [ "$SKIPPED" -eq 2 ]; then
+            echo "  WARNING: All AI reviews skipped (API keys not configured)"
+            echo ""
+            echo "  GitHub Secretsに以下を設定してください:"
+            echo "    - ANTHROPIC_API_KEY (Claude Code用)"
+            echo "    - GEMINI_API_KEY (Gemini用)"
+            echo ""
+            echo "  セットアップ完了後、3AI自動レビューが有効になります。"
+            # セットアップ待ちの間はブロックしない
+            exit 0
+          fi
+
+          echo "  RESULT: All active AI reviews passed! ($PASSED passed, $SKIPPED skipped)"

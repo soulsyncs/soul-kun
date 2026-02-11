@@ -457,6 +457,12 @@ class BrainMemoryAccess:
         try:
             def _sync_query():
                 import time as _t
+                # Pool状態診断
+                try:
+                    pool_obj = self.pool.pool
+                    print(f"[DIAG] summary: pool status: {pool_obj.status()}")
+                except Exception:
+                    print("[DIAG] summary: pool status unavailable")
                 print("[DIAG] summary: pool.connect() START")
                 t0 = _t.monotonic()
                 with self.pool.connect() as conn:

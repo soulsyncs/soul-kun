@@ -769,7 +769,10 @@ class CapabilityBridge:
             )
 
             # フィードバックエンジンを初期化（Poolからconnectionを取得）
-            with self.pool.connect() as conn:
+            # asyncio.to_thread()でコネクション取得、async操作はイベントループで実行
+            import asyncio
+            conn = await asyncio.to_thread(self.pool.connect)
+            try:
                 engine = CEOFeedbackEngine(
                     conn=conn,
                     organization_id=org_uuid,
@@ -782,6 +785,8 @@ class CapabilityBridge:
                     query=query,
                     deliver=False,
                 )
+            finally:
+                await asyncio.to_thread(conn.close)
 
             return HandlerResult(
                 success=True,

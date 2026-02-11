@@ -410,78 +410,83 @@ class AutoMemoryFlusher:
             logger.info(f"Skipping flush item with PII in subject: category={item.category}")
             return False
 
-        with self.pool.connect() as conn:
-            try:
-                if item.category == "preference":
-                    # user_preferences テーブルに保存（org_idスコープ済み）
-                    conn.execute(
-                        sql_text("""
-                            INSERT INTO user_preferences
-                                (organization_id, user_id, preference_type, preference_key,
-                                 preference_value, learned_from, confidence, classification)
-                            SELECT
-                                o.id, u.id, 'communication', :key, :value,
-                                'auto_flush', :confidence, 'internal'
-                            FROM organizations o
-                            JOIN users u ON u.organization_id = o.id
-                            WHERE o.organization_id = :org_id
-                              AND u.chatwork_account_id = :user_id
-                            ON CONFLICT (organization_id, user_id, preference_type, preference_key)
-                            DO UPDATE SET
-                                preference_value = EXCLUDED.preference_value,
-                                confidence = GREATEST(user_preferences.confidence, EXCLUDED.confidence),
-                                updated_at = CURRENT_TIMESTAMP
-                        """),
-                        {
-                            "org_id": self.org_id,
-                            "user_id": user_id,
-                            "key": item.subject[:100],
-                            "value": json.dumps(item.content, ensure_ascii=False),
-                            "confidence": item.confidence,
-                        },
-                    )
-                    conn.commit()
+        import asyncio
 
-                elif item.category in ("fact", "decision", "commitment"):
-                    # soulkun_knowledge テーブルに保存（Phase 4: org_idカラム対応）
-                    conn.execute(
-                        sql_text("""
-                            INSERT INTO soulkun_knowledge
-                                (organization_id, key, value, category, created_by)
-                            SELECT
-                                :org_id, :key, :value, :category, 'auto_flush'
-                            WHERE EXISTS (
-                                SELECT 1 FROM organizations WHERE organization_id = :org_id
-                            )
-                            ON CONFLICT (organization_id, category, key) DO UPDATE SET
-                                value = EXCLUDED.value,
-                                updated_at = CURRENT_TIMESTAMP
-                        """),
-                        {
-                            "org_id": self.org_id,
-                            "key": item.subject[:200],
-                            "value": item.content,
-                            "category": item.category,
-                        },
-                    )
-                    conn.commit()
-
-                else:
-                    logger.warning(
-                        "Unknown flush category: %s (skipping)", item.category
-                    )
-                    return False
-
-                logger.debug(
-                    f"Persisted flush item: category={item.category}, "
-                    f"subject={item.subject}, confidence={item.confidence}"
-                )
-                return True
-
-            except Exception as e:
-                # Codexレビュー指摘#3: 明示的なロールバック
+        def _sync():
+            with self.pool.connect() as conn:
                 try:
-                    conn.rollback()
-                except Exception as rb_err:
-                    logger.warning("Rollback failed: %s", type(rb_err).__name__)
-                raise
+                    if item.category == "preference":
+                        # user_preferences テーブルに保存（org_idスコープ済み）
+                        conn.execute(
+                            sql_text("""
+                                INSERT INTO user_preferences
+                                    (organization_id, user_id, preference_type, preference_key,
+                                     preference_value, learned_from, confidence, classification)
+                                SELECT
+                                    o.id, u.id, 'communication', :key, :value,
+                                    'auto_flush', :confidence, 'internal'
+                                FROM organizations o
+                                JOIN users u ON u.organization_id = o.id
+                                WHERE o.organization_id = :org_id
+                                  AND u.chatwork_account_id = :user_id
+                                ON CONFLICT (organization_id, user_id, preference_type, preference_key)
+                                DO UPDATE SET
+                                    preference_value = EXCLUDED.preference_value,
+                                    confidence = GREATEST(user_preferences.confidence, EXCLUDED.confidence),
+                                    updated_at = CURRENT_TIMESTAMP
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "user_id": user_id,
+                                "key": item.subject[:100],
+                                "value": json.dumps(item.content, ensure_ascii=False),
+                                "confidence": item.confidence,
+                            },
+                        )
+                        conn.commit()
+
+                    elif item.category in ("fact", "decision", "commitment"):
+                        # soulkun_knowledge テーブルに保存（Phase 4: org_idカラム対応）
+                        conn.execute(
+                            sql_text("""
+                                INSERT INTO soulkun_knowledge
+                                    (organization_id, key, value, category, created_by)
+                                SELECT
+                                    :org_id, :key, :value, :category, 'auto_flush'
+                                WHERE EXISTS (
+                                    SELECT 1 FROM organizations WHERE organization_id = :org_id
+                                )
+                                ON CONFLICT (organization_id, category, key) DO UPDATE SET
+                                    value = EXCLUDED.value,
+                                    updated_at = CURRENT_TIMESTAMP
+                            """),
+                            {
+                                "org_id": self.org_id,
+                                "key": item.subject[:200],
+                                "value": item.content,
+                                "category": item.category,
+                            },
+                        )
+                        conn.commit()
+
+                    else:
+                        logger.warning(
+                            "Unknown flush category: %s (skipping)", item.category
+                        )
+                        return False
+
+                    logger.debug(
+                        f"Persisted flush item: category={item.category}, "
+                        f"subject={item.subject}, confidence={item.confidence}"
+                    )
+                    return True
+
+                except Exception as e:
+                    # Codexレビュー指摘#3: 明示的なロールバック
+                    try:
+                        conn.rollback()
+                    except Exception as rb_err:
+                        logger.warning("Rollback failed: %s", type(rb_err).__name__)
+                    raise
+
+        return await asyncio.to_thread(_sync)

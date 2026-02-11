@@ -349,7 +349,9 @@ class ContextBuilder:
             self._get_emotion_context(message, organization_id, user_id),
         ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Phase 0: 各タスクに15秒タイムアウト（イベントループブロック防止）
+        wrapped_tasks = [asyncio.wait_for(t, timeout=15.0) for t in tasks]
+        results = await asyncio.gather(*wrapped_tasks, return_exceptions=True)
 
         # 結果を展開（エラーはログしてデフォルト値を使用）
         (

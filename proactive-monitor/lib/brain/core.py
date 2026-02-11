@@ -1449,16 +1449,18 @@ class SoulkunBrain:
                 LIMIT 1
             """)
 
-            with self.pool.connect() as conn:
-                result = conn.execute(query, {"account_id": str(user_id)})
-                row = result.fetchone()
+            def _sync():
+                with self.pool.connect() as conn:
+                    result = conn.execute(query, {"account_id": str(user_id)})
+                    row = result.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+                return None
 
-            if row and row[0]:
-                return str(row[0])
-            return None
+            return await asyncio.to_thread(_sync)
 
         except Exception as e:
-            logger.warning(f"⚠️ [org_id取得] エラー: {e}")
+            logger.warning(f"⚠️ [org_id取得] エラー: {type(e).__name__}")
             return None
 
     async def _transition_to_state(

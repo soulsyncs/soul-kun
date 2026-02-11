@@ -261,68 +261,71 @@ class BrainStateManager:
             return None
 
         try:
-            query = text("""
-                SELECT
-                    id, organization_id, room_id, user_id,
-                    state_type, state_step, state_data,
-                    reference_type, reference_id,
-                    expires_at, timeout_minutes,
-                    created_at, updated_at
-                FROM brain_conversation_states
-                WHERE organization_id = :org_id
-                  AND room_id = :room_id
-                  AND user_id = :user_id
-            """)
+            def _sync():
+                query = text("""
+                    SELECT
+                        id, organization_id, room_id, user_id,
+                        state_type, state_step, state_data,
+                        reference_type, reference_id,
+                        expires_at, timeout_minutes,
+                        created_at, updated_at
+                    FROM brain_conversation_states
+                    WHERE organization_id = :org_id
+                      AND room_id = :room_id
+                      AND user_id = :user_id
+                """)
 
-            # 同期プールの場合は同期的に実行
-            with self._connect_with_org_context() as conn:
-                result = conn.execute(query, {
-                    "org_id": self.org_id,
-                    "room_id": room_id,
-                    "user_id": user_id,
-                })
-                row = result.fetchone()
+                # RLSスレッド安全: set_config + query は同一接続・同一スレッド内
+                with self._connect_with_org_context() as conn:
+                    result = conn.execute(query, {
+                        "org_id": self.org_id,
+                        "room_id": room_id,
+                        "user_id": user_id,
+                    })
+                    row = result.fetchone()
 
-            if row is None:
-                logger.debug("[StateManager] 状態なし")
-                return None
+                if row is None:
+                    logger.debug("[StateManager] 状態なし")
+                    return None
 
-            # タイムアウト判定
-            expires_at = row.expires_at
-            if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
-                # タイムアウト → 自動クリア（同期的に実行）
-                logger.debug("State expired, auto-clearing")
-                try:
-                    self._clear_state_sync(room_id, user_id, reason="timeout")
-                except Exception as clear_err:
-                    logger.warning(f"Failed to clear expired state: {clear_err}")
-                return None
+                # タイムアウト判定
+                expires_at = row.expires_at
+                if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
+                    # タイムアウト → 自動クリア（同一スレッド内で実行）
+                    logger.debug("State expired, auto-clearing")
+                    try:
+                        self._clear_state_sync(room_id, user_id, reason="timeout")
+                    except Exception as clear_err:
+                        logger.warning(f"Failed to clear expired state: {type(clear_err).__name__}")
+                    return None
 
-            # ConversationStateに変換
-            state = ConversationState(
-                state_id=str(row.id),
-                organization_id=str(row.organization_id),
-                room_id=row.room_id,
-                user_id=row.user_id,
-                state_type=StateType(row.state_type),
-                state_step=row.state_step,
-                state_data=row.state_data or {},
-                reference_type=row.reference_type,
-                reference_id=str(row.reference_id) if row.reference_id else None,
-                expires_at=row.expires_at,
-                created_at=row.created_at,
-                updated_at=row.updated_at,
-            )
+                # ConversationStateに変換
+                state = ConversationState(
+                    state_id=str(row.id),
+                    organization_id=str(row.organization_id),
+                    room_id=row.room_id,
+                    user_id=row.user_id,
+                    state_type=StateType(row.state_type),
+                    state_step=row.state_step,
+                    state_data=row.state_data or {},
+                    reference_type=row.reference_type,
+                    reference_id=str(row.reference_id) if row.reference_id else None,
+                    expires_at=row.expires_at,
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                )
 
-            # v10.56.6: 診断ログ（debugレベル、PII非露出）
-            logger.debug(
-                f"[StateManager] 状態取得成功: type={state.state_type.value}, step={state.state_step}"
-            )
+                # v10.56.6: 診断ログ（debugレベル、PII非露出）
+                logger.debug(
+                    f"[StateManager] 状態取得成功: type={state.state_type.value}, step={state.state_step}"
+                )
 
-            return state
+                return state
+
+            return await asyncio.to_thread(_sync)
 
         except Exception as e:
-            logger.error(f"Error getting current state: {e}")
+            logger.error(f"Error getting current state: {type(e).__name__}")
             # エラー時は状態なしとして扱う（安全側）
             return None
 
@@ -370,52 +373,55 @@ class BrainStateManager:
             # 既存状態を取得（履歴記録用）
             old_state = await self.get_current_state(room_id, user_id)
 
-            # 同期プールの場合は同期的に実行
-            with self._connect_with_org_context() as conn:
-                # UPSERT
-                upsert_query = text("""
-                    INSERT INTO brain_conversation_states (
-                        organization_id, room_id, user_id,
-                        state_type, state_step, state_data,
-                        reference_type, reference_id,
-                        expires_at, timeout_minutes,
-                        created_at, updated_at
-                    ) VALUES (
-                        :org_id, :room_id, :user_id,
-                        :state_type, :state_step, CAST(:state_data AS jsonb),
-                        :reference_type, :reference_id,
-                        :expires_at, :timeout_minutes,
-                        :now, :now
-                    )
-                    ON CONFLICT (organization_id, room_id, user_id)
-                    DO UPDATE SET
-                        state_type = EXCLUDED.state_type,
-                        state_step = EXCLUDED.state_step,
-                        state_data = EXCLUDED.state_data,
-                        reference_type = EXCLUDED.reference_type,
-                        reference_id = EXCLUDED.reference_id,
-                        expires_at = EXCLUDED.expires_at,
-                        timeout_minutes = EXCLUDED.timeout_minutes,
-                        updated_at = EXCLUDED.updated_at
-                    RETURNING id
-                """)
+            # RLSスレッド安全: set_config + UPSERT は同一接続・同一スレッド内
+            def _sync_upsert():
+                with self._connect_with_org_context() as conn:
+                    upsert_query = text("""
+                        INSERT INTO brain_conversation_states (
+                            organization_id, room_id, user_id,
+                            state_type, state_step, state_data,
+                            reference_type, reference_id,
+                            expires_at, timeout_minutes,
+                            created_at, updated_at
+                        ) VALUES (
+                            :org_id, :room_id, :user_id,
+                            :state_type, :state_step, CAST(:state_data AS jsonb),
+                            :reference_type, :reference_id,
+                            :expires_at, :timeout_minutes,
+                            :now, :now
+                        )
+                        ON CONFLICT (organization_id, room_id, user_id)
+                        DO UPDATE SET
+                            state_type = EXCLUDED.state_type,
+                            state_step = EXCLUDED.state_step,
+                            state_data = EXCLUDED.state_data,
+                            reference_type = EXCLUDED.reference_type,
+                            reference_id = EXCLUDED.reference_id,
+                            expires_at = EXCLUDED.expires_at,
+                            timeout_minutes = EXCLUDED.timeout_minutes,
+                            updated_at = EXCLUDED.updated_at
+                        RETURNING id
+                    """)
 
-                result = conn.execute(upsert_query, {
-                    "org_id": self.org_id,
-                    "room_id": room_id,
-                    "user_id": user_id,
-                    "state_type": state_type.value,
-                    "state_step": step,
-                    "state_data": _safe_json_dumps(data),
-                    "reference_type": reference_type,
-                    "reference_id": reference_id,
-                    "expires_at": expires_at,
-                    "timeout_minutes": timeout_minutes,
-                    "now": now,
-                })
-                row = result.fetchone()
-                state_id = str(row.id) if row else None
-                conn.commit()
+                    result = conn.execute(upsert_query, {
+                        "org_id": self.org_id,
+                        "room_id": room_id,
+                        "user_id": user_id,
+                        "state_type": state_type.value,
+                        "state_step": step,
+                        "state_data": _safe_json_dumps(data),
+                        "reference_type": reference_type,
+                        "reference_id": reference_id,
+                        "expires_at": expires_at,
+                        "timeout_minutes": timeout_minutes,
+                        "now": now,
+                    })
+                    row = result.fetchone()
+                    sid = str(row.id) if row else None
+                    conn.commit()
+                    return sid
+
+            state_id = await asyncio.to_thread(_sync_upsert)
 
             # 新しい状態を構築
             new_state = ConversationState(
@@ -441,9 +447,9 @@ class BrainStateManager:
             return new_state
 
         except Exception as e:
-            logger.error(f"Error in state transition: {e}")
+            logger.error(f"Error in state transition: {type(e).__name__}")
             raise StateError(
-                message=f"Failed to transition state: {e}",
+                message=f"Failed to transition state: {type(e).__name__}",
                 room_id=room_id,
                 user_id=user_id,
                 current_state=old_state.state_type.value if old_state else None,
@@ -471,9 +477,9 @@ class BrainStateManager:
             reason: クリア理由（user_cancel, timeout, completed, error）
         """
         try:
-            self._clear_state_sync(room_id, user_id, reason)
+            await asyncio.to_thread(self._clear_state_sync, room_id, user_id, reason)
         except Exception as e:
-            logger.error(f"Error clearing state: {e}")
+            logger.error(f"Error clearing state: {type(e).__name__}")
 
     def _clear_state_sync(
         self,
@@ -546,9 +552,11 @@ class BrainStateManager:
         try:
             now = datetime.utcnow()
 
-            # 同期poolの場合は同期メソッドを使用
+            # 同期poolの場合はasyncio.to_threadで実行（イベントループブロック防止）
             if not self._is_async_pool:
-                return self._update_step_sync(room_id, user_id, new_step, additional_data, now)
+                return await asyncio.to_thread(
+                    self._update_step_sync, room_id, user_id, new_step, additional_data, now
+                )
 
             async with self._connect_with_org_context_async() as conn:
                 async with conn.begin():
@@ -645,9 +653,9 @@ class BrainStateManager:
         except StateError:
             raise
         except Exception as e:
-            logger.error(f"Error updating step: {e}")
+            logger.error(f"Error updating step: {type(e).__name__}")
             raise StateError(
-                message=f"Failed to update step: {e}",
+                message=f"Failed to update step: {type(e).__name__}",
                 room_id=room_id,
                 user_id=user_id,
             )

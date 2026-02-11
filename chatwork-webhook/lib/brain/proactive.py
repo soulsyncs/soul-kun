@@ -17,7 +17,8 @@ Phase 2: 能動的モニタリング（Proactive Monitoring）
 Cloud Schedulerから毎時実行（本番環境）
 """
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
@@ -309,6 +310,27 @@ class ProactiveMonitor:
             finally:
                 await conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
 
+    @contextmanager
+    def _connect_with_org_context_sync(self, organization_id: str):
+        """
+        sync版: organization_idコンテキスト付きでDB接続を取得（RLS対応）
+
+        asyncio.to_thread()で使用するための同期バージョン。
+        set_config + query + reset が同一接続・同一スレッドで実行される。
+        """
+        with self._pool.connect() as conn:
+            conn.execute(
+                text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+                {"org_id": organization_id}
+            )
+            try:
+                yield conn
+            finally:
+                try:
+                    conn.execute(text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                except Exception:
+                    pass
+
     # --------------------------------------------------------
     # ヘルパーメソッド（型変換）
     # --------------------------------------------------------
@@ -510,13 +532,16 @@ class ProactiveMonitor:
 
             threshold = datetime.now(JST) - timedelta(days=GOAL_ABANDONED_DAYS)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "user_id": user_ctx.user_id,
-                    "threshold": threshold,
-                })
-                row = result.fetchone()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "org_id": user_ctx.organization_id,
+                        "user_id": user_ctx.user_id,
+                        "threshold": threshold,
+                    })
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row:
                 days_since_update = (datetime.now(JST) - row.updated_at).days
@@ -563,12 +588,15 @@ class ProactiveMonitor:
                   AND status = 'open'
             """)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "org_id": chatwork_org_id,
-                    "account_id": account_id_int,
-                })
-                row = result.fetchone()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "org_id": chatwork_org_id,
+                        "account_id": account_id_int,
+                    })
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row and row.total_count >= TASK_OVERLOAD_COUNT:
                 return Trigger(
@@ -612,13 +640,16 @@ class ProactiveMonitor:
 
             threshold = datetime.now(JST) - timedelta(days=EMOTION_DECLINE_DAYS)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "user_id": user_ctx.user_id,
-                    "threshold": threshold,
-                })
-                rows = result.fetchall()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "org_id": user_ctx.organization_id,
+                        "user_id": user_ctx.user_id,
+                        "threshold": threshold,
+                    })
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync)
 
             if len(rows) >= 3:  # 最低3件のデータが必要
                 avg_score = sum(r.sentiment_score for r in rows) / len(rows)
@@ -671,13 +702,16 @@ class ProactiveMonitor:
 
             threshold = datetime.now(JST) - timedelta(hours=24)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "user_id": user_ctx.user_id,
-                    "threshold": threshold,
-                })
-                row = result.fetchone()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "org_id": user_ctx.organization_id,
+                        "user_id": user_ctx.user_id,
+                        "threshold": threshold,
+                    })
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row:
                 return Trigger(
@@ -725,13 +759,16 @@ class ProactiveMonitor:
 
             threshold = datetime.now(JST) - timedelta(hours=24)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "org_id": chatwork_org_id,
-                    "account_id": account_id_int,
-                    "threshold": threshold,
-                })
-                row = result.fetchone()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "org_id": chatwork_org_id,
+                        "account_id": account_id_int,
+                        "threshold": threshold,
+                    })
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row and row.count >= 3:  # 3件以上完了で称賛
                 return Trigger(
@@ -811,15 +848,18 @@ class ProactiveMonitor:
                 LIMIT 1
             """)
 
-            # brain_*テーブルアクセス: RLSコンテキスト設定
-            async with self._connect_with_org_context(user_ctx.organization_id) as conn:
-                result = await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "user_id": user_ctx.user_id,
-                    "trigger_type": trigger_type.value,
-                    "threshold": threshold,
-                })
-                return result.fetchone() is not None
+            # brain_*テーブルアクセス: RLSコンテキスト設定（sync版 + asyncio.to_thread）
+            def _sync():
+                with self._connect_with_org_context_sync(user_ctx.organization_id) as conn:
+                    result = conn.execute(query, {
+                        "org_id": user_ctx.organization_id,
+                        "user_id": user_ctx.user_id,
+                        "trigger_type": trigger_type.value,
+                        "threshold": threshold,
+                    })
+                    return result.fetchone() is not None
+
+            return await asyncio.to_thread(_sync)
 
         except Exception as e:
             # テーブルが存在しない場合などはクールダウンなしとして扱う
@@ -974,16 +1014,19 @@ class ProactiveMonitor:
                 VALUES (:org_id, :user_id, :trigger_type, CAST(:details AS jsonb), :sent_at)
             """)
 
-            # brain_*テーブルアクセス: RLSコンテキスト設定
-            async with self._connect_with_org_context(user_ctx.organization_id) as conn:
-                await conn.execute(query, {
-                    "org_id": user_ctx.organization_id,
-                    "user_id": user_ctx.user_id,
-                    "trigger_type": trigger.trigger_type.value,
-                    "details": str(trigger.details),  # JSON文字列に変換
-                    "sent_at": datetime.now(JST),
-                })
-                await conn.commit()
+            # brain_*テーブルアクセス: RLSコンテキスト設定（sync版 + asyncio.to_thread）
+            def _sync():
+                with self._connect_with_org_context_sync(user_ctx.organization_id) as conn:
+                    conn.execute(query, {
+                        "org_id": user_ctx.organization_id,
+                        "user_id": user_ctx.user_id,
+                        "trigger_type": trigger.trigger_type.value,
+                        "details": str(trigger.details),  # JSON文字列に変換
+                        "sent_at": datetime.now(JST),
+                    })
+                    conn.commit()
+
+            await asyncio.to_thread(_sync)
 
         except Exception as e:
             logger.warning(f"[Proactive] Failed to log action: {e}")
@@ -1025,9 +1068,12 @@ class ProactiveMonitor:
                 """)
                 params = {}
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, params)
-                rows = result.fetchall()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, params)
+                    return result.fetchall()
+
+            rows = await asyncio.to_thread(_sync)
 
             return [
                 UserContext(
@@ -1066,12 +1112,15 @@ class ProactiveMonitor:
                   AND u.organization_id = :org_id
             """)
 
-            async with self._pool.connect() as conn:
-                result = await conn.execute(query, {
-                    "user_id": user_id,
-                    "org_id": organization_id,
-                })
-                row = result.fetchone()
+            def _sync():
+                with self._pool.connect() as conn:
+                    result = conn.execute(query, {
+                        "user_id": user_id,
+                        "org_id": organization_id,
+                    })
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row:
                 return UserContext(

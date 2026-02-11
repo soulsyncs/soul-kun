@@ -37,6 +37,7 @@ Author: Claude Opus 4.5
 Created: 2026-01-28
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -768,8 +769,9 @@ class CapabilityBridge:
                 recipient_name=sender_name,
             )
 
-            # フィードバックエンジンを初期化（Poolからconnectionを取得）
-            with self.pool.connect() as conn:
+            # フィードバックエンジンを初期化（接続取得はスレッドで実行しブロック回避）
+            conn = await asyncio.to_thread(self.pool.connect)
+            try:
                 engine = CEOFeedbackEngine(
                     conn=conn,
                     organization_id=org_uuid,
@@ -782,6 +784,8 @@ class CapabilityBridge:
                     query=query,
                     deliver=False,
                 )
+            finally:
+                await asyncio.to_thread(conn.close)
 
             return HandlerResult(
                 success=True,

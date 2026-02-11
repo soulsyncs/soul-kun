@@ -202,22 +202,22 @@ class LLMContext:
         user_info = "\n".join([line for line in user_info_lines if line])
         sections.append(f"【ユーザー情報】\n{user_info}")
 
-        # 会話履歴（直近5件）
+        # 会話履歴（直近3件 — v10.77.0: 5→3件に圧縮、コスト削減Phase 1-2）
         if self.recent_messages:
             history_lines = []
-            for m in self.recent_messages[-5:]:
+            for m in self.recent_messages[-3:]:
                 sender = m.sender or ("ソウルくん" if m.role == "assistant" else "ユーザー")
-                history_lines.append(f"- {sender}: {m.content[:100]}{'...' if len(m.content) > 100 else ''}")
+                history_lines.append(f"- {sender}: {m.content[:80]}{'...' if len(m.content) > 80 else ''}")
             sections.append(f"【直近の会話】\n" + "\n".join(history_lines))
 
-        # 記憶している人物
+        # 記憶している人物（v10.77.0: 5→3人に圧縮）
         if self.known_persons:
-            persons = "\n".join([f"- {p.to_string()}" for p in self.known_persons[:5]])
+            persons = "\n".join([f"- {p.to_string()}" for p in self.known_persons[:3]])
             sections.append(f"【記憶している人物】\n{persons}")
 
-        # 関連タスク
+        # 関連タスク（v10.77.0: 5→3件に圧縮）
         if self.recent_tasks:
-            tasks = "\n".join([f"- {t.to_string()}" for t in self.recent_tasks[:5]])
+            tasks = "\n".join([f"- {t.to_string()}" for t in self.recent_tasks[:3]])
             sections.append(f"【関連タスク】\n{tasks}")
 
         # アクティブな目標
@@ -308,116 +308,75 @@ class ContextBuilder:
         """
         コンテキストを構築する
 
+        v10.78.0: 根本原因修正 — 全DBクエリを1コネクションに統合
+        Before: 9つの pool.connect() → pool枯渇 → pool.connect()ハング → 全タイムアウト
+        After: 1つの pool.connect() → 8クエリ直列実行 → pool枯渇なし
+        証拠: state_manager（単発pool.connect()）は0.056sで完了。複数スレッドからの
+        同時pool.connect()がdb-f1-microでハングする。
+
         Truth順位（CLAUDE.md セクション3）に従ってデータを取得。
         1位: リアルタイムAPI
         2位: DB（正規データ）
         3位: 設計書・仕様書
         4位: Memory（会話の文脈）
         5位: 推測 → 禁止
-
-        Args:
-            user_id: ユーザーID
-            room_id: ChatWorkルームID
-            organization_id: 組織ID
-            message: 現在のユーザーメッセージ
-            sender_name: 送信者名
-
-        Returns:
-            LLMContext: 構築されたコンテキスト
         """
         import time as _time
         _build_t0 = _time.monotonic()
         logger.debug("Building LLM context")
-        print(f"[DIAG] context_builder.build() START (Semaphore=1, serial execution)")
+        print(f"[DIAG] context_builder.build() START (single-conn mode)")
 
-        # v10.76.0: DB系タスクはSemaphore(1)で直列実行
-        # 理由: db-f1-micro（共有CPU, 614MB）が3本同時JOINに耐えられない
-        #   - 本番ログ証拠: Semaphore(3)で全9クエリが15秒タイムアウト
-        #   - _get_current_state()（単発クエリ）は0.063sで成功
-        #   - 3者合議（Claude+Codex+Gemini）で直列化に一致
-        # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
-        _db_sem = asyncio.Semaphore(1)
-
-        async def _db_limited(coro, name: str, timeout: float = 3.0):
-            """DB系タスク: セマフォで直列実行（Semaphore=1）、タイムアウト3秒
-
-            本番ログ証拠: pool.connect()自体がハングする（DONEが出ない）。
-            15秒待っても無駄なので3秒で打ち切り、空コンテキストで応答。
-            """
-            import time as _time
-            async def _run():
-                async with _db_sem:
-                    t0 = _time.monotonic()
-                    print(f"[DIAG] DB task {name} START (acquired semaphore)")
-                    result = await coro
-                    elapsed = _time.monotonic() - t0
-                    print(f"[DIAG] DB task {name} DONE in {elapsed:.3f}s")
-                    return result
-
-            try:
-                return await asyncio.wait_for(_run(), timeout=timeout)
-            except asyncio.TimeoutError:
-                print(f"[DIAG] DB task {name} timed out after {timeout}s")
-                logger.warning(f"DB task {name} timed out after {timeout}s")
-                return None
-            except Exception as e:
-                print(f"[DIAG] DB task {name} failed: {type(e).__name__}")
-                logger.warning(f"DB task {name} failed: {type(e).__name__}")
-                return None
-
-        async def _safe_non_db(coro, name: str, timeout: float = 15.0):
-            """非DB系タスク: セマフォなし、タイムアウト付き"""
+        async def _safe(coro, name: str, default=None, timeout: float = 15.0):
+            """タスクをタイムアウト付きで安全に実行"""
             try:
                 return await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
-                print(f"[DIAG] Non-DB task {name} timed out after {timeout}s")
-                logger.warning(f"Non-DB task {name} timed out after {timeout}s")
-                return None
+                print(f"[DIAG] {name} timed out after {timeout}s")
+                logger.warning(f"{name} timed out after {timeout}s")
+                return default
             except Exception as e:
-                print(f"[DIAG] Non-DB task {name} failed: {type(e).__name__}")
-                logger.warning(f"Non-DB task {name} failed: {type(e).__name__}")
-                return None
+                print(f"[DIAG] {name} failed: {type(e).__name__}")
+                logger.warning(f"{name} failed: {type(e).__name__}")
+                return default
 
-        # Phase 2E: _get_context()で既に取得済みの場合はDBクエリをスキップ
-        phase2e_task = (
-            self._return_prefetched(phase2e_learnings_prefetched)
-            if phase2e_learnings_prefetched is not None
-            else self._get_phase2e_learnings(message, user_id, room_id)
+        # 5タスクを並行実行:
+        # - 3つの非DBタスク（Firestore/LLM API）
+        # - 1つのDB統合タスク（8クエリを1コネクションで直列実行）
+        # - 1つのCEO教え（独自リポジトリ経由、別コネクション）
+        results = await asyncio.gather(
+            _safe(self._get_session_state(user_id, room_id), "session_state"),
+            _safe(self._get_recent_messages(user_id, room_id, organization_id), "messages", default=[]),
+            _safe(self._get_emotion_context(message, organization_id, user_id), "emotion", default=""),
+            _safe(self._fetch_all_db_data(
+                user_id, room_id, organization_id, message,
+                sender_name, phase2e_learnings_prefetched,
+            ), "db_data", default={}, timeout=15.0),
+            _safe(self._get_ceo_teachings(organization_id, message), "ceo_teachings", default=[], timeout=5.0),
+            return_exceptions=True,
         )
-        tasks = [
-            _safe_non_db(self._get_session_state(user_id, room_id), "session_state"),
-            _safe_non_db(self._get_recent_messages(user_id, room_id, organization_id), "messages"),
-            _db_limited(self._get_conversation_summary(user_id, organization_id), "summary"),
-            _db_limited(self._get_user_preferences(user_id, organization_id), "preferences"),
-            _db_limited(self._get_known_persons(organization_id), "persons"),
-            _db_limited(self._get_recent_tasks(user_id, room_id, organization_id), "tasks"),
-            _db_limited(self._get_active_goals(user_id, organization_id), "goals"),
-            _db_limited(self._get_ceo_teachings(organization_id, message), "ceo_teachings"),
-            _db_limited(self._get_user_info(user_id, organization_id, sender_name), "user_info"),
-            _db_limited(phase2e_task, "phase2e"),
-            _db_limited(self._get_outcome_patterns(user_id), "outcome_patterns"),
-            _safe_non_db(self._get_emotion_context(message, organization_id, user_id), "emotion"),
-        ]
 
-        results = await asyncio.gather(*tasks, return_exceptions=True)
         _build_elapsed = _time.monotonic() - _build_t0
         print(f"[DIAG] context_builder.build() ALL tasks done in {_build_elapsed:.3f}s")
 
-        # 結果を展開（エラーはログしてデフォルト値を使用）
-        (
-            session_state,
-            recent_messages,
-            conversation_summary,
-            user_preferences,
-            known_persons,
-            recent_tasks,
-            active_goals,
-            ceo_teachings,
-            user_info,
-            phase2e_learnings,
-            outcome_patterns,
-            emotion_context,
-        ) = self._handle_results(results)
+        # 結果を展開（例外はデフォルト値に置換）
+        def _unpack(val, default=None):
+            return default if isinstance(val, Exception) or val is None else val
+
+        session_state = _unpack(results[0])
+        recent_messages = _unpack(results[1], [])
+        emotion_context = _unpack(results[2], "")
+        db_data = _unpack(results[3], {})
+        ceo_teachings = _unpack(results[4], [])
+
+        # DB統合結果を展開
+        conversation_summary = db_data.get("summary")
+        user_preferences = db_data.get("preferences")
+        known_persons = db_data.get("persons", [])
+        recent_tasks = db_data.get("tasks", [])
+        active_goals = db_data.get("goals", [])
+        user_info = db_data.get("user_info") or {"name": sender_name or "ユーザー", "role": ""}
+        phase2e_learnings = db_data.get("phase2e", "")
+        outcome_patterns = db_data.get("outcome_patterns", "")
 
         return LLMContext(
             session_state=session_state,
@@ -488,6 +447,318 @@ class ContextBuilder:
                 processed.append(result)
 
         return tuple(processed)
+
+    async def _fetch_all_db_data(
+        self,
+        user_id: str,
+        room_id: str,
+        organization_id: str,
+        message: str,
+        sender_name: Optional[str] = None,
+        phase2e_learnings_prefetched: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        根本原因修正: 全DBクエリを1コネクション・1スレッドで実行
+
+        v10.78.0: pool.connect()ハングの根本原因修正
+        Before: 9つのasyncio.to_thread()が各自pool.connect()
+          → db-f1-microでpool枯渇 → pool.connect()がpool_timeout(30s)まで待機
+        After: 1つのasyncio.to_thread()で1つのpool.connect()
+          → 8クエリを直列実行 → pool枯渇なし
+
+        証拠:
+        - state_manager（単発pool.connect()）は0.056sで完了
+        - memory_access（9並列pool.connect()）は全て15秒タイムアウト
+        - 3者合議（Claude+Codex+Gemini）でpool枯渇が原因と一致
+
+        Returns:
+            Dict with keys: summary, preferences, persons, tasks, goals,
+            user_info, phase2e, outcome_patterns
+        """
+        from sqlalchemy import text as sa_text
+        import time as _time
+
+        org_is_uuid = False
+        try:
+            import uuid
+            uuid.UUID(organization_id)
+            org_is_uuid = True
+        except (ValueError, AttributeError):
+            pass
+
+        pool = self.pool
+        memory = self.memory_access
+        phase2e_learning = self.phase2e_learning
+        outcome_learning = self.outcome_learning
+        org_id = organization_id
+        prefetched = phase2e_learnings_prefetched
+
+        def _sync_all_queries():
+            """1コネクションで全DBクエリを直列実行（スレッド内で実行）"""
+            t0 = _time.monotonic()
+            data: Dict[str, Any] = {
+                "summary": None,
+                "preferences": None,
+                "persons": [],
+                "tasks": [],
+                "goals": [],
+                "user_info": {"name": sender_name or "ユーザー", "role": ""},
+                "phase2e": prefetched or "",
+                "outcome_patterns": "",
+            }
+
+            try:
+                with pool.connect() as conn:
+                    # state_managerと同じパターン: rollback()で接続状態をクリーン化
+                    conn.rollback()
+                    # DB側タイムアウト: 個別クエリが5秒以上かかったらキャンセル
+                    conn.execute(sa_text(
+                        "SELECT set_config('statement_timeout', '5000', true)"
+                    ))
+                    t_conn = _time.monotonic()
+                    print(f"[DIAG] _fetch_all_db_data: conn ready in {t_conn - t0:.3f}s")
+
+                    # --- 1. 会話要約 (conversation_summaries) ---
+                    if org_is_uuid and memory:
+                        try:
+                            row = conn.execute(sa_text("""
+                                SELECT cs.id, cs.summary_text, cs.key_topics,
+                                       cs.mentioned_persons, cs.mentioned_tasks,
+                                       cs.message_count, cs.created_at
+                                FROM conversation_summaries cs
+                                JOIN users u ON cs.user_id = u.id
+                                WHERE u.chatwork_account_id = :user_id
+                                  AND cs.organization_id = CAST(:org_id AS uuid)
+                                ORDER BY cs.created_at DESC LIMIT 1
+                            """), {"user_id": user_id, "org_id": org_id}).fetchone()
+                            if row and row[1]:
+                                data["summary"] = str(row[1])
+                        except Exception as e:
+                            print(f"[DIAG] summary query failed: {type(e).__name__}")
+
+                    # --- 2. ユーザー嗜好 (user_preferences) ---
+                    if org_is_uuid and memory:
+                        try:
+                            rows = conn.execute(sa_text("""
+                                SELECT up.preference_type, up.preference_key,
+                                       up.preference_value, up.confidence
+                                FROM user_preferences up
+                                JOIN users u ON up.user_id = u.id
+                                WHERE u.chatwork_account_id = :user_id
+                                  AND up.organization_id = CAST(:org_id AS uuid)
+                                ORDER BY up.confidence DESC LIMIT 20
+                            """), {"user_id": user_id, "org_id": org_id}).fetchall()
+                            if rows:
+                                prefs = UserPreferences()
+                                for r in rows:
+                                    key = r[1] or ""
+                                    value = r[2]
+                                    if key == "preferred_name":
+                                        prefs.preferred_name = value
+                                    elif key == "report_format":
+                                        prefs.report_format = value
+                                    elif key == "notification_time":
+                                        prefs.notification_time = value
+                                    else:
+                                        prefs.other_preferences[key] = value
+                                data["preferences"] = prefs
+                        except Exception as e:
+                            print(f"[DIAG] preferences query failed: {type(e).__name__}")
+
+                    # --- 3. 人物情報 (persons + person_attributes) ---
+                    if memory:
+                        try:
+                            from collections import OrderedDict
+                            rows = conn.execute(sa_text("""
+                                SELECT p.id, p.name,
+                                       pa.attribute_type, pa.attribute_value
+                                FROM persons p
+                                LEFT JOIN person_attributes pa
+                                  ON pa.person_id = p.id
+                                  AND pa.organization_id = p.organization_id
+                                WHERE p.organization_id = :org_id
+                                ORDER BY p.name, pa.updated_at DESC
+                            """), {"org_id": org_id}).fetchall()
+                            person_map: OrderedDict = OrderedDict()
+                            for row in rows:
+                                pid = row[0]
+                                if pid not in person_map:
+                                    if len(person_map) >= 50:
+                                        break
+                                    person_map[pid] = {"name": row[1], "attrs": {}}
+                                if row[2]:
+                                    person_map[pid]["attrs"][row[2]] = row[3]
+                            data["persons"] = [
+                                PersonInfo(
+                                    person_id=str(pid) if pid else "",
+                                    name=info["name"],
+                                    attributes=info["attrs"],
+                                )
+                                for pid, info in person_map.items()
+                            ]
+                        except Exception as e:
+                            print(f"[DIAG] persons query failed: {type(e).__name__}")
+
+                    # --- 4. タスク情報 (chatwork_tasks) ---
+                    if memory:
+                        try:
+                            import time as time_mod
+                            now_ts = int(time_mod.time())
+                            rows = conn.execute(sa_text("""
+                                SELECT task_id, body, summary, status, limit_time,
+                                       room_id, room_name, assigned_to_name, assigned_by_name
+                                FROM chatwork_tasks
+                                WHERE assigned_to_account_id = :user_id
+                                  AND status = 'open'
+                                  AND organization_id = :org_id
+                                ORDER BY
+                                    CASE WHEN limit_time IS NOT NULL
+                                              AND to_timestamp(limit_time) < NOW()
+                                         THEN 0 ELSE 1 END,
+                                    limit_time ASC NULLS LAST
+                                LIMIT :lim
+                            """), {"user_id": user_id, "org_id": org_id, "lim": 10}).fetchall()
+
+                            def _parse_lt(lt):
+                                if lt is None:
+                                    return None
+                                if isinstance(lt, datetime):
+                                    return lt
+                                if isinstance(lt, (int, float)):
+                                    return datetime.fromtimestamp(lt)
+                                return None
+
+                            def _is_overdue(lt):
+                                if lt is None:
+                                    return False
+                                if isinstance(lt, datetime):
+                                    return lt < datetime.now()
+                                if isinstance(lt, (int, float)):
+                                    return lt < now_ts
+                                return False
+
+                            data["tasks"] = [
+                                TaskInfo(
+                                    task_id=str(r[0]) if r[0] else "",
+                                    body=r[1] or "",
+                                    summary=r[2],
+                                    status=r[3] or "open",
+                                    due_date=_parse_lt(r[4]),
+                                    room_id=str(r[5]) if r[5] else None,
+                                    room_name=r[6],
+                                    assignee_name=r[7],
+                                    assigned_by_name=r[8],
+                                    is_overdue=_is_overdue(r[4]),
+                                )
+                                for r in rows
+                            ]
+                        except Exception as e:
+                            print(f"[DIAG] tasks query failed: {type(e).__name__}")
+
+                    # --- 5. 目標情報 (goals) ---
+                    if org_is_uuid and memory:
+                        try:
+                            rows = conn.execute(sa_text("""
+                                SELECT g.id, g.title, g.description,
+                                       g.target_value, g.current_value,
+                                       g.status, g.deadline
+                                FROM goals g
+                                JOIN users u ON g.user_id = u.id
+                                WHERE u.chatwork_account_id = :user_id
+                                  AND g.organization_id = CAST(:org_id AS uuid)
+                                  AND g.status = 'active'
+                                ORDER BY g.created_at DESC LIMIT 5
+                            """), {"user_id": user_id, "org_id": org_id}).fetchall()
+                            data["goals"] = [
+                                GoalInfo(
+                                    goal_id=str(r[0]) if r[0] else "",
+                                    title=r[1] or "",
+                                    why=None,
+                                    what=r[2],
+                                    how=None,
+                                    status=r[5] or "active",
+                                    progress=(
+                                        float(r[4] / r[3] * 100)
+                                        if r[3] and r[4] else 0.0
+                                    ),
+                                    deadline=r[6],
+                                )
+                                for r in rows
+                            ]
+                        except Exception as e:
+                            print(f"[DIAG] goals query failed: {type(e).__name__}")
+
+                    # --- 6. ユーザー基本情報 (users) ---
+                    try:
+                        row = conn.execute(sa_text("""
+                            SELECT u.name, r.name AS role_name
+                            FROM users u
+                            LEFT JOIN user_departments ud ON ud.user_id = u.id
+                            LEFT JOIN roles r ON ud.role_id = r.id
+                            WHERE u.chatwork_account_id = :account_id
+                            AND u.organization_id = :org_id::uuid
+                            LIMIT 1
+                        """), {"account_id": user_id, "org_id": org_id}).fetchone()
+                        if row:
+                            data["user_info"] = {
+                                "name": row[0] or sender_name or "ユーザー",
+                                "role": row[1] or "",
+                            }
+                    except Exception as e:
+                        print(f"[DIAG] user_info query failed: {type(e).__name__}")
+
+                    # --- 7. Phase 2E 学習済み知識 ---
+                    if prefetched is None and phase2e_learning:
+                        try:
+                            applicable = phase2e_learning.find_applicable(
+                                conn, message, None, user_id, room_id
+                            )
+                            if applicable:
+                                ctx_adds = phase2e_learning.build_context_additions(
+                                    applicable
+                                )
+                                data["phase2e"] = (
+                                    phase2e_learning.build_prompt_instructions(ctx_adds)
+                                )
+                        except Exception as e:
+                            print(f"[DIAG] phase2e query failed: {type(e).__name__}")
+
+                    # --- 8. Phase 2F 行動パターン ---
+                    if outcome_learning:
+                        try:
+                            patterns = outcome_learning.find_applicable_patterns(
+                                conn=conn, target_account_id=user_id,
+                            )
+                            if patterns:
+                                lines = []
+                                for p in patterns[:3]:
+                                    content = p.pattern_content or {}
+                                    desc = content.get("description", p.pattern_type)
+                                    score = p.confidence_score or 0.0
+                                    lines.append(f"- {desc} (信頼度: {score:.0%})")
+                                data["outcome_patterns"] = (
+                                    "【行動パターン（Phase 2F）】\n"
+                                    + "\n".join(lines)
+                                )
+                        except Exception as e:
+                            print(f"[DIAG] outcome query failed: {type(e).__name__}")
+
+                    t_done = _time.monotonic()
+                    print(
+                        f"[DIAG] _fetch_all_db_data: all 8 queries done "
+                        f"in {t_done - t0:.3f}s"
+                    )
+
+            except Exception as e:
+                print(f"[DIAG] _fetch_all_db_data: conn failed: {type(e).__name__}")
+                logger.warning(
+                    "DB connection failed in _fetch_all_db_data: %s",
+                    type(e).__name__,
+                )
+
+            return data
+
+        return await asyncio.to_thread(_sync_all_queries)
 
     async def _get_session_state(
         self,

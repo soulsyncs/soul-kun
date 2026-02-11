@@ -39,13 +39,18 @@ PROACTIVE_DRY_RUN = os.environ.get("PROACTIVE_DRY_RUN", "true").lower() == "true
 USE_BRAIN_FOR_PROACTIVE = os.environ.get("USE_BRAIN_FOR_PROACTIVE", "true").lower() == "true"
 
 
-async def get_async_pool():
-    """非同期データベース接続プールを取得"""
+def get_sync_pool():
+    """同期データベース接続プールを取得
+
+    ProactiveMonitor / BrainMemoryAccess / SoulkunBrain は全て
+    pool.connect() を sync で使用するため、sync Engine が必要。
+    AsyncEngine を渡すと _get_active_users 等で TypeError になる。
+    """
     try:
-        from lib.db import get_async_db_pool
-        return await get_async_db_pool()
+        from lib.db import get_db_pool
+        return get_db_pool()
     except Exception as e:
-        logger.error(f"Failed to get async DB pool: {e}")
+        logger.error(f"Failed to get sync DB pool: {e}")
         return None
 
 
@@ -130,7 +135,7 @@ async def _try_generate_daily_log(pool) -> str:
         from lib.brain.daily_log import DailyLogGenerator
         from lib.db import get_db_pool
 
-        org_id = os.environ.get("SOULKUN_ORG_ID", "soulsyncs")
+        org_id = os.environ.get("SOULKUN_ORG_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         sync_pool = get_db_pool()  # 同期プール（DailyLogGeneratorは同期DB操作）
         generator = DailyLogGenerator(pool=sync_pool, org_id=org_id)
         activity = await asyncio.to_thread(generator.generate)  # 同期処理をスレッドで実行
@@ -158,7 +163,7 @@ async def _try_outcome_learning_batch() -> dict:
         from lib.brain.outcome_learning import create_outcome_learning
         from lib.db import get_db_pool
 
-        org_id = os.environ.get("SOULKUN_ORG_ID", "soulsyncs")
+        org_id = os.environ.get("SOULKUN_ORG_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         outcome_learning = create_outcome_learning(org_id)
         sync_pool = get_db_pool()
 
@@ -196,7 +201,7 @@ async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
 
-    pool = await get_async_pool()
+    pool = get_sync_pool()
     if not pool:
         logger.error("[ProactiveMonitor] No database pool available")
         return {"status": "error", "message": "No database pool"}

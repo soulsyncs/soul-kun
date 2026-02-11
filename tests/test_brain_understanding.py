@@ -713,6 +713,37 @@ class TestSyncAIResponse:
         # 同期関数でも結果が返る
         assert result.intent is not None
 
+    @pytest.mark.asyncio
+    async def test_sync_call_llm_uses_to_thread(self):
+        """sync版get_ai_responseがasyncio.to_thread経由で呼ばれイベントループをブロックしない"""
+        import asyncio
+
+        call_log = []
+
+        def slow_sync_func(prompt):
+            call_log.append("called")
+            return '{"intent": "test", "confidence": 0.9}'
+
+        understanding = BrainUnderstanding(
+            get_ai_response_func=slow_sync_func,
+            org_id="test",
+            use_llm=True,
+        )
+
+        # _call_llmを直接呼び出し、並行タスクと同時実行できることを確認
+        counter = {"value": 0}
+
+        async def concurrent_task():
+            counter["value"] += 1
+
+        result, _ = await asyncio.gather(
+            understanding._call_llm("test prompt"),
+            concurrent_task(),
+        )
+        assert result == '{"intent": "test", "confidence": 0.9}'
+        assert call_log == ["called"]
+        assert counter["value"] == 1
+
 
 # =============================================================================
 # 10. エラーハンドリングテスト

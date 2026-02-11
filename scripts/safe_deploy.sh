@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# macOS互換のため bash 3.x でも動作すること（declare -A 禁止）
 set -euo pipefail
 
 # =============================================================================
@@ -161,12 +162,16 @@ echo -e "${CYAN}[Phase 2/4] トラフィックなしでデプロイ${NC}"
 echo ""
 
 # 現在のリビジョンを記録（ロールバック用）
-declare -A PREVIOUS_REVISIONS
+# bash 3.x互換: 連想配列の代わりに個別変数を使用
+PREV_REV_chatwork_webhook=""
+PREV_REV_proactive_monitor=""
 for func in "${TARGET_FUNCTIONS[@]}"; do
   prev_rev=$(gcloud run services describe "$func" \
     --region="$REGION" \
     --format='value(status.traffic[0].revisionName)' 2>/dev/null || echo "")
-  PREVIOUS_REVISIONS[$func]="$prev_rev"
+  # bash 3.x互換: func名のハイフンをアンダースコアに変換して変数に保存
+  var_name="PREV_REV_${func//-/_}"
+  eval "$var_name=\"$prev_rev\""
   echo "  $func 現在のリビジョン: $prev_rev"
 done
 echo ""
@@ -248,7 +253,8 @@ if [[ "$SMOKE_FAILED" -eq 1 ]]; then
   echo ""
 
   for func in "${TARGET_FUNCTIONS[@]}"; do
-    prev="${PREVIOUS_REVISIONS[$func]}"
+    var_name="PREV_REV_${func//-/_}"
+    eval "prev=\"\${$var_name}\""
     if [[ -n "$prev" ]]; then
       echo "  $func → $prev にロールバック..."
       gcloud run services update-traffic "$func" \

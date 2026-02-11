@@ -325,18 +325,30 @@ class ContextBuilder:
         Returns:
             LLMContext: 構築されたコンテキスト
         """
+        import time as _time
+        _build_t0 = _time.monotonic()
         logger.debug("Building LLM context")
+        print(f"[DIAG] context_builder.build() START (Semaphore=1, serial execution)")
 
-        # v10.74.0: DB系タスクはSemaphore(3)で並列数を制限
-        # pool_size=5に対してSemaphore(3)で安全に並列化（2接続の余裕確保）
+        # v10.76.0: DB系タスクはSemaphore(1)で直列実行
+        # 理由: db-f1-micro（共有CPU, 614MB）が3本同時JOINに耐えられない
+        #   - 本番ログ証拠: Semaphore(3)で全9クエリが15秒タイムアウト
+        #   - _get_current_state()（単発クエリ）は0.063sで成功
+        #   - 3者合議（Claude+Codex+Gemini）で直列化に一致
         # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
-        _db_sem = asyncio.Semaphore(3)
+        _db_sem = asyncio.Semaphore(1)
 
         async def _db_limited(coro, name: str, timeout: float = 15.0):
-            """DB系タスク: セマフォで並列数制限、タイムアウト付き"""
+            """DB系タスク: セマフォで直列実行（Semaphore=1）、タイムアウト付き"""
+            import time as _time
             async def _run():
                 async with _db_sem:
-                    return await coro
+                    t0 = _time.monotonic()
+                    print(f"[DIAG] DB task {name} START (acquired semaphore)")
+                    result = await coro
+                    elapsed = _time.monotonic() - t0
+                    print(f"[DIAG] DB task {name} DONE in {elapsed:.3f}s")
+                    return result
 
             try:
                 return await asyncio.wait_for(_run(), timeout=timeout)
@@ -384,6 +396,8 @@ class ContextBuilder:
         ]
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
+        _build_elapsed = _time.monotonic() - _build_t0
+        print(f"[DIAG] context_builder.build() ALL tasks done in {_build_elapsed:.3f}s")
 
         # 結果を展開（エラーはログしてデフォルト値を使用）
         (
@@ -459,6 +473,12 @@ class ContextBuilder:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 logger.warning("Error fetching %s: %s", field_names[i], type(result).__name__)
+                processed.append(defaults[i])
+            elif result is None and defaults[i] is not None:
+                # タイムアウト時に_db_limitedがNoneを返す場合、
+                # デフォルト値がNone以外のフィールド（[], {}, ""等）は
+                # Noneのままだと後続でAttributeError/TypeErrorになる
+                logger.debug("Field %s is None, using default", field_names[i])
                 processed.append(defaults[i])
             else:
                 processed.append(result)

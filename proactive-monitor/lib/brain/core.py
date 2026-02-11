@@ -613,18 +613,34 @@ class SoulkunBrain:
                 logger.warning("[Phase2E] Init load failed: %s", type(e).__name__)
 
         try:
+            print(f"[DIAG] process_message START t=0.000s")
             logger.info(
                 f"🧠 Brain processing: room={room_id}, user={sender_name}, "
                 f"message={message[:50]}..."
             )
 
+            llm_brain_enabled = is_llm_brain_enabled() and self.llm_brain is not None
+
             # 1. 記憶層: コンテキスト取得（メッセージも渡して関連知識を検索）
-            context = await self._get_context(
-                room_id=room_id,
-                user_id=account_id,
-                sender_name=sender_name,
-                message=message,
-            )
+            if llm_brain_enabled:
+                # LLM BrainパスではContextBuilderが必要情報を取得するため、
+                # ここでは最小のメタ情報のみ作成してDBクエリを避ける
+                context = BrainContext(
+                    organization_id=self.org_id,
+                    room_id=room_id,
+                    sender_name=sender_name,
+                    sender_account_id=account_id,
+                    timestamp=datetime.now(),
+                )
+            else:
+                t0 = time.time()
+                context = await self._get_context(
+                    room_id=room_id,
+                    user_id=account_id,
+                    sender_name=sender_name,
+                    message=message,
+                )
+                print(f"[DIAG] _get_context DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
 
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
@@ -636,18 +652,21 @@ class SoulkunBrain:
                 )
 
             # 関連するCEO教えをコンテキストに追加
-            ceo_context = await self.memory_manager.get_ceo_teachings_context(
-                message, account_id
-            )
-            if ceo_context:
-                context.ceo_teachings = ceo_context
+            if not llm_brain_enabled:
+                t0 = time.time()
+                ceo_context = await self.memory_manager.get_ceo_teachings_context(
+                    message, account_id
+                )
+                if ceo_context:
+                    context.ceo_teachings = ceo_context
+                print(f"[DIAG] ceo_teachings DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
 
             # =========================================================
             # v10.50.0: LLM Brain ルーティング
             # Feature Flag `ENABLE_LLM_BRAIN` が有効な場合、LLM脳で処理
             # =========================================================
-            if is_llm_brain_enabled() and self.llm_brain is not None:
-                logger.info("🧠 Routing to LLM Brain (Claude Opus 4.5)")
+            if llm_brain_enabled:
+                print(f"[DIAG] routing to LLM Brain t={time.time()-start_time:.3f}s")
                 return await self._process_with_llm_brain(
                     message=message,
                     room_id=room_id,
@@ -1881,21 +1900,14 @@ class SoulkunBrain:
             if self.llm_state_manager is None:
                 raise BrainError("LLM state manager is not initialized")
 
-            logger.info(
-                f"🧠 LLM Brain processing: room={room_id}, user={sender_name}, "
-                f"message={message[:50]}..."
-            )
+            print(f"[DIAG] _process_with_llm_brain START t={time.time()-start_time:.3f}s")
 
             # =================================================================
             # v10.56.6: LIST_CONTEXT優先ルーティング（マルチテナント対応）
-            # LIST_CONTEXT状態（目標一覧表示後の文脈保持）がある場合は、
-            # LLM処理をスキップしてセッション継続へ直接ルーティングする。
-            # これにより「目標全部削除して」→「OK」が正しく処理される。
-            #
-            # 重要: 状態保存時にユーザーのorg_idを使用しているため、
-            # 取得時も同じorg_idを使用する必要がある。
             # =================================================================
+            t0 = time.time()
             current_state = await self._get_current_state_with_user_org(room_id, account_id)
+            print(f"[DIAG] _get_current_state DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
             if current_state and current_state.is_active:
                 if current_state.state_type == StateType.LIST_CONTEXT:
                     logger.debug(
@@ -1914,6 +1926,7 @@ class SoulkunBrain:
 
             # 1. LLMコンテキストを構築
             # Phase 2E: _get_context()で取得済みの学習を渡して重複クエリ回避
+            t0 = time.time()
             llm_context = await self.llm_context_builder.build(
                 user_id=account_id,
                 room_id=room_id,
@@ -1922,16 +1935,19 @@ class SoulkunBrain:
                 sender_name=sender_name,
                 phase2e_learnings_prefetched=context.phase2e_learnings,
             )
+            print(f"[DIAG] context_builder.build DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
 
             # 2. Toolカタログを取得（SYSTEM_CAPABILITIESから変換）
             tools = get_tools_for_llm()
 
             # 3. LLM Brainで処理
+            t0 = time.time()
             llm_result: LLMBrainResult = await self.llm_brain.process(
                 context=llm_context,
                 message=message,
                 tools=tools,
             )
+            print(f"[DIAG] llm_brain.process DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
 
             # =================================================================
             # 境界型検証: LLM出力の型チェック
@@ -1951,7 +1967,9 @@ class SoulkunBrain:
             )
 
             # 4. Guardian Layerで検証
+            t0 = time.time()
             guardian_result = await self.llm_guardian.check(llm_result, llm_context)
+            print(f"[DIAG] guardian.check DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
 
             logger.info(
                 f"🛡️ Guardian result: action={guardian_result.action.value}, "

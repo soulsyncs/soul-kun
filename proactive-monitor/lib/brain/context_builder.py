@@ -338,8 +338,12 @@ class ContextBuilder:
         # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
         _db_sem = asyncio.Semaphore(1)
 
-        async def _db_limited(coro, name: str, timeout: float = 15.0):
-            """DB系タスク: セマフォで直列実行（Semaphore=1）、タイムアウト付き"""
+        async def _db_limited(coro, name: str, timeout: float = 3.0):
+            """DB系タスク: セマフォで直列実行（Semaphore=1）、タイムアウト3秒
+
+            本番ログ証拠: pool.connect()自体がハングする（DONEが出ない）。
+            15秒待っても無駄なので3秒で打ち切り、空コンテキストで応答。
+            """
             import time as _time
             async def _run():
                 async with _db_sem:

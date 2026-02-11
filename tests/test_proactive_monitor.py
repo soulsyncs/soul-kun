@@ -72,24 +72,43 @@ def _make_db_result(fetchone_value=None, fetchall_value=None):
 
 @pytest.fixture
 def mock_pool():
-    """Async database pool mock with context manager support.
+    """Dual sync/async database pool mock with context manager support.
 
-    pool.connect() returns an async context manager that yields conn.
-    conn.execute is an AsyncMock that returns a synchronous result object.
+    pool.connect() returns a dual context manager:
+    - async: yields async_conn (AsyncMock)
+    - sync: yields sync_conn (Mock) — used by asyncio.to_thread() callers
+    pool._conn points to sync_conn (primary for most tests).
     """
     pool = MagicMock()
 
-    conn = AsyncMock()
-    conn.commit = AsyncMock()
-    # Default: execute returns a result with fetchone=None, fetchall=[]
-    conn.execute = AsyncMock(return_value=_make_db_result())
+    # Sync conn (used by asyncio.to_thread patterns)
+    sync_conn = Mock()
+    sync_conn.commit = Mock()
+    sync_conn.rollback = Mock()
+    sync_conn.execute = Mock(return_value=_make_db_result())
 
-    @asynccontextmanager
-    async def fake_connect():
-        yield conn
+    # Async conn (used by legacy async with patterns)
+    async_conn = AsyncMock()
+    async_conn.commit = AsyncMock()
+    async_conn.execute = AsyncMock(return_value=_make_db_result())
 
-    pool.connect = fake_connect
-    pool._conn = conn  # expose for test assertions
+    class _DualCtx:
+        """Supports both 'async with pool.connect()' and 'with pool.connect()'."""
+        async def __aenter__(self):
+            return async_conn
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __enter__(self):
+            return sync_conn
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    pool.connect = lambda: _DualCtx()
+    pool._conn = sync_conn  # primary for test assertions
+    pool._async_conn = async_conn  # available if needed
     return pool
 
 
@@ -1529,14 +1548,14 @@ class TestCheckUser:
 
         call_count = 0
 
-        async def side_effect_execute(*args, **kwargs):
+        def side_effect_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return user_result
             return empty_result
 
-        conn.execute = AsyncMock(side_effect=side_effect_execute)
+        conn.execute = Mock(side_effect=side_effect_execute)
 
         result = await monitor.check_user(
             user_id=SAMPLE_USER_ID,
@@ -1586,14 +1605,14 @@ class TestCheckAndAct:
 
         call_count = 0
 
-        async def side_effect_execute(*args, **kwargs):
+        def side_effect_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return users_result
             return empty_result
 
-        conn.execute = AsyncMock(side_effect=side_effect_execute)
+        conn.execute = Mock(side_effect=side_effect_execute)
 
         results = await monitor.check_and_act()
         assert len(results) == 2
@@ -1624,14 +1643,14 @@ class TestCheckAndAct:
         # First execute returns users list; subsequent calls succeed
         call_count = 0
 
-        async def side_effect_execute(*args, **kwargs):
+        def side_effect_execute(*args, **kwargs):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
                 return users_result
             return _make_db_result()
 
-        conn.execute = AsyncMock(side_effect=side_effect_execute)
+        conn.execute = Mock(side_effect=side_effect_execute)
 
         # Patch _check_single_user to raise an exception directly
         with patch.object(
@@ -1709,14 +1728,12 @@ class TestCheckSingleUser:
 
 
 class TestConnectWithOrgContext:
-    """Tests for _connect_with_org_context (RLS context manager)."""
+    """Tests for _connect_with_org_context_sync (RLS context manager, sync版)."""
 
-    @pytest.mark.asyncio
-    async def test_sets_and_resets_org_context(self, monitor, mock_pool):
+    def test_sets_and_resets_org_context(self, monitor, mock_pool):
         conn = mock_pool._conn
-        conn.execute.return_value = _make_db_result()
 
-        async with monitor._connect_with_org_context(SAMPLE_ORG_ID) as c:
+        with monitor._connect_with_org_context_sync(SAMPLE_ORG_ID) as c:
             assert c is conn
 
         # set_config should be called at least twice (set + reset)

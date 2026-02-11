@@ -5,7 +5,7 @@ lib/brain/proactive.py のテスト
 import asyncio
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -23,6 +23,21 @@ from lib.brain.proactive import (
 from lib.brain.constants import JST
 
 
+class _SyncConn:
+    """sync版コネクションモック（asyncio.to_thread()内で使用される）"""
+    def __init__(self, result):
+        self._result = result
+        self.execute = Mock(return_value=result)
+        self.commit = Mock()
+        self.rollback = Mock()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 class _AsyncConn:
     def __init__(self, result):
         self._result = result
@@ -31,6 +46,7 @@ class _AsyncConn:
 
 
 class _AsyncPool:
+    """sync/async両対応のプールモック"""
     def __init__(self, result):
         self._result = result
 
@@ -42,6 +58,12 @@ class _AsyncPool:
                 return _AsyncConn(result)
 
             async def __aexit__(self_inner, exc_type, exc, tb):
+                return False
+
+            def __enter__(self_inner):
+                return _SyncConn(result)
+
+            def __exit__(self_inner, exc_type, exc, tb):
                 return False
 
         return _Ctx()

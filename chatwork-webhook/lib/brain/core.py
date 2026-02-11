@@ -1468,9 +1468,12 @@ class SoulkunBrain:
                 LIMIT 1
             """)
 
-            with self.pool.connect() as conn:
-                result = conn.execute(query, {"account_id": str(user_id)})
-                row = result.fetchone()
+            def _sync():
+                with self.pool.connect() as conn:
+                    result = conn.execute(query, {"account_id": str(user_id)})
+                    return result.fetchone()
+
+            row = await asyncio.to_thread(_sync)
 
             if row and row[0]:
                 return str(row[0])

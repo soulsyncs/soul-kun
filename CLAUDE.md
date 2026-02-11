@@ -359,11 +359,9 @@ LLM Brainの思考過程（Chain-of-Thought）を記録する際、PIIを自動�
 ```
 [Layer 1: 予防] コード作成時に22項目チェックリスト（§3-2）を意識
     ↓
-[Layer 2: 検出] commit → push → SQL検証 + Codex 3パスレビュー（22項目×3回）→ PASS必須
+[Layer 2: 3AI統合レビュー] commit → push → Codex 3パス + Claude Code + Gemini → 全PASS必須
     ↓
 CI（テスト・型チェック・sync確認・結合テスト）→ PR作成
-    ↓
-[Layer 2.5: 3AI自動レビュー] Claude Code + Gemini + Codex が独立にPRをレビュー
     ↓
 [Layer 3: 確認] マージ後・デプロイ前に scripts/safe_deploy.sh を実行
 ```
@@ -372,31 +370,23 @@ CI（テスト・型チェック・sync確認・結合テスト）→ PR作成
 
 コードを書く段階で§3-2の18項目チェックリストを意識する。そもそもバグを書かないことが最も低コスト。
 
-### 13-2. Layer 2: Codexレビュー（3パス）
+### 13-2. Layer 2: 3AI統合レビュー（pre-push）【v10.77更新】
 
-- pre-pushフックで自動実行（`scripts/codex_review_loop.sh --full`）
-- **3パスレビュー**:
-  - Pass 1: 標準レビュー（18項目チェック）
-  - Pass 2: 自己検証（「見落としはないか？」）
-  - Pass 3: 逆視点（「PASSは本当に正しいか？反証を探せ」）
-- 全パスPASS→push実行、いずれかFAIL→修正して再push
-- 緊急時のみ `SKIP_CODEX_REVIEW=1 git push` でスキップ可。SKIPした場合は後追いレビュー必須、PRに理由を明記
-- パス数変更: `REVIEW_PASSES=1 git push`（緊急時に1パスのみ）
+pre-pushフックで3つのAIが独立にレビューを実行する。全てローカルCLI（ログイン認証）で動作。APIキー不要。
 
-### 13-2.5. Layer 2.5: 3AI自動レビュー（PR作成時）【v10.76追加】
+| AI | 役割 | チェック内容 |
+|----|------|-------------|
+| **Codex** | 正確性・ビジネスロジック | 18項目3パスレビュー（Standard → Self-verify → Devil's Advocate） |
+| **Claude Code** | アーキテクチャ・設計整合性 | org_id, async, RLS, Brain bypass, lib/同期, PII等9項目 |
+| **Gemini** | セキュリティ・パフォーマンス | OWASP Top 10, N+1, リソースリーク, Python固有問題 |
 
-PRが作成・更新されると、3つのAIが独立にレビューを実行する。
-
-| AI | 役割 | トリガー | コスト |
-|----|------|---------|--------|
-| **Claude Code** | アーキテクチャ・22項目チェック・設計整合性 | PR自動 | ~$0.05/回 |
-| **Gemini** | セキュリティ・パフォーマンス・コード品質 | PR自動 | ~$0.01/回 |
-| **Codex** | 正確性・ビジネスロジック・経営視点（深いレビュー） | ラベル `codex-review` | ~$0.50/回 |
-
-- **ワークフロー**: `.github/workflows/ai-review.yml`（Claude + Gemini自動）、`.github/workflows/codex-pr-review.yml`（Codexラベルトリガー）
-- **コンセンサスゲート**: Claude + Gemini が両方PASSしないとマージ不可
-- **コスト制御**: concurrencyグループで同一PRの連続pushは古い実行をキャンセル
-- **必要なSecrets**: `ANTHROPIC_API_KEY`、`GEMINI_API_KEY`、`CODEX_API_KEY`（設定済み）
+- **実行**: `scripts/codex_review_loop.sh --full`（pre-pushフックで自動実行）
+- **判定**: 3AI全てPASS → push実行、いずれかFAIL → 修正して再push
+- **CLI認証**: Codex=ChatGPTログイン、Claude=Anthropicログイン、Gemini=Googleログイン
+- **緊急時**: `SKIP_CODEX_REVIEW=1 git push` でスキップ可。SKIPした場合は後追いレビュー必須、PRに理由を明記
+- **個別無効化**: `ENABLE_CLAUDE=0` / `ENABLE_GEMINI=0` で個別スキップ可
+- **Codexのみ**: `scripts/codex_review_loop.sh --codex-only`（レガシー動作）
+- **パス数変更**: `REVIEW_PASSES=1 git push`（Codex 3パスを1パスに短縮）
 - **AGENTS.md**: AIレビューエージェント用の共通指示書（レビュー観点・コード規約・ディレクトリ構造）
 
 ### 13-3. Layer 3: デプロイ前チェック

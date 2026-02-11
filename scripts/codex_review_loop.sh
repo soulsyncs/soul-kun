@@ -1,55 +1,111 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Codex review loop (ChatGPT login, no API).
-# 3-pass review: Standard → Self-verification → Devil's Advocate
+# =============================================================================
+# 3AI Review Loop — Codex + Claude Code + Gemini (CLI/login auth, no API keys)
+# =============================================================================
+#
+# All 3 AIs run locally using CLI login authentication.
+#   1. Codex:       18-item 3-pass review (Standard -> Self-verify -> Devil's Advocate)
+#   2. Claude Code: Architecture + design coherence (CLAUDE.md rules)
+#   3. Gemini:      Security + performance + code quality
 #
 # Usage:
-#   scripts/codex_review_loop.sh            # review + partial tests
-#   scripts/codex_review_loop.sh --full     # review + full tests
+#   scripts/codex_review_loop.sh              # 3AI review + partial tests
+#   scripts/codex_review_loop.sh --full       # 3AI review + full tests
+#   scripts/codex_review_loop.sh --codex-only # Codex only (legacy)
+#
 # Env:
-#   MAX_LOOPS=3
-#   PARTIAL_TEST_CMD="python3 -m pytest tests/ --tb=short -k user_utils"
+#   MAX_LOOPS=3                          # Max retry attempts
+#   REVIEW_PASSES=3                      # Codex passes (1-3)
+#   ENABLE_CLAUDE=1                      # Enable Claude Code review (0 to disable)
+#   ENABLE_GEMINI=1                      # Enable Gemini review (0 to disable)
+#   CLAUDE_BIN=claude                    # Claude Code CLI path
+#   GEMINI_BIN=gemini                    # Gemini CLI path
+#   CODEX_BIN=codex                      # Codex CLI path
+#   CLAUDE_MODEL=sonnet                  # Claude model for review
+#   GEMINI_MODEL=gemini-2.5-flash        # Gemini model for review
+#   PARTIAL_TEST_CMD="python3 -m pytest tests/ --tb=short"
 #   FULL_TEST_CMD="python3 -m pytest tests/ --tb=short"
 #   REVIEW_DOCS=$'docs/25_llm_native_brain_architecture.md\nCLAUDE.md'
-#   CODEX_BIN="$HOME/.npm-global/bin/codex"
-#   REVIEW_PASSES=3  # Number of review passes (1-3)
+# =============================================================================
 
+# --- Configuration ---
 MAX_LOOPS="${MAX_LOOPS:-3}"
 REVIEW_PASSES="${REVIEW_PASSES:-3}"
 PARTIAL_TEST_CMD="${PARTIAL_TEST_CMD:-python3 -m pytest tests/ --tb=short}"
 FULL_TEST_CMD="${FULL_TEST_CMD:-python3 -m pytest tests/ --tb=short}"
-REPO_HASH=$(git rev-parse --show-toplevel 2>/dev/null | md5 | cut -c1-8)
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+REPO_HASH=$(echo "$REPO_ROOT" | md5 | cut -c1-8)
+
+# AI CLIs
+CODEX_BIN="${CODEX_BIN:-codex}"
+CLAUDE_BIN="${CLAUDE_BIN:-claude}"
+GEMINI_BIN="${GEMINI_BIN:-gemini}"
+CLAUDE_MODEL="${CLAUDE_MODEL:-sonnet}"
+GEMINI_MODEL="${GEMINI_MODEL:-gemini-2.5-flash}"
+
+# Enable/disable individual AIs
+ENABLE_CLAUDE="${ENABLE_CLAUDE:-1}"
+ENABLE_GEMINI="${ENABLE_GEMINI:-1}"
+
+# Temp files
 REVIEW_DIFF_PATH="${REVIEW_DIFF_PATH:-/tmp/codex_review_diff_${REPO_HASH}.txt}"
 REVIEW_OUT_PATH="${REVIEW_OUT_PATH:-/tmp/codex_review_output_${REPO_HASH}.txt}"
 REVIEW_OUT_PASS2="${REVIEW_OUT_PATH%.txt}_pass2.txt"
 REVIEW_OUT_PASS3="${REVIEW_OUT_PATH%.txt}_pass3.txt"
+REVIEW_OUT_CLAUDE="/tmp/claude_review_output_${REPO_HASH}.txt"
+REVIEW_OUT_GEMINI="/tmp/gemini_review_output_${REPO_HASH}.txt"
 REVIEW_DOCS="${REVIEW_DOCS:-docs/25_llm_native_brain_architecture.md
 CLAUDE.md}"
-CODEX_BIN="${CODEX_BIN:-$HOME/.npm-global/bin/codex}"
 
+# --- Flag parsing ---
 RUN_FULL_TESTS=0
-if [[ "${1:-}" == "--full" ]]; then
-  RUN_FULL_TESTS=1
-fi
+CODEX_ONLY=0
+for arg in "$@"; do
+  case "$arg" in
+    --full) RUN_FULL_TESTS=1 ;;
+    --codex-only) CODEX_ONLY=1; ENABLE_CLAUDE=0; ENABLE_GEMINI=0 ;;
+  esac
+done
 
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo "Missing required command: $1" >&2
+# --- CLI availability check ---
+check_ai_tools() {
+  if ! command -v "$CODEX_BIN" >/dev/null 2>&1; then
+    echo "ERROR: Codex CLI not found: $CODEX_BIN" >&2
+    echo "  Install: npm install -g @openai/codex" >&2
     exit 1
-  }
+  fi
+
+  if [[ "$ENABLE_CLAUDE" == "1" ]] && ! command -v "$CLAUDE_BIN" >/dev/null 2>&1; then
+    echo "WARNING: Claude Code CLI not found ($CLAUDE_BIN). Skipping Claude review." >&2
+    ENABLE_CLAUDE=0
+  fi
+
+  if [[ "$ENABLE_GEMINI" == "1" ]] && ! command -v "$GEMINI_BIN" >/dev/null 2>&1; then
+    echo "WARNING: Gemini CLI not found ($GEMINI_BIN). Skipping Gemini review." >&2
+    ENABLE_GEMINI=0
+  fi
+}
+check_ai_tools
+
+# --- Count active AIs ---
+count_active_ais() {
+  local count=1  # Codex is always active
+  [[ "$ENABLE_CLAUDE" == "1" ]] && count=$((count + 1))
+  [[ "$ENABLE_GEMINI" == "1" ]] && count=$((count + 1))
+  echo "$count"
 }
 
-require_cmd git
-require_cmd "$CODEX_BIN"
-
+# =============================================================================
+# Diff building
+# =============================================================================
 build_diff() {
   : > "$REVIEW_DIFF_PATH"
 
-  # pre-push の場合: mainブランチとのコミット済み差分のみ
-  # それ以外: ステージング + 未ステージング + 未追跡ファイル
+  # pre-push: committed changes vs remote only
+  # otherwise: staged + unstaged + untracked
   if [[ "${PRE_PUSH_MODE:-}" == "1" ]]; then
-    # コミット済みの変更のみ（リモートとの差分を優先）
     base_ref="$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)"
     if [[ -z "$base_ref" ]]; then
       if git show-ref --verify --quiet refs/remotes/origin/main; then
@@ -64,10 +120,9 @@ build_diff() {
     git diff --patch >> "$REVIEW_DIFF_PATH" || true
     git diff --cached --patch >> "$REVIEW_DIFF_PATH" || true
 
-    # Include untracked files (full content) - 巨大ファイルは除外
+    # Include untracked files (full content) - skip large files
     while IFS= read -r file; do
       [[ -z "$file" ]] && continue
-      # 1MB以上のファイルはスキップ
       local size
       size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null || echo 0)
       if [[ "$size" -gt 1048576 ]]; then
@@ -80,7 +135,7 @@ build_diff() {
 }
 
 # =============================================================================
-# Pass 1: Standard Review (18 check items)
+# Codex Review Prompts (Pass 1/2/3)
 # =============================================================================
 review_prompt_pass1() {
   local docs_list
@@ -107,7 +162,7 @@ print(json.dumps(schema.get('tables', {}), indent=1, ensure_ascii=False))
     echo '```'
     echo
   else
-    echo "## ⚠️ 本番DBスキーマ不在"
+    echo "## 本番DBスキーマ不在"
     echo "db_schema.jsonが見つかりません。"
     echo "項目18（SQLカラム名整合）は検証不可能なため、FAILにしてください。"
     echo "スキーマを生成するには: scripts/dump_db_schema.sh"
@@ -178,9 +233,6 @@ print(json.dumps(schema.get('tables', {}), indent=1, ensure_ascii=False))
 PROMPT
 }
 
-# =============================================================================
-# Pass 2: Self-Verification (自己検証)
-# =============================================================================
 review_prompt_pass2() {
   cat <<'PROMPT'
 ## 自己検証（Pass 2/3）
@@ -219,9 +271,6 @@ PROMPT
   cat "$REVIEW_DIFF_PATH"
 }
 
-# =============================================================================
-# Pass 3: Devil's Advocate (逆視点チェック)
-# =============================================================================
 review_prompt_pass3() {
   cat <<'PROMPT'
 ## 逆視点チェック（Pass 3/3 — Devil's Advocate）
@@ -271,11 +320,10 @@ PROMPT
 }
 
 # =============================================================================
-# Review execution functions
+# Codex Review Execution
 # =============================================================================
-
 run_review_pass1() {
-  echo "  [Pass 1/3] Standard Review (18 items)..."
+  echo "    [Pass 1/3] Standard Review (18 items)..."
   {
     review_prompt_pass1
     echo
@@ -286,14 +334,14 @@ run_review_pass1() {
 }
 
 run_review_pass2() {
-  echo "  [Pass 2/3] Self-Verification..."
+  echo "    [Pass 2/3] Self-Verification..."
   {
     review_prompt_pass2
   } | "$CODEX_BIN" exec - | tee "$REVIEW_OUT_PASS2"
 }
 
 run_review_pass3() {
-  echo "  [Pass 3/3] Devil's Advocate..."
+  echo "    [Pass 3/3] Devil's Advocate..."
   {
     review_prompt_pass3
   } | "$CODEX_BIN" exec - | tee "$REVIEW_OUT_PASS3"
@@ -304,10 +352,10 @@ run_multi_pass_review() {
   run_review_pass1
   local v1
   v1="$(parse_verdict_from "$REVIEW_OUT_PATH")"
-  echo "  Pass 1 verdict: $v1"
+  echo "    Pass 1 verdict: $v1"
 
   if [[ "$v1" == "FAIL" ]]; then
-    echo "  FAIL detected at Pass 1. Skipping further passes."
+    echo "    FAIL detected at Pass 1. Skipping further passes."
     cp "$REVIEW_OUT_PATH" "$REVIEW_OUT_PASS3"  # Use pass1 output as final
     return 0
   fi
@@ -321,10 +369,10 @@ run_multi_pass_review() {
   run_review_pass2
   local v2
   v2="$(parse_verdict_from "$REVIEW_OUT_PASS2")"
-  echo "  Pass 2 verdict: $v2"
+  echo "    Pass 2 verdict: $v2"
 
   if [[ "$v2" == "FAIL" ]]; then
-    echo "  FAIL detected at Pass 2 (self-verification found issues)."
+    echo "    FAIL detected at Pass 2 (self-verification found issues)."
     cp "$REVIEW_OUT_PASS2" "$REVIEW_OUT_PASS3"
     return 0
   fi
@@ -338,9 +386,163 @@ run_multi_pass_review() {
   run_review_pass3
   local v3
   v3="$(parse_verdict_from "$REVIEW_OUT_PASS3")"
-  echo "  Pass 3 verdict: $v3"
+  echo "    Pass 3 verdict: $v3"
 }
 
+# =============================================================================
+# Claude Code Review (Architecture + Design Coherence)
+# =============================================================================
+review_prompt_claude() {
+  cat <<'PROMPT'
+あなたはソウルくんプロジェクトの「世界最高のエンジニア」として、
+このdiffをアーキテクチャ観点でレビューしてください。
+CLAUDE.mdとAGENTS.mdを参照し、以下の重要項目をチェックすること。
+
+【チェック項目（アーキテクチャ重点9項目）】
+1. organization_idフィルタ漏れ: SELECT/INSERT/UPDATE/DELETEにorg_idがあるか
+2. asyncブロッキング: async def内でpool.connect()を直接呼んでいないか
+3. RLS型キャスト: VARCHARカラムに::uuidキャストしていないか
+4. Brain bypass: 脳を通さずに直接テンプレート送信していないか
+5. lib/同期: lib/の変更がchatwork-webhook/lib/とproactive-monitor/lib/にも反映されているか
+6. fire-and-forget: asyncio.create_task()を直接使っていないか（_fire_and_forget()必須）
+7. 設計書との矛盾: Truth順位違反、脳アーキテクチャ違反がないか
+8. デプロイ安全性: --set-env-vars（禁止）ではなく--update-env-varsを使っているか
+9. PII漏洩: ログにメッセージ本文・名前・メールが含まれていないか
+
+【出力フォーマット（必ずこの形式で）】
+```
+## 判定: PASS または FAIL
+
+## 指摘事項
+- CRITICAL: (件数)
+- HIGH: (件数)
+- MEDIUM: (件数)
+
+## 詳細
+(各指摘の説明)
+
+## 推奨修正
+(具体的な修正提案。なければ「なし」)
+```
+
+## git diff
+
+PROMPT
+}
+
+# CLAUDE_SKIPPED is set by run_claude_review if CLI fails
+CLAUDE_SKIPPED=0
+
+run_claude_review() {
+  CLAUDE_SKIPPED=0
+  echo "  [Claude Code] Architecture review..."
+  local prompt_file="/tmp/claude_review_prompt_${REPO_HASH}.txt"
+  {
+    review_prompt_claude
+    cat "$REVIEW_DIFF_PATH"
+  } > "$prompt_file"
+
+  : > "$REVIEW_OUT_CLAUDE"
+
+  # Run Claude Code CLI in print mode from project root
+  # Claude Code auto-reads CLAUDE.md and AGENTS.md from project directory
+  (
+    cd "$REPO_ROOT"
+    cat "$prompt_file" | "$CLAUDE_BIN" --print \
+      --model "$CLAUDE_MODEL" \
+      --max-turns 1 \
+      --no-session-persistence 2>/dev/null
+  ) | tee "$REVIEW_OUT_CLAUDE" || true
+
+  if [[ ! -s "$REVIEW_OUT_CLAUDE" ]]; then
+    echo "  WARNING: Claude Code review produced no output. Skipping." >&2
+    CLAUDE_SKIPPED=1
+  fi
+}
+
+# =============================================================================
+# Gemini Review (Security + Performance + Code Quality)
+# =============================================================================
+review_prompt_gemini() {
+  cat <<'PROMPT'
+あなたはセキュリティとパフォーマンスの専門家です。
+このdiffをセキュリティ・パフォーマンス観点でレビューしてください。
+
+【重点チェック項目】
+1. セキュリティ脆弱性（OWASP Top 10）
+   - SQLインジェクション（パラメータ化されているか）
+   - XSS
+   - 認証バイパス
+   - 機密情報のハードコード
+   - SSRF
+
+2. パフォーマンス問題
+   - N+1クエリ（ループ内DB問い合わせ）
+   - 不要なDB接続（pool.connect()多重呼び出し）
+   - メモリリーク
+   - 無限ループリスク
+
+3. コード品質
+   - エラーハンドリング漏れ（bare except禁止）
+   - リソースリーク（DB接続、ファイルハンドル、HTTPクライアント）
+   - 冪等性の欠如（二重送信対策）
+   - デッドコード
+
+4. Python固有の問題
+   - asyncio.to_thread()の不適切な使用
+   - mutableなデフォルト引数
+   - 接続リーク（asyncio.wait_for + asyncio.to_thread の組み合わせ禁止）
+
+【出力フォーマット（必ずこの形式で）】
+```
+## 判定: PASS または FAIL
+
+## セキュリティ
+(指摘事項。なければ「問題なし」)
+
+## パフォーマンス
+(指摘事項。なければ「問題なし」)
+
+## コード品質
+(指摘事項。なければ「問題なし」)
+
+## 推奨修正
+(具体的な修正提案。なければ「なし」)
+```
+
+## git diff
+
+PROMPT
+}
+
+# GEMINI_SKIPPED is set by run_gemini_review if CLI fails
+GEMINI_SKIPPED=0
+
+run_gemini_review() {
+  GEMINI_SKIPPED=0
+  echo "  [Gemini] Security & Performance review..."
+  local prompt_file="/tmp/gemini_review_prompt_${REPO_HASH}.txt"
+  {
+    review_prompt_gemini
+    cat "$REVIEW_DIFF_PATH"
+  } > "$prompt_file"
+
+  : > "$REVIEW_OUT_GEMINI"
+
+  cat "$prompt_file" | "$GEMINI_BIN" \
+    -m "$GEMINI_MODEL" \
+    -o text \
+    2>/dev/null | tee "$REVIEW_OUT_GEMINI" || true
+
+  if [[ ! -s "$REVIEW_OUT_GEMINI" ]]; then
+    echo "  WARNING: Gemini review produced no output. Skipping." >&2
+    GEMINI_SKIPPED=1
+  fi
+}
+
+# =============================================================================
+# Verdict parsing
+# =============================================================================
 parse_verdict_from() {
   local file="$1"
   local cleaned
@@ -381,10 +583,13 @@ parse_verdict_from() {
 }
 
 parse_verdict() {
-  # Final verdict comes from the last pass output
+  # Final Codex verdict comes from the last pass output
   parse_verdict_from "$REVIEW_OUT_PASS3"
 }
 
+# =============================================================================
+# Test execution
+# =============================================================================
 run_tests() {
   if [[ "$RUN_FULL_TESTS" -eq 1 ]]; then
     echo "Running full tests: $FULL_TEST_CMD"
@@ -395,8 +600,14 @@ run_tests() {
   fi
 }
 
+# =============================================================================
+# Main loop — 3AI review + tests
+# =============================================================================
+ACTIVE_AIS=$(count_active_ais)
+
 for attempt in $(seq 1 "$MAX_LOOPS"); do
-  echo "=== Codex Review Attempt $attempt/$MAX_LOOPS (${REVIEW_PASSES}-pass) ==="
+  echo ""
+  echo "=== 3AI Review Attempt $attempt/$MAX_LOOPS ($ACTIVE_AIS AIs active) ==="
   build_diff
 
   if [[ ! -s "$REVIEW_DIFF_PATH" ]]; then
@@ -405,17 +616,71 @@ for attempt in $(seq 1 "$MAX_LOOPS"); do
     exit 0
   fi
 
-  run_multi_pass_review
-  verdict="$(parse_verdict | tr -d '\r' | xargs)"
+  ALL_PASS=1
+  AI_INDEX=1
+  CODEX_VERDICT=""
+  CLAUDE_VERDICT=""
+  GEMINI_VERDICT=""
 
-  if [[ "$verdict" == "PASS" ]]; then
-    echo "Review PASS (all ${REVIEW_PASSES} passes)."
+  # --- [1] Codex 3-pass review (18 items) ---
+  echo ""
+  echo "  [$AI_INDEX/$ACTIVE_AIS] Codex 3-pass Review (18 items, ${REVIEW_PASSES} passes)"
+  run_multi_pass_review
+  CODEX_VERDICT="$(parse_verdict | tr -d '\r' | xargs)"
+  echo "  => Codex: $CODEX_VERDICT"
+  [[ "$CODEX_VERDICT" != "PASS" ]] && ALL_PASS=0
+  AI_INDEX=$((AI_INDEX + 1))
+
+  # --- [2] Claude Code review (Architecture) ---
+  if [[ "$ENABLE_CLAUDE" == "1" ]]; then
+    echo ""
+    echo "  [$AI_INDEX/$ACTIVE_AIS] Claude Code Review (Architecture)"
+    run_claude_review
+    if [[ "$CLAUDE_SKIPPED" -eq 1 ]]; then
+      CLAUDE_VERDICT="SKIP"
+      echo "  => Claude: SKIPPED (CLI error)"
+    else
+      CLAUDE_VERDICT="$(parse_verdict_from "$REVIEW_OUT_CLAUDE" | tr -d '\r' | xargs)"
+      echo "  => Claude: $CLAUDE_VERDICT"
+      [[ "$CLAUDE_VERDICT" != "PASS" ]] && ALL_PASS=0
+    fi
+    AI_INDEX=$((AI_INDEX + 1))
+  fi
+
+  # --- [3] Gemini review (Security & Performance) ---
+  if [[ "$ENABLE_GEMINI" == "1" ]]; then
+    echo ""
+    echo "  [$AI_INDEX/$ACTIVE_AIS] Gemini Review (Security & Performance)"
+    run_gemini_review
+    if [[ "$GEMINI_SKIPPED" -eq 1 ]]; then
+      GEMINI_VERDICT="SKIP"
+      echo "  => Gemini: SKIPPED (CLI error)"
+    else
+      GEMINI_VERDICT="$(parse_verdict_from "$REVIEW_OUT_GEMINI" | tr -d '\r' | xargs)"
+      echo "  => Gemini: $GEMINI_VERDICT"
+      [[ "$GEMINI_VERDICT" != "PASS" ]] && ALL_PASS=0
+    fi
+  fi
+
+  # --- Summary ---
+  echo ""
+  echo "  ======================================="
+  echo "  3AI Review Summary"
+  echo "  ======================================="
+  echo "  Codex:       $CODEX_VERDICT"
+  [[ "$ENABLE_CLAUDE" == "1" ]] && echo "  Claude Code: $CLAUDE_VERDICT"
+  [[ "$ENABLE_GEMINI" == "1" ]] && echo "  Gemini:      $GEMINI_VERDICT"
+  echo "  ======================================="
+
+  if [[ "$ALL_PASS" -eq 1 ]]; then
+    echo "  ALL PASS"
+    echo ""
     run_tests
-    echo "Review + tests completed."
+    echo "3AI Review + tests completed."
     exit 0
   fi
 
-  echo "Review FAIL. Fix issues, then press Enter to re-run (or Ctrl+C to stop)."
+  echo "  FAIL detected. Fix issues, then press Enter to re-run (or Ctrl+C to stop)."
   read -r
 done
 

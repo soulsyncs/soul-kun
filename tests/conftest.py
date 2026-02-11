@@ -76,7 +76,7 @@ def mock_admin_config():
         admin_room_name="管理部",
         admin_dm_room_id="217825794",
         authorized_room_ids=frozenset([405315911]),
-        bot_account_id="7399137",
+        bot_account_id="10909425",
         is_active=True
     )
 

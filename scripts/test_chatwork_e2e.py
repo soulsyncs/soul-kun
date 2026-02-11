@@ -24,12 +24,17 @@ ChatWork APIを使って実際にメッセージを送受信し、
 必要な設定:
     - CHATWORK_API_TOKEN: Secret Manager に登録済み（人間ユーザーのトークン）
     - SOULKUN_CHATWORK_TOKEN: Secret Manager に登録済み（ソウルくんのトークン）
-    - テスト用ルーム: ソウルくんと人間ユーザーが参加しているルーム
+
+テストルームのルール:
+    - デフォルト: カズさん↔ソウルくんのDM（217825794）
+    - グループチャットでテストしないと挙動が分からないもの以外は、
+      全てDMの中だけで完結させること
+    - グループチャットでのテストは --room-id で明示的に指定した場合のみ
 
 環境変数（オプション）:
-    - SOULKUN_MENTION_ID: Webhook受信アカウントID（デフォルト: 7399137）
+    - SOULKUN_MENTION_ID: Webhook受信アカウントID（デフォルト: 10909425）
     - SOULKUN_REPLY_ID: 応答送信アカウントID（デフォルト: 10909425）
-    - E2E_TEST_ROOM_ID: テスト用ルームID
+    - E2E_TEST_ROOM_ID: テスト用ルームID（デフォルト: 217825794 = DM）
 """
 
 import argparse
@@ -49,8 +54,11 @@ from typing import Any, Optional
 # 設定（環境変数 > デフォルト値）
 # ===========================================================================
 
-SOULKUN_MENTION_ID = os.environ.get("SOULKUN_MENTION_ID", "7399137")
+SOULKUN_MENTION_ID = os.environ.get("SOULKUN_MENTION_ID", "10909425")
 SOULKUN_REPLY_ID = os.environ.get("SOULKUN_REPLY_ID", "10909425")
+# デフォルトテストルーム: カズさん↔ソウルくんのDM
+# グループチャットでテストすると他メンバーに通知が飛ぶため、DMを使用
+DEFAULT_TEST_ROOM_ID = os.environ.get("E2E_TEST_ROOM_ID", "217825794")
 DEFAULT_TIMEOUT = 45
 POLL_INTERVAL = 5
 MAX_RESPONSE_CHARS = 500
@@ -459,8 +467,8 @@ def main():
     parser = argparse.ArgumentParser(description="ChatWork E2E 自動テスト")
     parser.add_argument(
         "--room-id", type=int,
-        default=int(os.environ.get("E2E_TEST_ROOM_ID", "0")) or None,
-        help="テスト用ルームID（省略時は自動検出）",
+        default=int(DEFAULT_TEST_ROOM_ID),
+        help="テスト用ルームID（デフォルト: DM 217825794）",
     )
     parser.add_argument(
         "--message", type=str, default="テスト: 今日のタスクを教えて",
@@ -520,16 +528,13 @@ def main():
         print("[DRY RUN] API接続確認完了。メッセージ送信はスキップ。")
         return
 
-    # Step 1: ルームID決定
+    # Step 1: ルームID決定（デフォルト: DM）
     room_id = args.room_id
-    if room_id is None or room_id == 0:
-        print("[Setup] テスト用ルームを自動検出中...")
-        room_id = find_test_room(human_token)
-        if room_id is None:
-            print("  [ERROR] テスト用ルームが見つかりません。"
-                  "--room-id で指定するか E2E_TEST_ROOM_ID 環境変数を設定してください。")
-            sys.exit(1)
-        print(f"  検出: room_id={room_id}")
+    if room_id == int(DEFAULT_TEST_ROOM_ID):
+        print(f"[Setup] テストルーム: DM (room_id={room_id})")
+    else:
+        print(f"[Setup] テストルーム: カスタム指定 (room_id={room_id})")
+        print("  ※ グループチャットの場合、他メンバーに通知が飛びます")
     print()
 
     # Step 2: テスト実行

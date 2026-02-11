@@ -213,8 +213,8 @@ echo -n "your-password" | gcloud secrets create soulkun-db-password --data-file=
 |------|------|-----------|
 | `CHATWORK_API_KEY` | API キー（Secret Manager） | - |
 | `CHATWORK_API_RATE_LIMIT` | レート制限（5分あたり） | `100` |
-| `MY_ACCOUNT_ID` | ソウルくんのアカウント ID | `7399137` |
-| `BOT_ACCOUNT_ID` | ボットアカウント ID | `7399137` |
+| `MY_ACCOUNT_ID` | ソウルくんのアカウント ID | `10909425` |
+| `BOT_ACCOUNT_ID` | ボットアカウント ID | `10909425` |
 
 ### 会話履歴
 
@@ -343,8 +343,8 @@ PROJECT_ID: soulkun-production
 INSTANCE_CONNECTION_NAME: soulkun-production:asia-northeast1:soulkun-db
 DB_NAME: soulkun_tasks
 DB_USER: soulkun_user
-MY_ACCOUNT_ID: "7399137"
-BOT_ACCOUNT_ID: "7399137"
+MY_ACCOUNT_ID: "10909425"
+BOT_ACCOUNT_ID: "10909425"
 ENVIRONMENT: production
 DEBUG: "false"
 ```

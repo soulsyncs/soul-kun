@@ -302,12 +302,16 @@ class GuardianLayer:
         - 思考過程（reasoning）が出力されていない
         """
         # 思考過程の必須チェック
+        # Note: OpenAI API はtool calling時にcontent=nullを返すのが仕様。
+        # パーサー側でフォールバックreasoningを生成するが、
+        # 万一それも失敗した場合はBLOCKではなくWARNINGに留める。
         if not llm_result.reasoning and llm_result.tool_calls:
-            return GuardianResult(
-                action=GuardianAction.BLOCK,
-                blocked_reason="思考過程（reasoning）が出力されていません。憲法違反。",
-                priority_level=1,
+            logger.warning(
+                "Tool calling with empty reasoning "
+                "(tools: %s). Allowing with warning.",
+                [tc.tool_name for tc in llm_result.tool_calls],
             )
+            # BLOCKせずにALLOWする（パーサーのフォールバックが本来の防御線）
 
         # 権限判定の試みをチェック
         combined_text = llm_result.reasoning + (llm_result.text_response or "")

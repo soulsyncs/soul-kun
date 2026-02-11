@@ -219,6 +219,60 @@ class TestGetCurrentState:
         assert state is None
 
 
+class TestGetCurrentStateAsyncSafety:
+    """get_current_stateがasyncio.to_thread()で非同期安全に実行されることを検証"""
+
+    @pytest.mark.asyncio
+    async def test_does_not_block_event_loop(self):
+        """get_current_stateがイベントループをブロックしないことを確認"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_conn.execute.return_value = mock_result
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
+
+        # asyncio.to_thread()内で実行されるため、他のタスクと並行できる
+        import asyncio
+        counter = {"value": 0}
+
+        async def concurrent_task():
+            counter["value"] += 1
+
+        # get_current_stateと並行タスクを同時実行
+        state, _ = await asyncio.gather(
+            manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID),
+            concurrent_task(),
+        )
+        assert state is None
+        assert counter["value"] == 1  # 並行タスクが実行されたことを確認
+
+    @pytest.mark.asyncio
+    async def test_expired_state_cleared_in_thread(self):
+        """期限切れ状態のクリアもスレッド内で安全に実行される"""
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        expired_time = datetime.now() - timedelta(minutes=10)
+        expired_time = expired_time.replace(tzinfo=None)
+        mock_row = create_mock_row(expires_at=expired_time)
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = mock_row
+        mock_conn.execute.return_value = mock_result
+        mock_conn.commit = MagicMock()
+        mock_pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        manager = BrainStateManager(pool=mock_pool, org_id=TEST_ORG_ID)
+
+        with patch.object(manager, '_clear_state_sync', MagicMock()) as mock_clear:
+            state = await manager.get_current_state(TEST_ROOM_ID, TEST_USER_ID)
+            assert state is None
+            mock_clear.assert_called_once_with(TEST_ROOM_ID, TEST_USER_ID, reason="timeout")
+
+
 # =============================================================================
 # 状態遷移テスト
 # =============================================================================

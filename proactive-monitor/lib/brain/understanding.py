@@ -605,13 +605,15 @@ class BrainUnderstanding:
         """
         try:
             if self.get_ai_response:
-                # get_ai_responseは同期関数の可能性があるため
                 import asyncio
                 if asyncio.iscoroutinefunction(self.get_ai_response):
                     result: Optional[str] = await self.get_ai_response(prompt)
                     return result
                 else:
-                    sync_result: Optional[str] = self.get_ai_response(prompt)
+                    # 同期関数はイベントループをブロックするためto_threadで実行
+                    sync_result: Optional[str] = await asyncio.to_thread(
+                        self.get_ai_response, prompt
+                    )
                     return sync_result
             return None
         except Exception as e:

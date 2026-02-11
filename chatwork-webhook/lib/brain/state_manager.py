@@ -274,28 +274,32 @@ class BrainStateManager:
                   AND user_id = :user_id
             """)
 
-            # 同期プールの場合は同期的に実行
-            with self._connect_with_org_context() as conn:
-                result = conn.execute(query, {
-                    "org_id": self.org_id,
-                    "room_id": room_id,
-                    "user_id": user_id,
-                })
-                row = result.fetchone()
+            # asyncio.to_thread()でイベントループをブロックしない
+            def _sync_get():
+                with self._connect_with_org_context() as conn:
+                    result = conn.execute(query, {
+                        "org_id": self.org_id,
+                        "room_id": room_id,
+                        "user_id": user_id,
+                    })
+                    row = result.fetchone()
+                if row is None:
+                    return None
+                # タイムアウト判定
+                expires_at = row.expires_at
+                if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
+                    logger.debug("State expired, auto-clearing")
+                    try:
+                        self._clear_state_sync(room_id, user_id, reason="timeout")
+                    except Exception as clear_err:
+                        logger.warning(f"Failed to clear expired state: {type(clear_err).__name__}")
+                    return None
+                return row
+
+            row = await asyncio.to_thread(_sync_get)
 
             if row is None:
-                logger.debug("[StateManager] 状態なし")
-                return None
-
-            # タイムアウト判定
-            expires_at = row.expires_at
-            if expires_at and datetime.now(expires_at.tzinfo if expires_at.tzinfo else None) > expires_at:
-                # タイムアウト → 自動クリア（同期的に実行）
-                logger.debug("State expired, auto-clearing")
-                try:
-                    self._clear_state_sync(room_id, user_id, reason="timeout")
-                except Exception as clear_err:
-                    logger.warning(f"Failed to clear expired state: {clear_err}")
+                logger.debug("[StateManager] 状態なし or expired")
                 return None
 
             # ConversationStateに変換

@@ -85,10 +85,10 @@ class Settings:
         "CHATWORK_API_RATE_LIMIT", "100"  # 5分あたり
     )))
     MY_ACCOUNT_ID: str = field(default_factory=lambda: os.getenv(
-        "MY_ACCOUNT_ID", "7399137"  # ソウルくんのアカウントID
+        "MY_ACCOUNT_ID", "10909425"  # ソウルくんのアカウントID
     ))
     BOT_ACCOUNT_ID: str = field(default_factory=lambda: os.getenv(
-        "BOT_ACCOUNT_ID", "7399137"
+        "BOT_ACCOUNT_ID", "10909425"
     ))
 
     # 会話履歴設定

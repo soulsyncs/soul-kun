@@ -27,7 +27,7 @@ TEST_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 TEST_ADMIN_ACCOUNT_ID = "1728974"
 TEST_ADMIN_ROOM_ID = "405315911"
 TEST_ADMIN_DM_ROOM_ID = "217825794"
-TEST_BOT_ACCOUNT_ID = "7399137"
+TEST_BOT_ACCOUNT_ID = "10909425"
 
 
 # ================================================================
@@ -135,7 +135,7 @@ class TestAdminConfig:
         )
 
         assert config.is_bot(TEST_BOT_ACCOUNT_ID) is True
-        assert config.is_bot("7399137") is True
+        assert config.is_bot("10909425") is True
         assert config.is_bot("9999999") is False
 
     def test_get_admin_mention(self):

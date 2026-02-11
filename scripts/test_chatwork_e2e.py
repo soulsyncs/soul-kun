@@ -27,7 +27,7 @@ ChatWork APIを使って実際にメッセージを送受信し、
     - テスト用ルーム: ソウルくんと人間ユーザーが参加しているルーム
 
 環境変数（オプション）:
-    - SOULKUN_MENTION_ID: Webhook受信アカウントID（デフォルト: 7399137）
+    - SOULKUN_MENTION_ID: Webhook受信アカウントID（デフォルト: 10909425）
     - SOULKUN_REPLY_ID: 応答送信アカウントID（デフォルト: 10909425）
     - E2E_TEST_ROOM_ID: テスト用ルームID
 """
@@ -49,7 +49,7 @@ from typing import Any, Optional
 # 設定（環境変数 > デフォルト値）
 # ===========================================================================
 
-SOULKUN_MENTION_ID = os.environ.get("SOULKUN_MENTION_ID", "7399137")
+SOULKUN_MENTION_ID = os.environ.get("SOULKUN_MENTION_ID", "10909425")
 SOULKUN_REPLY_ID = os.environ.get("SOULKUN_REPLY_ID", "10909425")
 DEFAULT_TIMEOUT = 45
 POLL_INTERVAL = 5

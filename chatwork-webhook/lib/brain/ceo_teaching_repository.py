@@ -413,6 +413,71 @@ class CEOTeachingRepository:
 
         return [self._row_to_teaching(row) for row in rows]
 
+    def search_teachings_with_conn(
+        self,
+        conn,
+        query_text: str,
+        limit: int = 10,
+    ) -> List[CEOTeaching]:
+        """
+        既存コネクションで教えをキーワード検索
+
+        ContextBuilderの単一コネクション運用向け。
+        """
+        # UUID形式でない場合はスキップ
+        if not self._org_id_is_uuid:
+            logger.debug("Skipping search_teachings_with_conn: organization_id is not UUID format")
+            return []
+
+        # キーワードを分割
+        keywords = [k.strip() for k in query_text.split() if k.strip()]
+
+        if not keywords:
+            return []
+
+        # LIKE検索（将来的にはベクトル検索も検討）
+        conditions = []
+        params: Dict[str, Any] = {
+            "organization_id": self._organization_id,
+            "limit": limit,
+        }
+
+        for i, kw in enumerate(keywords[:5]):  # 最大5キーワード
+            param_name = f"kw_{i}"
+            conditions.append(f"""
+                (statement ILIKE :{param_name} ESCAPE '\\'
+                 OR reasoning ILIKE :{param_name} ESCAPE '\\'
+                 OR context ILIKE :{param_name} ESCAPE '\\'
+                 OR :{param_name} = ANY(keywords))
+            """)
+            params[param_name] = f"%{escape_ilike(kw)}%"
+
+        where_clause = " OR ".join(conditions)
+
+        query = text(f"""
+            SELECT
+                id, organization_id, ceo_user_id,
+                statement, reasoning, context, target,
+                category, subcategory, keywords,
+                validation_status, mvv_alignment_score, theory_alignment_score,
+                priority, is_active, supersedes,
+                usage_count, last_used_at, helpful_count,
+                source_room_id, source_message_id, extracted_at,
+                created_at, updated_at
+            FROM ceo_teachings
+            WHERE organization_id = :organization_id
+              AND is_active = true
+              AND validation_status IN ('verified', 'overridden')
+              AND ({where_clause})
+            ORDER BY priority DESC, usage_count DESC
+            LIMIT :limit
+        """)
+
+        result = conn.execute(query, params)
+        rows = result.fetchall()
+
+        return [self._row_to_teaching(row) for row in rows]
+
     def get_teachings_by_category(
         self,
         categories: List[TeachingCategory],

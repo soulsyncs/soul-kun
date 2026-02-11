@@ -332,23 +332,33 @@ class ContextBuilder:
         # 非DB系（Firestore/LLM API）はセマフォなし、タイムアウト付き
         _db_sem = asyncio.Semaphore(3)
 
-        async def _db_limited(coro, name: str):
-            """DB系タスク: セマフォで並列数制限、エラーはログしてNone返却"""
-            async with _db_sem:
-                try:
+        async def _db_limited(coro, name: str, timeout: float = 15.0):
+            """DB系タスク: セマフォで並列数制限、タイムアウト付き"""
+            async def _run():
+                async with _db_sem:
                     return await coro
-                except Exception as e:
-                    logger.warning(f"DB task {name} failed: {type(e).__name__}")
-                    return None
+
+            try:
+                return await asyncio.wait_for(_run(), timeout=timeout)
+            except asyncio.TimeoutError:
+                print(f"[DIAG] DB task {name} timed out after {timeout}s")
+                logger.warning(f"DB task {name} timed out after {timeout}s")
+                return None
+            except Exception as e:
+                print(f"[DIAG] DB task {name} failed: {type(e).__name__}")
+                logger.warning(f"DB task {name} failed: {type(e).__name__}")
+                return None
 
         async def _safe_non_db(coro, name: str, timeout: float = 15.0):
             """非DB系タスク: セマフォなし、タイムアウト付き"""
             try:
                 return await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
+                print(f"[DIAG] Non-DB task {name} timed out after {timeout}s")
                 logger.warning(f"Non-DB task {name} timed out after {timeout}s")
                 return None
             except Exception as e:
+                print(f"[DIAG] Non-DB task {name} failed: {type(e).__name__}")
                 logger.warning(f"Non-DB task {name} failed: {type(e).__name__}")
                 return None
 

@@ -535,6 +535,10 @@ class ContextBuilder:
                                 data["summary"] = str(row[1])
                         except Exception as e:
                             print(f"[DIAG] summary query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 2. ユーザー嗜好 (user_preferences) ---
                     if org_is_uuid and memory:
@@ -564,6 +568,10 @@ class ContextBuilder:
                                 data["preferences"] = prefs
                         except Exception as e:
                             print(f"[DIAG] preferences query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 3. 人物情報 (persons + person_attributes) ---
                     if memory:
@@ -598,6 +606,10 @@ class ContextBuilder:
                             ]
                         except Exception as e:
                             print(f"[DIAG] persons query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 4. タスク情報 (chatwork_tasks) ---
                     if memory:
@@ -654,6 +666,10 @@ class ContextBuilder:
                             ]
                         except Exception as e:
                             print(f"[DIAG] tasks query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 5. 目標情報 (goals) ---
                     if org_is_uuid and memory:
@@ -687,6 +703,10 @@ class ContextBuilder:
                             ]
                         except Exception as e:
                             print(f"[DIAG] goals query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 6. ユーザー基本情報 (users) ---
                     try:
@@ -696,7 +716,7 @@ class ContextBuilder:
                             LEFT JOIN user_departments ud ON ud.user_id = u.id
                             LEFT JOIN roles r ON ud.role_id = r.id
                             WHERE u.chatwork_account_id = :account_id
-                            AND u.organization_id = :org_id::uuid
+                            AND u.organization_id = :org_id
                             LIMIT 1
                         """), {"account_id": user_id, "org_id": org_id}).fetchone()
                         if row:
@@ -706,6 +726,10 @@ class ContextBuilder:
                             }
                     except Exception as e:
                         print(f"[DIAG] user_info query failed: {type(e).__name__}")
+                        try:
+                            conn.rollback()
+                        except Exception:
+                            pass
 
                     # --- 7. Phase 2E 学習済み知識 ---
                     if prefetched is None and phase2e_learning:
@@ -722,6 +746,10 @@ class ContextBuilder:
                                 )
                         except Exception as e:
                             print(f"[DIAG] phase2e query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     # --- 8. Phase 2F 行動パターン ---
                     if outcome_learning:
@@ -742,6 +770,10 @@ class ContextBuilder:
                                 )
                         except Exception as e:
                             print(f"[DIAG] outcome query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
 
                     t_done = _time.monotonic()
                     print(
@@ -1109,7 +1141,7 @@ class ContextBuilder:
                             LEFT JOIN user_departments ud ON ud.user_id = u.id
                             LEFT JOIN roles r ON ud.role_id = r.id
                             WHERE u.chatwork_account_id = :account_id
-                            AND u.organization_id = :org_id::uuid
+                            AND u.organization_id = :org_id
                             LIMIT 1
                         """), {"account_id": user_id, "org_id": organization_id})
                         return result.fetchone()

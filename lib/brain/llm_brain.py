@@ -995,6 +995,12 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
         # テキストから思考過程と応答を分離
         reasoning, text_response = self._extract_reasoning_and_response(full_text)
 
+        # OpenAI API: tool calling時にcontent=nullになるのは仕様
+        # reasoningが空でtool_callsがある場合、フォールバックreasoningを生成
+        if not reasoning and tool_calls:
+            tool_names = ", ".join(tc.tool_name for tc in tool_calls)
+            reasoning = f"Tool呼び出しを判断: {tool_names}"
+
         # 確信度を抽出
         confidence = self._extract_confidence(reasoning, full_text)
 
@@ -1055,6 +1061,11 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
 
         # テキストから思考過程と応答を分離
         reasoning, text_response = self._extract_reasoning_and_response(full_text)
+
+        # Anthropic API: tool calling時にtextブロックが空の場合も同様に対応
+        if not reasoning and tool_calls:
+            tool_names = ", ".join(tc.tool_name for tc in tool_calls)
+            reasoning = f"Tool呼び出しを判断: {tool_names}"
 
         # 確信度を抽出
         confidence = self._extract_confidence(reasoning, full_text)

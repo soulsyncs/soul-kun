@@ -100,6 +100,52 @@ steps:
     waitFor: ['sql-validation']
 
   # =============================================================================
+  # Step 3.5: 結合テスト（Docker PostgreSQL）
+  # =============================================================================
+  # 3者合意(Claude + Codex + Gemini): CIで本物のDBに接続するテストが必須
+  - name: 'docker'
+    id: 'integration-tests'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        set -eo pipefail
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "🔗 結合テスト（本物のPostgreSQL使用）"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # PostgreSQLコンテナ起動
+        docker run -d --name test-postgres \
+          -e POSTGRES_USER=test_user \
+          -e POSTGRES_PASSWORD=test_pass \
+          -e POSTGRES_DB=test_db \
+          -p 15432:5432 \
+          postgres:15-alpine
+
+        # 起動待ち（最大30秒）
+        echo "  PostgreSQL起動待ち..."
+        for i in $(seq 1 30); do
+          if docker exec test-postgres pg_isready -U test_user -d test_db >/dev/null 2>&1; then
+            echo "  PostgreSQL起動完了（${i}秒）"
+            break
+          fi
+          sleep 1
+        done
+
+        # 結合テスト実行
+        cd /workspace
+        pip install --quiet pytest sqlalchemy pg8000
+        TEST_DATABASE_URL="postgresql+pg8000://test_user:test_pass@localhost:15432/test_db" \
+          python -m pytest tests/integration/ -v --tb=short
+
+        # クリーンアップ
+        docker stop test-postgres && docker rm test-postgres
+
+        echo ""
+        echo "✅ 結合テスト成功"
+    waitFor: ['run-tests']
+
+  # =============================================================================
   # Step 4: 静的型チェック（mypy）
   # =============================================================================
   - name: 'python:3.11-slim'
@@ -142,11 +188,12 @@ steps:
       - '--runtime=python311'
       - '--trigger-http'
       - '--region=asia-northeast1'
-      - '--memory=512MB'
+      - '--memory=1024MB'
+      - '--cpu=1'
       - '--timeout=540s'
       - '--allow-unauthenticated'
       - '--update-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings'
-    waitFor: ['mypy-check']
+    waitFor: ['mypy-check', 'integration-tests']
 
   # =============================================================================
   # Step 6: トラフィックルーティング確認

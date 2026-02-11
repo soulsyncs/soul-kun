@@ -350,7 +350,7 @@ class ContextBuilder:
             _safe(self._fetch_all_db_data(
                 user_id, room_id, organization_id, message,
                 sender_name, phase2e_learnings_prefetched,
-            ), "db_data", default={}, timeout=15.0),
+            ), "db_data", default={}, timeout=20.0),  # v10.79: 15→20 (DB_POOL_TIMEOUT=15の結果をキャッチするため、3AI合議)
             _safe(self._get_ceo_teachings(organization_id, message), "ceo_teachings", default=[], timeout=5.0),
             return_exceptions=True,
         )
@@ -493,9 +493,14 @@ class ContextBuilder:
         org_id = organization_id
         prefetched = phase2e_learnings_prefetched
 
+        t_before_thread = None  # asyncio.to_thread待ち計測用
+
         def _sync_all_queries():
             """1コネクションで全DBクエリを直列実行（スレッド内で実行）"""
             t0 = _time.monotonic()
+            # [DIAG] スレッドキュー待ち時間（Codex指摘: to_threadのキュー詰まり検出）
+            if t_before_thread is not None:
+                print(f"[DIAG] thread queue wait: {t0 - t_before_thread:.3f}s")
             data: Dict[str, Any] = {
                 "summary": None,
                 "preferences": None,
@@ -508,6 +513,17 @@ class ContextBuilder:
             }
 
             try:
+                # [DIAG] pool状態可視化（Codex+Gemini共通指摘: pool枯渇の検出）
+                try:
+                    _pool = pool.pool
+                    _ps = _pool.status() if hasattr(_pool, 'status') else 'N/A'
+                    _co = _pool.checkedout() if hasattr(_pool, 'checkedout') else 'N/A'
+                    _sz = _pool.size() if hasattr(_pool, 'size') else 'N/A'
+                    _ov = _pool.overflow() if hasattr(_pool, 'overflow') else 'N/A'
+                    print(f"[DIAG] pool before connect: status={_ps}, checkedout={_co}, size={_sz}, overflow={_ov}")
+                except Exception:
+                    print("[DIAG] pool status unavailable")
+
                 with pool.connect() as conn:
                     # state_managerと同じパターン: rollback()で接続状態をクリーン化
                     conn.rollback()
@@ -517,6 +533,7 @@ class ContextBuilder:
                     ))
                     t_conn = _time.monotonic()
                     print(f"[DIAG] _fetch_all_db_data: conn ready in {t_conn - t0:.3f}s")
+                    t_q = _time.monotonic()  # クエリ個別タイミング
 
                     # --- 1. 会話要約 (conversation_summaries) ---
                     if org_is_uuid and memory:
@@ -539,6 +556,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_1_summary: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 2. ユーザー嗜好 (user_preferences) ---
                     if org_is_uuid and memory:
@@ -572,6 +590,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_2_prefs: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 3. 人物情報 (persons + person_attributes) ---
                     if memory:
@@ -610,6 +629,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_3_persons: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 4. タスク情報 (chatwork_tasks) ---
                     if memory:
@@ -670,6 +690,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_4_tasks: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 5. 目標情報 (goals) ---
                     if org_is_uuid and memory:
@@ -707,6 +728,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_5_goals: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 6. ユーザー基本情報 (users) ---
                     try:
@@ -730,6 +752,7 @@ class ContextBuilder:
                             conn.rollback()
                         except Exception:
                             pass
+                    print(f"[DIAG] query_6_userinfo: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 7. Phase 2E 学習済み知識 ---
                     if prefetched is None and phase2e_learning:
@@ -750,6 +773,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_7_phase2e: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
 
                     # --- 8. Phase 2F 行動パターン ---
                     if outcome_learning:
@@ -774,6 +798,7 @@ class ContextBuilder:
                                 conn.rollback()
                             except Exception:
                                 pass
+                    print(f"[DIAG] query_8_outcome: {_time.monotonic() - t_q:.3f}s")
 
                     t_done = _time.monotonic()
                     print(
@@ -790,6 +815,7 @@ class ContextBuilder:
 
             return data
 
+        t_before_thread = _time.monotonic()
         return await asyncio.to_thread(_sync_all_queries)
 
     async def _get_session_state(

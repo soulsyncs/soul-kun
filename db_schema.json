@@ -2109,6 +2109,10 @@
       "created_at": {
         "type": "timestamp with time zone",
         "nullable": true
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
       }
     },
     "soulkun.deep_understanding_logs": {

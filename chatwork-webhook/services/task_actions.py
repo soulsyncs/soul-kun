@@ -660,8 +660,8 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
 
     v10.22.0: BUG-001修正 - 自分のタスクを検索する場合は全ルームから検索
     """
-    print(f"🔍 handle_chatwork_task_search 開始")
-    print(f"   params: {params}")
+    # v10.78: PII漏洩防止 — paramsにperson_name等が含まれるためキーのみログ出力（CLAUDE.md §3-2 #8）
+    print(f"🔍 handle_chatwork_task_search 開始 (keys={list(params.keys())})")
 
     person_name = params.get("person_name", "")
     status = params.get("status", "open")
@@ -743,7 +743,8 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
                 print(f"🔄 リアルタイム同期完了: {len(completed_task_ids)}件のタスクを完了扱いに")
 
         except Exception as e:
-            print(f"⚠️ リアルタイム同期エラー（DBデータで続行）: {e}")
+            # v10.78: PII漏洩防止 — エラー型のみログ記録（CLAUDE.md §3-2 #8, #12）
+            print(f"⚠️ リアルタイム同期エラー（DBデータで続行）: {type(e).__name__}")
 
     if not tasks:
         status_text = "未完了の" if status == "open" else "完了済みの" if status == "done" else ""

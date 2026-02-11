@@ -1378,6 +1378,8 @@ class LearningLoop:
         """起動時にDBからAPPLIED状態の改善を復元"""
         if not self.pool:
             return 0
+        # [DIAG] LearningLoop診断（Codex提案: org_id + pool状態確認）
+        print(f"[DIAG] LearningLoop org_id={self.organization_id}, pool={self.pool is not None}")
         try:
             from sqlalchemy import text as sa_text
 
@@ -1434,9 +1436,12 @@ class LearningLoop:
             return count
 
         except Exception as e:
+            # v10.79: SQLSTATE抽出（PII安全: Codex案、3AI合議済み）
+            pgcode = getattr(getattr(e, "orig", None), "pgcode", "unknown")
             logger.warning(
-                "[LearningLoop] Load persisted improvements failed: %s",
+                "[LearningLoop] Load persisted improvements failed: %s (pgcode=%s)",
                 type(e).__name__,
+                pgcode,
             )
             return 0
 

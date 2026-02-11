@@ -9,10 +9,13 @@ main.pyから分割されたChatWorkタスク管理の機能を提供する。
 """
 
 import json
+import logging
 import traceback
 import sqlalchemy
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List, Callable, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class TaskHandler:
@@ -267,7 +270,8 @@ class TaskHandler:
                     for row in tasks
                 ]
         except Exception as e:
-            print(f"タスク検索エラー: {e}")
+            # v10.78: silent catch修正 — エラー型のみログ記録（PII漏洩防止: CLAUDE.md §3-2 #8, #12）
+            logger.error(f"タスク検索エラー: {type(e).__name__}")
             return []
 
     def update_task_status_in_db(self, task_id: str, status: str) -> bool:

@@ -339,19 +339,22 @@ class ContextBuilder:
                 logger.warning(f"{name} failed: {type(e).__name__}")
                 return default
 
-        # 5タスクを並行実行:
-        # - 3つの非DBタスク（Firestore/LLM API）
-        # - 1つのDB統合タスク（8クエリを1コネクションで直列実行）
-        # - 1つのCEO教え（独自リポジトリ経由、別コネクション）
+        # DB接続は同時に1本のみ使用（Cloud SQL Connectorの新規接続ハング回避）
+        # v10.79: session_stateを先に順次実行し、コネクション返却後にgather実行
+        session_state = await _safe(self._get_session_state(user_id, room_id), "session_state")
+
+        # 3タスクを並行実行:
+        # - 2つの非DBタスク（Firestore/LLM API）
+        # - 1つのDB統合タスク（9クエリを1コネクションで直列実行）
+        # 重要: gather内の messages/emotion は非DBタスクであること。
+        # DBを使うタスクを追加する場合は _fetch_all_db_data に統合すること。
         results = await asyncio.gather(
-            _safe(self._get_session_state(user_id, room_id), "session_state"),
             _safe(self._get_recent_messages(user_id, room_id, organization_id), "messages", default=[]),
             _safe(self._get_emotion_context(message, organization_id, user_id), "emotion", default=""),
             _safe(self._fetch_all_db_data(
                 user_id, room_id, organization_id, message,
                 sender_name, phase2e_learnings_prefetched,
             ), "db_data", default={}, timeout=20.0),  # v10.79: 15→20 (DB_POOL_TIMEOUT=15の結果をキャッチするため、3AI合議)
-            _safe(self._get_ceo_teachings(organization_id, message), "ceo_teachings", default=[], timeout=5.0),
             return_exceptions=True,
         )
 
@@ -362,11 +365,10 @@ class ContextBuilder:
         def _unpack(val, default=None):
             return default if isinstance(val, Exception) or val is None else val
 
-        session_state = _unpack(results[0])
-        recent_messages = _unpack(results[1], [])
-        emotion_context = _unpack(results[2], "")
-        db_data = _unpack(results[3], {})
-        ceo_teachings = _unpack(results[4], [])
+        recent_messages = _unpack(results[0], [])
+        emotion_context = _unpack(results[1], "")
+        db_data = _unpack(results[2], {})
+        ceo_teachings = db_data.get("ceo_teachings", [])
 
         # DB統合結果を展開
         conversation_summary = db_data.get("summary")
@@ -510,6 +512,7 @@ class ContextBuilder:
                 "user_info": {"name": sender_name or "ユーザー", "role": ""},
                 "phase2e": prefetched or "",
                 "outcome_patterns": "",
+                "ceo_teachings": [],
             }
 
             try:
@@ -800,9 +803,34 @@ class ContextBuilder:
                                 pass
                     print(f"[DIAG] query_8_outcome: {_time.monotonic() - t_q:.3f}s")
 
+                    # --- 9. CEO教え ---
+                    if self.ceo_teaching_repository:
+                        try:
+                            teachings = self.ceo_teaching_repository.search_teachings_with_conn(
+                                conn=conn,
+                                query_text=message,
+                                limit=5,
+                            )
+                            data["ceo_teachings"] = [
+                                CEOTeaching(
+                                    content=getattr(t, "statement", None) or getattr(t, "content", None) or str(t),
+                                    category=getattr(t, "category", None),
+                                    priority=getattr(t, "priority", 0) or 0,
+                                    created_at=getattr(t, "created_at", None),
+                                )
+                                for t in teachings
+                            ]
+                        except Exception as e:
+                            print(f"[DIAG] ceo_teachings query failed: {type(e).__name__}")
+                            try:
+                                conn.rollback()
+                            except Exception:
+                                pass
+                    print(f"[DIAG] query_9_ceo: {_time.monotonic() - t_q:.3f}s")
+
                     t_done = _time.monotonic()
                     print(
-                        f"[DIAG] _fetch_all_db_data: all 8 queries done "
+                        f"[DIAG] _fetch_all_db_data: all 9 queries done "
                         f"in {t_done - t0:.3f}s"
                     )
 
@@ -1004,6 +1032,8 @@ class ContextBuilder:
             logger.warning(f"Error getting active goals: {type(e).__name__}")
             return []
 
+    # DEPRECATED: v10.79で _fetch_all_db_data query #9 に統合済み
+    # pool.connect()並行呼び出し回避のため、gather からは除外
     async def _get_ceo_teachings(
         self,
         organization_id: str,

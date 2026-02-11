@@ -539,6 +539,38 @@ class LLMBrain:
                 )
                 result = self._parse_anthropic_response(response)
 
+        except RuntimeError as e:
+            if "Event loop is closed" in str(e):
+                # Cloud Functions Gen2: リクエスト間でevent loopが再作成される場合、
+                # 前のloopで作られたhttpxクライアントの接続が無効になる。
+                # クライアントを再作成してリトライする。
+                logger.warning("Event loop closed, recreating httpx client and retrying")
+                import httpx
+                self._http_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(API_TIMEOUT_SECONDS, connect=10),
+                    limits=httpx.Limits(max_connections=5, max_keepalive_connections=3),
+                )
+                try:
+                    if self.api_provider == APIProvider.OPENROUTER:
+                        response = await self._call_openrouter(
+                            system=full_system_prompt,
+                            messages=messages,
+                            tools=tools,
+                        )
+                        result = self._parse_openrouter_response(response)
+                    else:
+                        response = await self._call_anthropic(
+                            system=full_system_prompt,
+                            messages=messages,
+                            tools=tools,
+                        )
+                        result = self._parse_anthropic_response(response)
+                except Exception as retry_e:
+                    logger.error(f"API retry error: {type(retry_e).__name__}", exc_info=True)
+                    return self._create_error_result(type(retry_e).__name__)
+            else:
+                logger.error(f"API error: {type(e).__name__}", exc_info=True)
+                return self._create_error_result(type(e).__name__)
         except Exception as e:
             logger.error(f"API error: {type(e).__name__}", exc_info=True)
             return self._create_error_result(type(e).__name__)

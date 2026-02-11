@@ -456,7 +456,17 @@ class BrainMemoryAccess:
 
         try:
             def _sync_query():
+                import time as _t
+                print("[DIAG] summary: pool.connect() START")
+                t0 = _t.monotonic()
                 with self.pool.connect() as conn:
+                    t1 = _t.monotonic()
+                    print(f"[DIAG] summary: pool.connect() DONE in {t1 - t0:.3f}s")
+                    # DB側タイムアウト防止（5秒）
+                    conn.execute(text(
+                        "SELECT set_config('statement_timeout', '5000', true)"
+                    ))
+                    print("[DIAG] summary: statement_timeout SET, executing query")
                     result = conn.execute(
                         text("""
                             SELECT
@@ -476,6 +486,8 @@ class BrainMemoryAccess:
                         """),
                         {"user_id": user_id, "org_id": self.org_id},
                     )
+                    t2 = _t.monotonic()
+                    print(f"[DIAG] summary: query DONE in {t2 - t1:.3f}s")
                     return result.fetchone()
 
             row = await asyncio.to_thread(_sync_query)

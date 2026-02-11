@@ -2312,3 +2312,100 @@ class TestOutcomeRecording:
         """non-trackableアクションが_trackable_actionsに含まれないことを確認"""
         brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
         assert "general_conversation" not in brain._trackable_actions
+
+
+# =============================================================================
+# LLM Brain有効時の_get_context()スキップテスト
+# =============================================================================
+
+
+class TestLLMBrainContextSkip:
+    """LLM Brain有効時に_get_context()がスキップされることを確認"""
+
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        conn = MagicMock()
+        conn.__enter__ = MagicMock(return_value=conn)
+        conn.__exit__ = MagicMock(return_value=False)
+        pool.connect.return_value = conn
+        return pool
+
+    @pytest.mark.asyncio
+    async def test_llm_brain_enabled_skips_get_context(self, mock_pool):
+        """LLM Brain有効時に_get_context()を呼ばず最小BrainContextを使用"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        brain._get_context = AsyncMock()
+        brain.memory_manager = MagicMock()
+        brain.memory_manager.is_ceo_user = MagicMock(return_value=False)
+        brain.memory_manager.get_ceo_teachings_context = AsyncMock(return_value=None)
+
+        # LLM Brain が有効な状態をシミュレート
+        mock_llm_brain = MagicMock()
+        brain.llm_brain = mock_llm_brain
+
+        # _process_with_llm_brain をモックして早期リターン
+        brain._process_with_llm_brain = AsyncMock(return_value=BrainResponse(
+            message="テスト応答ウル",
+            action_taken="general_conversation",
+            success=True,
+        ))
+
+        with patch('lib.brain.core.is_llm_brain_enabled', return_value=True):
+            response = await brain.process_message(
+                message="テスト",
+                room_id="room123",
+                account_id="user456",
+                sender_name="テスト",
+            )
+
+        # _get_context()は呼ばれていないことを確認
+        brain._get_context.assert_not_called()
+        # get_ceo_teachings_context()も呼ばれていないことを確認
+        brain.memory_manager.get_ceo_teachings_context.assert_not_called()
+        # _process_with_llm_brain は呼ばれることを確認
+        brain._process_with_llm_brain.assert_called_once()
+        assert response.success is True
+
+    @pytest.mark.asyncio
+    async def test_llm_brain_disabled_calls_get_context(self, mock_pool):
+        """LLM Brain無効時に_get_context()が通常通り呼ばれる"""
+        brain = SoulkunBrain(pool=mock_pool, org_id="org_test")
+        brain._get_context = AsyncMock(return_value=BrainContext(organization_id="org_test"))
+        brain._get_current_state = AsyncMock(return_value=None)
+        brain.memory_manager = MagicMock()
+        brain.memory_manager.is_ceo_user = MagicMock(return_value=False)
+        brain.memory_manager.get_ceo_teachings_context = AsyncMock(return_value=None)
+        brain.memory_manager.update_memory_safely = AsyncMock()
+        brain.memory_manager.log_decision_safely = AsyncMock()
+
+        mock_thought_chain = MagicMock()
+        mock_thought_chain.input_type.value = "question"
+        mock_thought_chain.final_intent = "general_conversation"
+        mock_thought_chain.confidence = 0.9
+        mock_thought_chain.analysis_time_ms = 5.0
+        brain._analyze_with_thought_chain = MagicMock(return_value=mock_thought_chain)
+
+        brain._understand = AsyncMock(return_value=UnderstandingResult(
+            raw_message="テスト", intent="general_conversation", intent_confidence=0.9,
+        ))
+        brain._decide = AsyncMock(return_value=DecisionResult(
+            action="general_conversation", params={}, confidence=0.9, needs_confirmation=False,
+        ))
+        brain._execute = AsyncMock(return_value=HandlerResult(
+            success=True, message="テスト応答ウル",
+        ))
+
+        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+            response = await brain.process_message(
+                message="テスト",
+                room_id="room123",
+                account_id="user456",
+                sender_name="テスト",
+            )
+
+        # _get_context()は呼ばれることを確認
+        brain._get_context.assert_called_once()
+        # get_ceo_teachings_context()も呼ばれることを確認
+        brain.memory_manager.get_ceo_teachings_context.assert_called_once()
+        assert response.success is True

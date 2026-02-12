@@ -307,17 +307,17 @@ class TestGetCredentials:
 
         assert result == mock_creds
 
-    def test_get_credentials_no_credentials_raises_error(self):
-        """認証情報がない場合のエラー"""
+    def test_get_credentials_no_credentials_falls_back_to_adc(self):
+        """認証情報がない場合はADC（Application Default Credentials）にフォールバック"""
         client = GoogleDocsClient()
         client._credentials_path = None
         client._credentials_json = None
 
-        with pytest.raises(GoogleAuthError) as exc_info:
-            client._get_credentials()
-
-        # GoogleAuthErrorが発生することを確認
-        assert exc_info.value.error_code == "GOOGLE_AUTH_FAILED"
+        mock_creds = MagicMock()
+        with patch("google.auth.default", return_value=(mock_creds, "project-id")) as mock_default:
+            result = client._get_credentials()
+            mock_default.assert_called_once()
+            assert result == mock_creds
 
     def test_get_credentials_auth_failure_raises_error(self, docs_client):
         """認証失敗時のエラー"""

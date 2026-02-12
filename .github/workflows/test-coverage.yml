@@ -50,6 +50,8 @@ jobs:
           pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday python-jose[cryptography]
 
       - name: Run tests with coverage
+        env:
+          PYTHONPATH: .
         run: |
           echo "🧪 Running tests with coverage measurement..."
           echo ""

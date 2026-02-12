@@ -23,7 +23,6 @@ from .constants import (
     GOOGLE_DOCS_SCOPES,
     GOOGLE_DRIVE_API_VERSION,
     GOOGLE_DRIVE_SCOPES,
-    GOOGLE_DOCS_API_TIMEOUT,
 )
 from .exceptions import (
     GoogleAuthError,
@@ -100,7 +99,7 @@ class GoogleDocsClient:
             return self._credentials
 
         except Exception as e:
-            logger.error(f"Google auth failed: {str(e)}")
+            logger.error("Google auth failed: %s", type(e).__name__)
             raise GoogleAuthError(original_error=e)
 
     def _get_docs_service(self):
@@ -167,13 +166,13 @@ class GoogleDocsClient:
             }
 
         except HttpError as e:
-            logger.error(f"Google Docs create failed: {str(e)}")
+            logger.error("Google Docs create failed: %s", type(e).__name__)
             raise GoogleDocsCreateError(
                 document_title=title,
                 original_error=e,
             )
         except Exception as e:
-            logger.error(f"Unexpected error creating document: {str(e)}")
+            logger.error("Unexpected error creating document: %s", type(e).__name__)
             raise GoogleDocsCreateError(
                 document_title=title,
                 original_error=e,
@@ -261,13 +260,13 @@ class GoogleDocsClient:
             return True
 
         except HttpError as e:
-            logger.error(f"Google Docs update failed: {str(e)}")
+            logger.error("Google Docs update failed: %s", type(e).__name__)
             raise GoogleDocsUpdateError(
                 document_id=document_id,
                 original_error=e,
             )
         except Exception as e:
-            logger.error(f"Unexpected error updating document: {str(e)}")
+            logger.error("Unexpected error updating document: %s", type(e).__name__)
             raise GoogleDocsUpdateError(
                 document_id=document_id,
                 original_error=e,
@@ -305,7 +304,7 @@ class GoogleDocsClient:
             return True
 
         except HttpError as e:
-            logger.error(f"Google Docs write failed: {str(e)}")
+            logger.error("Google Docs write failed: %s", type(e).__name__)
             raise GoogleDocsUpdateError(
                 document_id=document_id,
                 original_error=e,
@@ -347,7 +346,7 @@ class GoogleDocsClient:
             return True
 
         except HttpError as e:
-            logger.error(f"Google Drive share failed: {str(e)}")
+            logger.error("Google Drive share failed: %s", type(e).__name__)
             raise GoogleDriveUploadError(
                 file_name=document_id,
                 original_error=e,
@@ -390,7 +389,7 @@ class GoogleDocsClient:
             return True
 
         except HttpError as e:
-            logger.warning(f"Failed to move document to folder: {str(e)}")
+            logger.warning("Failed to move document to folder: %s", type(e).__name__)
             return False
 
     def _get_heading_style(self, section_type: SectionType) -> str:
@@ -562,7 +561,7 @@ class GoogleDocsClient:
             return "".join(content)
 
         except HttpError as e:
-            logger.error(f"Failed to get document content: {str(e)}")
+            logger.error("Failed to get document content: %s", type(e).__name__)
             raise GoogleDocsUpdateError(
                 document_id=document_id,
                 original_error=e,

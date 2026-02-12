@@ -1119,6 +1119,18 @@ def _build_bypass_context(room_id: str, account_id: str) -> dict:
     except Exception as e:
         print(f"⚠️ Announcement check failed: {e}")
 
+    # v10.56.14: タスク作成待ちチェック（Firestore）
+    # pending_taskがある場合は脳のバイパス検出で検知し、session_orchestratorに委譲
+    try:
+        pending_task = get_pending_task(room_id, account_id)
+        if pending_task:
+            context["has_pending_task"] = True
+            context["pending_task_id"] = f"{room_id}_{account_id}"
+            context["pending_task_data"] = pending_task
+            print(f"📋 pending_task検出: room={room_id}, account={account_id}")
+    except Exception as e:
+        print(f"⚠️ Pending task check failed: {e}")
+
     return context
 
 
@@ -1885,8 +1897,14 @@ def chatwork_webhook(request):
                 finally:
                     loop.close()
 
-                if result and result.success and result.message:
-                    print(f"🧠 応答: brain={result.used_brain}, time={result.processing_time_ms}ms")
+                # v10.56.6: success=False でも error=None なら確認質問として正常処理
+                # パラメータ不足で確認質問を返す場合、success=False だが送信すべき
+                if result and result.message and not result.error:
+                    is_confirmation = not result.success and not result.error
+                    if is_confirmation:
+                        print(f"🧠 確認質問: brain={result.used_brain}, time={result.processing_time_ms}ms")
+                    else:
+                        print(f"🧠 応答: brain={result.used_brain}, time={result.processing_time_ms}ms")
                     show_guide = should_show_guide(room_id, sender_account_id)
                     send_chatwork_message(room_id, result.to_chatwork_message(), sender_account_id, show_guide)
                     update_conversation_timestamp(room_id, sender_account_id)
@@ -1894,6 +1912,7 @@ def chatwork_webhook(request):
                         "status": "ok",
                         "brain": result.used_brain,
                         "mode": mode,
+                        "is_confirmation": is_confirmation,
                     })
                 else:
                     # Brainが応答を返せなかった場合もエラー応答

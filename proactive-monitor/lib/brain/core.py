@@ -968,13 +968,9 @@ class SoulkunBrain:
             user_info = None
             try:
                 if self.memory_access:
-                    # person_idで直接検索を試みる
-                    user_info_list = await self.memory_access.get_person_info(
-                        limit=1, person_id=user_id,
-                    )
-                    if not user_info_list:
-                        # フォールバック: 全員取得して名前ありの最初の人物を使用
-                        user_info_list = await self.memory_access.get_person_info(limit=10)
+                    # users.id(UUID)とpersons.id(integer)は別体系のため、
+                    # 全員取得して名前ありの最初の人物を使用
+                    user_info_list = await self.memory_access.get_person_info(limit=10)
                     if user_info_list:
                         for person in user_info_list:
                             if hasattr(person, 'name') and person.name:

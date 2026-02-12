@@ -120,7 +120,7 @@ SUGGESTION_TEMPLATES: Dict[str, List[str]] = {
 # =============================================================================
 
 REQUIRED_PARAMETERS: Dict[str, List[str]] = {
-    "chatwork_task_create": ["body"],
+    "chatwork_task_create": ["task_body"],  # v10.56.16: registry.pyと整合
     "chatwork_task_complete": ["task_id"],
     "chatwork_task_search": [],  # オプションのみ
     "learn_knowledge": ["content"],
@@ -132,9 +132,10 @@ REQUIRED_PARAMETERS: Dict[str, List[str]] = {
 # パラメータ型定義
 PARAMETER_TYPES: Dict[str, Dict[str, Any]] = {
     "chatwork_task_create": {
-        "body": str,
-        "assignee_ids": list,
-        "limit_time": (int, str),
+        "task_body": str,  # v10.56.16: registry.pyと整合
+        "assigned_to": str,  # v10.56.16: registry.pyと整合
+        "limit_date": str,
+        "limit_time": str,
     },
     "chatwork_task_complete": {
         "task_id": (int, str),
@@ -541,14 +542,17 @@ class BrainExecution:
             表示名（日本語）
         """
         display_names = {
-            "body": "タスクの内容",
+            "task_body": "タスクの内容",  # v10.56.16: registry.pyと整合
+            "body": "タスクの内容",  # 後方互換
             "task_id": "タスクID",
             "content": "覚えてほしい内容",
             "keyword": "キーワード",
             "message": "メッセージ",
             "target_room": "送信先",
-            "assignee_ids": "担当者",
-            "limit_time": "期限",
+            "assigned_to": "担当者",  # v10.56.16: registry.pyと整合
+            "assignee_ids": "担当者",  # 後方互換
+            "limit_date": "期限日",
+            "limit_time": "期限時刻",
             "schedule_time": "送信時刻",
         }
         return display_names.get(param_name, param_name)

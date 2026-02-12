@@ -5,7 +5,6 @@ ZoomBrainInterfaceの統合テスト
 Author: Claude Opus 4.6
 """
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -257,15 +256,14 @@ class TestProcessZoomMinutes:
 
     @pytest.mark.asyncio
     async def test_llm_minutes_generated(self, mock_pool, mock_zoom_client):
+        """Vision 12.2.4: LLMが講義スタイルのプレーンテキスト議事録を生成"""
         def mock_ai_response(messages, system_prompt):
-            return json.dumps({
-                "summary": "LLM生成の要約",
-                "topics": ["議題1"],
-                "decisions": ["決定1"],
-                "action_items": [],
-                "next_meeting": "",
-                "corrections": [],
-            })
+            return (
+                "■ 今日の議題について（00:00〜）\n"
+                "今日は3つの議題について議論しました。\n\n"
+                "■ タスク一覧\n"
+                "- [ ] 田中: 見積もり作成"
+            )
 
         interface = ZoomBrainInterface(
             mock_pool, "org_test", zoom_client=mock_zoom_client
@@ -276,8 +274,9 @@ class TestProcessZoomMinutes:
             get_ai_response_func=mock_ai_response,
         )
         assert result.success is True
-        assert "minutes" in result.data
-        assert result.data["minutes"]["summary"] == "LLM生成の要約"
+        assert "minutes_text" in result.data
+        assert "■" in result.data["minutes_text"]
+        assert "議題" in result.data["minutes_text"]
 
     @pytest.mark.asyncio
     async def test_llm_failure_falls_back(self, mock_pool, mock_zoom_client):
@@ -347,14 +346,12 @@ class TestProcessZoomMinutes:
     async def test_async_ai_response_func(self, mock_pool, mock_zoom_client):
         """Async get_ai_response_func should be awaited directly."""
         async def async_ai(messages, system_prompt):
-            return json.dumps({
-                "summary": "Async生成の要約",
-                "topics": [],
-                "decisions": [],
-                "action_items": [],
-                "next_meeting": "",
-                "corrections": [],
-            })
+            return (
+                "■ Async議題（00:00〜）\n"
+                "非同期AIで生成された議事録です。\n\n"
+                "■ タスク一覧\n"
+                "- [ ] なし"
+            )
 
         interface = ZoomBrainInterface(
             mock_pool, "org_test", zoom_client=mock_zoom_client
@@ -365,8 +362,8 @@ class TestProcessZoomMinutes:
             get_ai_response_func=async_ai,
         )
         assert result.success is True
-        assert "minutes" in result.data
-        assert result.data["minutes"]["summary"] == "Async生成の要約"
+        assert "minutes_text" in result.data
+        assert "■" in result.data["minutes_text"]
 
 
     @pytest.mark.asyncio

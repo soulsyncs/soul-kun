@@ -19,7 +19,7 @@ Created: 2026-02-10
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from lib.brain.models import HandlerResult
 from lib.meetings.meeting_db import MeetingDB
@@ -27,10 +27,9 @@ from lib.meetings.transcript_sanitizer import TranscriptSanitizer
 from lib.meetings.zoom_api_client import ZoomAPIClient, create_zoom_client_from_secrets
 from lib.meetings.vtt_parser import parse_vtt, VTTTranscript
 from lib.meetings.minutes_generator import (
-    build_minutes_prompt,
-    parse_minutes_response,
-    MeetingMinutes,
-    MINUTES_SYSTEM_PROMPT,
+    build_chatwork_minutes_prompt,
+    format_chatwork_minutes,
+    CHATWORK_MINUTES_SYSTEM_PROMPT,
 )
 
 logger = logging.getLogger(__name__)
@@ -257,8 +256,8 @@ class ZoomBrainInterface:
             }
 
             if minutes:
-                result_data["minutes"] = minutes.to_dict()
-                message = minutes.to_chatwork_message(resolved_title)
+                result_data["minutes_text"] = minutes
+                message = format_chatwork_minutes(minutes, resolved_title)
             else:
                 message = self._build_transcript_only_message(
                     resolved_title,
@@ -351,25 +350,29 @@ class ZoomBrainInterface:
         sanitized_text: str,
         title: str,
         get_ai_response_func: Callable,
-    ) -> Optional[MeetingMinutes]:
-        """Generate structured minutes using LLM."""
+    ) -> Optional[str]:
+        """Generate lecture-style minutes using LLM (Vision 12.2.4 format).
+
+        Returns plain text with ■主題（00:00〜）sections,
+        not JSON-structured MeetingMinutes.
+        """
         try:
-            prompt = build_minutes_prompt(sanitized_text, title)
+            prompt = build_chatwork_minutes_prompt(sanitized_text, title)
 
             if asyncio.iscoroutinefunction(get_ai_response_func):
                 response = await get_ai_response_func(
                     [{"role": "user", "content": prompt}],
-                    MINUTES_SYSTEM_PROMPT,
+                    CHATWORK_MINUTES_SYSTEM_PROMPT,
                 )
             else:
                 response = await asyncio.to_thread(
                     get_ai_response_func,
                     [{"role": "user", "content": prompt}],
-                    MINUTES_SYSTEM_PROMPT,
+                    CHATWORK_MINUTES_SYSTEM_PROMPT,
                 )
 
             if response:
-                return parse_minutes_response(response)
+                return response
         except Exception as e:
             logger.warning("Minutes generation failed: %s", type(e).__name__)
 

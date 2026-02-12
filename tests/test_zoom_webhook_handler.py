@@ -6,6 +6,10 @@ Author: Claude Opus 4.6
 Created: 2026-02-13
 """
 
+import os
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'chatwork-webhook'))
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest

@@ -672,7 +672,8 @@ def _brain_continue_task_pending(message, room_id, account_id, sender_name, stat
     """
     タスク作成待ち状態を継続
 
-    handle_pending_task_followupを使用して不足情報を補完します。
+    v10.56.15: PostgreSQLのstate_dataを使用してタスク作成を継続。
+    state_dataがない場合はFirestoreにフォールバック。
     """
     try:
         import sys
@@ -680,22 +681,55 @@ def _brain_continue_task_pending(message, room_id, account_id, sender_name, stat
         if not main:
             return {"message": "システムエラーが発生したウル🐺", "success": False}
 
-        handle_pending_task_followup = getattr(main, 'handle_pending_task_followup')
+        # v10.56.15: state_dataからpending_paramsを取得（PostgreSQL状態）
+        pending_params = state_data.get("pending_params", {}) if state_data else {}
+        pending_action = state_data.get("pending_action", "") if state_data else ""
 
-        # handle_pending_task_followupを呼び出し
-        result = handle_pending_task_followup(message, room_id, account_id, sender_name)
+        # タスク作成アクションの場合、メッセージを不足パラメータとして補完
+        if pending_action == "chatwork_task_create" and pending_params:
+            # メッセージをタスク本文として追加
+            if "body" not in pending_params or not pending_params.get("body"):
+                pending_params["body"] = message.strip()
+                print(f"📋 [task_pending] body補完: {message[:50]}")
 
-        if result:
-            # タスク作成成功
-            return {
-                "message": result,
-                "success": True,
-                "task_created": True,
-                "new_state": "normal",
-            }
-        else:
-            # 補完できなかった場合
-            return None
+                # 他の必須パラメータがあるかチェック
+                if pending_params.get("body"):
+                    # assignee_idsとlimit_timeがあればタスク作成実行
+                    handle_chatwork_task_create = getattr(main, 'handle_chatwork_task_create', None)
+                    if handle_chatwork_task_create:
+                        try:
+                            result = handle_chatwork_task_create(
+                                room_id=room_id,
+                                account_id=account_id,
+                                sender_name=sender_name,
+                                params=pending_params,
+                            )
+                            if result and result.get("success"):
+                                return {
+                                    "message": result.get("message", "タスクを作成したウル🐺"),
+                                    "success": True,
+                                    "task_created": True,
+                                    "new_state": "normal",
+                                }
+                        except Exception as e:
+                            print(f"⚠️ タスク作成実行エラー: {e}")
+
+        # フォールバック: Firestoreのpending_taskを使用（従来方式）
+        handle_pending_task_followup = getattr(main, 'handle_pending_task_followup', None)
+        if handle_pending_task_followup:
+            result = handle_pending_task_followup(message, room_id, account_id, sender_name)
+
+            if result:
+                # タスク作成成功
+                return {
+                    "message": result,
+                    "success": True,
+                    "task_created": True,
+                    "new_state": "normal",
+                }
+
+        # 補完できなかった場合
+        return None
     except Exception as e:
         print(f"❌ _brain_continue_task_pending error: {e}")
         return {

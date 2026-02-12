@@ -2703,3 +2703,117 @@ def cleanup_old_data(request):
         "status": "ok" if not results["errors"] else "partial",
         "results": results
     })
+
+
+# ========================================
+# Zoom Webhook エンドポイント（Phase 2: 自動トリガー）
+# ========================================
+
+@functions_framework.http
+def zoom_webhook(request):
+    """
+    Cloud Function: Zoom recording.completed Webhook受信
+
+    フロー:
+    1. 署名検証（x-zm-signature + x-zm-request-timestamp）
+    2. endpoint.url_validation → チャレンジ応答
+    3. recording.completed → 議事録自動生成パイプライン
+
+    セキュリティ:
+    - HMAC-SHA256署名検証必須（3AI合意）
+    - タイムスタンプ検証（5分以内、リプレイ攻撃防止）
+    - フィーチャーフラグ: ENABLE_ZOOM_WEBHOOK
+    """
+    # フィーチャーフラグチェック
+    if os.environ.get("ENABLE_ZOOM_WEBHOOK", "").lower() not in ("true", "1"):
+        return jsonify({"status": "disabled", "message": "Zoom webhook is disabled"}), 200
+
+    try:
+        from lib.meetings.zoom_webhook_verify import (
+            verify_zoom_webhook_signature,
+            generate_zoom_url_validation_response,
+        )
+        from lib.secrets import get_secret_cached
+
+        request_body = request.get_data()
+        if not request_body:
+            return jsonify({"status": "error", "message": "Empty body"}), 400
+
+        # 署名検証
+        zoom_secret = get_secret_cached("zoom-webhook-secret-token")
+        if not zoom_secret:
+            print("❌ Zoom webhook secret token not configured")
+            return jsonify({"status": "error", "message": "Server configuration error"}), 500
+
+        timestamp = request.headers.get("x-zm-request-timestamp", "")
+        signature = request.headers.get("x-zm-signature", "")
+
+        # JSONパース
+        try:
+            data = json.loads(request_body)
+        except json.JSONDecodeError:
+            return jsonify({"status": "error", "message": "Invalid JSON"}), 400
+
+        event_type = data.get("event", "")
+
+        # 全イベントで署名検証（url_validationも含む）
+        # SECURITY: 署名検証を最初に行い、不正リクエストを全て拒否
+        if not verify_zoom_webhook_signature(request_body, timestamp, signature, zoom_secret):
+            print("❌ Zoom webhook signature verification failed")
+            return jsonify({"status": "error", "message": "Invalid signature"}), 403
+
+        print(f"✅ Zoom webhook signature verified: event={event_type}")
+
+        # endpoint.url_validation: Zoom URL登録時のチャレンジ（署名検証済み）
+        if event_type == "endpoint.url_validation":
+            plain_token = data.get("payload", {}).get("plainToken", "")
+            if not plain_token:
+                return jsonify({"status": "error", "message": "Missing plainToken"}), 400
+            response = generate_zoom_url_validation_response(plain_token, zoom_secret)
+            print(f"✅ Zoom URL validation challenge responded")
+            return jsonify(response), 200
+
+        # recording.completed のみ処理
+        if event_type != "recording.completed":
+            return jsonify({"status": "ok", "message": f"Event '{event_type}' acknowledged"}), 200
+
+        # 非同期で議事録生成（Webhookは即座に200を返す）
+        payload = data.get("payload", {})
+
+        from handlers.zoom_webhook_handler import handle_zoom_webhook_event
+
+        pool = get_pool()
+
+        # Brain経由のLLM呼び出し関数を取得
+        from lib.brain.llm_client import get_ai_response
+        get_ai_func = get_ai_response
+
+        # asyncio実行（既存パターンに合わせてset_event_loop必須）
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(
+                handle_zoom_webhook_event(
+                    event_type=event_type,
+                    payload=payload,
+                    pool=pool,
+                    organization_id=_ORGANIZATION_ID,
+                    get_ai_response_func=get_ai_func,
+                )
+            )
+        finally:
+            loop.close()
+
+        if result.success:
+            print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')}")
+        else:
+            print(f"⚠️ Zoom議事録生成失敗: {result.message}")
+
+        return jsonify({
+            "status": "ok" if result.success else "error",
+            "message": result.message[:200],  # メッセージ長制限（PII防止）
+        }), 200
+
+    except Exception as e:
+        print(f"❌ Zoom webhook処理エラー: {type(e).__name__}")
+        return jsonify({"status": "error", "message": "Internal server error"}), 500

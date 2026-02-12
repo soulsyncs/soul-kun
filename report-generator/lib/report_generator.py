@@ -567,10 +567,9 @@ class DailyReportGenerator:
                 SELECT
                     t.task_id,
                     t.body,
-                    r.room_name,
+                    t.room_name,
                     t.updated_at
                 FROM chatwork_tasks t
-                LEFT JOIN chatwork_rooms r ON t.room_id = r.room_id
                 WHERE t.assigned_to_account_id = :account_id
                   AND t.organization_id = :org_id
                   AND t.status = 'done'
@@ -1004,47 +1003,15 @@ class ReportDistributor:
         """
         ユーザーのDMルームIDを取得
 
-        ソウルくんとのDMルーム（2人だけのルーム）を探す
+        dm_room_cacheテーブルからキャッシュ済みDMルームを検索
         """
         with self.pool.connect() as conn:
-            # ソウルくんのアカウントIDを取得
-            soulkun_result = conn.execute(text("""
-                SELECT chatwork_account_id
-                FROM users
-                WHERE chatwork_user_name LIKE '%ソウルくん%'
-                   OR chatwork_user_name LIKE '%soulkun%'
-                LIMIT 1
-            """))
-            soulkun_row = soulkun_result.fetchone()
-
-            if not soulkun_row:
-                # ソウルくんが見つからない場合は、ユーザーがメンバーの最初のルームを使用
-                result = conn.execute(text("""
-                    SELECT room_id
-                    FROM chatwork_room_members
-                    WHERE account_id = :account_id
-                    LIMIT 1
-                """), {"account_id": account_id})
-                row = result.fetchone()
-                return str(row[0]) if row else None
-
-            # ソウルくんとのDMルームを探す
             result = conn.execute(text("""
-                SELECT rm1.room_id
-                FROM chatwork_room_members rm1
-                INNER JOIN chatwork_room_members rm2
-                    ON rm1.room_id = rm2.room_id
-                INNER JOIN chatwork_rooms r
-                    ON rm1.room_id = r.room_id
-                WHERE rm1.account_id = :account_id
-                  AND rm2.account_id = :soulkun_id
-                  AND r.room_type = 'direct'
+                SELECT dm_room_id
+                FROM dm_room_cache
+                WHERE account_id = CAST(:account_id AS bigint)
                 LIMIT 1
-            """), {
-                "account_id": account_id,
-                "soulkun_id": str(soulkun_row[0])
-            })
-
+            """), {"account_id": account_id})
             row = result.fetchone()
             return str(row[0]) if row else None
 

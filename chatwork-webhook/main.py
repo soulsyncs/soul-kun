@@ -1718,6 +1718,10 @@ Person, die mit dir spricht: {sender_name}""",
 
 @functions_framework.http
 def chatwork_webhook(request):
+    # パスベースルーティング: /zoom-webhook → zoom_webhook()
+    if request.path == "/zoom-webhook":
+        return zoom_webhook(request)
+
     try:
         # =====================================================
         # v6.8.9: Webhook署名検証（セキュリティ強化）
@@ -2724,10 +2728,6 @@ def zoom_webhook(request):
     - タイムスタンプ検証（5分以内、リプレイ攻撃防止）
     - フィーチャーフラグ: ENABLE_ZOOM_WEBHOOK
     """
-    # フィーチャーフラグチェック
-    if os.environ.get("ENABLE_ZOOM_WEBHOOK", "").lower() not in ("true", "1"):
-        return jsonify({"status": "disabled", "message": "Zoom webhook is disabled"}), 200
-
     try:
         from lib.meetings.zoom_webhook_verify import (
             verify_zoom_webhook_signature,
@@ -2765,6 +2765,7 @@ def zoom_webhook(request):
         print(f"✅ Zoom webhook signature verified: event={event_type}")
 
         # endpoint.url_validation: Zoom URL登録時のチャレンジ（署名検証済み）
+        # NOTE: url_validationはフィーチャーフラグに関係なく応答する（Webhook登録に必要）
         if event_type == "endpoint.url_validation":
             plain_token = data.get("payload", {}).get("plainToken", "")
             if not plain_token:
@@ -2772,6 +2773,10 @@ def zoom_webhook(request):
             response = generate_zoom_url_validation_response(plain_token, zoom_secret)
             print(f"✅ Zoom URL validation challenge responded")
             return jsonify(response), 200
+
+        # フィーチャーフラグチェック（url_validation以外のイベント）
+        if os.environ.get("ENABLE_ZOOM_WEBHOOK", "").lower() not in ("true", "1"):
+            return jsonify({"status": "disabled", "message": "Zoom webhook is disabled"}), 200
 
         # recording.completed のみ処理
         if event_type != "recording.completed":

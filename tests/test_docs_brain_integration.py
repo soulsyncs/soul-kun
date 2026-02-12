@@ -390,8 +390,8 @@ class TestStoreMeetingMemory:
         assert "NOT EXISTS" in insert_sql
 
     @pytest.mark.asyncio
-    async def test_store_cast_uuid_on_users(self, publisher, mock_pool):
-        """usersテーブルのWHEREにCAST(:org_id AS uuid)が使われることを確認"""
+    async def test_store_cast_uuid_correct_tables(self, publisher, mock_pool):
+        """conversation_summariesにCAST uuid、usersにはCAST不要（VARCHAR型）を確認"""
         conn = mock_pool.connect.return_value.__enter__.return_value
 
         await publisher.store_meeting_memory(
@@ -402,8 +402,9 @@ class TestStoreMeetingMemory:
 
         insert_call = conn.execute.call_args_list[1]
         insert_sql = insert_call[0][0].text if hasattr(insert_call[0][0], 'text') else str(insert_call[0][0])
-        # users WHERE にも CAST が使われている
-        assert insert_sql.count("CAST(:org_id AS uuid)") >= 2  # INSERT SELECT + WHERE users + WHERE NOT EXISTS
+        # conversation_summaries(INSERT + NOT EXISTS)にCAST、usersにはCAST不要
+        assert insert_sql.count("CAST(:org_id AS uuid)") == 2  # INSERT + NOT EXISTS
+        assert "u.organization_id = :org_id" in insert_sql  # users: no CAST (VARCHAR)
 
 
 # =========================================================================

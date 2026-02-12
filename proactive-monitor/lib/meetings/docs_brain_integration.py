@@ -254,7 +254,7 @@ class MeetingDocsPublisher:
                                 'meeting_minutes',
                                 :classification
                             FROM users u
-                            WHERE u.organization_id = CAST(:org_id AS uuid)
+                            WHERE u.organization_id = :org_id
                               AND u.role = 'admin'
                               AND NOT EXISTS (
                                   SELECT 1 FROM conversation_summaries cs2

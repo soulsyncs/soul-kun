@@ -228,9 +228,7 @@ class DailyLogGenerator:
                         COUNT(*) AS total,
                         COUNT(DISTINCT ct.account_id) AS unique_users
                     FROM conversation_timestamps ct
-                    JOIN chatwork_rooms cr ON cr.room_id::text = ct.room_id
-                    JOIN organizations o ON o.id = cr.organization_id
-                    WHERE o.organization_id = :org_id
+                    WHERE ct.organization_id = :org_id
                       AND ct.last_conversation_at >= CAST(:date_start AS DATE)
                       AND ct.last_conversation_at < CAST(:date_end AS DATE)
                 """),

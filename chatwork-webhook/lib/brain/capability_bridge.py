@@ -79,7 +79,7 @@ DEFAULT_FEATURE_FLAGS = {
     "ENABLE_MEETING_MINUTES": False,  # Phase C MVP1: ChatWork音声→議事録自動生成
 
     # Zoom Meeting Minutes (Phase C Case C)
-    "ENABLE_ZOOM_MEETING_MINUTES": False,  # Phase C Case C: フィーチャーフラグで段階有効化
+    "ENABLE_ZOOM_MEETING_MINUTES": True,  # Phase C Case C: 有効化済み (2026-02-13)
 }
 
 

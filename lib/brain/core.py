@@ -874,6 +874,42 @@ class SoulkunBrain:
                     "improvements_count": len(refined.improvements) if refined else 0,
                 }
 
+            # v10.56.15: パラメータ不足時の状態保存
+            # update_stateがある場合、状態をDBに保存して次の入力で文脈を維持
+            if result.update_state:
+                try:
+                    # タスク作成のパラメータ不足は TASK_PENDING 状態として保存
+                    if decision.action == "chatwork_task_create":
+                        await self._transition_to_state(
+                            room_id=room_id,
+                            user_id=account_id,
+                            state_type=StateType.TASK_PENDING,
+                            data={
+                                "pending_action": decision.action,
+                                "pending_params": decision.params,
+                                "reason": result.update_state.get("reason", "parameter_missing"),
+                            },
+                            timeout_minutes=10,
+                        )
+                        logger.info(f"📋 TASK_PENDING状態保存: room={room_id}, account={account_id}")
+                    else:
+                        # その他のアクションは CONFIRMATION 状態として保存
+                        state_type_str = result.update_state.get("state_type", "confirmation")
+                        state_type = StateType(state_type_str) if state_type_str in [e.value for e in StateType] else StateType.CONFIRMATION
+                        await self._transition_to_state(
+                            room_id=room_id,
+                            user_id=account_id,
+                            state_type=state_type,
+                            data={
+                                "pending_action": decision.action,
+                                "pending_params": decision.params,
+                                "reason": result.update_state.get("reason"),
+                            },
+                            timeout_minutes=5,
+                        )
+                except Exception as e:
+                    logger.warning(f"状態保存失敗（処理は継続）: {e}")
+
             return BrainResponse(
                 message=result.message,
                 action_taken=decision.action,

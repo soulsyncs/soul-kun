@@ -12,9 +12,9 @@ import pytest
 
 from handlers.zoom_webhook_handler import (
     handle_zoom_webhook_event,
-    DEFAULT_ROOM_ID,
     SOULKUN_ACCOUNT_ID,
 )
+from lib.admin_config import DEFAULT_ADMIN_ROOM_ID
 
 
 @pytest.fixture
@@ -129,7 +129,14 @@ class TestHandleZoomWebhookEvent:
 
         with patch(
             "lib.meetings.zoom_brain_interface.ZoomBrainInterface"
-        ) as MockInterface:
+        ) as MockInterface, patch(
+            "handlers.zoom_webhook_handler._lookup_calendar_event",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "handlers.zoom_webhook_handler._resolve_room_id",
+            return_value=DEFAULT_ADMIN_ROOM_ID,
+        ):
             instance = MockInterface.return_value
             instance.process_zoom_minutes = AsyncMock(return_value=mock_result)
 
@@ -143,7 +150,7 @@ class TestHandleZoomWebhookEvent:
             assert result.success is True
             instance.process_zoom_minutes.assert_called_once()
             call_kwargs = instance.process_zoom_minutes.call_args[1]
-            assert call_kwargs["room_id"] == DEFAULT_ROOM_ID
+            assert call_kwargs["room_id"] == DEFAULT_ADMIN_ROOM_ID
             assert call_kwargs["account_id"] == SOULKUN_ACCOUNT_ID
             assert call_kwargs["meeting_title"] == "Weekly Standup"
             assert call_kwargs["zoom_meeting_id"] == "12345678"
@@ -160,7 +167,14 @@ class TestHandleZoomWebhookEvent:
 
         with patch(
             "lib.meetings.zoom_brain_interface.ZoomBrainInterface"
-        ) as MockInterface:
+        ) as MockInterface, patch(
+            "handlers.zoom_webhook_handler._lookup_calendar_event",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "handlers.zoom_webhook_handler._resolve_room_id",
+            return_value=DEFAULT_ADMIN_ROOM_ID,
+        ):
             instance = MockInterface.return_value
             instance.process_zoom_minutes = AsyncMock(return_value=mock_result)
 
@@ -186,7 +200,14 @@ class TestHandleZoomWebhookEvent:
 
         with patch(
             "lib.meetings.zoom_brain_interface.ZoomBrainInterface"
-        ) as MockInterface:
+        ) as MockInterface, patch(
+            "handlers.zoom_webhook_handler._lookup_calendar_event",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "handlers.zoom_webhook_handler._resolve_room_id",
+            return_value=DEFAULT_ADMIN_ROOM_ID,
+        ):
             instance = MockInterface.return_value
             instance.process_zoom_minutes = AsyncMock(return_value=mock_result)
 
@@ -200,3 +221,58 @@ class TestHandleZoomWebhookEvent:
 
             call_kwargs = instance.process_zoom_minutes.call_args[1]
             assert call_kwargs["get_ai_response_func"] is mock_ai
+
+    @pytest.mark.asyncio
+    async def test_calendar_event_used_for_routing(
+        self, mock_pool, sample_recording_completed_payload
+    ):
+        """Calendar連携でCW:タグがある場合、room_routerに渡される"""
+        from lib.meetings.google_calendar_client import CalendarEvent
+
+        cal_event = CalendarEvent(
+            event_id="cal_1",
+            title="営業定例会議",
+            description="議事録送信先 CW:99887766",
+            start_time=None,
+            end_time=None,
+            attendees=["user1@example.com", "user2@example.com"],
+        )
+
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.message = "OK"
+        mock_result.data = {"meeting_id": "m1"}
+
+        with patch(
+            "lib.meetings.zoom_brain_interface.ZoomBrainInterface"
+        ) as MockInterface, patch(
+            "handlers.zoom_webhook_handler._lookup_calendar_event",
+            new_callable=AsyncMock,
+            return_value=cal_event,
+        ), patch(
+            "handlers.zoom_webhook_handler._resolve_room_id",
+            return_value="99887766",
+        ) as mock_resolve:
+            instance = MockInterface.return_value
+            instance.process_zoom_minutes = AsyncMock(return_value=mock_result)
+
+            result = await handle_zoom_webhook_event(
+                event_type="recording.completed",
+                payload=sample_recording_completed_payload,
+                pool=mock_pool,
+                organization_id="org_test",
+            )
+
+            assert result.success is True
+            # Calendar descriptionがroom resolverに渡されたか
+            mock_resolve.assert_called_once_with(
+                mock_pool, "org_test", "Weekly Standup", "議事録送信先 CW:99887766"
+            )
+            # room_idが正しく設定されたか
+            call_kwargs = instance.process_zoom_minutes.call_args[1]
+            assert call_kwargs["room_id"] == "99887766"
+            # カレンダーのタイトルが使われたか
+            assert call_kwargs["meeting_title"] == "営業定例会議"
+            # attendee_countが記録されたか
+            assert result.data.get("attendee_count") == 2
+            assert result.data.get("room_resolved_by") == "calendar+router"

@@ -8,24 +8,27 @@ ZoomBrainInterfaceを呼び出して議事録を自動生成する。
 フロー:
 1. Webhook署名検証 → 不正リクエスト拒否
 2. endpoint.url_validation → チャレンジ応答
-3. recording.completed → 議事録生成パイプライン起動
+3. recording.completed → カレンダー照合 → ルーム自動判定 → 議事録生成
 4. 冪等性チェック → 重複処理防止
+
+Phase 3: Google Calendar連携追加
+Phase 4: ChatWorkルーム自動振り分け統合
 
 Author: Claude Opus 4.6
 Created: 2026-02-13
+Updated: 2026-02-13 (Phase 3+4統合)
 """
 
 import asyncio
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
+from lib.admin_config import DEFAULT_ADMIN_ROOM_ID
 from lib.brain.models import HandlerResult
 
 logger = logging.getLogger(__name__)
-
-# デフォルト投稿先: 管理部ルーム（Phase 4でルーム自動振り分け実装予定）
-DEFAULT_ROOM_ID = os.environ.get("ZOOM_DEFAULT_ROOM_ID", "405315911")
 
 # ソウルくんのChatWorkアカウントID
 SOULKUN_ACCOUNT_ID = "10909425"
@@ -88,6 +91,26 @@ async def handle_zoom_webhook_event(
             data={},
         )
 
+    # Phase 3: Google Calendar照合（オプショナル）
+    calendar_description = None
+    calendar_event_title = None
+    calendar_attendees = []
+    calendar_event = await _lookup_calendar_event(start_time, topic)
+    if calendar_event:
+        calendar_description = calendar_event.description
+        calendar_event_title = calendar_event.title
+        calendar_attendees = calendar_event.attendees
+        logger.info(
+            "Calendar event matched: has_cw_tag=%s, attendees=%d",
+            calendar_event.has_cw_tag,
+            len(calendar_attendees),
+        )
+
+    # Phase 4: ルーム自動振り分け（DB I/Oを含むためto_thread）
+    resolved_room_id = await asyncio.to_thread(
+        _resolve_room_id, pool, organization_id, topic, calendar_description
+    )
+
     from lib.meetings.zoom_brain_interface import ZoomBrainInterface
 
     interface = ZoomBrainInterface(pool, organization_id)
@@ -96,9 +119,9 @@ async def handle_zoom_webhook_event(
     zoom_meeting_id = str(meeting_id_raw) if meeting_id_raw else None
 
     result = await interface.process_zoom_minutes(
-        room_id=DEFAULT_ROOM_ID,
+        room_id=resolved_room_id,
         account_id=SOULKUN_ACCOUNT_ID,
-        meeting_title=topic,
+        meeting_title=calendar_event_title or topic,
         zoom_meeting_id=zoom_meeting_id,
         zoom_user_email=host_email or None,
         get_ai_response_func=get_ai_response_func,
@@ -108,5 +131,80 @@ async def handle_zoom_webhook_event(
     if result.data:
         result.data["trigger"] = "webhook"
         result.data["webhook_event"] = "recording.completed"
+        result.data["room_resolved_by"] = (
+            "calendar+router" if calendar_event else "router"
+        )
+        if calendar_attendees:
+            result.data["attendee_count"] = len(calendar_attendees)
 
     return result
+
+
+async def _lookup_calendar_event(
+    start_time_str: str, topic: str
+) -> Optional[Any]:
+    """
+    Google Calendar照合（Phase 3）。
+
+    ENABLE_GOOGLE_CALENDAR=trueの場合のみ実行。
+    エラー時はNoneを返し、議事録生成は継続する。
+    """
+    try:
+        from lib.meetings.google_calendar_client import create_calendar_client_from_env
+
+        client = create_calendar_client_from_env()
+        if client is None:
+            return None
+
+        # Zoom start_timeをパース
+        if not start_time_str:
+            return None
+
+        zoom_start = datetime.fromisoformat(
+            start_time_str.replace("Z", "+00:00")
+        )
+
+        return await asyncio.to_thread(
+            client.find_matching_event,
+            zoom_start,
+            zoom_topic=topic,
+        )
+    except Exception as e:
+        logger.warning(
+            "Calendar lookup failed (non-fatal): %s", type(e).__name__
+        )
+        return None
+
+
+def _resolve_room_id(
+    pool,
+    organization_id: str,
+    topic: str,
+    calendar_description: Optional[str],
+) -> str:
+    """
+    ChatWorkルーム自動振り分け（Phase 4）。
+
+    room_routerを使って投稿先を判定する。
+    エラー時はDEFAULT_ADMIN_ROOM_IDにフォールバック。
+    """
+    try:
+        from lib.meetings.room_router import MeetingRoomRouter
+
+        router = MeetingRoomRouter(pool, organization_id)
+        result = router.resolve_room(
+            meeting_title=topic,
+            calendar_description=calendar_description,
+        )
+        logger.info(
+            "Room resolved: room_id=%s, method=%s, confidence=%.2f",
+            result.room_id,
+            result.routing_method,
+            result.confidence,
+        )
+        return result.room_id
+    except Exception as e:
+        logger.warning(
+            "Room routing failed (fallback to admin): %s", type(e).__name__
+        )
+        return DEFAULT_ADMIN_ROOM_ID

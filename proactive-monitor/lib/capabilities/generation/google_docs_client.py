@@ -92,9 +92,10 @@ class GoogleDocsClient:
                     scopes=scopes,
                 )
             else:
-                raise GoogleAuthError(
-                    details={"reason": "No credentials provided"}
-                )
+                # Cloud Run/Functions: ADC（Application Default Credentials）
+                from google.auth import default
+
+                self._credentials = default(scopes=scopes)[0]
 
             return self._credentials
 

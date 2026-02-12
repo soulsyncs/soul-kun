@@ -21,17 +21,16 @@ Updated: 2026-02-13 (Phase 3+4統合)
 
 import asyncio
 import logging
-import os
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, Optional
 
-from lib.admin_config import DEFAULT_ADMIN_ROOM_ID
+from lib.admin_config import DEFAULT_ADMIN_ROOM_ID, DEFAULT_BOT_ACCOUNT_ID
 from lib.brain.models import HandlerResult
 
 logger = logging.getLogger(__name__)
 
-# ソウルくんのChatWorkアカウントID
-SOULKUN_ACCOUNT_ID = "10909425"
+# ソウルくんのChatWorkアカウントID（admin_configのSoTから取得）
+SOULKUN_ACCOUNT_ID = DEFAULT_BOT_ACCOUNT_ID
 
 
 async def handle_zoom_webhook_event(
@@ -65,7 +64,6 @@ async def handle_zoom_webhook_event(
     # recording.completed イベントを処理
     meeting_obj = payload.get("object", {})
     meeting_id_raw = meeting_obj.get("id")
-    meeting_uuid = meeting_obj.get("uuid", "")
     topic = meeting_obj.get("topic", "Zoomミーティング")
     host_email = meeting_obj.get("host_email", "")
     start_time = meeting_obj.get("start_time", "")
@@ -76,10 +74,10 @@ async def handle_zoom_webhook_event(
         f.get("file_type") == "TRANSCRIPT" for f in recording_files
     )
 
-    # CLAUDE.md §3-2 #8: PIIをログに含めない（host_emailはマスク）
+    # CLAUDE.md §3-2 #8: PIIをログに含めない（topic/host_emailはマスク）
     logger.info(
-        "Zoom webhook: recording.completed topic=%s, has_transcript=%s, host=%s",
-        topic,
+        "Zoom webhook: recording.completed meeting_id=%s, has_transcript=%s, host=%s",
+        meeting_id_raw,
         has_transcript,
         host_email[:3] + "***" if host_email else "unknown",
     )

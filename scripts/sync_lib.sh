@@ -242,6 +242,15 @@ if [ -d "pattern-detection/lib" ]; then
     sync_mirror "lib/detection" "pattern-detection/lib/detection"
 fi
 
+# supabase-sync（選択的同期: db, config, secrets, org_chart_service）
+if [ -d "supabase-sync/lib" ]; then
+    echo ""
+    echo "  → supabase-sync/lib/"
+    for file in config.py secrets.py db.py __init__.py; do
+        sync_file "lib/$file" "supabase-sync/lib/$file"
+    done
+fi
+
 echo ""
 
 # =============================================================================

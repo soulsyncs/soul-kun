@@ -197,6 +197,63 @@ async def _bypass_handle_meeting_audio(message, room_id, account_id, sender_name
         return None
 
 
+async def _bypass_handle_task_pending(
+    message: str,
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    context: dict = None,
+) -> Optional[str]:
+    """
+    タスク作成待ち状態のバイパス処理（v10.56.14追加）
+
+    pending_taskがある場合に呼び出され、不足情報を補完してタスク作成を継続。
+    """
+    try:
+        import sys
+        main = sys.modules.get('main')
+        if not main:
+            print("⚠️ [バイパス] mainモジュールが見つかりません")
+            return None
+
+        # pending_taskを取得
+        get_pending_task = getattr(main, 'get_pending_task', None)
+        handle_pending_task_followup = getattr(main, 'handle_pending_task_followup', None)
+
+        if not get_pending_task or not handle_pending_task_followup:
+            print("⚠️ [バイパス] task関連関数が見つかりません")
+            return None
+
+        # pending_taskを確認
+        pending = get_pending_task(room_id, account_id)
+        if not pending:
+            print("📋 [バイパス] pending_taskなし、通常処理へ")
+            return None
+
+        print(f"📋 [バイパス] pending_task発見: {pending.get('missing_items', [])}")
+
+        # フォローアップ処理
+        response = handle_pending_task_followup(message, room_id, account_id, sender_name)
+
+        if response is None:
+            # 補完できなかった場合、不足項目を再度質問
+            missing_items = pending.get("missing_items", [])
+            if "task_body" in missing_items:
+                return "何のタスクか教えてウル！🐺"
+            elif "assigned_to" in missing_items:
+                return "誰に依頼するか教えてウル！🐺"
+            elif "limit_date" in missing_items:
+                return "期限はいつにするウル？（例: 12/27、明日、来週金曜日）🐺"
+            else:
+                return "タスクの詳細を教えてウル！🐺"
+
+        return response
+
+    except Exception as e:
+        print(f"❌ [バイパス] task_pending エラー: {e}")
+        return None
+
+
 def build_bypass_handlers() -> Dict[str, Callable]:
     """
     バイパスハンドラーのマッピングを構築
@@ -213,7 +270,9 @@ def build_bypass_handlers() -> Dict[str, Callable]:
         # "goal_session": _bypass_handle_goal_session,
         "announcement_pending": _bypass_handle_announcement,
         "meeting_audio": _bypass_handle_meeting_audio,
-        # "task_pending" と "local_command" は既存の脳内処理で対応可能
+        # v10.56.14: task_pending バイパスを追加（pending_taskがある場合の処理）
+        "task_pending": _bypass_handle_task_pending,
+        # "local_command" は既存の脳内処理で対応可能
     }
 
 

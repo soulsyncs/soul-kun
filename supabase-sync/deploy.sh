@@ -16,8 +16,8 @@ echo "=== Step 1: Syncing lib files ==="
 bash "$ROOT_DIR/scripts/sync_lib.sh" 2>/dev/null || true
 
 # supabase-syncに必要なlibファイルをコピー（HIGH-4: 未使用のorg_chart_service.py除外）
+# NOTE: __init__.py はコピーしない（親lib/の__init__.pyは全モジュールをimportするため）
 LIB_FILES=(
-    "__init__.py"
     "config.py"
     "secrets.py"
     "db.py"
@@ -32,7 +32,9 @@ for file in "${LIB_FILES[@]}"; do
         echo "  WARNING: $file not found"
     fi
 done
-touch "$SCRIPT_DIR/lib/__init__.py"
+# 最小限の__init__.py（親lib/のものは使わない）
+echo '"""supabase-sync lib - minimal subset of shared lib"""' > "$SCRIPT_DIR/lib/__init__.py"
+echo "  Created: __init__.py (minimal)"
 
 # 2. Import smoke test
 echo ""
@@ -54,7 +56,7 @@ gcloud functions deploy supabase_sync \
     --gen2 \
     --runtime python311 \
     --trigger-http \
-    --allow-unauthenticated=false \
+    --no-allow-unauthenticated \
     --timeout=120 \
     --memory=256MB \
     --region=asia-northeast1 \

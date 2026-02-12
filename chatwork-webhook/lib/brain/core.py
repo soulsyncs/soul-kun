@@ -880,18 +880,40 @@ class SoulkunBrain:
                 try:
                     # タスク作成のパラメータ不足は TASK_PENDING 状態として保存
                     if decision.action == "chatwork_task_create":
+                        # Brain→Handlerのパラメータ名変換
+                        # Brain: body, assignee_ids, limit_time
+                        # Handler: task_body, assigned_to, limit_date
+                        params = decision.params or {}
+                        task_data = {
+                            "task_body": params.get("body", ""),
+                            "assigned_to": params.get("assignee_name", params.get("assigned_to", "")),
+                            "limit_date": params.get("limit_date", ""),
+                            "limit_time": params.get("limit_time", ""),
+                            "missing_items": ["task_body"] if not params.get("body") else [],
+                            "sender_name": sender_name,
+                        }
+
+                        # PostgreSQL状態を保存
                         await self._transition_to_state(
                             room_id=room_id,
                             user_id=account_id,
                             state_type=StateType.TASK_PENDING,
                             data={
                                 "pending_action": decision.action,
-                                "pending_params": decision.params,
+                                "pending_params": params,
+                                "task_data": task_data,  # Handler形式のデータも保存
                                 "reason": result.update_state.get("reason", "parameter_missing"),
                             },
                             timeout_minutes=10,
                         )
-                        logger.info(f"📋 TASK_PENDING状態保存: room={room_id}, account={account_id}")
+
+                        # Firestoreにも保存（handle_pending_task_followup互換）
+                        try:
+                            from services.task_actions import save_pending_task
+                            save_pending_task(room_id, account_id, task_data)
+                            logger.info(f"📋 TASK_PENDING状態保存（PG+Firestore）: room={room_id}")
+                        except ImportError:
+                            logger.info(f"📋 TASK_PENDING状態保存（PGのみ）: room={room_id}")
                     else:
                         # その他のアクションは CONFIRMATION 状態として保存
                         state_type_str = result.update_state.get("state_type", "confirmation")

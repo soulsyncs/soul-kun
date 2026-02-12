@@ -880,16 +880,15 @@ class SoulkunBrain:
                 try:
                     # タスク作成のパラメータ不足は TASK_PENDING 状態として保存
                     if decision.action == "chatwork_task_create":
-                        # Brain→Handlerのパラメータ名変換
-                        # Brain: body, assignee_ids, limit_time
-                        # Handler: task_body, assigned_to, limit_date
+                        # v10.56.16: パラメータ名をregistry.pyと統一
+                        # LLM/Handler共通: task_body, assigned_to, limit_date, limit_time
                         params = decision.params or {}
                         task_data = {
-                            "task_body": params.get("body", ""),
-                            "assigned_to": params.get("assignee_name", params.get("assigned_to", "")),
+                            "task_body": params.get("task_body", ""),
+                            "assigned_to": params.get("assigned_to", ""),
                             "limit_date": params.get("limit_date", ""),
                             "limit_time": params.get("limit_time", ""),
-                            "missing_items": ["task_body"] if not params.get("body") else [],
+                            "missing_items": ["task_body"] if not params.get("task_body") else [],
                             "sender_name": sender_name,
                         }
 

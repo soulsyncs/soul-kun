@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"  # ソウルシンクス
 DEFAULT_ADMIN_ACCOUNT_ID = "1728974"  # カズさん
 DEFAULT_ADMIN_ROOM_ID = "405315911"   # 管理部
-DEFAULT_ADMIN_DM_ROOM_ID = "217825794"  # カズさんへのDM
+DEFAULT_ADMIN_DM_ROOM_ID = "417892193"  # カズさんへのDM（ソウルくん10909425のDMルーム）
 DEFAULT_BOT_ACCOUNT_ID = "10909425"   # ソウルくん
 
 # キャッシュTTL（秒）- 環境変数で上書き可能

@@ -64,7 +64,7 @@ def sample_decision() -> DecisionResult:
     """テスト用のDecisionResult"""
     return DecisionResult(
         action="chatwork_task_create",
-        params={"body": "テストタスク"},
+        params={"task_body": "テストタスク"},
         confidence=0.9,
         needs_confirmation=False,
     )
@@ -207,7 +207,7 @@ class TestExecutionConstants:
     def test_required_parameters_defined(self):
         """必須パラメータが定義されている"""
         assert "chatwork_task_create" in REQUIRED_PARAMETERS
-        assert "body" in REQUIRED_PARAMETERS["chatwork_task_create"]
+        assert "task_body" in REQUIRED_PARAMETERS["chatwork_task_create"]
 
 
 # =============================================================================
@@ -254,7 +254,7 @@ class TestParameterValidation:
         """有効なパラメータの検証"""
         error = execution._validate_parameters(
             "chatwork_task_create",
-            {"body": "テストタスク"}
+            {"task_body": "テストタスク"}
         )
         assert error is None
 
@@ -271,7 +271,7 @@ class TestParameterValidation:
         """空文字列パラメータの検証"""
         error = execution._validate_parameters(
             "chatwork_task_create",
-            {"body": "   "}
+            {"task_body": "   "}
         )
         assert error is not None
 
@@ -279,7 +279,7 @@ class TestParameterValidation:
         """Noneパラメータの検証"""
         error = execution._validate_parameters(
             "chatwork_task_create",
-            {"body": None}
+            {"task_body": None}
         )
         assert error is not None
 
@@ -293,7 +293,7 @@ class TestParameterValidation:
 
     def test_get_param_display_name(self, execution):
         """パラメータ表示名の取得"""
-        assert execution._get_param_display_name("body") == "タスクの内容"
+        assert execution._get_param_display_name("task_body") == "タスクの内容"
         assert execution._get_param_display_name("task_id") == "タスクID"
         assert execution._get_param_display_name("unknown") == "unknown"
 
@@ -924,7 +924,7 @@ class TestIntegration:
 
         decision = DecisionResult(
             action="chatwork_task_create",
-            params={"body": "統合テストタスク"},
+            params={"task_body": "統合テストタスク"},
             confidence=0.95,
             needs_confirmation=False,
         )

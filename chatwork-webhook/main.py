@@ -1801,6 +1801,11 @@ def chatwork_webhook(request):
             print(f"⏭️ ボットの返信パターンを無視")
             return jsonify({"status": "ok", "message": "Ignored bot reply pattern"})
 
+        # v10.56.18: タスク完了/追加の通知を無視（システム通知は処理しない）
+        if "[dtext:task_done]" in body or "[dtext:task_added]" in body:
+            print(f"⏭️ タスク通知（完了/追加）を無視")
+            return jsonify({"status": "ok", "message": "Ignored task notification"})
+
         # =====================================================
         # v10.16.1: オールメンション（toall）の判定改善
         # =====================================================

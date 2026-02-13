@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from lib.admin_config import DEFAULT_ADMIN_ROOM_ID, DEFAULT_BOT_ACCOUNT_ID
+from lib.admin_config import DEFAULT_ADMIN_DM_ROOM_ID, DEFAULT_ADMIN_ROOM_ID, DEFAULT_BOT_ACCOUNT_ID
 from lib.brain.models import HandlerResult
 
 logger = logging.getLogger(__name__)
@@ -207,4 +207,4 @@ def _resolve_room_id(
         logger.warning(
             "Room routing failed (fallback to admin): %s", type(e).__name__
         )
-        return DEFAULT_ADMIN_ROOM_ID
+        return DEFAULT_ADMIN_DM_ROOM_ID

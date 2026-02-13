@@ -271,7 +271,7 @@ class MeetingDB:
                     ) VALUES (
                         :id, :org_id, :meeting_id,
                         :raw, :sanitized,
-                        :segments::jsonb, :speakers::jsonb,
+                        CAST(:segments AS jsonb), CAST(:speakers AS jsonb),
                         :lang, :words, :confidence,
                         :retention_expires, :now
                     )

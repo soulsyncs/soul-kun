@@ -386,14 +386,14 @@ class ZoomBrainInterface:
 
             if asyncio.iscoroutinefunction(get_ai_response_func):
                 response = await get_ai_response_func(
-                    [{"role": "user", "content": prompt}],
-                    CHATWORK_MINUTES_SYSTEM_PROMPT,
+                    prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
                 )
             else:
                 response = await asyncio.to_thread(
                     get_ai_response_func,
-                    [{"role": "user", "content": prompt}],
-                    CHATWORK_MINUTES_SYSTEM_PROMPT,
+                    prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
                 )
 
             if response:

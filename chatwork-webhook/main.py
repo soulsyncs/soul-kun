@@ -169,6 +169,7 @@ try:
         get_admin_config,
         is_admin_account,
         DEFAULT_ORG_ID as ADMIN_CONFIG_DEFAULT_ORG_ID,
+        DEFAULT_ADMIN_DM_ROOM_ID,
     )
     USE_ADMIN_CONFIG = True
     print("✅ lib/admin_config.py loaded for admin configuration")
@@ -1714,6 +1715,43 @@ Person, die mit dir spricht: {sender_name}""",
     return error_messages.get(response_language, error_messages["ja"])
 
 
+def get_ai_response_raw(user_prompt, system_prompt=None):
+    """非会話用のLLM呼び出し（議事録生成等）。
+
+    get_ai_response() は会話用（ペルソナ・MVV・NGパターン検出付き）のため、
+    議事録やレポート等の非会話タスクには不適切。
+    本関数は同じOpenRouter基盤を使いつつ、会話レイヤーを省いた
+    Brain-level LLM関数として提供する。
+
+    Args:
+        user_prompt: ユーザープロンプト（テキスト）
+        system_prompt: システムプロンプト（呼び出し元が指定）
+    """
+    api_key = get_secret("openrouter-api-key")
+    model = os.environ.get("DEFAULT_AI_MODEL", MODELS["default"])
+
+    try:
+        response = httpx.post(
+            OPENROUTER_API_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": system_prompt or ""},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.3,
+                "max_tokens": 2000,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        return response.json()["choices"][0]["message"]["content"]
+    except Exception as e:
+        print(f"Raw AI response error: {e}")
+        return None
+
+
 # ===== メインハンドラ（返信検出機能追加） =====
 
 @functions_framework.http
@@ -2794,8 +2832,11 @@ def zoom_webhook(request):
 
         pool = get_pool()
 
-        # LLM呼び出し関数（main.pyのグローバル関数を使用）
-        get_ai_func = get_ai_response
+        # LLM呼び出し関数（Zoom議事録専用）
+        # get_ai_response は会話用（ペルソナ・MVV付き）なので議事録生成には不適切。
+        # get_ai_response_raw はBrain-level関数で、同じOpenRouter基盤を使いつつ
+        # 会話レイヤー（ペルソナ・MVV・NGパターン）を省いた非会話用LLM関数。
+        get_ai_func = get_ai_response_raw
 
         # [DIAG] main.py側でpayloadのrecording_filesを出力
         _rf = payload.get("object", {}).get("recording_files", [])
@@ -2829,7 +2870,7 @@ def zoom_webhook(request):
             if already_sent:
                 print(f"✅ Zoom議事録は既に処理済み（二重送信防止）: {result.data.get('meeting_id', 'unknown')}")
             else:
-                room_id = (result.data or {}).get("room_id") or str(ADMIN_ROOM_ID)
+                room_id = (result.data or {}).get("room_id") or DEFAULT_ADMIN_DM_ROOM_ID
                 print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
                 try:
                     send_chatwork_message(room_id, result.message)

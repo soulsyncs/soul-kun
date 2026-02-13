@@ -2817,20 +2817,32 @@ def zoom_webhook(request):
         finally:
             loop.close()
 
-        if result.success:
-            print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')}")
-        else:
-            print(f"⚠️ Zoom議事録生成失敗: {result.message}")
-
         # transcript未準備の場合は503を返しZoom側リトライを誘発
         # Zoomは5分、30分、120分後にリトライする
         if result.data and result.data.get("retry"):
             print("⏳ Transcript未準備 → 503でZoomリトライを誘発", flush=True)
             return jsonify({"status": "retry", "message": "Transcript not ready yet"}), 503
 
+        if result.success and result.message:
+            # 冪等性ガード: already_processedの場合は送信済みなのでスキップ
+            already_sent = (result.data or {}).get("already_processed", False)
+            if already_sent:
+                print(f"✅ Zoom議事録は既に処理済み（二重送信防止）: {result.data.get('meeting_id', 'unknown')}")
+            else:
+                room_id = (result.data or {}).get("room_id") or str(ADMIN_ROOM_ID)
+                print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
+                try:
+                    send_chatwork_message(room_id, result.message)
+                    print(f"✅ ChatWork送信完了: room={room_id}")
+                except Exception as send_err:
+                    # ChatWork送信失敗は致命的ではない（議事録生成はDB保存済み）
+                    print(f"⚠️ ChatWork送信失敗（議事録はDB保存済み）: {type(send_err).__name__}")
+        else:
+            print(f"⚠️ Zoom議事録生成失敗: {result.message}")
+
         return jsonify({
             "status": "ok" if result.success else "error",
-            "message": result.message[:200],  # メッセージ長制限（PII防止）
+            "message": result.message[:200] if result.message else "",
         }), 200
 
     except Exception as e:

@@ -126,14 +126,16 @@ async def handle_zoom_webhook_event(
     )
 
     # Webhook起点であることをデータに記録
-    if result.data:
-        result.data["trigger"] = "webhook"
-        result.data["webhook_event"] = "recording.completed"
-        result.data["room_resolved_by"] = (
-            "calendar+router" if calendar_event else "router"
-        )
-        if calendar_attendees:
-            result.data["attendee_count"] = len(calendar_attendees)
+    if result.data is None:
+        result.data = {}
+    result.data["trigger"] = "webhook"
+    result.data["webhook_event"] = "recording.completed"
+    result.data["room_id"] = resolved_room_id
+    result.data["room_resolved_by"] = (
+        "calendar+router" if calendar_event else "router"
+    )
+    if calendar_attendees:
+        result.data["attendee_count"] = len(calendar_attendees)
 
     return result
 

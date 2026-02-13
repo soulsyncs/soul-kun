@@ -383,34 +383,100 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
 def handle_chatwork_task_create(params, room_id, account_id, sender_name, context=None):
     """ChatWorkタスク作成を処理（必須項目確認機能付き）"""
     print(f"📝 handle_chatwork_task_create 開始")
-    
+
     assigned_to_name = params.get("assigned_to", "")
     task_body = params.get("task_body", "")
     limit_date = params.get("limit_date")
     limit_time = params.get("limit_time")
     needs_confirmation = params.get("needs_confirmation", False)
-    
-    print(f"   assigned_to_name: '{assigned_to_name}'")
-    print(f"   task_body: '{task_body}'")
-    print(f"   limit_date: {limit_date}")
-    print(f"   limit_time: {limit_time}")
-    print(f"   needs_confirmation: {needs_confirmation}")
-    
-    
+
+    # v10.56.22: 元メッセージを取得して期限が明示されているかチェック
+    # BrainContextオブジェクトまたは辞書からメッセージを取得
+    original_message = ""
+    if context:
+        # BrainContextオブジェクトの場合（lib.brain.models.BrainContext）
+        if hasattr(context, 'recent_conversation') and context.recent_conversation:
+            # 最新のユーザーメッセージを取得
+            for msg in reversed(context.recent_conversation):
+                if hasattr(msg, 'role') and msg.role == 'user':
+                    original_message = msg.content if hasattr(msg, 'content') else ""
+                    break
+                elif isinstance(msg, dict) and msg.get('role') == 'user':
+                    original_message = msg.get('content', "")
+                    break
+        # 辞書の場合（context.to_dict()で変換された場合も含む）
+        elif isinstance(context, dict):
+            # recent_conversationがある場合（context.to_dict()の結果）
+            recent_conv = context.get("recent_conversation", [])
+            if recent_conv:
+                for msg in reversed(recent_conv):
+                    if isinstance(msg, dict) and msg.get('role') == 'user':
+                        original_message = msg.get('content', "")
+                        break
+            # フォールバック: original_messageまたはmessageキー
+            if not original_message:
+                original_message = context.get("original_message", "") or context.get("message", "") or ""
+
+    # v10.56.24: PIIを含む詳細ログは削除（セキュリティ）
+    print(f"   limit_date: {limit_date}, limit_time: {limit_time}, has_original_msg: {bool(original_message)}")
+
+    # v10.56.22: LLMが期限を推測した場合を検出（強化版）
+    # ユーザーが期限を明示していない場合、limit_dateを無効化
+    #
+    # 判定ロジック:
+    # 1. 明確な日付/曜日指定（「明日」「来週金曜」「12/27」「1月15日」）→ 期限指定あり
+    # 2. 「期限は〜」「〜まで」「〜までに」の形式 → 期限指定あり
+    # 3. タスク名に「期限」が含まれるだけ（例:「期限テスト」）→ 期限指定なし
+    #
+    # 高精度キーワード（これらが含まれていれば確実に期限指定）
+    high_confidence_date_keywords = [
+        "明日", "明後日", "来週", "今週中", "今日中", "来月",
+        "日後", "週間後", "月後", "時まで", "日まで",
+        "月曜", "火曜", "水曜", "木曜", "金曜", "土曜", "日曜",
+        "締切", "締め切り", "デッドライン",
+    ]
+    # 月日の指定（「1月15日」「12/27」）
+    date_pattern = re.compile(r'(\d{1,2}[/月]\d{1,2})|(\d{1,2}日)')
+
+    # v10.56.23: LLMが期限を提供した場合、ユーザーが明示的に指定したか検証
+    # 検証できない場合は期限を無効化して確認を求める
+    if limit_date:
+        if original_message:
+            # 元メッセージを取得できた → 期限キーワードをチェック
+            has_high_confidence_keyword = any(kw in original_message for kw in high_confidence_date_keywords)
+            has_date_pattern = bool(date_pattern.search(original_message))
+            has_deadline_phrase = bool(re.search(r'期限[はを:]', original_message)) or \
+                                 bool(re.search(r'[^\s「」]までに', original_message))
+
+            has_date_specification = has_high_confidence_keyword or has_date_pattern or has_deadline_phrase
+
+            if not has_date_specification:
+                print(f"   ⚠️ 期限指定キーワードなし → limit_dateを無効化（LLM推測を却下）")
+                print(f"   ⚠️ チェック結果: high_conf={has_high_confidence_keyword}, date_pattern={has_date_pattern}, phrase={has_deadline_phrase}")
+                limit_date = None
+            else:
+                print(f"   ✅ 期限指定検出済み → limit_date維持")
+                print(f"   ✅ チェック結果: high_conf={has_high_confidence_keyword}, date_pattern={has_date_pattern}, phrase={has_deadline_phrase}")
+        else:
+            # 元メッセージを取得できなかった → 安全のため期限を無効化
+            print(f"   ⚠️ original_messageが空 → limit_dateを無効化（検証不可）")
+            print(f"   ⚠️ contextの状態: type={type(context)}, is_none={context is None}")
+            limit_date = None
+
     # 「俺」「自分」「私」の場合は依頼者自身に変換
     if assigned_to_name in ["依頼者自身", "俺", "自分", "私", "僕"]:
-        print(f"   → '{assigned_to_name}' を '{sender_name}' に変換")
+        print(f"   → 担当者を依頼者自身に変換")
         assigned_to_name = sender_name
-    
+
     # 必須項目の確認
     missing_items = []
-    
+
     if not task_body or task_body.strip() == "":
         missing_items.append("task_body")
-    
+
     if not assigned_to_name or assigned_to_name.strip() == "":
         missing_items.append("assigned_to")
-    
+
     if not limit_date:
         missing_items.append("limit_date")
     

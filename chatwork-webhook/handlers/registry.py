@@ -76,9 +76,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             },
             "limit_date": {
                 "type": "date",
-                "description": "期限日（YYYY-MM-DD形式）",
-                "required": True,
-                "note": "「明日」→翌日、「明後日」→2日後、「来週金曜」→該当日に変換。期限の指定がない場合は必ずユーザーに確認"
+                "description": "期限日（YYYY-MM-DD形式）。【重要】ユーザーが明示的に期限を指定していない場合は、このパラメータを空にしてToolを呼び出すこと。デフォルト値を推測してはいけない。",
+                "required": False,
+                "note": "「明日」→翌日、「明後日」→2日後、「来週金曜」→該当日に変換。期限の指定がない場合はシステムがユーザーに確認する"
             },
             "limit_time": {
                 "type": "time",

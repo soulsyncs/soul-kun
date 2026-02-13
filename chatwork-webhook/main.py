@@ -2873,8 +2873,11 @@ def zoom_webhook(request):
                 room_id = (result.data or {}).get("room_id") or DEFAULT_ADMIN_DM_ROOM_ID
                 print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
                 try:
-                    send_chatwork_message(room_id, result.message)
-                    print(f"✅ ChatWork送信完了: room={room_id}")
+                    sent = send_chatwork_message(room_id, result.message)
+                    if sent:
+                        print(f"✅ ChatWork送信完了: room={room_id}")
+                    else:
+                        print(f"⚠️ ChatWork送信失敗（API拒否 room={room_id}）。議事録はDB保存済み")
                 except Exception as send_err:
                     # ChatWork送信失敗は致命的ではない（議事録生成はDB保存済み）
                     print(f"⚠️ ChatWork送信失敗（議事録はDB保存済み）: {type(send_err).__name__}")

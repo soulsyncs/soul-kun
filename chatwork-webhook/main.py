@@ -2794,8 +2794,7 @@ def zoom_webhook(request):
 
         pool = get_pool()
 
-        # Brain経由のLLM呼び出し関数を取得
-        from lib.brain.llm_client import get_ai_response
+        # LLM呼び出し関数（main.pyのグローバル関数を使用）
         get_ai_func = get_ai_response
 
         # asyncio実行（既存パターンに合わせてset_event_loop必須）
@@ -2825,5 +2824,7 @@ def zoom_webhook(request):
         }), 200
 
     except Exception as e:
-        print(f"❌ Zoom webhook処理エラー: {type(e).__name__}")
+        print(f"❌ Zoom webhook処理エラー: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"status": "error", "message": "Internal server error"}), 500

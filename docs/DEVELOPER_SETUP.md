@@ -200,7 +200,7 @@ pytest tests/ -v
 ```bash
 git commit -m "feat: 機能の説明
 
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>"
 ```
 
 ---
@@ -328,8 +328,10 @@ git push 時に自動でCodex（OpenAI）がコードレビューを実行しま
 ### 8-2. Codex CLI のインストール
 
 ```bash
-npm install -g codex-cli
+npm install -g @openai/codex
 ```
+
+初回実行時にOpenAIアカウントでの認証が求められます。
 
 ### 8-3. 動作の流れ
 

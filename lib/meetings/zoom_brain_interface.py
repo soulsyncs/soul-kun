@@ -120,20 +120,45 @@ class ZoomBrainInterface:
                     data={},
                 )
 
+            # [DIAG] API response の recording_files 構成を出力（meeting_idとfile_typesのみ、PII含まず）
+            api_files = recording_data.get("recording_files", [])
+            print(f"[DIAG] API recording_files types: {[f.get('file_type') for f in api_files]}, meeting_id={recording_data.get('id')}", flush=True)
+
             # Extract source meeting ID (null-safe: id=None → None, not "")
             raw_id = recording_data.get("id")
             source_mid = str(raw_id) if raw_id else None
 
-            # Step 2: Find and download VTT transcript
+            # Step 2: Find VTT transcript URL (with retry)
+            # Zoom generates transcripts asynchronously after recording.
+            # recording.completed webhook fires before transcript is ready.
+            # Retry once after 30s, then return retry=True for Zoom webhook retry.
             transcript_url = await asyncio.to_thread(
                 zoom_client.find_transcript_url,
                 recording_data,
             )
+            if transcript_url is None and zoom_meeting_id:
+                print("[DIAG] No transcript on first attempt, retrying in 30s...", flush=True)
+                await asyncio.sleep(30)
+                recording_data = await self._find_recording(
+                    zoom_client, zoom_meeting_id, None,
+                )
+                if recording_data:
+                    api_files2 = recording_data.get("recording_files", [])
+                    print(f"[DIAG] Retry: recording_files types: {[f.get('file_type') for f in api_files2]}", flush=True)
+                    transcript_url = await asyncio.to_thread(
+                        zoom_client.find_transcript_url,
+                        recording_data,
+                    )
+
             if transcript_url is None:
+                print("[DIAG] find_transcript_url returned None after retry", flush=True)
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
-                    data={"zoom_meeting_id": source_mid or ""},
+                    data={
+                        "zoom_meeting_id": source_mid or "",
+                        "retry": True,
+                    },
                 )
 
             vtt_content = await asyncio.to_thread(

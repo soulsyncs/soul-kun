@@ -2797,6 +2797,10 @@ def zoom_webhook(request):
         # LLM呼び出し関数（main.pyのグローバル関数を使用）
         get_ai_func = get_ai_response
 
+        # [DIAG] main.py側でpayloadのrecording_filesを出力
+        _rf = payload.get("object", {}).get("recording_files", [])
+        print(f"[DIAG-MAIN] recording_files types: {[f.get('file_type') for f in _rf]}", flush=True)
+
         # asyncio実行（既存パターンに合わせてset_event_loop必須）
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -2817,6 +2821,12 @@ def zoom_webhook(request):
             print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')}")
         else:
             print(f"⚠️ Zoom議事録生成失敗: {result.message}")
+
+        # transcript未準備の場合は503を返しZoom側リトライを誘発
+        # Zoomは5分、30分、120分後にリトライする
+        if result.data and result.data.get("retry"):
+            print("⏳ Transcript未準備 → 503でZoomリトライを誘発", flush=True)
+            return jsonify({"status": "retry", "message": "Transcript not ready yet"}), 503
 
         return jsonify({
             "status": "ok" if result.success else "error",

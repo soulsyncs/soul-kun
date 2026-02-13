@@ -23,6 +23,8 @@ from services.task_ops import (
     save_chatwork_task_to_db,
     log_analytics_event,
     get_chatwork_account_id_by_name,
+    _katakana_to_hiragana,
+    _hiragana_to_katakana,
 )
 from utils.date_utils import (
     parse_date_from_text as _new_parse_date_from_text,
@@ -389,6 +391,9 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
     limit_date = params.get("limit_date")
     limit_time = params.get("limit_time")
     needs_confirmation = params.get("needs_confirmation", False)
+    # v10.56.30: 内部呼び出し専用の検証スキップフラグ（_internal_プレフィックス）
+    # 外部からの skip_date_validation は無視（セキュリティ対策）
+    skip_date_validation = params.get("_internal_skip_date_validation", False)
 
     # v10.56.22: 元メッセージを取得して期限が明示されているかチェック
     # BrainContextオブジェクトまたは辞書からメッセージを取得
@@ -440,7 +445,8 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
 
     # v10.56.23: LLMが期限を提供した場合、ユーザーが明示的に指定したか検証
     # 検証できない場合は期限を無効化して確認を求める
-    if limit_date:
+    # v10.56.25: pending_task_followupからの再呼び出し時は検証をスキップ（ユーザーが明示的に回答した期限なので）
+    if limit_date and not skip_date_validation:
         if original_message:
             # 元メッセージを取得できた → 期限キーワードをチェック
             has_high_confidence_keyword = any(kw in original_message for kw in high_confidence_date_keywords)
@@ -462,11 +468,81 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
             print(f"   ⚠️ original_messageが空 → limit_dateを無効化（検証不可）")
             print(f"   ⚠️ contextの状態: type={type(context)}, is_none={context is None}")
             limit_date = None
+    elif skip_date_validation and limit_date:
+        print(f"   ✅ pending_task_followupからの呼び出し → 期限検証スキップ: {limit_date}")
 
-    # 「俺」「自分」「私」の場合は依頼者自身に変換
-    if assigned_to_name in ["依頼者自身", "俺", "自分", "私", "僕"]:
-        print(f"   → 担当者を依頼者自身に変換")
-        assigned_to_name = sender_name
+    # v10.56.30: 内部呼び出し専用の検証スキップフラグ（_internal_プレフィックス）
+    # 外部からの skip_assignee_validation は無視（セキュリティ対策）
+    skip_assignee_validation = params.get("_internal_skip_assignee_validation", False)
+    self_assign_keywords = ["私に", "自分に", "俺に", "僕に", "私へ", "自分へ", "俺へ", "僕へ"]
+
+    if assigned_to_name and not skip_assignee_validation:
+        # 「依頼者自身」「私」等の場合、元メッセージに自己指定キーワードがあるかチェック
+        if assigned_to_name in ["依頼者自身", "俺", "自分", "私", "僕"]:
+            if original_message:
+                has_self_assign = any(kw in original_message for kw in self_assign_keywords)
+                if has_self_assign:
+                    print(f"   ✅ 自己指定検出 → 担当者を依頼者自身に変換")
+                    assigned_to_name = sender_name
+                else:
+                    print(f"   ⚠️ 担当者指定キーワードなし → assigned_to_nameを無効化（LLM推測を却下）")
+                    assigned_to_name = ""
+            else:
+                # 元メッセージを取得できなかった → 安全のため担当者を無効化
+                print(f"   ⚠️ original_messageが空 → assigned_to_nameを無効化（検証不可）")
+                assigned_to_name = ""
+        # 他の人の名前が指定された場合
+        elif original_message:
+            # v10.56.28: まず「〇〇さんに」「〇〇に依頼」パターンの有無をチェック
+            # このパターンがあれば、ユーザーは担当者を指定している
+            # （漢字⇔かな変換ができないため、パターン検出で代替）
+            # 注意: カタカナ・漢字のみ（ひらがなは「を」「に」等の助詞を含むため除外）
+            assignee_pattern = re.search(r'([ァ-ヶア-ンー\u4e00-\u9fff]+)(さん|くん|ちゃん|様)に', original_message)
+            if not assignee_pattern:
+                # ひらがな名を含む場合（助詞の後から開始）
+                assignee_pattern = re.search(r'[をにへとがはので]([ぁ-んァ-ヶア-ンー\u4e00-\u9fffa-zA-Z]+?)(さん|くん|ちゃん|様)に', original_message)
+            assignee_pattern2 = re.search(r'([ァ-ヶア-ンー\u4e00-\u9fff]+)(?:に依頼|にお願い|に追加|に割り当て)', original_message)
+
+            if assignee_pattern or assignee_pattern2:
+                # 「〇〇さんに」等のパターンが存在 → ユーザーは担当者を指定している
+                extracted_name = (assignee_pattern.group(1) if assignee_pattern else
+                                  assignee_pattern2.group(1) if assignee_pattern2 else "")
+                print(f"   ✅ 担当者指定パターン検出")
+                # v10.56.28: LLMの抽出名が不正な場合、正規表現で抽出した名前を使用
+                if assigned_to_name and ("を" in assigned_to_name or "に" in assigned_to_name or "は" in assigned_to_name):
+                    print(f"   ⚠️ LLM抽出名に助詞含む → 正規表現抽出名を使用")
+                    assigned_to_name = extracted_name
+                else:
+                    print(f"   ✅ LLM抽出を信頼")
+            elif assigned_to_name not in original_message:
+                # パターンもなく、名前も見つからない → LLM推測の可能性
+                # v10.56.29: rstrip→re.sub に修正（rstrip は文字集合除去で誤動作）
+                name_without_suffix = re.sub(r'(さん|くん|ちゃん|様)$', '', assigned_to_name)
+                if name_without_suffix not in original_message:
+                    # v10.56.26: カタカナ・ひらがな変換でも確認
+                    msg_hiragana = _katakana_to_hiragana(original_message)
+                    msg_katakana = _hiragana_to_katakana(original_message)
+                    name_hiragana = _katakana_to_hiragana(name_without_suffix)
+                    name_katakana = _hiragana_to_katakana(name_without_suffix)
+
+                    name_found = (
+                        name_without_suffix in original_message or
+                        name_hiragana in msg_hiragana or
+                        name_katakana in msg_katakana or
+                        name_hiragana in original_message or
+                        name_katakana in original_message
+                    )
+
+                    if not name_found:
+                        print(f"   ⚠️ 担当者名が元メッセージにない → 無効化")
+                        assigned_to_name = ""
+                    else:
+                        print(f"   ✅ 担当者確認OK")
+    elif skip_assignee_validation and assigned_to_name:
+        print(f"   ✅ pending_task_followupからの呼び出し → 担当者検証スキップ")
+        # 「依頼者自身」等の場合はsender_nameに変換
+        if assigned_to_name in ["依頼者自身", "俺", "自分", "私", "僕"]:
+            assigned_to_name = sender_name
 
     # 必須項目の確認
     missing_items = []
@@ -532,17 +608,15 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
     delete_pending_task(room_id, account_id)
     
     assigned_to_account_id = get_chatwork_account_id_by_name(assigned_to_name)
-    print(f"👤 担当者ID解決: {assigned_to_name} → {assigned_to_account_id}")
-    
+    print(f"👤 担当者ID解決: account_id={assigned_to_account_id}")
+
     if not assigned_to_account_id:
-        error_msg = f"❌ 担当者解決失敗: '{assigned_to_name}' が見つかりません"
-        print(error_msg)
-        print(f"💡 ヒント: データベースに '{assigned_to_name}' が登録されているか確認してください")
+        print(f"❌ 担当者解決失敗")
         return f"🤔 {assigned_to_name}さんが見つからなかったウル...\nデータベースに登録されているか確認してほしいウル！"
 
     # ルームメンバーシップチェック
     if not is_room_member(room_id, assigned_to_account_id):
-        print(f"❌ ルームメンバーシップエラー: {assigned_to_name}（ID: {assigned_to_account_id}）はルーム {room_id} のメンバーではありません")
+        print(f"❌ ルームメンバーシップエラー: account_id={assigned_to_account_id}, room_id={room_id}")
         return f"🤔 {assigned_to_name}さんはこのルームのメンバーじゃないみたいウル...\n{assigned_to_name}さんがいるルームでタスクを作成してほしいウル！"
 
     limit_timestamp = None
@@ -558,7 +632,7 @@ def handle_chatwork_task_create(params, room_id, account_id, sender_name, contex
         except Exception as e:
             print(f"期限の解析エラー: {e}")
     
-    print(f"タスク作成開始: room_id={room_id}, assigned_to={assigned_to_account_id}, body={task_body}, limit={limit_timestamp}")
+    print(f"タスク作成開始: room_id={room_id}, assigned_to={assigned_to_account_id}, limit={limit_timestamp}")
     
     task_data = create_chatwork_task(
         room_id=room_id,
@@ -911,16 +985,23 @@ def handle_chatwork_task_search(params, room_id, account_id, sender_name, contex
 def handle_pending_task_followup(message, room_id, account_id, sender_name):
     """
     pending_taskがある場合のフォローアップ処理
-    
+
     Returns:
         応答メッセージ（処理した場合）またはNone（pending_taskがない場合）
     """
     pending = get_pending_task(room_id, account_id)
     if not pending:
         return None
-    
-    print(f"📋 pending_task発見: {pending}")
-    
+
+    print(f"📋 pending_task発見: room={room_id}, account={account_id}, missing={pending.get('missing_items', [])}")
+
+    # v10.56.25: キャンセル判定
+    cancel_keywords = ["キャンセル", "やめる", "取り消し", "cancel", "やめた", "いいや", "やっぱいい"]
+    if any(kw in message.lower() for kw in cancel_keywords):
+        delete_pending_task(room_id, account_id)
+        print(f"📋 pending_taskキャンセル: room={room_id}, account={account_id}")
+        return "タスク作成をキャンセルしたウル 🐺"
+
     missing_items = pending.get("missing_items", [])
     assigned_to = pending.get("assigned_to", "")
     task_body = pending.get("task_body", "")
@@ -928,8 +1009,11 @@ def handle_pending_task_followup(message, room_id, account_id, sender_name):
     limit_time = pending.get("limit_time")
     
     # 不足項目を補完
+    # v10.56.30: 更新された項目を個別に追跡
     updated = False
-    
+    date_updated = False
+    assignee_updated = False
+
     # 期限が不足している場合
     if "limit_date" in missing_items:
         parsed_date = parse_date_from_text(message)
@@ -937,32 +1021,68 @@ def handle_pending_task_followup(message, room_id, account_id, sender_name):
             limit_date = parsed_date
             missing_items.remove("limit_date")
             updated = True
+            date_updated = True
             print(f"   → 期限を補完: {parsed_date}")
-    
+
     # タスク内容が不足している場合
     if "task_body" in missing_items and not updated:
         # メッセージ全体をタスク内容として使用
         task_body = message
         missing_items.remove("task_body")
         updated = True
-        print(f"   → タスク内容を補完: {task_body}")
-    
+        print(f"   → タスク内容を補完")
+
     # 担当者が不足している場合
     if "assigned_to" in missing_items and not updated:
-        # メッセージから名前を抽出（簡易的）
-        assigned_to = message.strip()
+        # v10.56.26: メッセージから担当者を抽出（改善版）
+        msg_lower = message.strip().lower()
+
+        # 自己指定キーワードをチェック
+        self_keywords = ["私", "自分", "俺", "僕"]
+        is_self_assign = any(kw in msg_lower for kw in self_keywords)
+
+        if is_self_assign:
+            assigned_to = sender_name
+            print(f"   → 自己指定検出 → 担当者を依頼者自身に")
+        else:
+            # v10.56.28: 「〇〇さんに」形式から名前を抽出（改善版）
+            # パターン1: カタカナ・漢字のみ + 敬称 + に（「キクチさんに」等）
+            # ひらがなは「を」「に」等の助詞を含むため除外
+            name_match = re.search(r'([ァ-ヶア-ンー\u4e00-\u9fff]+)(さん|くん|ちゃん|様)に', message)
+            if not name_match:
+                # パターン1b: 助詞の後から始まるひらがな名
+                name_match = re.search(r'[をにへとがはので]([ぁ-んァ-ヶア-ンー\u4e00-\u9fffa-zA-Z]+?)(さん|くん|ちゃん|様)に', message)
+            if name_match:
+                assigned_to = name_match.group(1)
+                print(f"   → 名前を抽出（敬称+に）")
+            else:
+                # パターン2: 名前 + に依頼/にお願い/に追加/に割り当て（敬称なし）
+                name_match = re.search(r'([ァ-ヶア-ンー\u4e00-\u9fff]+)(?:に依頼|にお願い|に追加|に割り当て)', message)
+                if name_match:
+                    assigned_to = name_match.group(1)
+                    print(f"   → 名前を抽出（に依頼形式）")
+                else:
+                    # フォールバック: メッセージから「に」「を」「して」等を除去
+                    cleaned = re.sub(r'(に依頼|にお願い|して|ください|お願い|依頼)', '', message).strip()
+                    assigned_to = cleaned if cleaned else message.strip()
+                    print(f"   → フォールバック担当者抽出")
+
         missing_items.remove("assigned_to")
         updated = True
-        print(f"   → 担当者を補完: {assigned_to}")
-    
+        assignee_updated = True
+
     if updated:
         # 補完後の情報でタスク作成を再試行
+        # v10.56.30: skip_*_validation は更新された項目のみTrue
+        # これにより、更新していない項目は引き続き検証される
         params = {
             "assigned_to": assigned_to,
             "task_body": task_body,
             "limit_date": limit_date,
             "limit_time": limit_time,
-            "needs_confirmation": False
+            "needs_confirmation": False,
+            "_internal_skip_date_validation": date_updated,
+            "_internal_skip_assignee_validation": assignee_updated,
         }
         return handle_chatwork_task_create(params, room_id, account_id, sender_name, None)
     

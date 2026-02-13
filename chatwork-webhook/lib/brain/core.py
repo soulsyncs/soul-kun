@@ -2138,6 +2138,22 @@ class SoulkunBrain:
             # 最初のTool呼び出しを実行（複数Toolは将来対応）
             tool_call = tool_calls_to_execute[0]
 
+            # =================================================================
+            # v10.56.22: ハンドラーに元メッセージを渡すためcontext.recent_conversationに追加
+            # これにより、ハンドラーがユーザーの元メッセージを参照できる
+            # =================================================================
+            if not context.recent_conversation:
+                context.recent_conversation = []
+            # 現在のユーザーメッセージを追加
+            context.recent_conversation.append(
+                ConversationMessage(
+                    role="user",
+                    content=message,
+                    timestamp=datetime.now(),
+                    sender_name=sender_name,
+                )
+            )
+
             # DecisionResultを構築して既存のexecution層に渡す
             # =================================================================
             # 境界型検証: confidenceを安全に抽出

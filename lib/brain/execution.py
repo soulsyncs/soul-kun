@@ -120,7 +120,7 @@ SUGGESTION_TEMPLATES: Dict[str, List[str]] = {
 # =============================================================================
 
 REQUIRED_PARAMETERS: Dict[str, List[str]] = {
-    "chatwork_task_create": ["task_body"],  # v10.56.16: registry.pyと整合
+    "chatwork_task_create": ["task_body"],  # v10.56.24: limit_dateはハンドラー側で確認（実行層で弾かない）
     "chatwork_task_complete": ["task_id"],
     "chatwork_task_search": [],  # オプションのみ
     "learn_knowledge": ["content"],

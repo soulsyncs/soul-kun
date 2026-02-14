@@ -369,28 +369,32 @@ def pattern_detection(request: Request):
         pool = get_db_pool()
 
         with pool.connect() as conn:
-            # 直近の質問を取得
-            questions = get_recent_questions(conn, org_id, hours_back)
-            print(f"📥 取得した質問数: {len(questions)}")
+            try:
+                # 直近の質問を取得
+                questions = get_recent_questions(conn, org_id, hours_back)
+                print(f"📥 取得した質問数: {len(questions)}")
 
-            if not questions:
-                return jsonify({
-                    "success": True,
-                    "message": "分析対象の質問がありませんでした",
-                    "results": {
-                        "total_questions": 0,
-                        "analyzed": 0,
-                    },
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }), 200
+                if not questions:
+                    return jsonify({
+                        "success": True,
+                        "message": "分析対象の質問がありませんでした",
+                        "results": {
+                            "total_questions": 0,
+                            "analyzed": 0,
+                        },
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }), 200
 
-            # パターン分析を実行
-            results = analyze_questions(conn, org_id, questions, dry_run)
+                # パターン分析を実行
+                results = analyze_questions(conn, org_id, questions, dry_run)
 
-            # トランザクションをコミット（dry_runでない場合）
-            if not dry_run:
-                conn.commit()
-                print(f"✅ トランザクションコミット完了")
+                # トランザクションをコミット（dry_runでない場合）
+                if not dry_run:
+                    conn.commit()
+                    print(f"✅ トランザクションコミット完了")
+            except Exception:
+                conn.rollback()
+                raise
 
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         print(f"🏁 パターン検知完了: {elapsed:.2f}秒")
@@ -458,70 +462,74 @@ def weekly_report(request: Request):
         pool = get_db_pool()
 
         with pool.connect() as conn:
-            org_uuid = UUID(org_id)
+            try:
+                org_uuid = UUID(org_id)
 
-            # 週次レポートサービスを初期化
-            service = WeeklyReportService(conn, org_uuid)
+                # 週次レポートサービスを初期化
+                service = WeeklyReportService(conn, org_uuid)
 
-            # レポートを生成（asyncio対応）
-            import asyncio
-            report_id = asyncio.run(service.generate_weekly_report())
+                # レポートを生成（asyncio対応）
+                import asyncio
+                report_id = asyncio.run(service.generate_weekly_report())
 
-            if not report_id:
-                return jsonify({
-                    "success": True,
-                    "message": "今週のインサイトがないため、レポートは生成されませんでした",
-                    "report_id": None,
-                    "sent": False,
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }), 200
+                if not report_id:
+                    return jsonify({
+                        "success": True,
+                        "message": "今週のインサイトがないため、レポートは生成されませんでした",
+                        "report_id": None,
+                        "sent": False,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }), 200
 
-            print(f"📄 レポート生成完了: {report_id}")
+                print(f"📄 レポート生成完了: {report_id}")
 
-            # レポートを送信
-            if not dry_run:
-                import requests as http_requests
+                # レポートを送信
+                if not dry_run:
+                    import requests as http_requests
 
-                # レポートを取得してChatWork形式にフォーマット
-                report_record = asyncio.run(service.get_report(report_id))
-                if report_record:
-                    chatwork_message = service.format_for_chatwork(report_record)
+                    # レポートを取得してChatWork形式にフォーマット
+                    report_record = asyncio.run(service.get_report(report_id))
+                    if report_record:
+                        chatwork_message = service.format_for_chatwork(report_record)
 
-                    # ChatWorkに送信
-                    chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-                    response = http_requests.post(
-                        f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
-                        headers={"X-ChatWorkToken": chatwork_token},
-                        data={"body": chatwork_message},
-                        timeout=30
-                    )
+                        # ChatWorkに送信
+                        chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+                        response = http_requests.post(
+                            f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+                            headers={"X-ChatWorkToken": chatwork_token},
+                            data={"body": chatwork_message},
+                            timeout=30
+                        )
 
-                    if response.status_code == 200:
-                        message_id = response.json().get("message_id")
-                        asyncio.run(service.mark_as_sent(
-                            report_id=report_id,
-                            sent_to=[],
-                            sent_via="chatwork",
-                            chatwork_room_id=room_id,
-                            chatwork_message_id=str(message_id) if message_id else None,
-                        ))
-                        sent = True
-                        print(f"✅ レポート送信完了: message_id={message_id}")
+                        if response.status_code == 200:
+                            message_id = response.json().get("message_id")
+                            asyncio.run(service.mark_as_sent(
+                                report_id=report_id,
+                                sent_to=[],
+                                sent_via="chatwork",
+                                chatwork_room_id=room_id,
+                                chatwork_message_id=str(message_id) if message_id else None,
+                            ))
+                            sent = True
+                            print(f"✅ レポート送信完了: message_id={message_id}")
+                        else:
+                            asyncio.run(service.mark_as_failed(
+                                report_id=report_id,
+                                error_message=f"ChatWork API error: status={response.status_code}",
+                            ))
+                            sent = False
+                            print(f"❌ ChatWork送信失敗: status={response.status_code}")
                     else:
-                        asyncio.run(service.mark_as_failed(
-                            report_id=report_id,
-                            error_message=f"ChatWork API error: status={response.status_code}",
-                        ))
                         sent = False
-                        print(f"❌ ChatWork送信失敗: status={response.status_code}")
+                        print(f"❌ レポートレコード取得失敗: {report_id}")
+
+                    conn.commit()
                 else:
                     sent = False
-                    print(f"❌ レポートレコード取得失敗: {report_id}")
-
-                conn.commit()
-            else:
-                sent = False
-                print(f"🧪 DRY RUN: レポート送信スキップ")
+                    print(f"🧪 DRY RUN: レポート送信スキップ")
+            except Exception:
+                conn.rollback()
+                raise
 
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         print(f"🏁 週次レポート完了: {elapsed:.2f}秒")
@@ -604,11 +612,13 @@ def personalization_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            result = asyncio.run(detector.detect())
-
-            # トランザクションをコミット
-            conn.commit()
-            print(f"✅ トランザクションコミット完了")
+            try:
+                result = asyncio.run(detector.detect())
+                conn.commit()
+                print(f"✅ トランザクションコミット完了")
+            except Exception:
+                conn.rollback()
+                raise
 
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         print(f"🏁 属人化検出完了: {elapsed:.2f}秒")
@@ -700,11 +710,13 @@ def bottleneck_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            result = asyncio.run(detector.detect())
-
-            # トランザクションをコミット
-            conn.commit()
-            print(f"✅ トランザクションコミット完了")
+            try:
+                result = asyncio.run(detector.detect())
+                conn.commit()
+                print(f"✅ トランザクションコミット完了")
+            except Exception:
+                conn.rollback()
+                raise
 
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         print(f"🏁 ボトルネック検出完了: {elapsed:.2f}秒")
@@ -802,11 +814,13 @@ def emotion_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            result = asyncio.run(detector.detect())
-
-            # トランザクションをコミット
-            conn.commit()
-            print(f"✅ トランザクションコミット完了")
+            try:
+                result = asyncio.run(detector.detect())
+                conn.commit()
+                print(f"✅ トランザクションコミット完了")
+            except Exception:
+                conn.rollback()
+                raise
 
         elapsed = (datetime.now(timezone.utc) - start_time).total_seconds()
         print(f"🏁 感情変化検出完了: {elapsed:.2f}秒")

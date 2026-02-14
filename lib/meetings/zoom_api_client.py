@@ -173,14 +173,14 @@ class ZoomAPIClient:
             Download URL string, or None if no transcript available
         """
         recording_files = recording_data.get("recording_files", [])
-        print(f"[DIAG] find_transcript_url: scanning {len(recording_files)} files", flush=True)
+        logger.debug("find_transcript_url: scanning %d files", len(recording_files))
         for file_info in recording_files:
             file_type = file_info.get("file_type")
-            print(f"[DIAG] find_transcript_url: file_type={file_type}", flush=True)
+            logger.debug("find_transcript_url: file_type=%s", file_type)
             if file_type == "TRANSCRIPT":
-                print("[DIAG] find_transcript_url: TRANSCRIPT match found", flush=True)
+                logger.debug("find_transcript_url: TRANSCRIPT match found")
                 return file_info.get("download_url")
-        print(f"[DIAG] find_transcript_url: no TRANSCRIPT found in {len(recording_files)} files", flush=True)
+        logger.debug("find_transcript_url: no TRANSCRIPT found in %d files", len(recording_files))
         return None
 
 

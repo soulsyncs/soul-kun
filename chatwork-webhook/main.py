@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request as flask_request
 from google.cloud import secretmanager, firestore
 import httpx
+import logging
 import re
 import time
 import os  # v10.22.4: 環境変数による機能制御用
@@ -16,6 +17,8 @@ import traceback
 import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
+
+logger = logging.getLogger(__name__)
 
 # Cloud Run用 Flask アプリケーション
 app = Flask(__name__)
@@ -2844,9 +2847,9 @@ def zoom_webhook():
         # 会話レイヤー（ペルソナ・MVV・NGパターン）を省いた非会話用LLM関数。
         get_ai_func = get_ai_response_raw
 
-        # [DIAG] main.py側でpayloadのrecording_filesを出力
+        # recording_filesのタイプをデバッグ出力
         _rf = payload.get("object", {}).get("recording_files", [])
-        print(f"[DIAG-MAIN] recording_files types: {[f.get('file_type') for f in _rf]}", flush=True)
+        logger.debug("recording_files types: %s", [f.get("file_type") for f in _rf])
 
         # asyncio実行（既存パターンに合わせてset_event_loop必須）
         loop = asyncio.new_event_loop()

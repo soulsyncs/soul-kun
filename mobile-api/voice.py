@@ -4,10 +4,9 @@
 Whisper（OpenAI API）で音声→テキスト変換、
 Google Cloud TTS で テキスト→日本語音声変換。
 
-【フロー】
-  ユーザー（声） → Whisper STT → Brain処理 → Google TTS → 音声レスポンス
-
 【設計方針】
+- 全エンドポイントにJWT認証必須（鉄則#4）
+- organization_id はJWTから取得（鉄則#1: ハードコード禁止）
 - 音声データに PII が含まれる可能性 → ログに音声内容を記録しない（鉄則#8）
 - 音声ファイルは処理後即削除（tmpfile）
 - Brain経由で処理（鉄則1: bypass禁止）
@@ -20,10 +19,10 @@ import io
 import logging
 import os
 import tempfile
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -34,15 +33,12 @@ router = APIRouter(prefix="/api/v1/voice", tags=["voice"])
 # 設定
 # =============================================================================
 
-# Whisper API（OpenAI互換）
 WHISPER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 WHISPER_MODEL = "whisper-1"
-WHISPER_MAX_FILE_SIZE_MB = 25  # OpenAI制限
+WHISPER_MAX_FILE_SIZE_MB = 25
 
-# Google Cloud TTS
 TTS_LANGUAGE_CODE = "ja-JP"
-TTS_VOICE_NAME = "ja-JP-Neural2-B"  # 男性声（ソウルくんの声）
-TTS_AUDIO_ENCODING = "MP3"
+TTS_VOICE_NAME = "ja-JP-Neural2-B"
 
 
 # =============================================================================
@@ -51,7 +47,6 @@ TTS_AUDIO_ENCODING = "MP3"
 
 
 class STTResponse(BaseModel):
-    """音声認識結果"""
     text: str
     confidence: float = 1.0
     language: str = "ja"
@@ -59,22 +54,25 @@ class STTResponse(BaseModel):
 
 
 class TTSRequest(BaseModel):
-    """音声合成リクエスト"""
     text: str = Field(..., min_length=1, max_length=5000)
     voice: str = TTS_VOICE_NAME
     speed: float = Field(default=1.0, ge=0.5, le=2.0)
 
 
-class VoiceChatRequest(BaseModel):
-    """音声チャット（STT → Brain → TTS の一括処理）"""
-    # audio は multipart/form-data で受け取る
-
-
 class VoiceChatResponse(BaseModel):
-    """音声チャットレスポンス"""
     text_input: str
     text_response: str
-    audio_url: Optional[str] = None
+
+
+# =============================================================================
+# 認証依存 — main.py からインポート
+# =============================================================================
+
+
+def _get_current_user():
+    """遅延インポートで循環依存を回避"""
+    from main import get_current_user
+    return get_current_user
 
 
 # =============================================================================
@@ -86,24 +84,40 @@ async def transcribe_audio(audio_file: UploadFile) -> STTResponse:
     """
     音声ファイルをテキストに変換（Whisper API）
 
-    対応形式: wav, mp3, m4a, ogg, webm
+    対応形式: wav, mp3, m4a, ogg, webm, flac
     最大サイズ: 25MB
     """
     if not WHISPER_API_KEY:
         raise HTTPException(status_code=503, detail="Whisper API key not configured")
 
-    # ファイルサイズチェック
     content = await audio_file.read()
     if len(content) > WHISPER_MAX_FILE_SIZE_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f"File too large (max {WHISPER_MAX_FILE_SIZE_MB}MB)")
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large (max {WHISPER_MAX_FILE_SIZE_MB}MB)",
+        )
 
-    # 一時ファイルに書き出し（Whisper APIがファイルパスを要求）
+    # content-type検証
+    allowed_types = {
+        "audio/wav", "audio/x-wav", "audio/mpeg", "audio/mp3",
+        "audio/mp4", "audio/m4a", "audio/ogg", "audio/webm", "audio/flac",
+    }
+    if audio_file.content_type and audio_file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported audio format: {audio_file.content_type}",
+        )
+
     suffix = _get_extension(audio_file.filename or "audio.wav")
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
+
+    # 専用一時ディレクトリで安全にファイル作成
+    tmp_dir = tempfile.mkdtemp(prefix="soulkun_voice_")
+    tmp_path = os.path.join(tmp_dir, f"audio{suffix}")
 
     try:
+        with open(tmp_path, "wb") as f:
+            f.write(content)
+
         import openai
 
         client = openai.OpenAI(api_key=WHISPER_API_KEY)
@@ -118,18 +132,23 @@ async def transcribe_audio(audio_file: UploadFile) -> STTResponse:
 
         return STTResponse(
             text=result.text,
-            confidence=1.0,  # Whisper APIは confidence を返さない
+            confidence=1.0,
             language=result.language or "ja",
             duration_seconds=getattr(result, "duration", None),
         )
 
     except openai.APIError as e:
-        logger.error(f"Whisper API error: {e}")
+        # PII保護: APIエラー詳細はログに出さない（鉄則#8）
+        logger.error(f"Whisper API error: status={getattr(e, 'status_code', 'unknown')}")
         raise HTTPException(status_code=502, detail="音声認識に失敗しました")
 
     finally:
-        # 一時ファイル削除（PII保護）
-        os.unlink(tmp_path)
+        # 一時ファイル + ディレクトリ削除（PII保護）
+        try:
+            os.unlink(tmp_path)
+            os.rmdir(tmp_dir)
+        except OSError:
+            pass
 
 
 def _get_extension(filename: str) -> str:
@@ -144,31 +163,30 @@ def _get_extension(filename: str) -> str:
 # =============================================================================
 
 
-async def synthesize_speech(text: str, voice: str = TTS_VOICE_NAME, speed: float = 1.0) -> bytes:
-    """
-    テキストを音声に変換（Google Cloud TTS）
-
-    返り値: MP3バイト列
-    """
+async def synthesize_speech(
+    text: str,
+    voice: str = TTS_VOICE_NAME,
+    speed: float = 1.0,
+) -> bytes:
+    """テキストを音声に変換（Google Cloud TTS）。返り値: MP3バイト列"""
     try:
         from google.cloud import texttospeech
 
         client = texttospeech.TextToSpeechClient()
 
-        # SSML で自然な読み上げ
-        ssml = f'<speak><prosody rate="{speed}">{_escape_ssml(text)}</prosody></speak>'
-
-        synthesis_input = texttospeech.SynthesisInput(ssml=ssml)
+        synthesis_input = texttospeech.SynthesisInput(
+            text=_escape_ssml(text),
+        )
 
         voice_config = texttospeech.VoiceSelectionParams(
             language_code=TTS_LANGUAGE_CODE,
             name=voice,
         )
 
+        # speed は AudioConfig のみで設定（SSMLとの二重適用を防ぐ）
         audio_config = texttospeech.AudioConfig(
             audio_encoding=texttospeech.AudioEncoding.MP3,
             speaking_rate=speed,
-            pitch=0.0,
         )
 
         response = client.synthesize_speech(
@@ -180,17 +198,16 @@ async def synthesize_speech(text: str, voice: str = TTS_VOICE_NAME, speed: float
         return response.audio_content
 
     except ImportError:
-        # google-cloud-texttospeech がない場合のフォールバック
-        logger.warning("google-cloud-texttospeech not installed, using stub")
+        logger.warning("google-cloud-texttospeech not installed")
         raise HTTPException(status_code=503, detail="TTS service not available")
 
-    except Exception as e:
-        logger.error(f"TTS error: {e}")
+    except Exception:
+        logger.exception("TTS synthesis failed")
         raise HTTPException(status_code=502, detail="音声合成に失敗しました")
 
 
 def _escape_ssml(text: str) -> str:
-    """SSML用のエスケープ"""
+    """SSML特殊文字のエスケープ"""
     return (
         text.replace("&", "&amp;")
         .replace("<", "&lt;")
@@ -201,19 +218,25 @@ def _escape_ssml(text: str) -> str:
 
 
 # =============================================================================
-# エンドポイント
+# エンドポイント（全てJWT認証必須）
 # =============================================================================
 
 
 @router.post("/stt", response_model=STTResponse)
-async def speech_to_text(audio: UploadFile = File(...)):
-    """音声→テキスト変換"""
+async def speech_to_text(
+    audio: UploadFile = File(...),
+    user: Dict = Depends(_get_current_user()),
+):
+    """音声→テキスト変換（認証必須）"""
     return await transcribe_audio(audio)
 
 
 @router.post("/tts")
-async def text_to_speech(req: TTSRequest):
-    """テキスト→音声変換（MP3ストリーミング返却）"""
+async def text_to_speech(
+    req: TTSRequest,
+    user: Dict = Depends(_get_current_user()),
+):
+    """テキスト→音声変換（MP3ストリーミング返却、認証必須）"""
     audio_bytes = await synthesize_speech(req.text, req.voice, req.speed)
     return StreamingResponse(
         io.BytesIO(audio_bytes),
@@ -222,17 +245,17 @@ async def text_to_speech(req: TTSRequest):
     )
 
 
-@router.post("/chat")
+@router.post("/chat", response_model=VoiceChatResponse)
 async def voice_chat(
     audio: UploadFile = File(...),
+    user: Dict = Depends(_get_current_user()),
 ):
     """
-    音声チャット（STT → Brain → TTS の一括処理）
+    音声チャット（STT → Brain → TTS の一括処理、認証必須）
 
-    1. 音声をテキストに変換（Whisper）
-    2. Brain で処理
-    3. レスポンスを音声に変換（Google TTS）
-    4. 音声をストリーミング返却
+    レスポンス: JSON（テキスト入力 + テキスト応答）
+    音声が必要な場合はクライアントが /tts を別途呼ぶ。
+    PII保護のためHTTPヘッダーにはテキストを含めない。
     """
     # Step 1: STT
     stt_result = await transcribe_audio(audio)
@@ -241,36 +264,29 @@ async def voice_chat(
     if not user_text.strip():
         raise HTTPException(status_code=400, detail="音声を認識できませんでした")
 
-    # Step 2: Brain処理（JWT認証はmain.pyのmiddlewareで処理済み想定）
-    # ここでは簡易的にテキスト変換結果を返す
-    # 実際のBrain処理はmain.pyのchat endpointと同じフロー
-    import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "chatwork-webhook"))
-
-    from lib.config import ORGANIZATION_ID
-
+    # Step 2: Brain処理（JWT の org_id / user_id を使用）
     try:
-        from lib.db import get_db_pool
-        from handlers.registry import SYSTEM_CAPABILITIES, build_handlers
+        from main import _get_pool, _get_handlers, _get_capabilities
         from lib.brain.integration import BrainIntegration
         from lib.brain.llm import get_ai_response_raw
 
-        pool = get_db_pool()
-        handlers = build_handlers()
+        pool = _get_pool()
+        handlers = _get_handlers()
+        capabilities = _get_capabilities()
+
         integration = BrainIntegration(
             pool=pool,
-            org_id=ORGANIZATION_ID,
+            org_id=user["org_id"],
             handlers=handlers,
-            capabilities=SYSTEM_CAPABILITIES,
+            capabilities=capabilities,
             get_ai_response_func=get_ai_response_raw,
         )
 
         result = await integration.process_message(
             message=user_text,
-            room_id="voice-chat",
-            account_id="voice-user",
-            sender_name="Voice User",
+            room_id=f"voice-{user['sub']}",
+            account_id=user["sub"],
+            sender_name=user.get("display_name", "Voice User"),
         )
 
         response_text = (
@@ -278,27 +294,12 @@ async def voice_chat(
             if hasattr(result, "to_chatwork_message")
             else str(result)
         )
-    except Exception as e:
+    except Exception:
         logger.exception("Voice chat Brain processing failed")
         response_text = "申し訳ありません。処理中にエラーが発生しました。"
 
-    # Step 3: TTS
-    try:
-        audio_bytes = await synthesize_speech(response_text)
-    except HTTPException:
-        # TTS失敗時はテキストのみ返す
-        return VoiceChatResponse(
-            text_input=user_text,
-            text_response=response_text,
-        )
-
-    # Step 4: 音声レスポンス（multipart: テキスト + 音声）
-    return StreamingResponse(
-        io.BytesIO(audio_bytes),
-        media_type="audio/mpeg",
-        headers={
-            "Content-Disposition": 'attachment; filename="response.mp3"',
-            "X-Text-Input": user_text,
-            "X-Text-Response": response_text,
-        },
+    # JSON レスポンス（PII保護: HTTPヘッダーにテキストを入れない）
+    return VoiceChatResponse(
+        text_input=user_text,
+        text_response=response_text,
     )

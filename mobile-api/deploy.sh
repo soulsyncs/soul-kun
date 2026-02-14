@@ -25,25 +25,38 @@ error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
 
 TARGET="${1:-all}"
 
+COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
 deploy_service() {
     local service="$1"
     local dockerfile="$2"
     local port="$3"
+    local allow_unauth="${4:-no}"
 
-    info "=== Deploying ${service} ==="
+    info "=== Deploying ${service} (${COMMIT_SHA}) ==="
 
-    # Docker build
+    # Docker build with commit SHA tag
     info "Building Docker image..."
-    docker build -t "${REPO}/${service}:latest" -f "${dockerfile}" .
+    docker build \
+        -t "${REPO}/${service}:${COMMIT_SHA}" \
+        -t "${REPO}/${service}:latest" \
+        -f "${dockerfile}" .
 
-    # Push to Artifact Registry
+    # Push to Artifact Registry (both tags)
     info "Pushing to Artifact Registry..."
+    docker push "${REPO}/${service}:${COMMIT_SHA}"
     docker push "${REPO}/${service}:latest"
+
+    # 認証設定: mobile-apiはJWT自前認証なのでCloud Run認証は不要
+    local auth_flag="--no-allow-unauthenticated"
+    if [ "${allow_unauth}" = "yes" ]; then
+        auth_flag="--allow-unauthenticated"
+    fi
 
     # Deploy to Cloud Run
     info "Deploying to Cloud Run..."
     gcloud run deploy "${service}" \
-        --image "${REPO}/${service}:latest" \
+        --image "${REPO}/${service}:${COMMIT_SHA}" \
         --region "${REGION}" \
         --platform managed \
         --port "${port}" \
@@ -56,7 +69,7 @@ deploy_service() {
         --update-env-vars "ENVIRONMENT=production,USE_BRAIN_ARCHITECTURE=true,DB_NAME=soulkun_tasks,DB_USER=soulkun_user,INSTANCE_CONNECTION_NAME=${PROJECT}:${REGION}:soulkun-db,PROJECT_ID=${PROJECT}" \
         --update-secrets "DB_PASSWORD=cloudsql-password:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,JWT_SECRET=jwt-secret:latest" \
         --add-cloudsql-instances "${PROJECT}:${REGION}:soulkun-db" \
-        --no-allow-unauthenticated \
+        ${auth_flag} \
         --quiet
 
     info "${service} deployed successfully!"
@@ -65,15 +78,17 @@ deploy_service() {
 
 case "${TARGET}" in
     mobile-api)
-        deploy_service "soulkun-mobile-api" "mobile-api/Dockerfile" "8081"
+        # mobile-apiはJWT自前認証 → Cloud Run認証不要（iPhoneアプリから直接アクセス）
+        deploy_service "soulkun-mobile-api" "mobile-api/Dockerfile" "8081" "yes"
         ;;
     mcp-server)
-        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080"
+        # mcp-serverはCloud Run IAM認証 + アプリレベルAPI Key認証の二重防御
+        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no"
         ;;
     all)
-        deploy_service "soulkun-mobile-api" "mobile-api/Dockerfile" "8081"
+        deploy_service "soulkun-mobile-api" "mobile-api/Dockerfile" "8081" "yes"
         echo ""
-        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080"
+        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no"
         ;;
     *)
         error "Unknown target: ${TARGET}"

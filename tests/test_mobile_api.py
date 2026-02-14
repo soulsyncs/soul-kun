@@ -42,9 +42,9 @@ def _load_mobile_main():
         sys.modules["voice"] = voice_mod
         try:
             voice_spec.loader.exec_module(voice_mod)
-        except (ImportError, ModuleNotFoundError):
-            # voice.py の外部依存（openai, google-cloud-tts等）が未インストールでも
-            # main.py のテストは可能。最低限の router を提供
+        except (ImportError, ModuleNotFoundError, RuntimeError):
+            # voice.py の外部依存（openai, google-cloud-tts, python-multipart等）が
+            # 未インストールでも main.py のテストは可能。最低限の router を提供
             import warnings
             warnings.warn("voice.py load failed (expected in test env)")
             from fastapi import APIRouter

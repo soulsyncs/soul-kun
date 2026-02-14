@@ -1,1 +1,0 @@
-web: functions-framework --target=chatwork_webhook --port=${PORT:-8080}

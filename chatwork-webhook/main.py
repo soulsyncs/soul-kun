@@ -1,5 +1,4 @@
-import functions_framework
-from flask import jsonify
+from flask import Flask, jsonify, request as flask_request
 from google.cloud import secretmanager, firestore
 import httpx
 import re
@@ -17,6 +16,9 @@ import traceback
 import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
+
+# Cloud Run用 Flask アプリケーション
+app = Flask(__name__)
 
 # テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
 _ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
@@ -1754,11 +1756,10 @@ def get_ai_response_raw(user_prompt, system_prompt=None):
 
 # ===== メインハンドラ（返信検出機能追加） =====
 
-@functions_framework.http
-def chatwork_webhook(request):
-    # パスベースルーティング: /zoom-webhook → zoom_webhook()
-    if request.path == "/zoom-webhook":
-        return zoom_webhook(request)
+@app.route("/", methods=["POST", "GET"])
+def chatwork_webhook():
+    request = flask_request
+    # パスベースルーティング不要（Cloud Run: Flaskルートで直接振り分け）
 
     try:
         # =====================================================
@@ -2085,8 +2086,9 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
     _get_overdue_handler().detect_and_report_limit_changes(task_id, old_limit, new_limit, task_info)
 
 
-@functions_framework.http
-def check_reply_messages(request):
+@app.route("/check-reply-messages", methods=["POST", "GET"])
+def check_reply_messages():
+    request = flask_request
     """5分ごとに実行：返信ボタンとメンションのメッセージを検出
 
     v10.40.3: handler_wrappers.pyのヘルパー関数を使用して薄型化
@@ -2197,8 +2199,9 @@ def check_reply_messages(request):
 # ============================================================
 
 
-@functions_framework.http
-def sync_chatwork_tasks(request):
+@app.route("/sync-chatwork-tasks", methods=["POST", "GET"])
+def sync_chatwork_tasks():
+    request = flask_request
     """
     Cloud Function: ChatWorkのタスクをDBと同期
     30分ごとに実行される
@@ -2442,8 +2445,9 @@ def sync_chatwork_tasks(request):
         except:
             pass
 
-@functions_framework.http
-def remind_tasks(request):
+@app.route("/remind-tasks", methods=["POST", "GET"])
+def remind_tasks():
+    request = flask_request
     """
     Cloud Function: タスクのリマインドを送信
     毎日8:30 JSTに実行される
@@ -2566,8 +2570,9 @@ def remind_tasks(request):
 # クリーンアップ機能（古いデータの自動削除）
 # ========================================
 
-@functions_framework.http
-def cleanup_old_data(request):
+@app.route("/cleanup-old-data", methods=["POST", "GET"])
+def cleanup_old_data():
+    request = flask_request
     """
     Cloud Function: 古いデータを自動削除
     毎日03:00 JSTに実行される
@@ -2756,8 +2761,9 @@ def cleanup_old_data(request):
 # Zoom Webhook エンドポイント（Phase 2: 自動トリガー）
 # ========================================
 
-@functions_framework.http
-def zoom_webhook(request):
+@app.route("/zoom-webhook", methods=["POST", "GET"])
+def zoom_webhook():
+    request = flask_request
     """
     Cloud Function: Zoom recording.completed Webhook受信
 

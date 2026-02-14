@@ -21,7 +21,7 @@ resource "google_sql_database_instance" "main" {
       transaction_log_retention_days = 7
 
       backup_retention_settings {
-        retained_backups = 7
+        retained_backups = 365
       }
     }
 
@@ -40,6 +40,18 @@ resource "google_sql_database_instance" "main" {
       hour         = 4 # JST 13:00
       update_track = "stable"
     }
+  }
+
+  lifecycle {
+    # disk_size は autoresize で動的に変化
+    # ip_configuration は GCP Console / gcloud で管理（authorized_networks 等）
+    # database_flags / maintenance_window は既に手動設定済み
+    ignore_changes = [
+      settings[0].disk_size,
+      settings[0].ip_configuration,
+      settings[0].database_flags,
+      settings[0].maintenance_window,
+    ]
   }
 }
 

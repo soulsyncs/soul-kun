@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "soulkun": {
+      "command": "python3",
+      "args": ["/Users/kikubookair/soul-kun/mcp-server/server.py"],
+      "env": {
+        "DB_PASSWORD": "<from Secret Manager>",
+        "OPENROUTER_API_KEY": "<from Secret Manager>",
+        "INSTANCE_CONNECTION_NAME": "soulkun-production:asia-northeast1:soulkun-db",
+        "DB_NAME": "soulkun_tasks",
+        "DB_USER": "soulkun_user",
+        "ENVIRONMENT": "development"
+      }
+    }
+  }
+}

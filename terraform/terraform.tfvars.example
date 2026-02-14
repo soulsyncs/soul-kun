@@ -1,0 +1,33 @@
+# terraform.tfvars.example
+# コピーして terraform.tfvars を作成: cp terraform.tfvars.example terraform.tfvars
+# NOTE: terraform.tfvars は .gitignore に含まれている（シークレット保護）
+
+project_id    = "soulkun-production"
+region        = "asia-northeast1"
+
+# Cloud SQL
+db_instance_name = "soulkun-db"
+db_name          = "soulkun_tasks"
+db_user          = "soulkun_user"
+db_tier          = "db-custom-1-3840"
+db_disk_size     = 10
+
+# GCS
+meeting_recordings_bucket = "soulkun-meeting-recordings"
+terraform_state_bucket    = "soulkun-terraform-state"
+
+# Organization IDs
+supabase_org_id = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
+cloudsql_org_id = "org_soulsyncs"
+
+# Supabase
+supabase_url = "https://adzxpeboaoiojepcxlyc.supabase.co"
+
+# ChatWork
+chatwork_dm_room_id = "417892193"
+
+# Google Drive
+root_folder_id = "1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp"
+
+# Pinecone
+pinecone_index_name = "soulkun-knowledge"

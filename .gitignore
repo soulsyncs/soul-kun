@@ -241,3 +241,11 @@ promptfoo/results/
 
 # Claude Code backup (local only)
 .claude_backup/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/*.auto.tfvars

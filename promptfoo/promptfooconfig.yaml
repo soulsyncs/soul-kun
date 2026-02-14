@@ -24,11 +24,12 @@ providers:
       headers:
         HTTP-Referer: https://soulsyncs.co.jp
         X-Title: Soul-kun Promptfoo Test
+      # Tool定義: handlers/registry.py の SYSTEM_CAPABILITIES と一致させる
       tools: &tools
         - type: function
           function:
             name: chatwork_task_create
-            description: "ChatWorkで指定した担当者にタスクを作成する"
+            description: "ChatWorkで指定した担当者にタスクを作成する。タスクの追加、作成、依頼、お願いなどの要望に対応。"
             parameters:
               type: object
               properties:
@@ -37,39 +38,47 @@ providers:
                   description: "タスクの内容"
                 assigned_to:
                   type: string
-                  description: "担当者名"
+                  description: "担当者名（ChatWorkユーザー一覧から正確な名前を選択）。「俺」「自分」「私」の場合は「依頼者自身」"
                 limit_date:
                   type: string
-                  description: "期限日 (YYYY-MM-DD形式、明示的に指定された場合のみ)"
+                  description: "期限日（YYYY-MM-DD形式）。ユーザーが明示的に言った場合のみ。推測禁止"
+                limit_time:
+                  type: string
+                  description: "期限時刻（HH:MM形式）"
               required:
                 - task_body
+                - assigned_to
         - type: function
           function:
             name: chatwork_task_search
-            description: "ChatWorkのタスクを検索する。タスク一覧、タスク教えて等で呼ばれる"
+            description: "特定の人のタスクや、自分のタスクを検索して表示する。「〇〇のタスク」「自分のタスク」「未完了のタスク」などの要望に対応。"
             parameters:
               type: object
               properties:
+                person_name:
+                  type: string
+                  description: "タスクを検索する人物名。「自分」「俺」「私」の場合は「sender」と出力"
                 status:
                   type: string
                   enum: ["open", "done", "all"]
-                  description: "タスクのステータス"
-                assignee:
+                  description: "タスクの状態"
+                  default: "open"
+                assigned_by:
                   type: string
-                  description: "担当者名"
+                  description: "タスクを依頼した人物名（〇〇から振られたタスク）"
               required: []
         - type: function
           function:
             name: chatwork_task_complete
-            description: "ChatWorkのタスクを完了にする"
+            description: "タスクを完了状態にする。「完了にして」「終わった」などの要望に対応。番号指定またはタスク内容で特定。"
             parameters:
               type: object
               properties:
-                task_id:
+                task_identifier:
                   type: string
-                  description: "タスクID"
+                  description: "タスクを特定する情報（番号、タスク内容の一部、または「さっきの」など）"
               required:
-                - task_id
+                - task_identifier
         - type: function
           function:
             name: knowledge_search

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
 # Promptfoo LLMテスト実行スクリプト
 #
@@ -13,7 +13,7 @@
 #     2. GCP Secret Manager から取得（openrouter-api-key）
 #
 
-set -e
+set -euo pipefail
 
 echo "🐺 ソウルくん Promptfoo LLMテスト 🐺"
 echo "========================================"
@@ -29,8 +29,13 @@ if ! command -v promptfoo &> /dev/null; then
 fi
 
 # OpenRouter APIキー取得
-if [ -z "$OPENROUTER_API_KEY" ]; then
+if [ -z "${OPENROUTER_API_KEY:-}" ]; then
     echo "📡 GCP Secret Manager から OPENROUTER_API_KEY を取得中..."
+    if ! command -v gcloud &> /dev/null; then
+        echo "❌ OPENROUTER_API_KEY が設定されておらず、gcloud もインストールされていません"
+        echo "   export OPENROUTER_API_KEY='sk-or-...'"
+        exit 1
+    fi
     OPENROUTER_API_KEY=$(gcloud secrets versions access latest --secret="openrouter-api-key" 2>/dev/null || true)
     if [ -z "$OPENROUTER_API_KEY" ]; then
         echo "❌ OPENROUTER_API_KEY が設定されていません"
@@ -44,14 +49,14 @@ fi
 
 # 引数処理
 VIEW_MODE=false
-EXTRA_ARGS=""
+EXTRA_ARGS=()
 for arg in "$@"; do
     case "$arg" in
         --view)
             VIEW_MODE=true
             ;;
         *)
-            EXTRA_ARGS="$EXTRA_ARGS $arg"
+            EXTRA_ARGS+=("$arg")
             ;;
     esac
 done
@@ -68,7 +73,7 @@ else
     echo "   Config: promptfoo/promptfooconfig.yaml"
     echo "   Provider: OpenRouter (gpt-4o-mini)"
     echo ""
-    cd promptfoo && promptfoo eval $EXTRA_ARGS
+    cd promptfoo && promptfoo eval "${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}"
 
     echo ""
     echo "========================================"

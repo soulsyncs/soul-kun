@@ -19,6 +19,9 @@ on:
     # 月曜 00:00 UTC = 月曜 09:00 JST
     - cron: '0 0 * * 1'
 
+permissions:
+  contents: read
+
 concurrency:
   group: promptfoo-${{ github.ref }}
   cancel-in-progress: true

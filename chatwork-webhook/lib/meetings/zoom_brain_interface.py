@@ -120,9 +120,9 @@ class ZoomBrainInterface:
                     data={},
                 )
 
-            # [DIAG] API response の recording_files 構成を出力（meeting_idとfile_typesのみ、PII含まず）
             api_files = recording_data.get("recording_files", [])
-            print(f"[DIAG] API recording_files types: {[f.get('file_type') for f in api_files]}, meeting_id={recording_data.get('id')}", flush=True)
+            logger.debug("recording_files types: %s, meeting_id=%s",
+                         [f.get("file_type") for f in api_files], recording_data.get("id"))
 
             # Extract source meeting ID (null-safe: id=None → None, not "")
             raw_id = recording_data.get("id")
@@ -137,21 +137,22 @@ class ZoomBrainInterface:
                 recording_data,
             )
             if transcript_url is None and zoom_meeting_id:
-                print("[DIAG] No transcript on first attempt, retrying in 30s...", flush=True)
+                logger.debug("No transcript on first attempt, retrying in 30s...")
                 await asyncio.sleep(30)
                 recording_data = await self._find_recording(
                     zoom_client, zoom_meeting_id, None,
                 )
                 if recording_data:
                     api_files2 = recording_data.get("recording_files", [])
-                    print(f"[DIAG] Retry: recording_files types: {[f.get('file_type') for f in api_files2]}", flush=True)
+                    logger.debug("Retry: recording_files types: %s",
+                                [f.get("file_type") for f in api_files2])
                     transcript_url = await asyncio.to_thread(
                         zoom_client.find_transcript_url,
                         recording_data,
                     )
 
             if transcript_url is None:
-                print("[DIAG] find_transcript_url returned None after retry", flush=True)
+                logger.debug("find_transcript_url returned None after retry")
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,

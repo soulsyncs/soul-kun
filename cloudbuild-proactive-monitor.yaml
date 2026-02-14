@@ -87,7 +87,8 @@ steps:
       - '--no-allow-unauthenticated'
       - '--min-instances=0'
       - '--max-instances=5'
-      - '--update-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true'
+      - '--cpu=1'
+      - '--update-env-vars=USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true'
     waitFor: ['docker-push']
 
   # =============================================================================

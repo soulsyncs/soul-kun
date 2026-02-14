@@ -1,5 +1,8 @@
 FROM python:3.11-slim
 
+# 非root ユーザーを作成（セキュリティベストプラクティス）
+RUN adduser --disabled-password --gecos '' appuser
+
 WORKDIR /app
 
 # 依存パッケージをインストール
@@ -17,6 +20,9 @@ COPY proactive-monitor/ /app/proactive-monitor/
 # Python パスを設定（lib/ と proactive-monitor/ の両方を参照可能に）
 ENV PYTHONPATH=/app:/app/proactive-monitor
 ENV PORT=8080
+
+# 非root ユーザーに切り替え
+USER appuser
 
 # gunicorn で Flask アプリを起動（PYTHONPATH に /app/proactive-monitor が含まれるため main:app で参照可能）
 CMD exec gunicorn main:app --bind :$PORT --workers 1 --threads 8 --timeout 540

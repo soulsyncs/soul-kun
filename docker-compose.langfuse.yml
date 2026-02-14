@@ -3,13 +3,13 @@
 #
 # 使い方:
 #   docker compose -f docker-compose.langfuse.yml up -d
-#   → http://localhost:3000 でLangfuse UIにアクセス
+#   → http://localhost:3100 でLangfuse UIにアクセス
 #
 # 初回: UIでアカウント作成 → Project作成 → API Keys取得
 # 環境変数に設定:
 #   LANGFUSE_SECRET_KEY=sk-lf-...
 #   LANGFUSE_PUBLIC_KEY=pk-lf-...
-#   LANGFUSE_HOST=http://localhost:3000
+#   LANGFUSE_HOST=http://localhost:3100
 
 services:
   langfuse-server:
@@ -18,12 +18,12 @@ services:
       langfuse-db:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - "3100:3000"
     environment:
       - DATABASE_URL=postgresql://langfuse:langfuse@langfuse-db:5432/langfuse
       - NEXTAUTH_SECRET=mysecret-change-in-production
       - SALT=mysalt-change-in-production
-      - NEXTAUTH_URL=http://localhost:3000
+      - NEXTAUTH_URL=http://localhost:3100
       - TELEMETRY_ENABLED=${TELEMETRY_ENABLED:-true}
       - LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES=${LANGFUSE_ENABLE_EXPERIMENTAL_FEATURES:-false}
     restart: unless-stopped

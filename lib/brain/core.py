@@ -1999,7 +1999,7 @@ class SoulkunBrain:
             if self.llm_state_manager is None:
                 raise BrainError("LLM state manager is not initialized")
 
-            print(f"[DIAG] _process_with_llm_brain START t={time.time()-start_time:.3f}s")
+            logger.debug("[DIAG] _process_with_llm_brain START t=%.3fs", time.time()-start_time)
 
             # 遅延初期化: テスト等でllm_brainが後からセットされた場合に対応
             if self._brain_graph is None:
@@ -2019,9 +2019,9 @@ class SoulkunBrain:
             }
 
             # グラフを実行
-            print(f"[DIAG] graph.ainvoke START t={time.time()-start_time:.3f}s")
+            logger.debug("[DIAG] graph.ainvoke START t=%.3fs", time.time()-start_time)
             final_state = await self._brain_graph.ainvoke(initial_state)
-            print(f"[DIAG] graph.ainvoke DONE t={time.time()-start_time:.3f}s")
+            logger.debug("[DIAG] graph.ainvoke DONE t=%.3fs", time.time()-start_time)
 
             # グラフが生成したレスポンスを返す
             response = final_state.get("response")

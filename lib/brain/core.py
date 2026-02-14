@@ -535,6 +535,10 @@ class SoulkunBrain:
         self.llm_context_builder: Optional[ContextBuilder] = None
         self._init_llm_brain()
 
+        # Phase 3: LangGraph Brain処理グラフ
+        self._brain_graph = None
+        self._init_brain_graph()
+
         # 内部状態
         self._initialized = False
 
@@ -1763,6 +1767,25 @@ class SoulkunBrain:
             self.llm_state_manager = None
             self.llm_context_builder = None
 
+    def _init_brain_graph(self) -> None:
+        """
+        Phase 3: LangGraph Brain処理グラフを初期化
+
+        LLM Brainが有効な場合のみグラフを構築。
+        _process_with_llm_brain() の処理フローをStateGraphに分解。
+        """
+        if self.llm_brain is None:
+            logger.debug("LangGraph: LLM Brain disabled, skipping graph init")
+            return
+
+        try:
+            from lib.brain.graph import create_brain_graph
+            self._brain_graph = create_brain_graph(self)
+            logger.info("🧠 LangGraph Brain graph initialized (11 nodes)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize Brain graph: {type(e).__name__}: {e}")
+            self._brain_graph = None
+
     # =========================================================================
     # 実行層
     # =========================================================================
@@ -1929,7 +1952,9 @@ class SoulkunBrain:
         return int((time.time() - start_time) * 1000)
 
     # =========================================================================
-    # v10.50.0: LLM Brain 処理（25章: LLM常駐型脳アーキテクチャ）
+    # v10.50.0 → v11.0 Phase 3: LangGraph Brain処理
+    # 旧 _process_with_llm_brain() を StateGraph に分解
+    # 設計書: docs/25_llm_native_brain_architecture.md
     # =========================================================================
 
     @observe(name="brain.llm_brain_flow", capture_input=False, capture_output=False)
@@ -1945,13 +1970,12 @@ class SoulkunBrain:
         """
         LLM Brain（Claude Opus 4.5）でメッセージを処理
 
-        設計書: docs/25_llm_native_brain_architecture.md
+        Phase 3: LangGraph StateGraph による処理。
+        各ステップは lib/brain/graph/nodes/ に分離。
 
-        【処理フロー】
-        1. ContextBuilder: LLMに渡すコンテキストを構築
-        2. LLMBrain: Claude API + Function Callingで意図理解・Tool選択
-        3. GuardianLayer: LLMの提案を検証（ALLOW/CONFIRM/BLOCK/MODIFY）
-        4. Execution: Toolを実行
+        【グラフフロー】
+        state_check → build_context → llm_inference → guardian_check
+            → (block|confirm|text_only|execute) → [synthesize] → response
 
         Args:
             message: ユーザーのメッセージ
@@ -1965,7 +1989,7 @@ class SoulkunBrain:
             BrainResponse: 処理結果
         """
         try:
-            # v10.54.4: Null安全チェック（mypy対応）
+            # Null安全チェック
             if self.llm_context_builder is None:
                 raise BrainError("LLM context builder is not initialized")
             if self.llm_brain is None:
@@ -1977,300 +2001,45 @@ class SoulkunBrain:
 
             print(f"[DIAG] _process_with_llm_brain START t={time.time()-start_time:.3f}s")
 
-            # =================================================================
-            # v10.56.6: LIST_CONTEXT優先ルーティング（マルチテナント対応）
-            # =================================================================
-            t0 = time.time()
-            current_state = await self._get_current_state_with_user_org(room_id, account_id)
-            print(f"[DIAG] _get_current_state DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
-            if current_state and current_state.is_active:
-                if current_state.state_type == StateType.LIST_CONTEXT:
-                    logger.debug(
-                        f"📋 LIST_CONTEXT状態検出 → セッション継続へルーティング: "
-                        f"step={current_state.state_step}"
-                    )
-                    return await self.session_orchestrator.continue_session(
-                        message=message,
-                        state=current_state,
-                        context=context,
-                        room_id=room_id,
-                        account_id=account_id,
-                        sender_name=sender_name,
-                        start_time=start_time,
-                    )
+            # 遅延初期化: テスト等でllm_brainが後からセットされた場合に対応
+            if self._brain_graph is None:
+                self._init_brain_graph()
+            if self._brain_graph is None:
+                raise BrainError("Brain graph is not initialized")
 
-            # 1. LLMコンテキストを構築
-            # Phase 2E: _get_context()で取得済みの学習を渡して重複クエリ回避
-            t0 = time.time()
-            llm_context = await self.llm_context_builder.build(
-                user_id=account_id,
-                room_id=room_id,
-                organization_id=self.org_id,
-                message=message,
-                sender_name=sender_name,
-                phase2e_learnings_prefetched=context.phase2e_learnings,
-            )
-            print(f"[DIAG] context_builder.build DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
+            # LangGraphの初期状態を構築
+            initial_state = {
+                "message": message,
+                "room_id": room_id,
+                "account_id": account_id,
+                "sender_name": sender_name,
+                "start_time": start_time,
+                "organization_id": self.org_id,
+                "context": context,
+            }
 
-            # 2. Toolカタログを取得（SYSTEM_CAPABILITIESから変換）
-            tools = get_tools_for_llm()
+            # グラフを実行
+            print(f"[DIAG] graph.ainvoke START t={time.time()-start_time:.3f}s")
+            final_state = await self._brain_graph.ainvoke(initial_state)
+            print(f"[DIAG] graph.ainvoke DONE t={time.time()-start_time:.3f}s")
 
-            # 3. LLM Brainで処理
-            t0 = time.time()
-            llm_result: LLMBrainResult = await self.llm_brain.process(
-                context=llm_context,
-                message=message,
-                tools=tools,
-            )
-            print(f"[DIAG] llm_brain.process DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
+            # グラフが生成したレスポンスを返す
+            response = final_state.get("response")
+            if response is not None:
+                return response
 
-            # =================================================================
-            # 境界型検証: LLM出力の型チェック
-            # =================================================================
-            _validate_llm_result_type(llm_result, "_process_with_llm_brain:llm_brain.process")
-
-            # confidenceを安全に抽出（オブジェクト/数値両対応）
-            confidence_value = _extract_confidence_value(
-                llm_result.confidence,
-                "_process_with_llm_brain:confidence"
-            )
-
-            logger.info(
-                f"🧠 LLM Brain result: tool_calls={len(llm_result.tool_calls or [])}, "
-                f"has_text={llm_result.text_response is not None}, "
-                f"confidence={confidence_value:.2f}"
-            )
-
-            # 4. Guardian Layerで検証
-            t0 = time.time()
-            guardian_result = await self.llm_guardian.check(llm_result, llm_context)
-            print(f"[DIAG] guardian.check DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
-
-            logger.info(
-                f"🛡️ Guardian result: action={guardian_result.action.value}, "
-                f"reason={guardian_result.reason[:50] if guardian_result.reason else 'N/A'}..."
-            )
-
-            # 5. Guardianの判断に基づいて処理を分岐
-            if guardian_result.action == GuardianAction.BLOCK:
-                # ブロック: 実行しない
-                block_message = guardian_result.blocked_reason or guardian_result.reason or "その操作は実行できませんウル🐺"
-                return BrainResponse(
-                    message=block_message,
-                    action_taken="guardian_block",
-                    success=False,
-                    debug_info={
-                        "llm_brain": {
-                            "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": _safe_confidence_to_dict(
-                                llm_result.confidence,
-                                "_process_with_llm_brain:BLOCK:debug_info"
-                            ),
-                            "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
-                        },
-                        "guardian": {
-                            "action": guardian_result.action.value,
-                            "reason": guardian_result.reason,
-                        },
-                    },
-                    total_time_ms=self._elapsed_ms(start_time),
-                )
-
-            elif guardian_result.action == GuardianAction.CONFIRM:
-                # 確認が必要: 確認状態に遷移
-                import uuid as uuid_mod
-                tool_call = llm_result.tool_calls[0] if llm_result.tool_calls else None
-                confirm_question = guardian_result.confirmation_question or guardian_result.reason or "確認させてほしいウル🐺"
-                # =================================================================
-                # 境界型検証: confidenceを安全に抽出
-                # =================================================================
-                confirm_confidence_value = _extract_confidence_value(
-                    llm_result.confidence,
-                    "_process_with_llm_brain:CONFIRM:confidence"
-                )
-                pending_action = LLMPendingAction(
-                    action_id=str(uuid_mod.uuid4()),
-                    tool_name=tool_call.tool_name if tool_call else "",
-                    parameters=tool_call.parameters if tool_call else {},
-                    confirmation_question=confirm_question,
-                    confirmation_type=guardian_result.risk_level or "ambiguous",
-                    original_message=message,
-                    original_reasoning=llm_result.reasoning or "",
-                    confidence=confirm_confidence_value,
-                )
-                await self.llm_state_manager.set_pending_action(
-                    user_id=account_id,
-                    room_id=room_id,
-                    pending_action=pending_action,
-                )
-
-                return BrainResponse(
-                    message=confirm_question,
-                    action_taken="request_confirmation",
-                    success=True,
-                    awaiting_confirmation=True,
-                    state_changed=True,
-                    new_state="llm_confirmation_pending",
-                    debug_info={
-                        "llm_brain": {
-                            "tool_calls": [tc.to_dict() for tc in llm_result.tool_calls] if llm_result.tool_calls else [],
-                            "confidence": _safe_confidence_to_dict(
-                                llm_result.confidence,
-                                "_process_with_llm_brain:CONFIRM:debug_info"
-                            ),
-                        },
-                        "guardian": {
-                            "action": guardian_result.action.value,
-                            "reason": guardian_result.reason,
-                        },
-                    },
-                    total_time_ms=self._elapsed_ms(start_time),
-                )
-
-            elif guardian_result.action == GuardianAction.MODIFY:
-                # 修正が必要: Guardianが修正したパラメータを使用
-                tool_calls_to_execute = llm_result.tool_calls
-                # パラメータを修正（最初のTool呼び出しのみ）
-                if tool_calls_to_execute and guardian_result.modified_params:
-                    tool_calls_to_execute[0].parameters.update(guardian_result.modified_params)
-
-            else:
-                # ALLOW: そのまま実行
-                tool_calls_to_execute = llm_result.tool_calls
-
-            # 6. テキスト応答のみの場合（Tool呼び出しなし）
-            if not tool_calls_to_execute:
-                return BrainResponse(
-                    message=llm_result.text_response or "お手伝いできることはありますかウル？🐺",
-                    action_taken="llm_text_response",
-                    success=True,
-                    debug_info={
-                        "llm_brain": {
-                            "confidence": _safe_confidence_to_dict(
-                                llm_result.confidence,
-                                "_process_with_llm_brain:text_response:debug_info"
-                            ),
-                            "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
-                        },
-                    },
-                    total_time_ms=self._elapsed_ms(start_time),
-                )
-
-            # 7. Tool実行（既存のexecution層を活用）
-            # 最初のTool呼び出しを実行（複数Toolは将来対応）
-            tool_call = tool_calls_to_execute[0]
-
-            # =================================================================
-            # v10.56.22: ハンドラーに元メッセージを渡すためcontext.recent_conversationに追加
-            # これにより、ハンドラーがユーザーの元メッセージを参照できる
-            # =================================================================
-            if not context.recent_conversation:
-                context.recent_conversation = []
-            # 現在のユーザーメッセージを追加
-            context.recent_conversation.append(
-                ConversationMessage(
-                    role="user",
-                    content=message,
-                    timestamp=datetime.now(),
-                    sender_name=sender_name,
-                )
-            )
-
-            # DecisionResultを構築して既存のexecution層に渡す
-            # =================================================================
-            # 境界型検証: confidenceを安全に抽出
-            # =================================================================
-            decision_confidence = _extract_confidence_value(
-                llm_result.confidence,
-                "_process_with_llm_brain:DecisionResult:confidence"
-            )
-            decision = DecisionResult(
-                action=tool_call.tool_name,
-                params=tool_call.parameters,
-                confidence=decision_confidence,
-                needs_confirmation=False,  # Guardianで既にチェック済み
-            )
-
-            result = await self._execute(
-                decision=decision,
-                context=context,
-                room_id=room_id,
-                account_id=account_id,
-                sender_name=sender_name,
-            )
-
-            # v10.46.0: 観測ログ - LLM Brain実行結果
-            self.observability.log_execution(
-                action=tool_call.tool_name,
-                success=result.success,
-                account_id=account_id,
-                execution_time_ms=self._elapsed_ms(start_time),
-                error_code=result.data.get("error_code") if result.data and not result.success else None,
-            )
-
-            # Phase 3.5: Brain-controlled knowledge answer synthesis
-            # ハンドラーが返した検索データをBrain（LLM）で回答に合成する
-            # CLAUDE.md §1: 全出力は脳を通る。ハンドラーはデータ取得のみ。
-            if (
-                result.success
-                and result.data
-                and isinstance(result.data, dict)
-                and result.data.get("needs_answer_synthesis")
-                and self.llm_brain is not None
-            ):
-                synthesized = await self._synthesize_knowledge_answer(
-                    search_data=result.data,
-                    original_query=tool_call.parameters.get("query", ""),
-                )
-                if synthesized:
-                    result = HandlerResult(
-                        success=True,
-                        message=synthesized,
-                        data=result.data,
-                    )
-                else:
-                    # 合成失敗時: 検索結果をそのまま表示
-                    fallback = result.data.get("formatted_context", "")
-                    if fallback:
-                        result = HandlerResult(
-                            success=True,
-                            message=f"検索結果を見つけたウル！🐺\n\n{fallback}",
-                            data=result.data,
-                        )
-
-            # 記憶更新（非同期）
-            self._fire_and_forget(
-                self.memory_manager.update_memory_safely(
-                    message, result, context, room_id, account_id, sender_name
-                )
-            )
-
+            # レスポンスが設定されていない場合（通常は発生しない）
+            logger.warning("🧠 Graph completed without response")
             return BrainResponse(
-                message=result.message,
-                action_taken=tool_call.tool_name,
-                action_params=tool_call.parameters,
-                success=result.success,
-                suggestions=result.suggestions,
-                debug_info={
-                    "llm_brain": {
-                        "tool_calls": [tc.to_dict() for tc in tool_calls_to_execute],
-                        "confidence": _safe_confidence_to_dict(
-                            llm_result.confidence,
-                            "_process_with_llm_brain:tool_execution:debug_info"
-                        ),
-                        "reasoning": llm_result.reasoning[:200] if llm_result.reasoning else None,
-                    },
-                    "guardian": {
-                        "action": guardian_result.action.value,
-                    },
-                },
+                message="お手伝いできることはありますかウル？🐺",
+                action_taken="graph_no_response",
+                success=True,
                 total_time_ms=self._elapsed_ms(start_time),
             )
 
         except Exception as e:
             logger.exception(f"LLM Brain error: {type(e).__name__}")
 
-            # フォールバック: 従来の処理に戻る
             logger.warning("🧠 LLM Brain failed, no fallback available in this version")
             return BrainResponse(
                 message="申し訳ありませんウル、うまく処理できませんでしたウル🐺",

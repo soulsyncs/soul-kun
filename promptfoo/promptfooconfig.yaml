@@ -1,0 +1,115 @@
+# promptfoo/promptfooconfig.yaml
+# ソウルくん LLM Brain の品質回帰テスト
+#
+# 使い方:
+#   cd promptfoo && promptfoo eval
+#   promptfoo eval --no-cache  # キャッシュなし
+#   promptfoo view             # 結果をブラウザで確認
+#
+# 環境変数:
+#   OPENROUTER_API_KEY: OpenRouter API キー（必須）
+
+description: "ソウルくん Brain 品質テスト"
+
+prompts:
+  - file://prompts/soulkun_system.txt
+
+providers:
+  - id: openrouter:openai/gpt-4o-mini
+    config:
+      apiBaseUrl: https://openrouter.ai/api/v1
+      apiKeyEnvar: OPENROUTER_API_KEY
+      temperature: 0.3
+      max_tokens: 1024
+      headers:
+        HTTP-Referer: https://soulsyncs.co.jp
+        X-Title: Soul-kun Promptfoo Test
+      tools: &tools
+        - type: function
+          function:
+            name: chatwork_task_create
+            description: "ChatWorkで指定した担当者にタスクを作成する"
+            parameters:
+              type: object
+              properties:
+                task_body:
+                  type: string
+                  description: "タスクの内容"
+                assigned_to:
+                  type: string
+                  description: "担当者名"
+                limit_date:
+                  type: string
+                  description: "期限日 (YYYY-MM-DD形式、明示的に指定された場合のみ)"
+              required:
+                - task_body
+        - type: function
+          function:
+            name: chatwork_task_search
+            description: "ChatWorkのタスクを検索する。タスク一覧、タスク教えて等で呼ばれる"
+            parameters:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: ["open", "done", "all"]
+                  description: "タスクのステータス"
+                assignee:
+                  type: string
+                  description: "担当者名"
+              required: []
+        - type: function
+          function:
+            name: chatwork_task_complete
+            description: "ChatWorkのタスクを完了にする"
+            parameters:
+              type: object
+              properties:
+                task_id:
+                  type: string
+                  description: "タスクID"
+              required:
+                - task_id
+        - type: function
+          function:
+            name: knowledge_search
+            description: "社内ナレッジベースを検索する。質問や調べものに使う"
+            parameters:
+              type: object
+              properties:
+                query:
+                  type: string
+                  description: "検索クエリ"
+              required:
+                - query
+        - type: function
+          function:
+            name: person_info
+            description: "社員の情報を取得する"
+            parameters:
+              type: object
+              properties:
+                person_name:
+                  type: string
+                  description: "社員名"
+              required:
+                - person_name
+        - type: function
+          function:
+            name: general_conversation
+            description: "雑談・挨拶・感謝への応答。Tool呼び出し不要な場合に使う"
+            parameters:
+              type: object
+              properties:
+                response_type:
+                  type: string
+                  enum: ["greeting", "thanks", "small_talk", "goodbye"]
+              required: []
+
+tests: file://test_cases.yaml
+
+defaultTest:
+  options:
+    transformVars: "{ ...vars, sender_name: vars.sender_name || 'カズさん' }"
+
+outputPath: ./results/latest.json

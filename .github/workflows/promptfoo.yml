@@ -1,0 +1,55 @@
+# .github/workflows/promptfoo.yml
+# Promptfoo LLM品質回帰テスト
+#
+# トリガー:
+#   - lib/brain/ 配下の変更を含むPR
+#   - promptfoo/ 配下の変更を含むPR
+#   - 手動実行 (workflow_dispatch)
+#   - 週次スケジュール（月曜9:00 JST）
+
+name: Promptfoo LLM Tests
+
+on:
+  pull_request:
+    paths:
+      - 'lib/brain/**'
+      - 'promptfoo/**'
+  workflow_dispatch:
+  schedule:
+    # 月曜 00:00 UTC = 月曜 09:00 JST
+    - cron: '0 0 * * 1'
+
+concurrency:
+  group: promptfoo-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  promptfoo-eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install promptfoo
+        run: npm install -g promptfoo
+
+      - name: Run Promptfoo evaluation
+        working-directory: promptfoo
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: promptfoo eval --no-cache
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: promptfoo-results
+          path: promptfoo/results/latest.json
+          retention-days: 30

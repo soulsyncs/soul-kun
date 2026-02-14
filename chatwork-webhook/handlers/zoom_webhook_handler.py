@@ -74,8 +74,8 @@ async def handle_zoom_webhook_event(
         f.get("file_type") == "TRANSCRIPT" for f in recording_files
     )
 
-    # [DIAG] Webhook payload の recording_files 構成を出力（PII含まず）
-    print(f"[DIAG] Webhook payload recording_files types: {[f.get('file_type') for f in recording_files]}, has_transcript={has_transcript}", flush=True)
+    logger.debug("Webhook payload recording_files types: %s, has_transcript=%s",
+                 [f.get("file_type") for f in recording_files], has_transcript)
 
     # CLAUDE.md §3-2 #8: PIIをログに含めない（topic/host_emailはマスク）
     logger.info(

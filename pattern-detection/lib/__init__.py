@@ -71,20 +71,26 @@ from lib.db import (
     get_async_db_session,
 )
 
-# Chatwork
-from lib.chatwork import (
-    # Sync
-    ChatworkClient,
-    # Async
-    ChatworkAsyncClient,
-)
+# Chatwork（pattern-detection等では不要なためオプショナル）
+try:
+    from lib.chatwork import (
+        # Sync
+        ChatworkClient,
+        # Async
+        ChatworkAsyncClient,
+    )
+except ImportError:
+    pass
 
-# テナント管理
-from lib.tenant import (
-    TenantContext,
-    get_current_tenant,
-    set_current_tenant,
-)
+# テナント管理（pattern-detection等では不要なためオプショナル）
+try:
+    from lib.tenant import (
+        TenantContext,
+        get_current_tenant,
+        set_current_tenant,
+    )
+except ImportError:
+    pass
 
 # =============================================================================
 # Lazy Import定義（必要な時にのみインポート）

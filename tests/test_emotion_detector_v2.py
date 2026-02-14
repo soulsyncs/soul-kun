@@ -444,12 +444,12 @@ class TestDatabaseOperations:
 
         await detector._save_emotion_score(sample_message, sentiment)
 
-        # execute が呼ばれたことを確認
-        mock_conn.execute.assert_called_once()
+        # execute が呼ばれたことを確認（SAVEPOINT + INSERT + RELEASE = 3回）
+        assert mock_conn.execute.call_count == 3
 
-        # SQLに 'confidential' が含まれることを確認（プライバシー保護）
-        call_args = mock_conn.execute.call_args
-        sql_text = str(call_args[0][0])
+        # INSERT SQLに 'confidential' が含まれることを確認（プライバシー保護）
+        insert_call = mock_conn.execute.call_args_list[1]
+        sql_text = str(insert_call[0][0])
         assert 'confidential' in sql_text.lower()
 
     @pytest.mark.asyncio
@@ -526,9 +526,9 @@ class TestAlertAndInsight:
         assert result is not None
         assert result['id'] == alert_id
 
-        # SQLに 'confidential' が含まれることを確認
-        call_args = mock_conn.execute.call_args
-        sql_text = str(call_args[0][0])
+        # INSERT SQLに 'confidential' が含まれることを確認（SAVEPOINT/RELEASEを除く）
+        insert_call = mock_conn.execute.call_args_list[1]
+        sql_text = str(insert_call[0][0])
         assert 'confidential' in sql_text.lower()
 
     @pytest.mark.asyncio
@@ -981,9 +981,9 @@ class TestPrivacyConstraints:
 
         await detector._save_alert(alert)
 
-        # SQLパラメータに 'confidential' が含まれることを確認
-        call_args = mock_conn.execute.call_args
-        sql_text = str(call_args[0][0])
+        # INSERT SQLに 'confidential' が含まれることを確認（SAVEPOINT/RELEASEを除く）
+        insert_call = mock_conn.execute.call_args_list[1]
+        sql_text = str(insert_call[0][0])
         assert 'confidential' in sql_text.lower()
 
 

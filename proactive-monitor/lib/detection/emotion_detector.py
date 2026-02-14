@@ -58,6 +58,18 @@ from lib.detection.exceptions import (
 )
 
 
+def _ensure_aware(dt: Any) -> Any:
+    """naive datetime を UTC aware に変換。aware ならそのまま返す。
+
+    room_messages.send_time は TIMESTAMP WITHOUT TIME ZONE であり、
+    pg8000 から naive datetime として返される。
+    アプリケーション内では全て UTC aware で統一する。
+    """
+    if isinstance(dt, datetime) and dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 # ================================================================
 # 感情分析プロンプト
 # ================================================================
@@ -187,16 +199,23 @@ class EmotionDetector(BaseDetector):
 
             for user in users:
                 try:
+                    # SAVEPOINT: 1ユーザーの失敗が他ユーザーのトランザクションを壊さないよう隔離
+                    self._conn.execute(text("SAVEPOINT user_analysis"))
                     alerts = await self._analyze_user_emotion(user)
                     if alerts:
                         all_alerts.extend(alerts)
                         users_analyzed += 1
                     else:
                         users_skipped += 1
+                    self._conn.execute(text("RELEASE SAVEPOINT user_analysis"))
                 except Exception as e:
                     self._logger.warning(
                         f"Failed to analyze user {user['account_id']}: {type(e).__name__}"
                     )
+                    try:
+                        self._conn.execute(text("ROLLBACK TO SAVEPOINT user_analysis"))
+                    except Exception as rollback_err:
+                        self._logger.error(f"ROLLBACK TO SAVEPOINT failed: {type(rollback_err).__name__}")
                     users_skipped += 1
                     continue
 
@@ -335,7 +354,8 @@ class EmotionDetector(BaseDetector):
         baseline_score = await self._calculate_baseline_score(account_id)
 
         # 4. 現在のスコアを計算（直近7日間の平均）
-        recent_scores = [s for s in scores if s['message_time'] >= datetime.now(timezone.utc) - timedelta(days=7)]
+        cutoff_7d = datetime.now(timezone.utc) - timedelta(days=7)
+        recent_scores = [s for s in scores if _ensure_aware(s['message_time']) >= cutoff_7d]
         if not recent_scores:
             return []
 
@@ -428,16 +448,13 @@ class EmotionDetector(BaseDetector):
 
             messages = []
             for row in result:
-                # room_messages.send_time は timestamp without time zone なので
-                # naive datetime が返る。UTC として扱い aware に変換する。
-                send_time = row[3]
-                if isinstance(send_time, datetime) and send_time.tzinfo is None:
-                    send_time = send_time.replace(tzinfo=timezone.utc)
+                # room_messages.send_time は TIMESTAMP WITHOUT TIME ZONE
+                # pg8000 から naive datetime が返るので UTC aware に変換
                 messages.append({
                     'message_id': row[0],
                     'room_id': row[1],
                     'body': row[2],
-                    'send_time': send_time,
+                    'send_time': _ensure_aware(row[3]),
                 })
 
             return messages
@@ -485,10 +502,12 @@ class EmotionDetector(BaseDetector):
                     'sentiment_label': row[1],
                     'confidence': float(row[2]) if row[2] else None,
                     'detected_emotions': row[3] or [],
-                    'message_time': message['send_time'],
+                    'message_time': _ensure_aware(message['send_time']),
                 }
-        except Exception:
-            pass
+        except Exception as e:
+            self._logger.warning(
+                f"Failed to query existing emotion score for message {message_id}: {type(e).__name__}"
+            )
 
         # 2. 新しく計算
         try:
@@ -505,7 +524,7 @@ class EmotionDetector(BaseDetector):
                 'sentiment_label': sentiment['sentiment_label'],
                 'confidence': sentiment.get('confidence'),
                 'detected_emotions': sentiment.get('detected_emotions', []),
-                'message_time': message['send_time'],
+                'message_time': _ensure_aware(message['send_time']),
             }
 
         except Exception as e:
@@ -639,6 +658,7 @@ class EmotionDetector(BaseDetector):
             sentiment: 感情分析結果
         """
         try:
+            self._conn.execute(text("SAVEPOINT save_emotion_score"))
             self._conn.execute(text("""
                 INSERT INTO emotion_scores (
                     organization_id,
@@ -676,11 +696,16 @@ class EmotionDetector(BaseDetector):
                 "confidence": sentiment.get('confidence'),
                 "detected_emotions": sentiment.get('detected_emotions', []),
                 "analysis_model": self._default_model,
-                "message_time": message['send_time'],
+                "message_time": _ensure_aware(message['send_time']),
             })
+            self._conn.execute(text("RELEASE SAVEPOINT save_emotion_score"))
 
         except Exception as e:
             self._logger.warning(f"Failed to save emotion score: {type(e).__name__}")
+            try:
+                self._conn.execute(text("ROLLBACK TO SAVEPOINT save_emotion_score"))
+            except Exception as rollback_err:
+                self._logger.error(f"ROLLBACK TO SAVEPOINT failed: {type(rollback_err).__name__}")
 
     async def _calculate_baseline_score(self, account_id: Any) -> float:
         """
@@ -742,7 +767,7 @@ class EmotionDetector(BaseDetector):
         # 日付ごとにグループ化
         daily_scores = {}
         for score in scores:
-            msg_time = score['message_time']
+            msg_time = _ensure_aware(score['message_time'])
             if isinstance(msg_time, datetime):
                 date_key = msg_time.date()
             else:
@@ -818,6 +843,7 @@ class EmotionDetector(BaseDetector):
             保存されたアラート情報（IDを含む）
         """
         try:
+            self._conn.execute(text("SAVEPOINT save_alert"))
             today = datetime.now(timezone.utc).date()
             analysis_start = today - timedelta(days=self._analysis_window_days)
 
@@ -897,6 +923,7 @@ class EmotionDetector(BaseDetector):
             })
 
             row = result.fetchone()
+            self._conn.execute(text("RELEASE SAVEPOINT save_alert"))
             if row:
                 alert['id'] = row[0]
                 return alert
@@ -908,6 +935,10 @@ class EmotionDetector(BaseDetector):
                 "Failed to save emotion alert",
                 extra={"error_type": type(e).__name__}
             )
+            try:
+                self._conn.execute(text("ROLLBACK TO SAVEPOINT save_alert"))
+            except Exception as rollback_err:
+                self._logger.error(f"ROLLBACK TO SAVEPOINT failed: {type(rollback_err).__name__}")
             return None
 
     def _create_insight_data(self, alert: dict[str, Any]) -> InsightData:

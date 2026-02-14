@@ -162,6 +162,13 @@ from lib.brain.observability import (
     create_observability,
 )
 
+# Langfuseトレーシング
+from lib.brain.langfuse_integration import (
+    observe,
+    update_current_trace,
+    flush as langfuse_flush,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -577,6 +584,7 @@ class SoulkunBrain:
     # メインエントリーポイント
     # =========================================================================
 
+    @observe(name="brain.process_message", capture_input=False, capture_output=False)
     async def process_message(
         self,
         message: str,
@@ -600,6 +608,16 @@ class SoulkunBrain:
             BrainResponse: 処理結果
         """
         start_time = time.time()
+
+        # Langfuseトレース: ユーザー・セッション情報を設定
+        # CLAUDE.md 3-2 #8 / 9-4準拠: PIIをマスキングして送信
+        _masked_preview, _ = self.mask_pii(message[:50])
+        update_current_trace(
+            user_id=account_id,
+            session_id=room_id,
+            input={"message_preview": _masked_preview},
+            tags=["brain", "process_message"],
+        )
 
         # Phase 2E: 初回呼び出し時に永続化済み改善を復元
         if not self._initialized:
@@ -960,6 +978,9 @@ class SoulkunBrain:
                 debug_info={"error": type(e).__name__},
                 total_time_ms=self._elapsed_ms(start_time),
             )
+        finally:
+            # Cloud Functions: リクエスト終了前にLangfuseトレースを確実に送信
+            langfuse_flush()
 
     # =========================================================================
     # 能動的メッセージ生成（CLAUDE.md鉄則1b準拠）
@@ -1911,6 +1932,7 @@ class SoulkunBrain:
     # v10.50.0: LLM Brain 処理（25章: LLM常駐型脳アーキテクチャ）
     # =========================================================================
 
+    @observe(name="brain.llm_brain_flow", capture_input=False, capture_output=False)
     async def _process_with_llm_brain(
         self,
         message: str,

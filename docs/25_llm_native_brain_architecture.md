@@ -18,7 +18,7 @@
 | **書かないこと** | 原則の要点（→CLAUDE.md）、DB実装詳細（→03章）、API実装詳細（→04章） |
 | **SoT（この文書が正）** | LLM Brain憲法、6層アーキテクチャ、Tool定義、System Prompt v2.0、移行計画、**BrainStateManager/SessionState仕様（5.1.5〜5.1.7）、LLM Brain出力JSON Schema（5.2.3b）、Guardian判定優先度デシジョンツリー（5.3.3b）、エラーハンドリング仕様（6.7）、エッジケース仕様（6.7.6〜6.7.7）、Tool変換仕様（7.1b）** |
 | **Owner** | カズさん（代表） |
-| **関連リンク** | [CLAUDE.md](../CLAUDE.md)（原則）、[04章](04_api_and_security.md)（API実装）、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md) |
+| **関連リンク** | [CLAUDE.md](../CLAUDE.md)（原則）、[04章](04_api_and_security.md)（API実装）、[Design Coverage Matrix](DESIGN_COVERAGE_MATRIX.md)、[30章](30_strategic_improvement_plan_3ai.md)（戦略的改善計画） |
 
 ---
 
@@ -5143,6 +5143,30 @@ async def check_daily_cost():
 | P2（重大） | 一部機能停止 | 1時間以内に対応 |
 | P3（警告） | パフォーマンス低下 | 24時間以内に対応 |
 | P4（情報） | 軽微な問題 | 次回リリースで対応 |
+
+---
+
+## 15.4 戦略的改善ロードマップ【v11.0.0追加】
+
+> **詳細**: `docs/30_strategic_improvement_plan_3ai.md`（3AI合同分析レポート）
+
+2026-02-14の3AI合同分析（Claude / Codex / Gemini）により、以下の優先順位で改善を進める。
+
+| 優先度 | 改善項目 | 解決する課題 | SoT |
+|--------|---------|-------------|-----|
+| 1 | **Langfuse導入** | LLM判断のデバッグ困難（30分→3分へ） | 30章 4.1 |
+| 2 | **Cloud Run移行** | lib/3コピー同期問題の根本解消 | 30章 4.2 |
+| 3 | **LangGraph導入** | Brain判断フローの可視化・分割 | 30章 4.5 |
+| 4 | **Promptfoo導入** | プロンプト回帰テストの自動化 | 30章 5.3 |
+| 5 | **Terraform (IaC)** | インフラ構成のコード管理 | 30章 6.2 |
+| 6 | **MCP統合強化** | プラグイン式機能追加 | 30章 4.3 |
+| 7 | **iPhoneアプリ** | ChatWork以外のチャネル | 30章 4.4 |
+| 8 | **音声対話** | 音声入出力チャネル | 30章 4.6 |
+
+**本アーキテクチャ文書への影響:**
+- Langfuse: 15章（監視・運用）のObservability Layerに統合
+- Cloud Run: デプロイ方式の変更（Cloud Functions → コンテナ）。アーキテクチャ6層構造は変更なし
+- LangGraph: 6章（各層の詳細設計）のBrain内部フロー改善
 
 ---
 

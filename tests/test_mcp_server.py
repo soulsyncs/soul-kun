@@ -328,3 +328,274 @@ class TestConfig:
         # サーバーモジュールがインポート時にその値を読み込む
         assert ORGANIZATION_ID  # 空でないこと
         assert isinstance(ORGANIZATION_ID, str)
+
+
+# =============================================================================
+# read_resource ハッピーパステスト
+# =============================================================================
+
+
+class TestReadResource:
+    """リソース読み取りのハッピーパステスト（DBモック使用）"""
+
+    @pytest.mark.asyncio
+    async def test_read_tasks_active(self):
+        from server import read_resource
+        mock_rows = [
+            {"id": 1, "title": "タスクA", "status": "open", "assigned_to": "user1", "due_date": "2026-03-01"},
+            {"id": 2, "title": "タスクB", "status": "in_progress", "assigned_to": None, "due_date": None},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://tasks/active")
+            data = json.loads(result)
+            assert len(data) == 2
+            assert data[0]["title"] == "タスクA"
+            assert data[1]["status"] == "in_progress"
+            # org_idフィルタ検証: SQLにorganization_idが含まれること（鉄則#1）
+            mock_query.assert_called_once()
+            sql_arg = mock_query.call_args[0][0]
+            assert "organization_id" in sql_arg
+
+    @pytest.mark.asyncio
+    async def test_read_goals_active(self):
+        from server import read_resource
+        mock_rows = [
+            {"id": 1, "title": "売上目標", "description": "Q1目標", "status": "active", "progress_percentage": 0.5},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://goals/active")
+            data = json.loads(result)
+            assert len(data) == 1
+            assert data[0]["progress_percentage"] == 0.5
+            # org_idフィルタ検証（鉄則#1）
+            mock_query.assert_called_once()
+            assert "organization_id" in mock_query.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_read_persons(self):
+        """personsリソース取得 + PII非漏洩検証（鉄則#8）"""
+        from server import read_resource
+        # モックデータにPIIフィールドを意図的に含めて、レスポンスに漏れないことを検証
+        mock_rows = [
+            {"id": 1, "display_name": "田中太郎", "department": "営業部", "position": "リーダー",
+             "email": "tanaka@example.com", "phone": "090-1234-5678"},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://persons")
+            data = json.loads(result)
+            assert len(data) == 1
+            assert data[0]["display_name"] == "田中太郎"
+            # org_idフィルタ検証（鉄則#1）
+            mock_query.assert_called_once()
+            sql_arg = mock_query.call_args[0][0]
+            assert "organization_id" in sql_arg
+            # PII検証: SQLのSELECT句にemail/phoneが含まれないことを確認（鉄則#8）
+            sql_upper = sql_arg.upper()
+            select_clause = sql_upper.split("FROM")[0]
+            assert "EMAIL" not in select_clause
+            assert "PHONE" not in select_clause
+
+    @pytest.mark.asyncio
+    async def test_read_departments(self):
+        from server import read_resource
+        mock_rows = [
+            {"id": 1, "name": "営業部", "parent_id": None, "path": "営業部"},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://departments")
+            data = json.loads(result)
+            assert len(data) == 1
+            assert data[0]["name"] == "営業部"
+            # org_idフィルタ検証（鉄則#1）
+            mock_query.assert_called_once()
+            assert "organization_id" in mock_query.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_read_person_by_id(self):
+        from server import read_resource
+        mock_rows = [
+            {"id": 42, "display_name": "山田花子", "department": "管理部", "position": "課長"},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://persons/42")
+            data = json.loads(result)
+            assert data["id"] == 42
+            assert data["display_name"] == "山田花子"
+            # org_idフィルタ検証（鉄則#1）
+            mock_query.assert_called_once()
+            assert "organization_id" in mock_query.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_read_person_not_found(self):
+        from server import read_resource
+        with patch("server._run_db_query", return_value=[]):
+            result = await read_resource("soulkun://persons/999")
+            data = json.loads(result)
+            assert "error" in data
+            assert "not found" in data["error"].lower()
+
+    @pytest.mark.asyncio
+    async def test_read_task_by_id(self):
+        from server import read_resource
+        mock_rows = [
+            {"id": 10, "title": "重要タスク", "status": "open", "assigned_to": "user1",
+             "due_date": "2026-04-01", "description": "詳細説明"},
+        ]
+        with patch("server._run_db_query", return_value=mock_rows) as mock_query:
+            result = await read_resource("soulkun://tasks/10")
+            data = json.loads(result)
+            assert data["title"] == "重要タスク"
+            # org_idフィルタ検証（鉄則#1）
+            mock_query.assert_called_once()
+            assert "organization_id" in mock_query.call_args[0][0]
+
+    @pytest.mark.asyncio
+    async def test_read_unknown_uri(self):
+        from server import read_resource
+        result = await read_resource("soulkun://unknown/resource")
+        data = json.loads(result)
+        assert "error" in data
+        assert "Unknown resource" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_read_resource_db_error_returns_generic_message(self):
+        """DB障害時に内部エラーが漏れないこと（鉄則#8）"""
+        from server import read_resource
+        with patch("server._run_db_query", side_effect=Exception("Connection to 10.0.0.1 refused")):
+            result = await read_resource("soulkun://tasks/active")
+            data = json.loads(result)
+            assert "error" in data
+            assert "10.0.0.1" not in data["error"]
+            assert "Check server logs" in data["error"]
+
+
+# =============================================================================
+# call_tool ハッピーパステスト
+# =============================================================================
+
+
+class TestCallToolHappyPath:
+    """ツール実行のハッピーパステスト（Brain経由）"""
+
+    @pytest.mark.asyncio
+    async def test_call_tool_success_via_brain(self):
+        import sys
+        from server import call_tool
+        import server
+
+        server._capabilities = {
+            "get_tasks": {"description": "タスク一覧", "params_schema": {}, "enabled": True},
+        }
+
+        mock_result = MagicMock()
+        mock_result.to_chatwork_message.return_value = "タスク一覧: 3件あります"
+
+        # lib.brain.llm はカスタム __getattr__ のため直接patchできない
+        # sys.modulesにモックモジュールを注入してローカルimportに対応
+        mock_llm_module = MagicMock()
+        mock_integration_module = MagicMock()
+        MockBrain = MagicMock()
+        instance = AsyncMock()
+        instance.process_message.return_value = mock_result
+        MockBrain.return_value = instance
+        mock_integration_module.BrainIntegration = MockBrain
+
+        try:
+            with patch.dict(sys.modules, {
+                "lib.brain.llm": mock_llm_module,
+                "lib.brain.integration": mock_integration_module,
+            }), \
+                 patch("server._get_db_pool", return_value=MagicMock()), \
+                 patch("server._load_handlers", return_value={}):
+
+                result = await call_tool("get_tasks", {})
+                assert len(result) == 1
+                assert "タスク一覧: 3件" in result[0].text
+                # BrainIntegrationが使われたことを確認（bypass禁止）
+                MockBrain.assert_called_once()
+                instance.process_message.assert_awaited_once()
+        finally:
+            server._capabilities = None
+
+    @pytest.mark.asyncio
+    async def test_call_tool_with_arguments(self):
+        import sys
+        from server import call_tool
+        import server
+
+        server._capabilities = {
+            "create_task": {"description": "タスク作成", "params_schema": {"title": {"type": "string"}}, "enabled": True},
+        }
+
+        mock_result = MagicMock()
+        mock_result.to_chatwork_message.return_value = "タスク「新機能」を作成しました"
+
+        mock_llm_module = MagicMock()
+        mock_integration_module = MagicMock()
+        MockBrain = MagicMock()
+        instance = AsyncMock()
+        instance.process_message.return_value = mock_result
+        MockBrain.return_value = instance
+        mock_integration_module.BrainIntegration = MockBrain
+
+        try:
+            with patch.dict(sys.modules, {
+                "lib.brain.llm": mock_llm_module,
+                "lib.brain.integration": mock_integration_module,
+            }), \
+                 patch("server._get_db_pool", return_value=MagicMock()), \
+                 patch("server._load_handlers", return_value={}):
+
+                result = await call_tool("create_task", {"title": "新機能"})
+                assert "新機能" in result[0].text
+                # process_messageに引数が含まれていること
+                call_args = instance.process_message.call_args
+                assert "新機能" in call_args.kwargs.get("message", call_args[1].get("message", ""))
+        finally:
+            server._capabilities = None
+
+
+# =============================================================================
+# get_prompt ハッピーパステスト
+# =============================================================================
+
+
+class TestGetPrompt:
+    """プロンプト取得のテスト"""
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_ceo_feedback(self):
+        from server import get_prompt
+        result = await get_prompt("ceo_feedback", {"topic": "新規事業"})
+        assert result.description == "CEOフィードバック"
+        assert len(result.messages) == 1
+        assert "新規事業" in result.messages[0].content.text
+        assert "ミッション" in result.messages[0].content.text
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_weekly_summary(self):
+        from server import get_prompt
+        result = await get_prompt("weekly_summary", {})
+        assert result.description == "週次サマリー"
+        assert "今週の成果" in result.messages[0].content.text
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_deep_research(self):
+        from server import get_prompt
+        result = await get_prompt("deep_research", {"query": "AI活用"})
+        assert result.description == "ディープリサーチ"
+        assert "AI活用" in result.messages[0].content.text
+        assert "推奨アクション" in result.messages[0].content.text
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_unknown_raises(self):
+        from server import get_prompt
+        with pytest.raises(ValueError, match="Unknown prompt"):
+            await get_prompt("nonexistent_prompt", {})
+
+    @pytest.mark.asyncio
+    async def test_get_prompt_ceo_feedback_empty_topic(self):
+        from server import get_prompt
+        result = await get_prompt("ceo_feedback", {})
+        # topic空でもエラーにならないこと
+        assert result.description == "CEOフィードバック"

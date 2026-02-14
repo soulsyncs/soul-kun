@@ -4,6 +4,7 @@ Org Chart Service テスト
 Phase B: Google Drive 自動権限管理機能
 """
 
+import os
 import pytest
 from unittest.mock import Mock, AsyncMock, patch
 
@@ -144,8 +145,10 @@ class TestOrgChartServiceInit:
         with pytest.raises(ValueError):
             OrgChartService(supabase_url=None, supabase_key="test-key")
 
-    def test_init_missing_key_raises(self):
-        """キーなしでエラー"""
+    @patch("lib.org_chart_service.get_secret_cached", side_effect=Exception("Not available"))
+    @patch.dict("os.environ", {"SUPABASE_ANON_KEY": ""}, clear=False)
+    def test_init_missing_key_raises(self, mock_secret):
+        """キーなしでエラー（Secret Manager・環境変数どちらも利用不可時）"""
         with pytest.raises(ValueError):
             OrgChartService(supabase_url="https://test.supabase.co", supabase_key=None)
 

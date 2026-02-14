@@ -19,6 +19,7 @@ resource "google_service_account" "scheduler_invoker" {
 # Scheduler → Cloud Functions (Cloud Run) 呼び出し権限
 # プロジェクトレベルではなく、Scheduler対象の関数のみに限定（最小権限の原則）
 locals {
+  # CF Gen2 functions invoked by Cloud Scheduler（cloud_functions.tf の functions マップのキー）
   scheduler_target_functions = [
     "supabase_sync",
     "pattern-detection",
@@ -28,13 +29,44 @@ locals {
     "goal-daily-reminder",
     "goal-morning-feedback",
     "goal-consecutive-unanswered",
+    # 2026-02-14 Cloud Run移行で追加
+    "bottleneck-detection",
+    "brain-daily-aggregation",
+    "check-reply-messages",
+    "cleanup-old-data",
+    "db-backup-export",
+    "remind-tasks",
+    "report-generator",
+    "sync-room-members",
+    "sync-chatwork-tasks",
+    "sync_drive_permissions",
+  ]
+
+  # 非CF Gen2 Cloud Run services invoked by Cloud Scheduler
+  # Docker-based (proactive-monitor) + 純 Cloud Run (daily-reminder, weekly-summary, weekly-summary-manager)
+  scheduler_target_cloud_run_services = [
+    "proactive-monitor",
+    "daily-reminder",
+    "weekly-summary",
+    "weekly-summary-manager",
   ]
 }
 
+# CF Gen2 functions → scheduler-invoker IAM
 resource "google_cloud_run_service_iam_member" "scheduler_invoker" {
   for_each = toset(local.scheduler_target_functions)
 
   service  = google_cloudfunctions2_function.functions[each.value].service_config[0].service
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+}
+
+# 非CF Cloud Run services → scheduler-invoker IAM
+resource "google_cloud_run_service_iam_member" "scheduler_invoker_cloud_run" {
+  for_each = toset(local.scheduler_target_cloud_run_services)
+
+  service  = each.value
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"

@@ -230,7 +230,7 @@ def analyze_questions(conn, org_id: str, questions: list[dict], dry_run: bool = 
             if not dry_run:
                 # パターン検出を実行（同期的に呼び出し）
                 import asyncio
-                result = asyncio.get_event_loop().run_until_complete(
+                result = asyncio.run(
                     detector.detect(
                         question=question_text,
                         user_id=user_id,
@@ -465,22 +465,9 @@ def weekly_report(request: Request):
 
             # レポートを生成（asyncio対応）
             import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
+            report_id = asyncio.run(service.generate_weekly_report())
 
-            if loop and loop.is_running():
-                # 既存のループがある場合（ルーター経由で呼ばれた場合）
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, service.generate_weekly_report())
-                    report = future.result()
-            else:
-                # 新しいループを作成
-                report = asyncio.run(service.generate_weekly_report())
-
-            if not report:
+            if not report_id:
                 return jsonify({
                     "success": True,
                     "message": "今週のインサイトがないため、レポートは生成されませんでした",
@@ -489,18 +476,49 @@ def weekly_report(request: Request):
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 }), 200
 
-            print(f"📄 レポート生成完了: {report.id}")
+            print(f"📄 レポート生成完了: {report_id}")
 
             # レポートを送信
             if not dry_run:
-                if loop and loop.is_running():
-                    with concurrent.futures.ThreadPoolExecutor() as executor:
-                        future = executor.submit(asyncio.run, service.send_report(report.id, room_id=room_id))
-                        sent = future.result()
+                import requests as http_requests
+
+                # レポートを取得してChatWork形式にフォーマット
+                report_record = asyncio.run(service.get_report(report_id))
+                if report_record:
+                    chatwork_message = service.format_for_chatwork(report_record)
+
+                    # ChatWorkに送信
+                    chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+                    response = http_requests.post(
+                        f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+                        headers={"X-ChatWorkToken": chatwork_token},
+                        data={"body": chatwork_message},
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        message_id = response.json().get("message_id")
+                        asyncio.run(service.mark_as_sent(
+                            report_id=report_id,
+                            sent_to=[],
+                            sent_via="chatwork",
+                            chatwork_room_id=room_id,
+                            chatwork_message_id=str(message_id) if message_id else None,
+                        ))
+                        sent = True
+                        print(f"✅ レポート送信完了: message_id={message_id}")
+                    else:
+                        asyncio.run(service.mark_as_failed(
+                            report_id=report_id,
+                            error_message=f"ChatWork API error: status={response.status_code}",
+                        ))
+                        sent = False
+                        print(f"❌ ChatWork送信失敗: status={response.status_code}")
                 else:
-                    sent = asyncio.run(service.send_report(report.id, room_id=room_id))
+                    sent = False
+                    print(f"❌ レポートレコード取得失敗: {report_id}")
+
                 conn.commit()
-                print(f"✅ レポート送信完了: sent={sent}")
             else:
                 sent = False
                 print(f"🧪 DRY RUN: レポート送信スキップ")
@@ -511,7 +529,7 @@ def weekly_report(request: Request):
         return jsonify({
             "success": True,
             "message": "週次レポートを生成しました" + ("（送信済み）" if sent else "（未送信）"),
-            "report_id": str(report.id),
+            "report_id": str(report_id),
             "sent": sent,
             "elapsed_seconds": elapsed,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -586,20 +604,7 @@ def personalization_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                # 既存のループがある場合
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, detector.detect())
-                    result = future.result()
-            else:
-                # 新しいループを作成
-                result = asyncio.run(detector.detect())
+            result = asyncio.run(detector.detect())
 
             # トランザクションをコミット
             conn.commit()
@@ -695,20 +700,7 @@ def bottleneck_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                # 既存のループがある場合
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, detector.detect())
-                    result = future.result()
-            else:
-                # 新しいループを作成
-                result = asyncio.run(detector.detect())
+            result = asyncio.run(detector.detect())
 
             # トランザクションをコミット
             conn.commit()
@@ -810,20 +802,7 @@ def emotion_detection(request: Request):
 
             # 検出を実行
             import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-
-            if loop and loop.is_running():
-                # 既存のループがある場合
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as executor:
-                    future = executor.submit(asyncio.run, detector.detect())
-                    result = future.result()
-            else:
-                # 新しいループを作成
-                result = asyncio.run(detector.detect())
+            result = asyncio.run(detector.detect())
 
             # トランザクションをコミット
             conn.commit()

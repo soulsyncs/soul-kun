@@ -236,6 +236,137 @@ locals {
         DB_PASSWORD            = "cloudsql-password"
       }
     }
+
+    # --- 以下は 2026-02-14 Cloud Run移行時に追加（既存CF Gen2をTF管理下に） ---
+
+    bottleneck-detection = {
+      description          = "Daily bottleneck detection analysis"
+      entry_point          = "bottleneck_detection"
+      source_dir           = "bottleneck-detection"
+      memory               = "512Mi"
+      timeout              = 300
+      max_instances        = 3
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        GOOGLE_AI_API_KEY = "GOOGLE_AI_API_KEY"
+        DB_PASSWORD       = "cloudsql-password"
+      }
+    }
+
+    brain-daily-aggregation = {
+      description          = "Daily brain knowledge aggregation"
+      entry_point          = "brain_daily_aggregation"
+      source_dir           = "brain-daily-aggregation"
+      memory               = "512Mi"
+      timeout              = 540
+      max_instances        = 1
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        OPENROUTER_API_KEY = "openrouter-api-key"
+        DB_PASSWORD        = "cloudsql-password"
+      }
+    }
+
+    check-reply-messages = {
+      description          = "Check and process reply messages"
+      entry_point          = "check_reply_messages"
+      source_dir           = "check-reply-messages"
+      memory               = "512Mi"
+      timeout              = 120
+      max_instances        = 6
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        DB_PASSWORD            = "cloudsql-password"
+      }
+    }
+
+    cleanup-old-data = {
+      description          = "Cleanup old data from database"
+      entry_point          = "cleanup_old_data"
+      source_dir           = "cleanup-old-data"
+      memory               = "256Mi"
+      timeout              = 300
+      max_instances        = 1
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        DB_PASSWORD = "cloudsql-password"
+      }
+    }
+
+    db-backup-export = {
+      description          = "Database backup and export"
+      entry_point          = "db_backup_export"
+      source_dir           = "db-backup-export"
+      memory               = "256Mi"
+      timeout              = 540
+      max_instances        = 1
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        DB_PASSWORD = "cloudsql-password"
+      }
+    }
+
+    remind-tasks = {
+      description          = "Task reminder notifications"
+      entry_point          = "remind_tasks"
+      source_dir           = "remind-tasks"
+      memory               = "256Mi"
+      timeout              = 300
+      max_instances        = 1
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        CHATWORK_API_TOKEN     = "chatwork-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        DB_PASSWORD            = "cloudsql-password"
+      }
+    }
+
+    report-generator = {
+      description          = "Weekly and daily report generation"
+      entry_point          = "report_generator"
+      source_dir           = "report-generator"
+      memory               = "512Mi"
+      timeout              = 300
+      max_instances        = 3
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        DB_PASSWORD            = "cloudsql-password"
+      }
+    }
+
+    sync-room-members = {
+      description          = "Sync ChatWork room members"
+      entry_point          = "sync_room_members_handler"
+      source_dir           = "sync-room-members"
+      memory               = "512Mi"
+      timeout              = 300
+      max_instances        = 3
+      min_instances        = 0
+      allow_unauthenticated = false
+      extra_env = {}
+      secrets = {
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        DB_PASSWORD            = "cloudsql-password"
+      }
+    }
   }
 }
 

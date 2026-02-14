@@ -14,3 +14,4 @@ google-auth-oauthlib==1.*
 pinecone==5.*
 google-genai==1.*
 pytz
+langfuse~=2.0

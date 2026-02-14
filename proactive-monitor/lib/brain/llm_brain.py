@@ -65,6 +65,7 @@ from enum import Enum
 import httpx
 
 from lib.brain.context_builder import LLMContext
+from lib.brain.langfuse_integration import observe, update_current_observation
 
 logger = logging.getLogger(__name__)
 
@@ -487,6 +488,7 @@ class LLMBrain:
     # メイン処理
     # =========================================================================
 
+    @observe(name="llm_brain.process")
     async def process(
         self,
         context: LLMContext,
@@ -579,6 +581,17 @@ class LLMBrain:
         result.model_used = self.model
         result.api_provider = self.api_provider.value
 
+        # Langfuseトレース: process()レベルのメタデータ（トークン数は子spanで記録済み）
+        update_current_observation(
+            metadata={
+                "output_type": result.output_type,
+                "confidence": result.confidence.overall,
+                "tool_calls": [
+                    tc.tool_name for tc in (result.tool_calls or [])
+                ],
+            },
+        )
+
         logger.info(
             f"LLM Brain result: "
             f"type={result.output_type}, "
@@ -592,6 +605,7 @@ class LLMBrain:
     # Phase 3.5: テキスト合成（Tool不使用）
     # =========================================================================
 
+    @observe(name="llm_brain.synthesize_text")
     async def synthesize_text(
         self,
         system_prompt: str,
@@ -809,6 +823,7 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
     # OpenRouter API呼び出し
     # =========================================================================
 
+    @observe(as_type="generation", name="openrouter_call")
     async def _call_openrouter(
         self,
         system: str,
@@ -878,12 +893,27 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             )
 
         result: Dict[str, Any] = response.json()
+
+        # Langfuseトレース: OpenRouter generation の詳細を記録
+        # CLAUDE.md 3-2 #8: PIIをLangfuseに送らない（メタデータのみ）
+        update_current_observation(
+            model=self.model,
+            input={"message_count": len(full_messages)},
+            output={"output_type": "openrouter_response"},
+            usage={
+                "input": result.get("usage", {}).get("prompt_tokens", 0),
+                "output": result.get("usage", {}).get("completion_tokens", 0),
+            },
+            metadata={"api_provider": "openrouter"},
+        )
+
         return result
 
     # =========================================================================
     # Anthropic API呼び出し
     # =========================================================================
 
+    @observe(as_type="generation", name="anthropic_call")
     async def _call_anthropic(
         self,
         system: str,
@@ -943,6 +973,20 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
             )
 
         anthropic_result: Dict[str, Any] = response.json()
+
+        # Langfuseトレース: Anthropic generation の詳細を記録
+        # CLAUDE.md 3-2 #8: PIIをLangfuseに送らない（メタデータのみ）
+        update_current_observation(
+            model=self.model,
+            input={"message_count": len(messages)},
+            output={"output_type": "anthropic_response"},
+            usage={
+                "input": anthropic_result.get("usage", {}).get("input_tokens", 0),
+                "output": anthropic_result.get("usage", {}).get("output_tokens", 0),
+            },
+            metadata={"api_provider": "anthropic"},
+        )
+
         return anthropic_result
 
     # =========================================================================

@@ -47,7 +47,7 @@ jobs:
           # - Pillow: 画像処理用（test_multimodal.py）
           # - jpholiday: 日本の祝日判定用（test_business_day.py）
           # - python-jose[cryptography]: JWT認証テスト用（test_api_auth.py等）
-          pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday python-jose[cryptography]
+          pip install httpx fakeredis freezegun fastapi beautifulsoup4 Pillow jpholiday python-jose[cryptography] mcp PyJWT python-multipart
 
       - name: Run tests with coverage
         env:

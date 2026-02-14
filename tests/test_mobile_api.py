@@ -239,31 +239,32 @@ class TestLoginEndpoint:
 class TestAuthProtection:
     """認証保護のテスト"""
 
-    def test_chat_without_auth_returns_403(self):
+    def test_chat_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.post("/api/v1/chat", json={"message": "test"})
-        assert response.status_code == 403
+        # HTTPBearer: 403 (fastapi<0.110) or 401 (fastapi>=0.110)
+        assert response.status_code in (401, 403)
 
-    def test_tasks_without_auth_returns_403(self):
+    def test_tasks_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.get("/api/v1/tasks")
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
-    def test_goals_without_auth_returns_403(self):
+    def test_goals_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.get("/api/v1/goals")
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
-    def test_persons_without_auth_returns_403(self):
+    def test_persons_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.get("/api/v1/persons")
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
-    def test_invalid_bearer_token_returns_401(self):
+    def test_invalid_bearer_token_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.post(
@@ -273,20 +274,20 @@ class TestAuthProtection:
         )
         assert response.status_code in (401, 403)
 
-    def test_refresh_without_auth_returns_403(self):
+    def test_refresh_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.post("/api/v1/auth/refresh")
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
-    def test_notification_register_without_auth_returns_403(self):
+    def test_notification_register_without_auth_rejected(self):
         from fastapi.testclient import TestClient
         client = TestClient(mobile_main.app)
         response = client.post(
             "/api/v1/notifications/register",
             json={"device_token": "abc", "platform": "ios"},
         )
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
 
 # =============================================================================

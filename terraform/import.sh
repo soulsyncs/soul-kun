@@ -56,23 +56,25 @@ import_resource "google_service_account.scheduler_invoker" \
   "projects/${PROJECT}/serviceAccounts/scheduler-invoker@${PROJECT}.iam.gserviceaccount.com"
 
 # Cloud Functions (Gen2)
+# format: "terraform_key:gcp_name" (同じ場合はキーのみ)
 FUNCTIONS=(
-  chatwork-webhook
-  proactive-monitor
-  watch-google-drive
-  supabase-sync
-  pattern-detection
-  personalization-detection
-  weekly-report
-  sync-drive-permissions
-  sync-chatwork-tasks
-  goal-daily-check
-  goal-daily-reminder
-  goal-morning-feedback
-  goal-consecutive-unanswered
+  "chatwork-webhook"
+  "proactive-monitor"
+  "watch_google_drive"
+  "supabase_sync"
+  "pattern-detection"
+  "personalization-detection"
+  "weekly-report"
+  "sync_drive_permissions"
+  "sync-chatwork-tasks"
+  "goal-daily-check"
+  "goal-daily-reminder"
+  "goal-morning-feedback"
+  "goal-consecutive-unanswered"
 )
 
 for fn in "${FUNCTIONS[@]}"; do
+  # Terraform キー名がそのまま GCP 関数名になる（name = each.key）
   import_resource "google_cloudfunctions2_function.functions[\"${fn}\"]" \
     "projects/${PROJECT}/locations/${REGION}/functions/${fn}"
 done

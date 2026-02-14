@@ -17,10 +17,27 @@ resource "google_service_account" "scheduler_invoker" {
 }
 
 # Scheduler → Cloud Functions (Cloud Run) 呼び出し権限
-resource "google_project_iam_member" "scheduler_run_invoker" {
-  project = var.project_id
-  role    = "roles/run.invoker"
-  member  = "serviceAccount:${google_service_account.scheduler_invoker.email}"
+# プロジェクトレベルではなく、Scheduler対象の関数のみに限定（最小権限の原則）
+locals {
+  scheduler_target_functions = [
+    "supabase_sync",
+    "pattern-detection",
+    "personalization-detection",
+    "weekly-report",
+    "goal-daily-check",
+    "goal-daily-reminder",
+    "goal-morning-feedback",
+    "goal-consecutive-unanswered",
+  ]
+}
+
+resource "google_cloud_run_service_iam_member" "scheduler_invoker" {
+  for_each = toset(local.scheduler_target_functions)
+
+  service  = google_cloudfunctions2_function.functions[each.value].service_config[0].service
+  location = var.region
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.scheduler_invoker.email}"
 }
 
 # Cloud Functions SA → Cloud SQL クライアント

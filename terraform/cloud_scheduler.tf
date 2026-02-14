@@ -7,7 +7,7 @@ locals {
     supabase-sync-daily = {
       description = "Daily Supabase to Cloud SQL sync"
       schedule    = "0 6 * * *" # 毎日 06:00 JST
-      function    = "supabase-sync"
+      function    = "supabase_sync"
       http_method = "POST"
       body        = ""
     }

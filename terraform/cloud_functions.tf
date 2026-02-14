@@ -63,7 +63,7 @@ locals {
       }
     }
 
-    watch-google-drive = {
+    watch_google_drive = {
       description          = "Google Drive monitoring and knowledge indexing"
       entry_point          = "watch_google_drive"
       source_dir           = "watch-google-drive"
@@ -86,7 +86,7 @@ locals {
       }
     }
 
-    supabase-sync = {
+    supabase_sync = {
       description          = "Supabase to Cloud SQL data sync"
       entry_point          = "supabase_sync"
       source_dir           = "supabase-sync"
@@ -129,7 +129,7 @@ locals {
     personalization-detection = {
       description          = "Personalization pattern detection"
       entry_point          = "personalization_detection"
-      source_dir           = "personalization-detection"
+      source_dir           = "pattern-detection"
       memory               = "512Mi"
       timeout              = 300
       max_instances        = 3
@@ -148,7 +148,7 @@ locals {
     weekly-report = {
       description          = "Weekly report generation and delivery"
       entry_point          = "weekly_report"
-      source_dir           = "weekly-report"
+      source_dir           = "pattern-detection"
       memory               = "512Mi"
       timeout              = 300
       max_instances        = 1
@@ -164,7 +164,7 @@ locals {
       }
     }
 
-    sync-drive-permissions = {
+    sync_drive_permissions = {
       description          = "Google Drive permissions sync"
       entry_point          = "sync_drive_permissions"
       source_dir           = "sync-drive-permissions"
@@ -200,7 +200,7 @@ locals {
     goal-daily-check = {
       description          = "Daily goal progress check"
       entry_point          = "goal_daily_check"
-      source_dir           = "goal-notifications"
+      source_dir           = "remind-tasks"
       memory               = "512Mi"
       timeout              = 540
       max_instances        = 1
@@ -208,15 +208,17 @@ locals {
       allow_unauthenticated = false
       extra_env = {}
       secrets = {
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
+        CHATWORK_API_TOKEN     = "chatwork-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        DB_PASSWORD            = "cloudsql-password"
       }
     }
 
     goal-daily-reminder = {
       description          = "Daily goal reminder notification"
       entry_point          = "goal_daily_reminder"
-      source_dir           = "goal-notifications"
+      source_dir           = "remind-tasks"
       memory               = "512Mi"
       timeout              = 540
       max_instances        = 1
@@ -224,15 +226,17 @@ locals {
       allow_unauthenticated = false
       extra_env = {}
       secrets = {
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
+        CHATWORK_API_TOKEN     = "chatwork-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        DB_PASSWORD            = "cloudsql-password"
       }
     }
 
     goal-morning-feedback = {
       description          = "Morning goal feedback"
       entry_point          = "goal_morning_feedback"
-      source_dir           = "goal-notifications"
+      source_dir           = "remind-tasks"
       memory               = "512Mi"
       timeout              = 540
       max_instances        = 1
@@ -240,15 +244,17 @@ locals {
       allow_unauthenticated = false
       extra_env = {}
       secrets = {
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
+        CHATWORK_API_TOKEN     = "chatwork-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        DB_PASSWORD            = "cloudsql-password"
       }
     }
 
     goal-consecutive-unanswered = {
       description          = "Consecutive unanswered goal alerts"
-      entry_point          = "goal_consecutive_unanswered"
-      source_dir           = "goal-notifications"
+      entry_point          = "goal_consecutive_unanswered_check"
+      source_dir           = "remind-tasks"
       memory               = "512Mi"
       timeout              = 540
       max_instances        = 1
@@ -256,8 +262,10 @@ locals {
       allow_unauthenticated = false
       extra_env = {}
       secrets = {
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
+        CHATWORK_API_TOKEN     = "chatwork-api-key"
+        SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
+        OPENROUTER_API_KEY     = "openrouter-api-key"
+        DB_PASSWORD            = "cloudsql-password"
       }
     }
   }
@@ -314,8 +322,9 @@ resource "google_cloudfunctions2_function" "functions" {
 }
 
 # chatwork-webhook のみ未認証アクセスを許可（Webhook受信用）
-resource "google_cloud_run_v2_service_iam_member" "webhook_public" {
-  name     = google_cloudfunctions2_function.functions["chatwork-webhook"].service_config[0].service
+# Cloud Functions Gen2 は内部的に Cloud Run v1 サービスを作成するため v1 IAM を使用
+resource "google_cloud_run_service_iam_member" "webhook_public" {
+  service  = google_cloudfunctions2_function.functions["chatwork-webhook"].service_config[0].service
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"

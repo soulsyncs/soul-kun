@@ -584,7 +584,7 @@ class SoulkunBrain:
     # メインエントリーポイント
     # =========================================================================
 
-    @observe(name="brain.process_message")
+    @observe(name="brain.process_message", capture_input=False, capture_output=False)
     async def process_message(
         self,
         message: str,
@@ -1932,7 +1932,7 @@ class SoulkunBrain:
     # v10.50.0: LLM Brain 処理（25章: LLM常駐型脳アーキテクチャ）
     # =========================================================================
 
-    @observe(name="brain.llm_brain_flow")
+    @observe(name="brain.llm_brain_flow", capture_input=False, capture_output=False)
     async def _process_with_llm_brain(
         self,
         message: str,

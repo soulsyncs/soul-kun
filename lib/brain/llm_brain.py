@@ -488,7 +488,7 @@ class LLMBrain:
     # メイン処理
     # =========================================================================
 
-    @observe(name="llm_brain.process")
+    @observe(name="llm_brain.process", capture_input=False, capture_output=False)
     async def process(
         self,
         context: LLMContext,
@@ -605,7 +605,7 @@ class LLMBrain:
     # Phase 3.5: テキスト合成（Tool不使用）
     # =========================================================================
 
-    @observe(name="llm_brain.synthesize_text")
+    @observe(name="llm_brain.synthesize_text", capture_input=False, capture_output=False)
     async def synthesize_text(
         self,
         system_prompt: str,
@@ -823,7 +823,7 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
     # OpenRouter API呼び出し
     # =========================================================================
 
-    @observe(as_type="generation", name="openrouter_call")
+    @observe(as_type="generation", name="openrouter_call", capture_input=False, capture_output=False)
     async def _call_openrouter(
         self,
         system: str,
@@ -913,7 +913,7 @@ Toolを呼び出す前に、以下の形式で思考過程を出力してくだ�
     # Anthropic API呼び出し
     # =========================================================================
 
-    @observe(as_type="generation", name="anthropic_call")
+    @observe(as_type="generation", name="anthropic_call", capture_input=False, capture_output=False)
     async def _call_anthropic(
         self,
         system: str,

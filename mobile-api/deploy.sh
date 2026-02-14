@@ -32,6 +32,7 @@ deploy_service() {
     local dockerfile="$2"
     local port="$3"
     local allow_unauth="${4:-no}"
+    local extra_secrets="${5:-}"
 
     info "=== Deploying ${service} (${COMMIT_SHA}) ==="
 
@@ -67,7 +68,7 @@ deploy_service() {
         --timeout 540 \
         --service-account "cloud-functions-sa@${PROJECT}.iam.gserviceaccount.com" \
         --update-env-vars "ENVIRONMENT=production,USE_BRAIN_ARCHITECTURE=true,DB_NAME=soulkun_tasks,DB_USER=soulkun_user,INSTANCE_CONNECTION_NAME=${PROJECT}:${REGION}:soulkun-db,PROJECT_ID=${PROJECT}" \
-        --update-secrets "DB_PASSWORD=cloudsql-password:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,JWT_SECRET=jwt-secret:latest" \
+        --update-secrets "DB_PASSWORD=cloudsql-password:latest,OPENROUTER_API_KEY=openrouter-api-key:latest,JWT_SECRET=jwt-secret:latest${extra_secrets:+,${extra_secrets}}" \
         --add-cloudsql-instances "${PROJECT}:${REGION}:soulkun-db" \
         ${auth_flag} \
         --quiet
@@ -83,12 +84,12 @@ case "${TARGET}" in
         ;;
     mcp-server)
         # mcp-serverはCloud Run IAM認証 + アプリレベルAPI Key認証の二重防御
-        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no"
+        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no" "MCP_API_KEY=mcp-api-key:latest"
         ;;
     all)
         deploy_service "soulkun-mobile-api" "mobile-api/Dockerfile" "8081" "yes"
         echo ""
-        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no"
+        deploy_service "soulkun-mcp-server" "mcp-server/Dockerfile" "8080" "no" "MCP_API_KEY=mcp-api-key:latest"
         ;;
     *)
         error "Unknown target: ${TARGET}"

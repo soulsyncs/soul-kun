@@ -575,12 +575,47 @@ try:
     USE_HANDLER_WRAPPERS = True
     print("✅ lib/brain/handler_wrappers.py loaded for brain handlers")
 except ImportError as e:
+    # 本番環境ではfail-fast: handler_wrappersなしではBrain機能が全停止するため
+    if os.environ.get("ENVIRONMENT") == "production":
+        raise
     print(f"⚠️ lib/brain/handler_wrappers.py not available: {e}")
     USE_HANDLER_WRAPPERS = False
     build_bypass_handlers = None
     build_brain_handlers = None
     build_session_handlers = None
     get_session_management_functions = None
+    # 個別ハンドラー名のフォールバック（NameError防止）
+    _brain_handle_task_search = None
+    _brain_handle_task_create = None
+    _brain_handle_task_complete = None
+    _brain_handle_query_knowledge = None
+    _brain_handle_save_memory = None
+    _brain_handle_query_memory = None
+    _brain_handle_delete_memory = None
+    _brain_handle_learn_knowledge = None
+    _brain_handle_forget_knowledge = None
+    _brain_handle_list_knowledge = None
+    _brain_handle_goal_setting_start = None
+    _brain_handle_goal_progress_report = None
+    _brain_handle_goal_status_check = None
+    _brain_handle_goal_review = None
+    _brain_handle_goal_consult = None
+    _brain_handle_goal_delete = None
+    _brain_handle_goal_cleanup = None
+    _brain_handle_announcement_create = None
+    _brain_handle_query_org_chart = None
+    _brain_handle_daily_reflection = None
+    _brain_handle_proposal_decision = None
+    _brain_handle_api_limitation = None
+    _brain_handle_general_conversation = None
+    # セッション継続ハンドラー
+    _brain_continue_goal_setting = None
+    _brain_continue_announcement = None
+    _brain_continue_task_pending = None
+    # セッション管理
+    _brain_interrupt_goal_setting = None
+    _brain_get_interrupted_goal_setting = None
+    _brain_resume_goal_setting = None
     # v10.40.3: ポーリング処理
     validate_polling_message = None
     should_skip_polling_message = None

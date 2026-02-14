@@ -16,7 +16,7 @@ set -euo pipefail
 # 設定
 REGION="asia-northeast1"
 PROJECT="soulkun-production"
-FUNCTION_URL="https://${REGION}-${PROJECT}.cloudfunctions.net/chatwork-webhook"
+SERVICE_URL="https://chatwork-webhook-898513057014.${REGION}.run.app"
 TEST_SENDER_ID="99999999"  # テスト用の送信者ID（存在しないアカウント）
 TEST_ROOM_ID="000000000"   # テスト用のルームID（存在しないルーム → 返信失敗するが診断ログは出る）
 TEST_MESSAGE="${1:-診断ログ確認テスト}"
@@ -25,10 +25,9 @@ TEST_MESSAGE="${1:-診断ログ確認テスト}"
 if [[ "${1:-}" == "--logs-only" ]]; then
     echo "📋 最新のchatwork-webhookログ（DIAGフィルタ）:"
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    gcloud functions logs read chatwork-webhook \
+    gcloud run logs read chatwork-webhook \
         --region="${REGION}" \
-        --limit=50 \
-        --format='table(time_utc,severity,log)' 2>/dev/null \
+        --limit=50 2>/dev/null \
         | grep -E 'DIAG|LearningLoop|db_data|timed out' \
         | head -30
     exit 0
@@ -37,7 +36,7 @@ fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🧪 ChatWork Webhook テスト"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  URL: ${FUNCTION_URL}"
+echo "  URL: ${SERVICE_URL}"
 echo "  メッセージ: ${TEST_MESSAGE}"
 echo "  送信者ID: ${TEST_SENDER_ID} (テスト)"
 echo "  ルームID: ${TEST_ROOM_ID} (テスト)"
@@ -91,7 +90,7 @@ echo "✅ 署名生成完了"
 echo ""
 echo "📤 テストリクエスト送信中..."
 HTTP_CODE=$(curl -s -o /tmp/webhook_test_response.json -w "%{http_code}" \
-    -X POST "${FUNCTION_URL}" \
+    -X POST "${SERVICE_URL}" \
     -H "Content-Type: application/json" \
     -H "X-ChatWorkWebhookSignature: ${SIGNATURE}" \
     -d "${PAYLOAD}")

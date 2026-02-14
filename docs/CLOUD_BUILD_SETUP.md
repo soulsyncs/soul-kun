@@ -2,139 +2,109 @@
 
 ## 概要
 
-mainブランチへのマージ時に、自動でCloud Functionsにデプロイする設定です。
+mainブランチへのマージ時に、自動でCloud Runサービスにデプロイする設定です。
+変更されたファイルに応じて、該当サービスのみがビルド・デプロイされます。
 
-## 対象Cloud Functions
+## 対象Cloud Runサービス
 
-| Cloud Function | 構成ファイル | トリガー名 |
-|----------------|-------------|-----------|
-| chatwork-webhook | cloudbuild.yaml | chatwork-webhook-auto-deploy |
-| proactive-monitor | cloudbuild-proactive-monitor.yaml | proactive-monitor-auto-deploy |
-
-## 設定手順
-
-### Step 1: GitHub接続の設定（GCPコンソール）
-
-1. [Cloud Build トリガー](https://console.cloud.google.com/cloud-build/triggers?project=soulkun-production) を開く
-
-2. 「リポジトリを接続」をクリック
-
-3. 「GitHub (Cloud Build GitHub アプリ)」を選択
-
-4. GitHubにログインし、`soulsyncs/soul-kun` リポジトリへのアクセスを許可
-
-### Step 2: トリガーの作成（GCPコンソール）
-
-1. 「トリガーを作成」をクリック
-
-2. 以下の設定を入力：
-
-| 項目 | 値 |
-|------|-----|
-| **名前** | `chatwork-webhook-auto-deploy` |
-| **リージョン** | `グローバル（非リージョン）` |
-| **イベント** | `ブランチにpush` |
-| **ソース** | `soulsyncs/soul-kun` |
-| **ブランチ** | `^main$` |
-| **構成** | `Cloud Build 構成ファイル` |
-| **ファイルの場所** | `cloudbuild.yaml` |
-
-3. 「含まれるファイル」フィルタを追加：
-   ```
-   chatwork-webhook/**
-   lib/brain/**
-   lib/feature_flags.py
-   ```
-
-4. 「作成」をクリック
-
-### Step 3: proactive-monitor用トリガーの作成
-
-1. 「トリガーを作成」をクリック
-
-2. 以下の設定を入力：
-
-| 項目 | 値 |
-|------|-----|
-| **名前** | `proactive-monitor-auto-deploy` |
-| **リージョン** | `asia-northeast1` |
-| **説明** | mainブランチへのマージ時にproactive-monitorを自動デプロイ |
-| **イベント** | `ブランチにpush` |
-| **ブランチ** | `^main$` |
-| **構成** | `Cloud Build 構成ファイル` |
-| **ファイルの場所** | `cloudbuild-proactive-monitor.yaml` |
-
-3. 「含まれるファイル」フィルタを追加：
-   ```
-   proactive-monitor/**
-   lib/brain/**
-   lib/feature_flags.py
-   ```
-
-4. 「作成」をクリック
-
-### Step 4: テスト
-
-1. ブランチを作成してPRを出す
-2. mainにマージする
-3. Cloud Buildが自動実行されることを確認
+| サービス | 構成ファイル | トリガー名 | 監視対象 |
+|---------|-------------|-----------|---------|
+| chatwork-webhook | cloudbuild.yaml | chatwork-webhook-auto-deploy | chatwork-webhook/**, lib/** |
+| proactive-monitor | cloudbuild-proactive-monitor.yaml | proactive-monitor-auto-deploy | proactive-monitor/**, lib/** |
+| soulkun-mcp-server | cloudbuild-mcp-server.yaml | mcp-server-auto-deploy | mcp-server/**, lib/**, chatwork-webhook/handlers/** |
+| soulkun-mobile-api | cloudbuild-mobile-api.yaml | mobile-api-auto-deploy | mobile-api/**, lib/**, chatwork-webhook/handlers/** |
 
 ## 仕組み
 
 ```
 mainにマージ
     ↓
-Cloud Build トリガー発火
+Cloud Build トリガー発火（変更ファイルでフィルタ）
     ↓
-cloudbuild.yaml 実行
+cloudbuild-*.yaml 実行
     ↓
-1. lib/同期チェック
+1. テスト・SQL検証（chatwork-webhookのみ）
     ↓
-2. gcloud functions deploy
+2. Docker build（Artifact Registry へ push）
+    ↓
+3. gcloud run deploy（Cloud Runサービス更新）
+    ↓
+4. トラフィックルーティング確認
     ↓
 自動デプロイ完了
 ```
+
+## Artifact Registry
+
+| 項目 | 値 |
+|------|-----|
+| リポジトリ | `asia-northeast1-docker.pkg.dev/soulkun-production/cloud-run/` |
+| イメージ | chatwork-webhook, proactive-monitor, soulkun-mcp-server, soulkun-mobile-api |
 
 ## 確認方法
 
 ```bash
 # トリガー一覧
-gcloud builds triggers list --region=global
+gcloud builds triggers list --region=asia-northeast1 --project=soulkun-production
 
 # ビルド履歴
-gcloud builds list --limit=10
+gcloud builds list --limit=10 --region=asia-northeast1
 
 # 特定ビルドのログ
-gcloud builds log <BUILD_ID>
+gcloud builds log <BUILD_ID> --region=asia-northeast1
+
+# Cloud Runサービスの状態
+gcloud run services list --region=asia-northeast1
+
+# 最新リビジョン確認
+gcloud run revisions list --service=chatwork-webhook --region=asia-northeast1 --limit=3
 ```
 
 ## トラブルシューティング
 
 ### ビルドが失敗する場合
 
-1. Cloud Build サービスアカウントに権限が必要：
-   - Cloud Functions 管理者
-   - サービスアカウントユーザー
+Cloud Build サービスアカウントに以下の権限が必要：
+- **Cloud Run 管理者** (`roles/run.admin`)
+- **サービスアカウントユーザー** (`roles/iam.serviceAccountUser`)
+- **Artifact Registry 書き込み** (`roles/artifactregistry.writer`)
 
 ```bash
 # 権限付与
-gcloud projects add-iam-policy-binding soulkun-production \
-  --member="serviceAccount:898513057014@cloudbuild.gserviceaccount.com" \
-  --role="roles/cloudfunctions.admin"
+PROJECT_NUM=$(gcloud projects describe soulkun-production --format='value(projectNumber)')
+SA="${PROJECT_NUM}@cloudbuild.gserviceaccount.com"
 
 gcloud projects add-iam-policy-binding soulkun-production \
-  --member="serviceAccount:898513057014@cloudbuild.gserviceaccount.com" \
-  --role="roles/iam.serviceAccountUser"
+  --member="serviceAccount:${SA}" --role="roles/run.admin"
+
+gcloud projects add-iam-policy-binding soulkun-production \
+  --member="serviceAccount:${SA}" --role="roles/iam.serviceAccountUser"
+
+gcloud projects add-iam-policy-binding soulkun-production \
+  --member="serviceAccount:${SA}" --role="roles/artifactregistry.writer"
 ```
 
-### lib/同期エラーの場合
+### Docker buildが失敗する場合
+
+Apple Silicon (ARM) のMacではCloud Run用のamd64イメージをローカルビルドできません。
+Cloud Buildが自動でGCP上（amd64）でビルドするため、通常は問題になりません。
+
+手動でビルドが必要な場合：
+```bash
+gcloud builds submit --config=cloudbuild.yaml . --region=asia-northeast1
+```
+
+### トラフィックが切り替わらない場合
 
 ```bash
-# ローカルで同期
-make sync
-
-# コミット＆プッシュ
-git add .
-git commit -m "fix: lib/ 同期"
-git push
+# 最新リビジョンに100%ルーティング
+LATEST=$(gcloud run revisions list --service=chatwork-webhook --region=asia-northeast1 \
+  --sort-by='~creationTimestamp' --limit=1 --format='value(name)')
+gcloud run services update-traffic chatwork-webhook --region=asia-northeast1 \
+  --to-revisions="${LATEST}=100"
 ```
+
+## 注意事項
+
+- 環境変数は `--update-env-vars` を使うこと（`--set-env-vars` は全変数を上書きするため禁止）
+- Langfuse環境変数はCloud Runサービスに直接設定済み（cloudbuild.yamlには含めない）

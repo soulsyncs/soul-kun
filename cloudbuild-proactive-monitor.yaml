@@ -1,9 +1,9 @@
 # =============================================================================
-# Cloud Build 自動デプロイ設定（proactive-monitor）
+# Cloud Build 自動デプロイ設定（proactive-monitor → Cloud Run）
 # =============================================================================
 #
 # 目的:
-#   mainブランチへのマージ時に自動でproactive-monitorをデプロイ
+#   mainブランチへのマージ時に自動でproactive-monitorをCloud Runにデプロイ
 #
 # トリガー設定（GCPコンソールで設定が必要）:
 #   - 名前: proactive-monitor-auto-deploy
@@ -14,42 +14,18 @@
 #
 # v10.53.0: 初版作成（大規模修繕対応）
 # v10.71.0: deploy.sh と整合（sync_lib.sh, SQL検証, traffic routing）
+# v11.0.0: Cloud Run移行（Docker build + Artifact Registry + gcloud run deploy）
+#          lib/ 3コピー同期不要化
 # =============================================================================
+
+substitutions:
+  _REGION: asia-northeast1
+  _SERVICE: proactive-monitor
+  _REPO: cloud-run
 
 steps:
   # =============================================================================
-  # Step 1: lib/ 同期チェック + Import smoke test
-  # =============================================================================
-  - name: 'python:3.11-slim'
-    id: 'sync-check'
-    entrypoint: 'bash'
-    args:
-      - '-c'
-      - |
-        set -eo pipefail
-        echo "🔍 lib/ 同期チェック (proactive-monitor)..."
-
-        # rsync をインストール（sync_lib.sh が必要とする）
-        apt-get update -qq && apt-get install -y -qq rsync > /dev/null 2>&1
-
-        # sync_lib.sh --check で完全なミラーチェック
-        if ! ./scripts/sync_lib.sh --check; then
-          echo ""
-          echo "❌ lib/ が同期されていません！"
-          echo "修正方法: ./scripts/sync_lib.sh を実行してください。"
-          exit 1
-        fi
-
-        echo ""
-        echo "🔍 Import smoke test..."
-        if ! python3 -c "import sys; sys.path.insert(0, 'proactive-monitor'); import lib" 2>&1; then
-          echo "❌ proactive-monitor/lib/ のインポートに失敗"
-          exit 1
-        fi
-        echo "✅ Import smoke test passed"
-
-  # =============================================================================
-  # Step 2: SQLカラム検証（db_schema.json と照合）
+  # Step 1: SQLカラム検証（db_schema.json と照合）
   # =============================================================================
   - name: 'python:3.11-slim'
     id: 'sql-validation'
@@ -69,27 +45,51 @@ steps:
 
         ./scripts/validate_sql_columns.sh --all
         echo "✅ SQLカラム検証 PASS"
-    waitFor: ['sync-check']
 
   # =============================================================================
-  # Step 3: proactive-monitor をデプロイ
+  # Step 2: Docker イメージをビルド & Artifact Registry にプッシュ
+  # =============================================================================
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-build'
+    args:
+      - 'build'
+      - '-f'
+      - 'proactive-monitor/Dockerfile'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest'
+      - '.'
+    waitFor: ['sql-validation']
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-push'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}'
+    waitFor: ['docker-build']
+
+  # =============================================================================
+  # Step 3: Cloud Run にデプロイ
   # =============================================================================
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    id: 'deploy-proactive-monitor'
+    id: 'deploy-cloud-run'
     entrypoint: 'gcloud'
     args:
-      - 'functions'
+      - 'run'
       - 'deploy'
-      - 'proactive-monitor'
-      - '--source=proactive-monitor'
-      - '--runtime=python311'
-      - '--trigger-http'
-      - '--region=asia-northeast1'
-      - '--memory=512MB'
+      - '${_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA'
+      - '--region=${_REGION}'
+      - '--memory=512Mi'
       - '--timeout=540s'
       - '--no-allow-unauthenticated'
-      - '--update-env-vars=USE_BRAIN_ARCHITECTURE=true,LOG_EXECUTION_ID=true'
-    waitFor: ['sql-validation']
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--cpu=1'
+      - '--update-env-vars=USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true'
+    waitFor: ['docker-push']
 
   # =============================================================================
   # Step 4: トラフィックルーティング確認
@@ -103,12 +103,9 @@ steps:
         set -eo pipefail
         echo "🔍 トラフィックルーティング確認..."
 
-        FUNC_NAME="proactive-monitor"
-        REGION="asia-northeast1"
-
-        LATEST_REV=$(gcloud run revisions list --service="$FUNC_NAME" --region="$REGION" \
+        LATEST_REV=$(gcloud run revisions list --service="${_SERVICE}" --region="${_REGION}" \
             --sort-by='~creationTimestamp' --limit=1 --format='value(name)' 2>/dev/null || true)
-        TRAFFIC_REV=$(gcloud run services describe "$FUNC_NAME" --region="$REGION" \
+        TRAFFIC_REV=$(gcloud run services describe "${_SERVICE}" --region="${_REGION}" \
             --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)
 
         if [ -n "$LATEST_REV" ] && [ -n "$TRAFFIC_REV" ]; then
@@ -117,14 +114,14 @@ steps:
           else
             echo "⚠️ トラフィックが旧リビジョン: ${TRAFFIC_REV}"
             echo "→ 最新リビジョン ${LATEST_REV} に切り替え中..."
-            gcloud run services update-traffic "$FUNC_NAME" --region="$REGION" \
+            gcloud run services update-traffic "${_SERVICE}" --region="${_REGION}" \
                 --to-revisions="${LATEST_REV}=100" 2>&1
             echo "✅ トラフィック切り替え完了: ${LATEST_REV} (100%)"
           fi
         else
           echo "⚠️ リビジョン情報の取得に失敗。手動で確認してください"
         fi
-    waitFor: ['deploy-proactive-monitor']
+    waitFor: ['deploy-cloud-run']
 
   # =============================================================================
   # Step 5: デプロイ完了通知
@@ -136,22 +133,23 @@ steps:
       - '-c'
       - |
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "✅ proactive-monitor デプロイ完了"
+        echo "✅ proactive-monitor Cloud Run デプロイ完了"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "コミット: $COMMIT_SHA"
         echo "ブランチ: $BRANCH_NAME"
+        echo "イメージ: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA"
         echo ""
         echo "品質チェック:"
-        echo "  ✅ lib/ 同期チェック（sync_lib.sh --check）"
-        echo "  ✅ Import smoke test"
         echo "  ✅ SQLカラム検証"
+        echo "  ✅ Docker ビルド & プッシュ"
+        echo "  ✅ Cloud Run デプロイ"
         echo "  ✅ トラフィックルーティング確認"
         echo ""
     waitFor: ['traffic-check']
 
-# タイムアウト設定（10分）
-timeout: '600s'
+# タイムアウト設定（15分 - Docker build時間を考慮）
+timeout: '900s'
 
 # ログ設定
 options:

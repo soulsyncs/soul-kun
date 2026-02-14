@@ -1,0 +1,53 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python cache
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.mypy_cache
+htmlcov
+.coverage
+
+# Environment / secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Development files
+tests/
+docs/
+migrations/
+scripts/
+*.md
+!requirements.txt
+db_schema.json
+
+# Docker / CI
+docker-compose*.yml
+Dockerfile*
+cloudbuild*.yaml
+.dockerignore
+
+# Other services (not needed in chatwork-webhook or proactive-monitor images)
+api/
+supabase-sync/
+watch-google-drive/
+sync-chatwork-tasks/
+sync-drive-permissions/
+pattern-detection/
+weekly-summary/
+report-generator/
+db-backup-export/
+cost-report/
+remind-tasks/
+cleanup-old-data/
+check-reply-messages/
+
+# OS files
+.DS_Store
+*.log

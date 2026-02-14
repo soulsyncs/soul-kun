@@ -24,7 +24,7 @@ Updated: 2026-01-29 (脳統合)
 """
 
 import asyncio
-import functions_framework
+from flask import Flask, request as flask_request, jsonify
 import logging
 import os
 from datetime import datetime
@@ -34,6 +34,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 環境変数
+# Cloud Run用 Flask アプリケーション
+app = Flask(__name__)
+
 USE_PROACTIVE_MONITOR = os.environ.get("USE_PROACTIVE_MONITOR", "false").lower() == "true"
 PROACTIVE_DRY_RUN = os.environ.get("PROACTIVE_DRY_RUN", "true").lower() == "true"
 USE_BRAIN_FOR_PROACTIVE = os.environ.get("USE_BRAIN_FOR_PROACTIVE", "true").lower() == "true"
@@ -253,10 +256,10 @@ async def run_proactive_monitor():
     return summary
 
 
-@functions_framework.http
-def proactive_monitor(request):
+@app.route("/", methods=["POST", "GET"])
+def proactive_monitor():
     """
-    Cloud Function エントリーポイント
+    Cloud Run エントリーポイント
 
     HTTP トリガー（Cloud Schedulerから呼び出し）
     """
@@ -287,22 +290,20 @@ def proactive_monitor(request):
         }, 500
 
 
-# Cloud Schedulerからの呼び出し用
-@functions_framework.cloud_event
-def proactive_monitor_scheduled(cloud_event):
+# Cloud Schedulerからの呼び出し用（Pub/Sub push subscription経由）
+@app.route("/scheduled", methods=["POST"])
+def proactive_monitor_scheduled():
     """
-    Cloud Scheduler からの Pub/Sub トリガー用
+    Cloud Scheduler からの Pub/Sub push subscription 用
 
-    Pub/Sub メッセージを受け取って実行
+    Cloud Run では Cloud Event ではなく HTTP POST で受け取る
     """
-    import base64
-
-    logger.info(f"[ProactiveMonitor] Scheduled trigger received: {cloud_event}")
+    logger.info("[ProactiveMonitor] Scheduled trigger received")
 
     # Feature Flag チェック
     if not USE_PROACTIVE_MONITOR:
         logger.info("[ProactiveMonitor] Feature flag is disabled, skipping")
-        return
+        return jsonify({"status": "skipped"}), 200
 
     try:
         # 非同期処理を実行
@@ -312,7 +313,8 @@ def proactive_monitor_scheduled(cloud_event):
         loop.close()
 
         logger.info(f"[ProactiveMonitor] Scheduled execution complete: {result}")
+        return jsonify(result), 200
 
     except Exception as e:
         logger.error(f"[ProactiveMonitor] Scheduled execution error: {e}", exc_info=True)
-        raise
+        return jsonify({"status": "error", "message": str(e)}), 500

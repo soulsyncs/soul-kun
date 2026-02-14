@@ -397,7 +397,7 @@ USE_BRAIN_ARCHITECTURE: "true"
 ENVIRONMENT: production
 LANGFUSE_SECRET_KEY: （Secret Manager経由）
 LANGFUSE_PUBLIC_KEY: （Secret Manager経由）
-LANGFUSE_BASE_URL: "https://us.cloud.langfuse.com"
+LANGFUSE_HOST: "https://us.cloud.langfuse.com"
 ```
 
 ### Cloud Functions: watch-google-drive

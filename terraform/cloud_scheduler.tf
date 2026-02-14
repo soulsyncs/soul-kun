@@ -36,7 +36,7 @@ locals {
       body        = jsonencode({ room_id = var.chatwork_dm_room_id })
     }
 
-    goal-daily-check = {
+    goal-daily-check-job = {
       description = "Daily goal progress check"
       schedule    = "0 21 * * *" # 毎日 21:00 JST
       function    = "goal-daily-check"
@@ -44,7 +44,7 @@ locals {
       body        = ""
     }
 
-    goal-daily-reminder = {
+    goal-daily-reminder-job = {
       description = "Daily goal reminder"
       schedule    = "0 9 * * *" # 毎日 09:00 JST
       function    = "goal-daily-reminder"
@@ -52,7 +52,7 @@ locals {
       body        = ""
     }
 
-    goal-morning-feedback = {
+    goal-morning-feedback-job = {
       description = "Morning goal feedback"
       schedule    = "30 8 * * *" # 毎日 08:30 JST
       function    = "goal-morning-feedback"
@@ -60,7 +60,7 @@ locals {
       body        = ""
     }
 
-    goal-consecutive-unanswered = {
+    goal-consecutive-unanswered-job = {
       description = "Alert for consecutive unanswered goals"
       schedule    = "0 18 * * *" # 毎日 18:00 JST
       function    = "goal-consecutive-unanswered"
@@ -94,5 +94,18 @@ resource "google_cloud_scheduler_job" "jobs" {
     oidc_token {
       service_account_email = google_service_account.scheduler_invoker.email
     }
+  }
+
+  lifecycle {
+    # 既存ジョブの http_target（URL、body、認証）と retry_config は
+    # gcloud / GCP Console で設定済み。TF で上書きしない。
+    # 新規ジョブは TF 定義通りに作成される（ignore_changes は UPDATE のみ抑制）。
+    ignore_changes = [
+      http_target,
+      retry_config,
+      attempt_deadline,
+      schedule,
+      description,
+    ]
   }
 }

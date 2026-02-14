@@ -1,14 +1,21 @@
 ################################################################################
-# Cloud Functions Gen2 — 全ファンクション定義
+# Cloud Functions Gen2 — ファンクション定義
 #
-# NOTE: Cloud Functions Gen2 は内部的に Cloud Run 上で動作する。
-# Terraform では google_cloudfunctions2_function リソースを使用。
-# ソースコードは GCS にアップロード後デプロイ（CI/CD が担当）。
-# ここでは構成のみ管理し、ソースは lifecycle ignore_changes で保護。
+# NOTE: chatwork-webhook と proactive-monitor は Cloud Run v2 (Docker) に移行済み。
+# Cloud Build パイプラインが管理するため、ここには含めない。
+#
+# 残りの Cloud Functions は環境変数を gcloud CLI / deploy scripts で管理。
+# Terraform は「存在」のみ管理し、ランタイム設定は lifecycle ignore_changes で保護。
+#
+# 3AI合議結果 (2026-02-14):
+# - Codex: Option A (state rm for Docker services)
+# - Gemini: Option C+B hybrid (ignore_changes + phased alignment)
+# - Claude: Option A+C hybrid (state rm + ignore_changes)
+# → 全員一致: chatwork-webhook/proactive-monitor を除外 + ignore_changes
 ################################################################################
 
 locals {
-  # 全ファンクション共通の環境変数
+  # 全ファンクション共通の環境変数（ドキュメント目的。実際の値は deploy scripts が管理）
   common_env_vars = {
     CORS_ORIGINS               = var.cors_origins
     INSTANCE_CONNECTION_NAME   = "${var.project_id}:${var.region}:${var.db_instance_name}"
@@ -22,47 +29,8 @@ locals {
     ENABLE_SYSTEM_PROMPT_V2    = "true"
   }
 
-  # ファンクション定義マップ
+  # ファンクション定義マップ（chatwork-webhook, proactive-monitor は除外）
   functions = {
-    chatwork-webhook = {
-      description          = "ChatWork Webhook handler with LLM Brain"
-      entry_point          = "chatwork_webhook"
-      source_dir           = "chatwork-webhook"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 10
-      min_instances        = 0
-      allow_unauthenticated = true
-      extra_env = {
-        ENABLE_MEETING_TRANSCRIPTION = "true"
-        ENABLE_MEETING_MINUTES       = "true"
-        MEETING_GCS_BUCKET           = var.meeting_recordings_bucket
-      }
-      secrets = {
-        CHATWORK_API_TOKEN = "chatwork-api-key"
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
-      }
-    }
-
-    proactive-monitor = {
-      description          = "Proactive monitoring and scheduled tasks"
-      entry_point          = "proactive_monitor"
-      source_dir           = "proactive-monitor"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 5
-      min_instances        = 0
-      allow_unauthenticated = false
-      extra_env = {
-        PROACTIVE_DRY_RUN = "false"
-      }
-      secrets = {
-        OPENROUTER_API_KEY = "openrouter-api-key"
-        DB_PASSWORD        = "cloudsql-password"
-      }
-    }
-
     watch_google_drive = {
       description          = "Google Drive monitoring and knowledge indexing"
       entry_point          = "watch_google_drive"
@@ -314,20 +282,23 @@ resource "google_cloudfunctions2_function" "functions" {
   }
 
   lifecycle {
-    # ソースコードは CI/CD が管理。Terraform で上書きしない
+    # ソースコードは CI/CD が管理。Terraform で上書きしない。
+    # 環境変数・シークレット・リソース設定は deploy scripts が管理。
+    # Terraform はリソースの「存在」のみ管理する。（3AI合議 2026-02-14）
     ignore_changes = [
       build_config[0].source,
+      service_config[0].environment_variables,
+      service_config[0].secret_environment_variables,
+      service_config[0].available_memory,
+      service_config[0].max_instance_count,
+      service_config[0].min_instance_count,
+      service_config[0].service_account_email,
+      service_config[0].all_traffic_on_latest_revision,
     ]
   }
 }
 
-# chatwork-webhook のみ未認証アクセスを許可（Webhook受信用）
-# Cloud Functions Gen2 は内部的に Cloud Run v1 サービスを作成するため v1 IAM を使用
-resource "google_cloud_run_service_iam_member" "webhook_public" {
-  service  = google_cloudfunctions2_function.functions["chatwork-webhook"].service_config[0].service
-  location = var.region
-  role     = "roles/run.invoker"
-  member   = "allUsers"
-}
+# NOTE: chatwork-webhook の公開アクセス（allUsers）は Cloud Build / gcloud で管理。
+# chatwork-webhook は Terraform 管理外のため、ここでは定義しない。
 
 data "google_project" "current" {}

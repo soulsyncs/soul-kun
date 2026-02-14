@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-10 JST**
+**最終更新: 2026-02-14 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -72,15 +72,48 @@
 
 ## 🚨 次回やること
 
-### 優先順位（2026-02-10更新）
+### 優先順位（2026-02-14更新 — 3AI戦略的改善合意に基づく）
+
+> **詳細**: `docs/30_strategic_improvement_plan_3ai.md`
 
 | # | タスク | 種別 | 概要 | 備考 |
 |---|--------|------|------|------|
-| 1 | **Zoom本番デプロイ** | デプロイ | PR #448マージ済み。S2S OAuth App + Secret Manager登録 → deploy.sh | zoom-account-id, zoom-client-id, zoom-client-secret |
-| 2 | **Phase C MVP0 文字起こしE2Eデバッグ** | デバッグ | コードは正常。本番環境設定の確認（Google STT認証、DBマイグレーション） | `GOOGLE_APPLICATION_CREDENTIALS` 確認 |
-| 3 | **Phase C MVP1: 議事録自動生成** | 新機能 | ChatWork音声→議事録のLLM後処理（Case Cと同パターン） | Case CのMinutesGeneratorを再利用可能 |
-| 4 | **Google Meet連携** | 新機能 | Meet APIで録画取得→VTT/文字起こし→議事録 | Zoom Case Cと同アーキテクチャで横展開 |
-| 5 | **Phase 4B: 外部連携API** | 新機能 | 公開API | 未着手 |
+| 1 | **supabase-sync デプロイ** | デプロイ | PR #486マージ → `bash supabase-sync/deploy.sh` | Cloud Function |
+| 2 | **Langfuse導入** | 戦略改善 | LLMトレーシング。デバッグ30分→3分。3AI優先度1 | 1-2日で可視化 |
+| 3 | **Cloud Run移行** | 戦略改善 | lib/3コピー問題の根本解消。3AI優先度2 | Dockerfile作成済み（計画のみ） |
+| 4 | **Google Meet連携** | 新機能 | Zoom Case Cと同アーキテクチャで横展開 | Meet API |
+| 5 | **LangGraph導入** | 戦略改善 | Brain判断フローの可視化・分割。3AI優先度3 | Cloud Run移行後 |
+| 6 | **Phase 4B: 外部連携API** | 新機能 | 公開API | 未着手 |
+
+### ✅ 2026-02-14 3AI戦略レビュー + ドキュメント整備完了
+
+**3AI合同分析（Claude / Codex / Gemini）による戦略的改善計画の策定と、全PRの3AIレビュー完了。**
+
+| PR | 内容 | 状態 |
+|----|------|------|
+| #508 | Phase 1: Langfuse統合基盤 | マージ済み |
+| #509 | Phase 2: Cloud Run移行（Dockerfile + Flask化） | マージ済み |
+| #510 | Phase 3: 3AIレビュー指摘修正 | マージ済み |
+| #511 | Phase 4: Promptfoo統合基盤 | マージ済み |
+| #512 | Phase 5: Terraform IaC基盤 | マージ済み |
+| #516 | Priority 1-3: OPERATIONS_RUNBOOK + ENVIRONMENT_VARIABLES + CLAUDE.md修正 | マージ済み |
+| #517 | Priority 4: MCP Server + Mobile API ユニットテスト（57テスト追加） | マージ済み |
+
+**ドキュメント成果:**
+- `docs/30_strategic_improvement_plan_3ai.md` 新規作成（3AI合同分析レポート）
+- 25章に戦略的改善ロードマップ（§15.4）追加
+- DESIGN_COVERAGE_MATRIXにセクション10追加
+- テスト: 9187 passed（+57テスト）
+
+### ✅ 2026-02-13 Zoom自動議事録パイプライン完了
+
+| PR | 内容 | 状態 |
+|----|------|------|
+| #501 | ModuleNotFoundError修正 + 鉄則#11強化 | マージ済み |
+| #502 | Transcript retry logic + 503返却 | マージ済み |
+| #504 | google-api-python-client依存追加 | マージ・デプロイ済み (rev 00526) |
+| #506 | LLM TypeError修正 + Brain bypass解消 + CAST構文修正 | マージ・デプロイ済み (rev 00532) |
+| #507 | DM room修正 + send_chatwork_message戻り値チェック | マージ・デプロイ済み (rev 00534) |
 
 ### ✅ 2026-02-10 PR #448 マージ完了（Phase C Case C: Zoom議事録自動生成）
 

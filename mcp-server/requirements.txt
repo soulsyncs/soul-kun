@@ -1,0 +1,7 @@
+# MCP Server dependencies
+mcp>=1.0.0
+starlette>=0.36.0
+uvicorn>=0.27.0
+
+# Shared with soul-kun (already in root requirements)
+# pg8000, flask, openai, etc. — inherited via sys.path

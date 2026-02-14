@@ -188,7 +188,7 @@ for func in "${TARGET_FUNCTIONS[@]}"; do
   IMAGE_LATEST="${REGION}-docker.pkg.dev/${PROJECT_ID}/${AR_REPO}/${func}:latest"
 
   echo "  $func: Docker ビルド中..."
-  if ! docker build -f "$REPO_ROOT/$func/Dockerfile" \
+  if ! docker build --platform linux/amd64 -f "$REPO_ROOT/$func/Dockerfile" \
     -t "$IMAGE" \
     -t "$IMAGE_LATEST" \
     "$REPO_ROOT" 2>&1 | tail -3; then

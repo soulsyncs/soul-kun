@@ -428,11 +428,16 @@ class EmotionDetector(BaseDetector):
 
             messages = []
             for row in result:
+                # room_messages.send_time は timestamp without time zone なので
+                # naive datetime が返る。UTC として扱い aware に変換する。
+                send_time = row[3]
+                if isinstance(send_time, datetime) and send_time.tzinfo is None:
+                    send_time = send_time.replace(tzinfo=timezone.utc)
                 messages.append({
                     'message_id': row[0],
                     'room_id': row[1],
                     'body': row[2],
-                    'send_time': row[3],
+                    'send_time': send_time,
                 })
 
             return messages

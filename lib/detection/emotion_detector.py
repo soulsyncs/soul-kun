@@ -195,7 +195,7 @@ class EmotionDetector(BaseDetector):
                         users_skipped += 1
                 except Exception as e:
                     self._logger.warning(
-                        f"Failed to analyze user {user['account_id']}: {e}"
+                        f"Failed to analyze user {user['account_id']}: {type(e).__name__}"
                     )
                     users_skipped += 1
                     continue
@@ -251,10 +251,10 @@ class EmotionDetector(BaseDetector):
             return result
 
         except Exception as e:
-            self.log_error("Emotion detection failed", e)
+            self._logger.error(f"Emotion detection failed: {type(e).__name__}")
             return DetectionResult(
                 success=False,
-                error_message=str(e),
+                error_message=f"Emotion detection failed: {type(e).__name__}",
             )
 
     async def _get_active_users(self) -> list[dict[str, Any]]:
@@ -509,7 +509,7 @@ class EmotionDetector(BaseDetector):
             }
 
         except Exception as e:
-            self._logger.warning(f"Failed to analyze sentiment for message {message_id}: {e}")
+            self._logger.warning(f"Failed to analyze sentiment for message {message_id}: {type(e).__name__}")
             return None
 
     async def _analyze_sentiment(self, text_body: str) -> Optional[dict[str, Any]]:
@@ -563,11 +563,11 @@ class EmotionDetector(BaseDetector):
                 }
 
             except json.JSONDecodeError:
-                self._logger.warning(f"Failed to parse sentiment response: {response[:100]}")
+                self._logger.warning("Failed to parse sentiment response as JSON")
                 return None
 
         except Exception as e:
-            self._logger.warning(f"Sentiment analysis failed: {e}")
+            self._logger.warning(f"Sentiment analysis failed: {type(e).__name__}")
             return None
 
     def _call_openrouter_api(
@@ -623,7 +623,7 @@ class EmotionDetector(BaseDetector):
             return data.get('choices', [{}])[0].get('message', {}).get('content')
 
         except Exception as e:
-            self._logger.warning(f"OpenRouter API call failed: {e}")
+            self._logger.warning(f"OpenRouter API call failed: {type(e).__name__}")
             return None
 
     async def _save_emotion_score(
@@ -680,7 +680,7 @@ class EmotionDetector(BaseDetector):
             })
 
         except Exception as e:
-            self._logger.warning(f"Failed to save emotion score: {e}")
+            self._logger.warning(f"Failed to save emotion score: {type(e).__name__}")
 
     async def _calculate_baseline_score(self, account_id: Any) -> float:
         """
@@ -720,7 +720,7 @@ class EmotionDetector(BaseDetector):
             return 0.0
 
         except Exception as e:
-            self._logger.warning(f"Failed to calculate baseline: {e}")
+            self._logger.warning(f"Failed to calculate baseline: {type(e).__name__}")
             return 0.0
 
     def _calculate_consecutive_negative_days(
@@ -906,7 +906,7 @@ class EmotionDetector(BaseDetector):
         except Exception as e:
             self._logger.error(
                 "Failed to save emotion alert",
-                extra={"error": str(e)}
+                extra={"error_type": type(e).__name__}
             )
             return None
 

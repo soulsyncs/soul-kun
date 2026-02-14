@@ -813,7 +813,7 @@ class TestDetectMainFlow:
             result = await detector.detect()
 
         assert result.success is False
-        assert 'Critical error' in result.error_message
+        assert 'Exception' in result.error_message
 
 
 # ================================================================

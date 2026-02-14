@@ -583,4 +583,64 @@ async def main():
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+
+    # SSEモード判定: uvicorn.run()は自前でイベントループを起動するため
+    # asyncio.run()内で呼ぶとネストエラーになる
+    import sys as _sys
+    if "--transport" in _sys.argv and "sse" in _sys.argv:
+        # SSEモード: main()のSSEブランチをsyncで実行
+        import argparse as _argparse
+        _parser = _argparse.ArgumentParser()
+        _parser.add_argument("--transport", choices=["stdio", "sse"], default="stdio")
+        _parser.add_argument("--port", type=int, default=8080)
+        _args = _parser.parse_args()
+
+        from mcp.server.sse import SseServerTransport
+        from starlette.applications import Starlette
+        from starlette.requests import Request
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
+        import uvicorn
+
+        if not MCP_API_KEY:
+            logger.error("MCP_API_KEY must be set for SSE transport mode")
+            _sys.exit(1)
+
+        sse = SseServerTransport("/messages")
+
+        async def _verify_api_key(request: Request) -> bool:
+            auth_header = request.headers.get("authorization", "")
+            if auth_header.startswith("Bearer "):
+                return auth_header[7:] == MCP_API_KEY
+            return False
+
+        async def handle_sse(request: Request):
+            if not await _verify_api_key(request):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            async with sse.connect_sse(
+                request.scope, request.receive, request._send
+            ) as streams:
+                await app.run(
+                    streams[0], streams[1], app.create_initialization_options()
+                )
+
+        async def handle_messages(request: Request):
+            if not await _verify_api_key(request):
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            return await sse.handle_post_message(request)
+
+        async def handle_health(request: Request):
+            return JSONResponse({"status": "ok", "service": "soulkun-mcp-server"})
+
+        starlette_app = Starlette(
+            routes=[
+                Route("/health", endpoint=handle_health),
+                Route("/sse", endpoint=handle_sse),
+                Route("/messages", endpoint=handle_messages, methods=["POST"]),
+            ],
+        )
+        host = "0.0.0.0" if os.getenv("ENVIRONMENT") == "production" else "127.0.0.1"
+        uvicorn.run(starlette_app, host=host, port=_args.port)
+    else:
+        # stdioモード: asyncio.run()で起動
+        asyncio.run(main())

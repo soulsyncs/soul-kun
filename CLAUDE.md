@@ -416,18 +416,19 @@ PRが作成・更新されると、3つのAIが独立にレビューを実行す
    - chatwork-webhook と proactive-monitor の lib/ が正常にインポートできること
    - deploy.sh 内で自動実行される
 
-### 13-4. lib/ 3コピー同期（技術的負債）【v10.71追加】
+### 13-4. lib/ 3コピー同期（開発環境用）【v11.0.0改訂】
 
-Cloud Functions Gen2は `--source=<dir>` でディレクトリ単位デプロイのため、共通コード（lib/）を各Function内にコピーする必要がある。
+> **v11.0.0 更新**: Cloud Run移行により、**本番デプロイではlib/コピーは不要**になった。
+> Dockerfileがルートのlib/を直接COPYするため。ただし**ローカル開発**のために同期を継続中。
 
 | 項目 | 内容 |
 |------|------|
-| **なぜ必要か** | GCF Gen2は単一ディレクトリのみデプロイ可。lib/を参照できない |
+| **現在の状態** | Cloud Run移行済み。デプロイにはコピー不要。ローカル開発用に維持 |
 | **同期先** | lib/ → chatwork-webhook/lib/ → proactive-monitor/lib/ |
 | **同期方法** | `scripts/sync_lib.sh`（rsyncミラー + 独自ファイル保護） |
-| **検証方法** | `sync_lib.sh --check` + import smoke test（deploy.sh/CI内で自動実行） |
-| **解消条件** | Cloud Run移行（単一コンテナからlib/を直接参照可能になった時点） |
-| **リスク** | 同期忘れで本番障害。pre-push/CI/deploy.shの3箇所で検証して防止 |
+| **検証方法** | `sync_lib.sh --check`（CI内で自動実行） |
+| **廃止計画** | PYTHONPATH設定によるローカル開発環境整備後に廃止予定 |
+| **なぜまだ残っているか** | IDEのパス解決・ローカルテスト実行に必要。廃止にはDEVELOPER_SETUP.md改訂が必要 |
 
 ### 13-5. コミットメッセージ
 

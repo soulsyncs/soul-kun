@@ -333,20 +333,71 @@ MEETING_GCS_BUCKET=soulkun-meeting-recordings
 
 ---
 
+## Langfuse（LLMトレーシング）
+
+### LANGFUSE_SECRET_KEY
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | Langfuse APIシークレットキー |
+| 必須 | 条件付き（設定しない場合はトレーシング無効化） |
+| デフォルト | （未設定 = トレーシング無効） |
+| 管理場所 | Secret Manager → Cloud Run環境変数 |
+
+### LANGFUSE_PUBLIC_KEY
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | Langfuse APIパブリックキー |
+| 必須 | 条件付き（SECRET_KEYとセットで設定） |
+| デフォルト | （未設定） |
+
+### LANGFUSE_HOST
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | Langfuseのホスト名 |
+| 必須 | 任意 |
+| デフォルト | `https://cloud.langfuse.com` |
+| 本番値 | `https://us.cloud.langfuse.com` |
+
+### LANGFUSE_ENABLED
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | Langfuseの明示的無効化フラグ |
+| 必須 | 任意 |
+| デフォルト | `true` |
+
+**動作:**
+
+| LANGFUSE_SECRET_KEY | LANGFUSE_ENABLED | 動作 |
+|--------------------|-----------------|------|
+| 設定あり | `true`（デフォルト） | トレーシング有効 |
+| 設定あり | `false` | トレーシング無効 |
+| 未設定 | 任意 | トレーシング無効（no-op） |
+
+**実装:** `lib/brain/langfuse_integration.py`
+
+---
+
 ## コンポーネント別設定
 
-### Cloud Functions: chatwork-webhook
+### Cloud Run: chatwork-webhook
 
 ```yaml
-# env-vars.yaml
+# Cloud Run 環境変数
 PROJECT_ID: soulkun-production
 INSTANCE_CONNECTION_NAME: soulkun-production:asia-northeast1:soulkun-db
 DB_NAME: soulkun_tasks
 DB_USER: soulkun_user
 MY_ACCOUNT_ID: "10909425"
 BOT_ACCOUNT_ID: "10909425"
+USE_BRAIN_ARCHITECTURE: "true"
 ENVIRONMENT: production
-DEBUG: "false"
+LANGFUSE_SECRET_KEY: （Secret Manager経由）
+LANGFUSE_PUBLIC_KEY: （Secret Manager経由）
+LANGFUSE_BASE_URL: "https://us.cloud.langfuse.com"
 ```
 
 ### Cloud Functions: watch-google-drive

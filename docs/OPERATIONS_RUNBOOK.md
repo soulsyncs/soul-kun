@@ -64,11 +64,11 @@ gcloud run services update soul-kun-api --to-revisions=LATEST=100
 **停止手順:**
 
 ```bash
-# Cloud Run全停止
-gcloud run services update soul-kun-api --no-traffic
-
-# Cloud Functions停止
-gcloud functions deploy chatwork-webhook --no-allow-unauthenticated
+# Cloud Run全サービス停止（トラフィック遮断）
+gcloud run services update chatwork-webhook --no-traffic --region=asia-northeast1
+gcloud run services update proactive-monitor --no-traffic --region=asia-northeast1
+gcloud run services update soulkun-mcp-server --no-traffic --region=asia-northeast1
+gcloud run services update soulkun-mobile-api --no-traffic --region=asia-northeast1
 ```
 
 ### 1.3 データベース緊急対応

@@ -1781,7 +1781,7 @@ async def get_departments_tree(
             dept_result = conn.execute(
                 text("""
                     SELECT
-                        d.id, d.name, d.parent_department_id,
+                        d.id, d.name, d.parent_id,
                         d.level, d.display_order, d.description,
                         d.is_active
                     FROM departments d
@@ -1875,7 +1875,7 @@ async def get_department_detail(
             dept_result = conn.execute(
                 text("""
                     SELECT
-                        d.id, d.name, d.parent_department_id,
+                        d.id, d.name, d.parent_id,
                         d.level, d.display_order, d.description,
                         d.is_active, d.created_at, d.updated_at
                     FROM departments d
@@ -2029,7 +2029,7 @@ async def create_department(
             result = conn.execute(
                 text("""
                     INSERT INTO departments (
-                        organization_id, name, parent_department_id,
+                        organization_id, name, parent_id,
                         level, display_order, description,
                         is_active, created_by
                     ) VALUES (
@@ -2156,11 +2156,11 @@ async def update_department(
                 ancestor_check = conn.execute(
                     text("""
                         WITH RECURSIVE ancestors AS (
-                            SELECT id, parent_department_id FROM departments
+                            SELECT id, parent_id FROM departments
                             WHERE id = :proposed_parent AND organization_id = :org_id
                             UNION ALL
-                            SELECT d.id, d.parent_department_id FROM departments d
-                            JOIN ancestors a ON d.id = a.parent_department_id
+                            SELECT d.id, d.parent_id FROM departments d
+                            JOIN ancestors a ON d.id = a.parent_id
                         )
                         SELECT 1 FROM ancestors WHERE id = :dept_id LIMIT 1
                     """),
@@ -2179,7 +2179,7 @@ async def update_department(
                             "error_message": "子孫の部署を親に設定することはできません（循環参照）",
                         },
                     )
-                set_clauses.append("parent_department_id = :parent_id")
+                set_clauses.append("parent_id = :parent_id")
                 params["parent_id"] = request.parent_department_id
             if request.description is not None:
                 set_clauses.append("description = :description")
@@ -2294,7 +2294,7 @@ async def delete_department(
             children_result = conn.execute(
                 text("""
                     SELECT COUNT(*) FROM departments
-                    WHERE parent_department_id = :dept_id
+                    WHERE parent_id = :dept_id
                       AND organization_id = :org_id
                       AND is_active = TRUE
                 """),
@@ -3230,29 +3230,33 @@ async def get_tasks_overview(
             )
             cw = cw_result.fetchone()
 
-            # Autonomous tasks
-            at_result = conn.execute(
-                text("""
-                    SELECT
-                        COUNT(*) AS total,
-                        COUNT(*) FILTER (WHERE status = 'pending') AS pending,
-                        COUNT(*) FILTER (WHERE status = 'running') AS running,
-                        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-                        COUNT(*) FILTER (WHERE status = 'failed') AS failed
-                    FROM autonomous_tasks
-                    WHERE organization_id = :org_id
-                """),
-                {"org_id": organization_id},
-            )
-            at = at_result.fetchone()
+            # Autonomous tasks (table may not exist yet)
+            try:
+                at_result = conn.execute(
+                    text("""
+                        SELECT
+                            COUNT(*) AS total,
+                            COUNT(*) FILTER (WHERE status = 'pending') AS pending,
+                            COUNT(*) FILTER (WHERE status = 'running') AS running,
+                            COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+                            COUNT(*) FILTER (WHERE status = 'failed') AS failed
+                        FROM autonomous_tasks
+                        WHERE organization_id = :org_id
+                    """),
+                    {"org_id": organization_id},
+                )
+                at = at_result.fetchone()
+            except Exception:
+                conn.rollback()
+                at = (0, 0, 0, 0, 0)
 
             # Detected tasks
             dt_result = conn.execute(
                 text("""
                     SELECT
                         COUNT(*) AS total,
-                        COUNT(*) FILTER (WHERE processed = TRUE) AS processed,
-                        COUNT(*) FILTER (WHERE processed = FALSE OR processed IS NULL) AS unprocessed
+                        COUNT(*) FILTER (WHERE status = 'processed') AS processed,
+                        COUNT(*) FILTER (WHERE status != 'processed' OR status IS NULL) AS unprocessed
                     FROM detected_tasks
                     WHERE organization_id = :org_id
                 """),
@@ -3325,26 +3329,29 @@ async def get_tasks_list(
                                   "created_at": str(r[6]) if r[6] else None})
 
             if source is None or source == "autonomous":
-                at_result = conn.execute(
-                    text("""
-                        SELECT id::text, title, status, requested_by, scheduled_at, created_at
-                        FROM autonomous_tasks
-                        WHERE organization_id = :org_id
-                        ORDER BY created_at DESC
-                        LIMIT :limit OFFSET :offset
-                    """),
-                    {"org_id": organization_id, "limit": limit, "offset": offset},
-                )
-                for r in at_result.fetchall():
-                    tasks.append({"id": r[0], "source": "autonomous", "title": r[1],
-                                  "status": r[2], "assignee_name": r[3],
-                                  "deadline": str(r[4]) if r[4] else None,
-                                  "created_at": str(r[5]) if r[5] else None})
+                try:
+                    at_result = conn.execute(
+                        text("""
+                            SELECT id::text, title, status, requested_by, scheduled_at, created_at
+                            FROM autonomous_tasks
+                            WHERE organization_id = :org_id
+                            ORDER BY created_at DESC
+                            LIMIT :limit OFFSET :offset
+                        """),
+                        {"org_id": organization_id, "limit": limit, "offset": offset},
+                    )
+                    for r in at_result.fetchall():
+                        tasks.append({"id": r[0], "source": "autonomous", "title": r[1],
+                                      "status": r[2], "assignee_name": r[3],
+                                      "deadline": str(r[4]) if r[4] else None,
+                                      "created_at": str(r[5]) if r[5] else None})
+                except Exception:
+                    conn.rollback()
 
             if source is None or source == "detected":
                 dt_result = conn.execute(
                     text("""
-                        SELECT id::text, task_name, status, assignee, deadline, detected_at
+                        SELECT id::text, task_content, status, account_id, NULL, detected_at
                         FROM detected_tasks
                         WHERE organization_id = :org_id
                         ORDER BY detected_at DESC
@@ -4170,26 +4177,31 @@ async def get_self_diagnoses(
     organization_id = user.organization_id or DEFAULT_ORG_ID
     try:
         pool = get_db_pool()
+        rows = []
+        total = 0
         with pool.connect() as conn:
-            result = conn.execute(
-                text("""
-                    SELECT id, diagnosis_type, period_start, period_end,
-                           overall_score, total_interactions,
-                           successful_interactions, identified_weaknesses
-                    FROM brain_self_diagnoses
-                    WHERE organization_id = :org_id
-                    ORDER BY period_end DESC
-                    LIMIT :limit OFFSET :offset
-                """),
-                {"org_id": organization_id, "limit": limit, "offset": offset},
-            )
-            rows = result.fetchall()
+            try:
+                result = conn.execute(
+                    text("""
+                        SELECT id, diagnosis_type, period_start, period_end,
+                               overall_score, total_interactions,
+                               successful_interactions, identified_weaknesses
+                        FROM brain_self_diagnoses
+                        WHERE organization_id = :org_id
+                        ORDER BY period_end DESC
+                        LIMIT :limit OFFSET :offset
+                    """),
+                    {"org_id": organization_id, "limit": limit, "offset": offset},
+                )
+                rows = result.fetchall()
 
-            count_result = conn.execute(
-                text("SELECT COUNT(*) FROM brain_self_diagnoses WHERE organization_id = :org_id"),
-                {"org_id": organization_id},
-            )
-            total = int(count_result.fetchone()[0])
+                count_result = conn.execute(
+                    text("SELECT COUNT(*) FROM brain_self_diagnoses WHERE organization_id = :org_id"),
+                    {"org_id": organization_id},
+                )
+                total = int(count_result.fetchone()[0])
+            except Exception:
+                conn.rollback()
 
         from app.schemas.admin import SelfDiagnosisSummary, SelfDiagnosesResponse
 

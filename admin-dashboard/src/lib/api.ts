@@ -366,6 +366,10 @@ export const api = {
         `/admin/meetings${qs ? `?${qs}` : ''}`
       );
     },
+    getDetail: (meetingId: string) =>
+      fetchWithAuth<import('@/types/api').MeetingDetailResponse>(
+        `/admin/meetings/${meetingId}`
+      ),
   },
 
   // Phase 3: Proactive

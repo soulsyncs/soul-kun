@@ -513,6 +513,20 @@ export interface MeetingsListResponse {
   total_count: number;
 }
 
+export interface MeetingDetailResponse {
+  status: string;
+  meeting: {
+    id: string;
+    title: string | null;
+    meeting_type: string;
+    meeting_date: string | null;
+    duration_seconds: number | null;
+    status: string;
+    source: string;
+  };
+  transcript: string | null;
+}
+
 // =============================================================================
 // Phase 3: Proactive
 // =============================================================================

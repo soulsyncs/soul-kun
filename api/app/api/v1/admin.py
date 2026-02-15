@@ -1472,9 +1472,9 @@ async def get_members(
 
     try:
         with pool.connect() as conn:
-            # ベースクエリ
+            # ベースクエリ（DISTINCT ON で各ユーザー1行に制限、主所属を優先）
             query = """
-                SELECT
+                SELECT DISTINCT ON (u.id)
                     u.id as user_id,
                     u.name,
                     u.email,
@@ -1509,8 +1509,16 @@ async def get_members(
                 query += " AND ud.department_id = :dept_id"
                 params["dept_id"] = dept_id
 
-            # ソート + ページネーション
-            query += " ORDER BY u.created_at DESC LIMIT :limit OFFSET :offset"
+            # DISTINCT ON (u.id) + ソート（主所属を優先）
+            # サブクエリでDISTINCT ON処理し、外側でcreated_at DESCソート + ページネーション
+            query = f"""
+                SELECT * FROM (
+                    {query}
+                    ORDER BY u.id, ud.is_primary DESC NULLS LAST, ud.created_at ASC
+                ) sub
+                ORDER BY sub.created_at DESC
+                LIMIT :limit OFFSET :offset
+            """
             params["limit"] = limit
             params["offset"] = offset
 
@@ -3674,6 +3682,82 @@ async def get_meetings_list(
         raise
     except Exception as e:
         logger.exception("Get meetings list error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+@router.get(
+    "/meetings/{meeting_id}",
+    summary="ミーティング詳細",
+    description="ミーティングの詳細（議事録・録音含む）（Level 5+）",
+)
+async def get_meeting_detail(
+    meeting_id: str,
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            # ミーティング基本情報
+            m_result = conn.execute(
+                text("""
+                    SELECT m.id, m.title, m.meeting_type, m.meeting_date,
+                           m.duration_seconds, m.status, m.source
+                    FROM meetings m
+                    WHERE m.id = :meeting_id AND m.organization_id = :org_id
+                """),
+                {"meeting_id": meeting_id, "org_id": organization_id},
+            )
+            m_row = m_result.fetchone()
+            if not m_row:
+                raise HTTPException(status_code=404, detail={"status": "failed", "error_message": "ミーティングが見つかりません"})
+
+            # 議事録
+            transcript_text = None
+            try:
+                t_result = conn.execute(
+                    text("""
+                        SELECT mt.transcript_text
+                        FROM meeting_transcripts mt
+                        WHERE mt.meeting_id = :meeting_id
+                          AND mt.organization_id = :org_id
+                          AND mt.deleted_at IS NULL
+                        ORDER BY mt.created_at DESC LIMIT 1
+                    """),
+                    {"meeting_id": meeting_id, "org_id": organization_id},
+                )
+                t_row = t_result.fetchone()
+                if t_row:
+                    transcript_text = t_row[0]
+            except Exception:
+                pass  # meeting_transcripts テーブルがない場合はスキップ
+
+            log_audit_event(
+                logger=logger, action="get_meeting_detail",
+                resource_type="meetings", resource_id=meeting_id,
+                user_id=user.user_id, details={},
+            )
+            return {
+                "status": "success",
+                "meeting": {
+                    "id": str(m_row[0]),
+                    "title": m_row[1],
+                    "meeting_type": m_row[2],
+                    "meeting_date": str(m_row[3]) if m_row[3] else None,
+                    "duration_seconds": float(m_row[4]) if m_row[4] else None,
+                    "status": m_row[5],
+                    "source": m_row[6],
+                },
+                "transcript": transcript_text,
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Get meeting detail error", organization_id=organization_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},

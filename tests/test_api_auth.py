@@ -170,7 +170,7 @@ class TestGetCurrentUser:
         from fastapi import HTTPException
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_current_user(credentials=None)
+            await get_current_user(credentials=None, access_token=None)
         assert exc_info.value.status_code == 401
         assert "Authentication required" in exc_info.value.detail
 

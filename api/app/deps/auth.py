@@ -7,7 +7,7 @@ Bearer tokenからユーザーコンテキストを取得する。
 import os
 from typing import Optional
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
@@ -101,8 +101,13 @@ def decode_jwt(token: str) -> dict:
 
 async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_scheme),
+    access_token: Optional[str] = Cookie(None),
 ) -> UserContext:
-    """JWT Bearer tokenからユーザーコンテキストを取得する。
+    """JWT Bearer tokenまたはhttpOnly cookieからユーザーコンテキストを取得する。
+
+    認証方法（優先順位）:
+        1. Authorization: Bearer <token> ヘッダー
+        2. access_token httpOnly cookie
 
     Claims:
         sub: user_id (UUID)
@@ -116,14 +121,21 @@ async def get_current_user(
     Raises:
         HTTPException(401): トークンなし/無効/期限切れ
     """
-    if credentials is None:
+    # Bearer header優先、なければcookieフォールバック（3AI合意 CRITICAL-2）
+    token: Optional[str] = None
+    if credentials is not None:
+        token = credentials.credentials
+    elif access_token:
+        token = access_token
+
+    if token is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    payload = decode_jwt(credentials.credentials)
+    payload = decode_jwt(token)
 
     # roleに応じたアクセス可能な機密区分を設定
     role = payload.get("role", "member")

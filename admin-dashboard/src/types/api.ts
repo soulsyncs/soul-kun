@@ -178,3 +178,467 @@ export interface MembersListResponse {
   offset: number;
   limit: number;
 }
+
+// =============================================================================
+// Departments / Org Chart
+// =============================================================================
+
+export interface DepartmentTreeNode {
+  id: string;
+  name: string;
+  parent_department_id: string | null;
+  level: number;
+  display_order: number;
+  description: string | null;
+  is_active: boolean;
+  member_count: number;
+  children: DepartmentTreeNode[];
+}
+
+export interface DepartmentsTreeResponse {
+  status: string;
+  departments: DepartmentTreeNode[];
+  total_count: number;
+}
+
+export interface DepartmentMember {
+  user_id: string;
+  name: string | null;
+  role: string | null;
+  role_level: number | null;
+  is_primary: boolean;
+}
+
+export interface DepartmentResponse {
+  id: string;
+  name: string;
+  parent_department_id: string | null;
+  level: number;
+  display_order: number;
+  description: string | null;
+  is_active: boolean;
+  member_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface DepartmentDetailResponse {
+  status: string;
+  department: DepartmentResponse;
+  members: DepartmentMember[];
+}
+
+export interface DepartmentMutationResponse {
+  status: string;
+  department_id: string;
+  message: string;
+}
+
+export interface MemberDepartmentInfo {
+  department_id: string;
+  department_name: string;
+  role: string | null;
+  role_level: number | null;
+  is_primary: boolean;
+}
+
+export interface MemberDetailResponse {
+  status: string;
+  user_id: string;
+  name: string | null;
+  email: string | null;
+  role: string | null;
+  role_level: number | null;
+  departments: MemberDepartmentInfo[];
+  chatwork_account_id: string | null;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateDepartmentRequest {
+  name: string;
+  parent_department_id?: string | null;
+  description?: string | null;
+  display_order?: number;
+}
+
+export interface UpdateDepartmentRequest {
+  name?: string;
+  parent_department_id?: string | null;
+  description?: string | null;
+  display_order?: number;
+}
+
+export interface UpdateMemberRequest {
+  name?: string;
+  email?: string;
+  chatwork_account_id?: string;
+}
+
+export interface MemberDepartmentAssignment {
+  department_id: string;
+  role_id: string;
+  is_primary: boolean;
+}
+
+export interface UpdateMemberDepartmentsRequest {
+  departments: MemberDepartmentAssignment[];
+}
+
+// =============================================================================
+// Roles (for department assignment)
+// =============================================================================
+
+export interface RoleResponse {
+  id: string;
+  name: string;
+  level: number;
+  description: string | null;
+}
+
+// =============================================================================
+// Phase 2: Goals
+// =============================================================================
+
+export interface GoalSummary {
+  id: string;
+  user_id: string;
+  user_name: string | null;
+  department_name: string | null;
+  title: string;
+  goal_type: string;
+  goal_level: string;
+  status: string;
+  period_type: string;
+  period_start: string | null;
+  period_end: string | null;
+  deadline: string | null;
+  target_value: number | null;
+  current_value: number | null;
+  unit: string | null;
+  progress_pct: number | null;
+}
+
+export interface GoalsListResponse {
+  status: string;
+  goals: GoalSummary[];
+  total_count: number;
+}
+
+export interface GoalProgressEntry {
+  id: string;
+  progress_date: string;
+  value: number | null;
+  cumulative_value: number | null;
+  daily_note: string | null;
+}
+
+export interface GoalDetailResponse {
+  status: string;
+  goal: GoalSummary;
+  progress: GoalProgressEntry[];
+}
+
+export interface GoalStatsResponse {
+  status: string;
+  total_goals: number;
+  active_goals: number;
+  completed_goals: number;
+  overdue_goals: number;
+  completion_rate: number;
+  by_department: Array<{
+    department: string;
+    total: number;
+    completed: number;
+    rate: number;
+  }>;
+}
+
+// =============================================================================
+// Phase 2: Wellness / Emotion
+// =============================================================================
+
+export interface EmotionAlertSummary {
+  id: string;
+  user_id: string;
+  user_name: string | null;
+  department_name: string | null;
+  alert_type: string;
+  risk_level: string;
+  baseline_score: number | null;
+  current_score: number | null;
+  score_change: number | null;
+  consecutive_negative_days: number | null;
+  status: string;
+  first_detected_at: string | null;
+  last_detected_at: string | null;
+}
+
+export interface EmotionAlertsResponse {
+  status: string;
+  alerts: EmotionAlertSummary[];
+  total_count: number;
+}
+
+export interface EmotionTrendEntry {
+  date: string;
+  avg_score: number;
+  message_count: number;
+  negative_count: number;
+  positive_count: number;
+}
+
+export interface EmotionTrendsResponse {
+  status: string;
+  trends: EmotionTrendEntry[];
+  period_start: string | null;
+  period_end: string | null;
+}
+
+// =============================================================================
+// Phase 2: Tasks
+// =============================================================================
+
+export interface TaskOverviewStats {
+  status: string;
+  chatwork_tasks: {
+    total: number;
+    open: number;
+    done: number;
+    overdue: number;
+  };
+  autonomous_tasks: {
+    total: number;
+    pending: number;
+    running: number;
+    completed: number;
+    failed: number;
+  };
+  detected_tasks: {
+    total: number;
+    processed: number;
+    unprocessed: number;
+  };
+}
+
+export interface TaskItem {
+  id: string;
+  source: string;
+  title: string;
+  status: string;
+  assignee_name: string | null;
+  deadline: string | null;
+  created_at: string | null;
+}
+
+export interface TaskListResponse {
+  status: string;
+  tasks: TaskItem[];
+  total_count: number;
+}
+
+// =============================================================================
+// Phase 3: Insights
+// =============================================================================
+
+export interface InsightDetail {
+  id: string;
+  insight_type: string;
+  source_type: string;
+  importance: string;
+  title: string;
+  description: string;
+  recommended_action: string | null;
+  status: string;
+  department_name: string | null;
+  created_at: string | null;
+}
+
+export interface InsightsListResponse {
+  status: string;
+  insights: InsightDetail[];
+  total_count: number;
+}
+
+export interface QuestionPatternSummary {
+  id: string;
+  question_category: string;
+  normalized_question: string;
+  occurrence_count: number;
+  last_asked_at: string | null;
+  status: string;
+}
+
+export interface QuestionPatternsResponse {
+  status: string;
+  patterns: QuestionPatternSummary[];
+  total_count: number;
+}
+
+export interface WeeklyReportSummary {
+  id: string;
+  week_start: string;
+  week_end: string;
+  status: string;
+  sent_at: string | null;
+  sent_via: string | null;
+}
+
+export interface WeeklyReportsResponse {
+  status: string;
+  reports: WeeklyReportSummary[];
+  total_count: number;
+}
+
+// =============================================================================
+// Phase 3: Meetings
+// =============================================================================
+
+export interface MeetingSummary {
+  id: string;
+  title: string | null;
+  meeting_type: string;
+  meeting_date: string | null;
+  duration_seconds: number | null;
+  status: string;
+  source: string;
+  has_transcript: boolean;
+  has_recording: boolean;
+}
+
+export interface MeetingsListResponse {
+  status: string;
+  meetings: MeetingSummary[];
+  total_count: number;
+}
+
+// =============================================================================
+// Phase 3: Proactive
+// =============================================================================
+
+export interface ProactiveActionSummary {
+  id: string;
+  user_id: string;
+  trigger_type: string;
+  priority: string;
+  message_type: string;
+  user_response_positive: boolean | null;
+  created_at: string | null;
+}
+
+export interface ProactiveActionsResponse {
+  status: string;
+  actions: ProactiveActionSummary[];
+  total_count: number;
+}
+
+export interface ProactiveStatsResponse {
+  status: string;
+  total_actions: number;
+  positive_responses: number;
+  response_rate: number;
+  by_trigger_type: Array<{
+    trigger_type: string;
+    total: number;
+    positive: number;
+  }>;
+}
+
+// =============================================================================
+// Phase 4: Teachings
+// =============================================================================
+
+export interface TeachingSummary {
+  id: string;
+  category: string;
+  subcategory: string | null;
+  statement: string;
+  validation_status: string;
+  priority: number | null;
+  is_active: boolean | null;
+  usage_count: number | null;
+  helpful_count: number | null;
+  last_used_at: string | null;
+}
+
+export interface TeachingsListResponse {
+  status: string;
+  teachings: TeachingSummary[];
+  total_count: number;
+}
+
+export interface TeachingConflictSummary {
+  id: string;
+  teaching_id: string;
+  conflict_type: string;
+  severity: string;
+  description: string;
+  conflicting_teaching_id: string | null;
+  created_at: string | null;
+}
+
+export interface TeachingConflictsResponse {
+  status: string;
+  conflicts: TeachingConflictSummary[];
+  total_count: number;
+}
+
+export interface TeachingUsageStatsResponse {
+  status: string;
+  total_usages: number;
+  helpful_rate: number;
+  by_category: Array<{
+    category: string;
+    usage_count: number;
+    helpful_count: number;
+  }>;
+}
+
+// =============================================================================
+// Phase 4: System Health
+// =============================================================================
+
+export interface SystemHealthSummary {
+  status: string;
+  latest_date: string | null;
+  total_conversations: number;
+  unique_users: number;
+  avg_response_time_ms: number | null;
+  p95_response_time_ms: number | null;
+  success_rate: number;
+  error_count: number;
+  avg_confidence: number | null;
+}
+
+export interface DailyMetricEntry {
+  metric_date: string;
+  total_conversations: number;
+  unique_users: number;
+  avg_response_time_ms: number | null;
+  success_count: number;
+  error_count: number;
+  avg_confidence: number | null;
+}
+
+export interface SystemMetricsResponse {
+  status: string;
+  metrics: DailyMetricEntry[];
+}
+
+export interface SelfDiagnosisSummary {
+  id: string;
+  diagnosis_type: string;
+  period_start: string | null;
+  period_end: string | null;
+  overall_score: number;
+  total_interactions: number;
+  successful_interactions: number;
+  identified_weaknesses: string[] | null;
+}
+
+export interface SelfDiagnosesResponse {
+  status: string;
+  diagnoses: SelfDiagnosisSummary[];
+  total_count: number;
+}

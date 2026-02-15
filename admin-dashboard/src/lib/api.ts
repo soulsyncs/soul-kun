@@ -16,6 +16,14 @@ import type {
   CostBreakdownResponse,
   MembersListResponse,
   MemberResponse,
+  DepartmentsTreeResponse,
+  DepartmentDetailResponse,
+  DepartmentMutationResponse,
+  MemberDetailResponse,
+  CreateDepartmentRequest,
+  UpdateDepartmentRequest,
+  UpdateMemberRequest,
+  UpdateMemberDepartmentsRequest,
 } from '@/types/api';
 
 const API_BASE_URL =
@@ -188,5 +196,243 @@ export const api = {
 
     getDetail: (userId: string) =>
       fetchWithAuth<MemberResponse>(`/admin/members/${userId}`),
+
+    getFullDetail: (userId: string) =>
+      fetchWithAuth<MemberDetailResponse>(`/admin/members/${userId}/detail`),
+
+    update: (userId: string, data: UpdateMemberRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>(`/admin/members/${userId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    updateDepartments: (userId: string, data: UpdateMemberDepartmentsRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>(
+        `/admin/members/${userId}/departments`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }
+      ),
+  },
+
+  // Department / Org Chart endpoints
+  departments: {
+    getTree: () =>
+      fetchWithAuth<DepartmentsTreeResponse>('/admin/departments'),
+
+    getDetail: (deptId: string) =>
+      fetchWithAuth<DepartmentDetailResponse>(`/admin/departments/${deptId}`),
+
+    create: (data: CreateDepartmentRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>('/admin/departments', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    update: (deptId: string, data: UpdateDepartmentRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>(
+        `/admin/departments/${deptId}`,
+        {
+          method: 'PUT',
+          body: JSON.stringify(data),
+        }
+      ),
+
+    delete: (deptId: string) =>
+      fetchWithAuth<DepartmentMutationResponse>(
+        `/admin/departments/${deptId}`,
+        { method: 'DELETE' }
+      ),
+  },
+
+  // Phase 2: Goals
+  goals: {
+    getList: (params?: {
+      status?: string;
+      department_id?: string;
+      period_type?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set('status', params.status);
+      if (params?.department_id) searchParams.set('department_id', params.department_id);
+      if (params?.period_type) searchParams.set('period_type', params.period_type);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').GoalsListResponse>(
+        `/admin/goals${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getDetail: (goalId: string) =>
+      fetchWithAuth<import('@/types/api').GoalDetailResponse>(`/admin/goals/${goalId}`),
+
+    getStats: () =>
+      fetchWithAuth<import('@/types/api').GoalStatsResponse>('/admin/goals/stats'),
+  },
+
+  // Phase 2: Wellness
+  wellness: {
+    getAlerts: (params?: {
+      risk_level?: string;
+      status?: string;
+      limit?: number;
+      offset?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.risk_level) searchParams.set('risk_level', params.risk_level);
+      if (params?.status) searchParams.set('status', params.status);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').EmotionAlertsResponse>(
+        `/admin/wellness/alerts${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getTrends: (params?: { days?: number; department_id?: string }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.days) searchParams.set('days', String(params.days));
+      if (params?.department_id) searchParams.set('department_id', params.department_id);
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').EmotionTrendsResponse>(
+        `/admin/wellness/trends${qs ? `?${qs}` : ''}`
+      );
+    },
+  },
+
+  // Phase 2: Tasks
+  tasks: {
+    getOverview: () =>
+      fetchWithAuth<import('@/types/api').TaskOverviewStats>('/admin/tasks/overview'),
+
+    getList: (params?: { source?: string; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.source) searchParams.set('source', params.source);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').TaskListResponse>(
+        `/admin/tasks/list${qs ? `?${qs}` : ''}`
+      );
+    },
+  },
+
+  // Phase 3: Insights
+  insights: {
+    getList: (params?: { importance?: string; status?: string; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.importance) searchParams.set('importance', params.importance);
+      if (params?.status) searchParams.set('status', params.status);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').InsightsListResponse>(
+        `/admin/insights${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getPatterns: (params?: { limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').QuestionPatternsResponse>(
+        `/admin/insights/patterns${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getWeeklyReports: (params?: { limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').WeeklyReportsResponse>(
+        `/admin/insights/weekly-reports${qs ? `?${qs}` : ''}`
+      );
+    },
+  },
+
+  // Phase 3: Meetings
+  meetings: {
+    getList: (params?: { status?: string; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.status) searchParams.set('status', params.status);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').MeetingsListResponse>(
+        `/admin/meetings${qs ? `?${qs}` : ''}`
+      );
+    },
+  },
+
+  // Phase 3: Proactive
+  proactive: {
+    getActions: (params?: { trigger_type?: string; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.trigger_type) searchParams.set('trigger_type', params.trigger_type);
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').ProactiveActionsResponse>(
+        `/admin/proactive/actions${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getStats: () =>
+      fetchWithAuth<import('@/types/api').ProactiveStatsResponse>('/admin/proactive/stats'),
+  },
+
+  // Phase 4: Teachings
+  teachings: {
+    getList: (params?: { category?: string; is_active?: boolean; limit?: number; offset?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.category) searchParams.set('category', params.category);
+      if (params?.is_active !== undefined) searchParams.set('active_only', String(params.is_active));
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      if (params?.offset) searchParams.set('offset', String(params.offset));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').TeachingsListResponse>(
+        `/admin/teachings${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getConflicts: (params?: { limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').TeachingConflictsResponse>(
+        `/admin/teachings/conflicts${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getUsageStats: () =>
+      fetchWithAuth<import('@/types/api').TeachingUsageStatsResponse>('/admin/teachings/usage-stats'),
+  },
+
+  // Phase 4: System Health
+  system: {
+    getHealth: () =>
+      fetchWithAuth<import('@/types/api').SystemHealthSummary>('/admin/system/health'),
+
+    getMetrics: (params?: { days?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.days) searchParams.set('days', String(params.days));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').SystemMetricsResponse>(
+        `/admin/system/metrics${qs ? `?${qs}` : ''}`
+      );
+    },
+
+    getDiagnoses: (params?: { limit?: number }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.limit) searchParams.set('limit', String(params.limit));
+      const qs = searchParams.toString();
+      return fetchWithAuth<import('@/types/api').SelfDiagnosesResponse>(
+        `/admin/system/diagnoses${qs ? `?${qs}` : ''}`
+      );
+    },
   },
 };

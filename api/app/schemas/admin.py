@@ -275,3 +275,541 @@ class MembersListResponse(BaseModel):
     total_count: int = Field(0, description="総件数")
     offset: int = Field(0, description="オフセット")
     limit: int = Field(50, description="リミット")
+
+
+# =============================================================================
+# 組織図・部署管理
+# =============================================================================
+
+
+class DepartmentMember(BaseModel):
+    """部署所属メンバー"""
+
+    user_id: str = Field(..., description="ユーザーID")
+    name: Optional[str] = Field(None, description="ユーザー名")
+    role: Optional[str] = Field(None, description="ロール名")
+    role_level: Optional[int] = Field(None, description="権限レベル")
+    is_primary: bool = Field(False, description="主所属か")
+
+
+class DepartmentResponse(BaseModel):
+    """部署レスポンス"""
+
+    id: str = Field(..., description="部署ID")
+    name: str = Field(..., description="部署名")
+    parent_department_id: Optional[str] = Field(None, description="親部署ID")
+    level: int = Field(0, description="階層レベル")
+    display_order: int = Field(0, description="表示順")
+    description: Optional[str] = Field(None, description="説明")
+    is_active: bool = Field(True, description="有効か")
+    member_count: int = Field(0, description="所属メンバー数")
+    created_at: Optional[dt.datetime] = Field(None, description="作成日時")
+    updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
+
+
+class DepartmentTreeNode(BaseModel):
+    """部署ツリーノード（子部署を含む再帰構造）"""
+
+    id: str = Field(..., description="部署ID")
+    name: str = Field(..., description="部署名")
+    parent_department_id: Optional[str] = Field(None, description="親部署ID")
+    level: int = Field(0, description="階層レベル")
+    display_order: int = Field(0, description="表示順")
+    description: Optional[str] = Field(None, description="説明")
+    is_active: bool = Field(True, description="有効か")
+    member_count: int = Field(0, description="所属メンバー数")
+    children: List["DepartmentTreeNode"] = Field(
+        default_factory=list, description="子部署"
+    )
+
+
+class DepartmentsTreeResponse(BaseModel):
+    """部署ツリーレスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    departments: List[DepartmentTreeNode] = Field(
+        default_factory=list, description="部署ツリー（ルートノード群）"
+    )
+    total_count: int = Field(0, description="全部署数")
+
+
+class DepartmentDetailResponse(BaseModel):
+    """部署詳細レスポンス（メンバーリスト込み）"""
+
+    status: str = Field("success", description="ステータス")
+    department: DepartmentResponse = Field(..., description="部署情報")
+    members: List[DepartmentMember] = Field(
+        default_factory=list, description="所属メンバー"
+    )
+
+
+class CreateDepartmentRequest(BaseModel):
+    """部署作成リクエスト"""
+
+    name: str = Field(..., min_length=1, max_length=100, description="部署名")
+    parent_department_id: Optional[str] = Field(
+        None,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="親部署ID（UUID）",
+    )
+    description: Optional[str] = Field(None, max_length=500, description="説明")
+    display_order: int = Field(0, ge=0, description="表示順")
+
+
+class UpdateDepartmentRequest(BaseModel):
+    """部署更新リクエスト"""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="部署名")
+    parent_department_id: Optional[str] = Field(
+        None,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="親部署ID（UUID）",
+    )
+    description: Optional[str] = Field(None, max_length=500, description="説明")
+    display_order: Optional[int] = Field(None, ge=0, description="表示順")
+
+
+class DepartmentMutationResponse(BaseModel):
+    """部署変更レスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    department_id: str = Field(..., description="部署ID")
+    message: str = Field(..., description="メッセージ")
+
+
+class MemberDepartmentInfo(BaseModel):
+    """メンバーの所属部署情報"""
+
+    department_id: str = Field(..., description="部署ID")
+    department_name: str = Field(..., description="部署名")
+    role: Optional[str] = Field(None, description="部署内ロール")
+    role_level: Optional[int] = Field(None, description="権限レベル")
+    is_primary: bool = Field(False, description="主所属か")
+
+
+class MemberDetailResponse(BaseModel):
+    """メンバー詳細レスポンス（全属性）"""
+
+    status: str = Field("success", description="ステータス")
+    user_id: str = Field(..., description="ユーザーID")
+    name: Optional[str] = Field(None, description="ユーザー名")
+    email: Optional[str] = Field(None, description="メールアドレス")
+    role: Optional[str] = Field(None, description="ロール名")
+    role_level: Optional[int] = Field(None, description="権限レベル")
+    departments: List[MemberDepartmentInfo] = Field(
+        default_factory=list, description="所属部署リスト"
+    )
+    chatwork_account_id: Optional[str] = Field(None, description="ChatWorkアカウントID")
+    is_active: bool = Field(True, description="有効か")
+    created_at: Optional[dt.datetime] = Field(None, description="作成日時")
+    updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
+
+
+class UpdateMemberRequest(BaseModel):
+    """メンバー更新リクエスト"""
+
+    name: Optional[str] = Field(None, min_length=1, max_length=100, description="名前")
+    email: Optional[str] = Field(None, max_length=200, description="メールアドレス")
+    chatwork_account_id: Optional[str] = Field(
+        None, max_length=50, description="ChatWorkアカウントID"
+    )
+
+
+class MemberDepartmentAssignment(BaseModel):
+    """メンバー部署割り当て"""
+
+    department_id: str = Field(
+        ...,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="部署ID（UUID）",
+    )
+    role_id: str = Field(
+        ...,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="ロールID（UUID）",
+    )
+    is_primary: bool = Field(False, description="主所属か")
+
+
+class UpdateMemberDepartmentsRequest(BaseModel):
+    """メンバー所属部署更新リクエスト"""
+
+    departments: List[MemberDepartmentAssignment] = Field(
+        ..., min_length=1, description="所属部署リスト（最低1つ）"
+    )
+
+
+# =============================================
+# Phase 2: Goals / Wellness / Tasks schemas
+# =============================================
+
+
+class GoalSummary(BaseModel):
+    """目標サマリー（一覧表示用）"""
+
+    id: str
+    user_id: str
+    user_name: Optional[str] = None
+    department_name: Optional[str] = None
+    title: str
+    goal_type: str
+    goal_level: str
+    status: str
+    period_type: str
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    deadline: Optional[str] = None
+    target_value: Optional[float] = None
+    current_value: Optional[float] = None
+    unit: Optional[str] = None
+    progress_pct: Optional[float] = None
+
+
+class GoalsListResponse(BaseModel):
+    """目標一覧レスポンス"""
+
+    status: str = "success"
+    goals: List[GoalSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class GoalProgressEntry(BaseModel):
+    """目標進捗エントリ"""
+
+    id: str
+    progress_date: str
+    value: Optional[float] = None
+    cumulative_value: Optional[float] = None
+    daily_note: Optional[str] = None
+
+
+class GoalDetailResponse(BaseModel):
+    """目標詳細レスポンス"""
+
+    status: str = "success"
+    goal: GoalSummary
+    progress: List[GoalProgressEntry] = Field(default_factory=list)
+
+
+class GoalStatsResponse(BaseModel):
+    """目標達成率サマリー"""
+
+    status: str = "success"
+    total_goals: int = 0
+    active_goals: int = 0
+    completed_goals: int = 0
+    overdue_goals: int = 0
+    completion_rate: float = 0.0
+    by_department: List[dict] = Field(default_factory=list)
+
+
+class EmotionAlertSummary(BaseModel):
+    """感情アラートサマリー"""
+
+    id: str
+    user_id: str
+    user_name: Optional[str] = None
+    department_name: Optional[str] = None
+    alert_type: str
+    risk_level: str
+    baseline_score: Optional[float] = None
+    current_score: Optional[float] = None
+    score_change: Optional[float] = None
+    consecutive_negative_days: Optional[int] = None
+    status: str
+    first_detected_at: Optional[str] = None
+    last_detected_at: Optional[str] = None
+
+
+class EmotionAlertsResponse(BaseModel):
+    """感情アラート一覧レスポンス"""
+
+    status: str = "success"
+    alerts: List[EmotionAlertSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class EmotionTrendEntry(BaseModel):
+    """感情トレンドエントリ"""
+
+    date: str
+    avg_score: float
+    message_count: int
+    negative_count: int
+    positive_count: int
+
+
+class EmotionTrendsResponse(BaseModel):
+    """感情トレンドレスポンス"""
+
+    status: str = "success"
+    trends: List[EmotionTrendEntry] = Field(default_factory=list)
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+
+
+class TaskOverviewStats(BaseModel):
+    """タスク全体サマリー"""
+
+    status: str = "success"
+    chatwork_tasks: dict = Field(default_factory=dict)
+    autonomous_tasks: dict = Field(default_factory=dict)
+    detected_tasks: dict = Field(default_factory=dict)
+
+
+class TaskItem(BaseModel):
+    """タスクアイテム"""
+
+    id: str
+    source: str  # chatwork / autonomous / detected
+    title: str
+    status: str
+    assignee_name: Optional[str] = None
+    deadline: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class TaskListResponse(BaseModel):
+    """タスク一覧レスポンス"""
+
+    status: str = "success"
+    tasks: List[TaskItem] = Field(default_factory=list)
+    total_count: int = 0
+
+
+# =============================================
+# Phase 3: Insights / Meetings / Proactive schemas
+# =============================================
+
+
+class InsightSummary(BaseModel):
+    """インサイトサマリー"""
+
+    id: str
+    insight_type: str
+    source_type: str
+    importance: str
+    title: str
+    description: str
+    recommended_action: Optional[str] = None
+    status: str
+    department_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class InsightsListResponse(BaseModel):
+    """インサイト一覧レスポンス"""
+
+    status: str = "success"
+    insights: List[InsightSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class QuestionPatternSummary(BaseModel):
+    """質問パターンサマリー"""
+
+    id: str
+    question_category: str
+    normalized_question: str
+    occurrence_count: int
+    last_asked_at: Optional[str] = None
+    status: str
+
+
+class QuestionPatternsResponse(BaseModel):
+    """質問パターン一覧"""
+
+    status: str = "success"
+    patterns: List[QuestionPatternSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class WeeklyReportSummary(BaseModel):
+    """週次レポートサマリー"""
+
+    id: str
+    week_start: str
+    week_end: str
+    status: str
+    sent_at: Optional[str] = None
+    sent_via: Optional[str] = None
+
+
+class WeeklyReportsResponse(BaseModel):
+    """週次レポート一覧"""
+
+    status: str = "success"
+    reports: List[WeeklyReportSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class WeeklyReportDetailResponse(BaseModel):
+    """週次レポート詳細"""
+
+    status: str = "success"
+    report: WeeklyReportSummary
+    report_content: str
+    insights_summary: Optional[dict] = None
+
+
+class MeetingSummary(BaseModel):
+    """ミーティングサマリー"""
+
+    id: str
+    title: Optional[str] = None
+    meeting_type: str
+    meeting_date: Optional[str] = None
+    duration_seconds: Optional[float] = None
+    status: str
+    source: str
+    has_transcript: bool = False
+    has_recording: bool = False
+
+
+class MeetingsListResponse(BaseModel):
+    """ミーティング一覧"""
+
+    status: str = "success"
+    meetings: List[MeetingSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class ProactiveActionSummary(BaseModel):
+    """プロアクティブアクションサマリー"""
+
+    id: str
+    user_id: str
+    trigger_type: str
+    priority: str
+    message_type: str
+    user_response_positive: Optional[bool] = None
+    created_at: Optional[str] = None
+
+
+class ProactiveActionsResponse(BaseModel):
+    """プロアクティブアクション一覧"""
+
+    status: str = "success"
+    actions: List[ProactiveActionSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class ProactiveStatsResponse(BaseModel):
+    """プロアクティブ統計"""
+
+    status: str = "success"
+    total_actions: int = 0
+    positive_responses: int = 0
+    response_rate: float = 0.0
+    by_trigger_type: List[dict] = Field(default_factory=list)
+
+
+# =============================================
+# Phase 4: Teachings / System Health schemas
+# =============================================
+
+
+class TeachingSummary(BaseModel):
+    """CEO教えサマリー"""
+
+    id: str
+    category: str
+    subcategory: Optional[str] = None
+    statement: str
+    validation_status: str
+    priority: Optional[int] = None
+    is_active: Optional[bool] = None
+    usage_count: Optional[int] = None
+    helpful_count: Optional[int] = None
+    last_used_at: Optional[str] = None
+
+
+class TeachingsListResponse(BaseModel):
+    """CEO教え一覧"""
+
+    status: str = "success"
+    teachings: List[TeachingSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class TeachingConflictSummary(BaseModel):
+    """教え矛盾サマリー"""
+
+    id: str
+    teaching_id: str
+    conflict_type: str
+    severity: str
+    description: str
+    conflicting_teaching_id: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class TeachingConflictsResponse(BaseModel):
+    """教え矛盾一覧"""
+
+    status: str = "success"
+    conflicts: List[TeachingConflictSummary] = Field(default_factory=list)
+    total_count: int = 0
+
+
+class TeachingUsageStatsResponse(BaseModel):
+    """教え利用統計"""
+
+    status: str = "success"
+    total_usages: int = 0
+    helpful_rate: float = 0.0
+    by_category: List[dict] = Field(default_factory=list)
+
+
+class SystemHealthSummary(BaseModel):
+    """システムヘルスサマリー"""
+
+    status: str = "success"
+    latest_date: Optional[str] = None
+    total_conversations: int = 0
+    unique_users: int = 0
+    avg_response_time_ms: Optional[int] = None
+    p95_response_time_ms: Optional[int] = None
+    success_rate: float = 0.0
+    error_count: int = 0
+    avg_confidence: Optional[float] = None
+
+
+class DailyMetricEntry(BaseModel):
+    """日次メトリクスエントリ"""
+
+    metric_date: str
+    total_conversations: int = 0
+    unique_users: int = 0
+    avg_response_time_ms: Optional[int] = None
+    success_count: int = 0
+    error_count: int = 0
+    avg_confidence: Optional[float] = None
+
+
+class SystemMetricsResponse(BaseModel):
+    """システムメトリクス推移"""
+
+    status: str = "success"
+    metrics: List[DailyMetricEntry] = Field(default_factory=list)
+
+
+class SelfDiagnosisSummary(BaseModel):
+    """自己診断サマリー"""
+
+    id: str
+    diagnosis_type: str
+    period_start: Optional[str] = None
+    period_end: Optional[str] = None
+    overall_score: float
+    total_interactions: int = 0
+    successful_interactions: int = 0
+    identified_weaknesses: Optional[List[str]] = None
+
+
+class SelfDiagnosesResponse(BaseModel):
+    """自己診断一覧"""
+
+    status: str = "success"
+    diagnoses: List[SelfDiagnosisSummary] = Field(default_factory=list)
+    total_count: int = 0

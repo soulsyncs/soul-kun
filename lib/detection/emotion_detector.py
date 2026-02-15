@@ -270,10 +270,10 @@ class EmotionDetector(BaseDetector):
             return result
 
         except Exception as e:
-            self._logger.error(f"Emotion detection failed: {type(e).__name__}")
+            self.log_error("感情検出中にエラーが発生しました", e)
             return DetectionResult(
                 success=False,
-                error_message=f"Emotion detection failed: {type(e).__name__}",
+                error_message="感情検出中に内部エラーが発生しました",
             )
 
     async def _get_active_users(self) -> list[dict[str, Any]]:

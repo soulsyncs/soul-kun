@@ -178,7 +178,7 @@ class PersonalizationDetector(BaseDetector):
             self.log_error("Personalization detection failed", e)
             return DetectionResult(
                 success=False,
-                error_message=str(e),
+                error_message="パーソナライゼーション検出中に内部エラーが発生しました",
             )
 
     async def _get_response_statistics(self) -> dict[str, dict[str, Any]]:
@@ -453,7 +453,7 @@ class PersonalizationDetector(BaseDetector):
         except Exception as e:
             self._logger.error(
                 "Failed to save personalization risk",
-                extra={"error": str(e)}
+                extra={"error_type": type(e).__name__}
             )
             return None
 

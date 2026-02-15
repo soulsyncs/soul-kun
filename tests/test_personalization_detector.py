@@ -190,7 +190,7 @@ class TestDetect:
         result = await detector.detect()
 
         assert result.success is False
-        assert "DB Error" in result.error_message
+        assert "パーソナライゼーション検出中に内部エラーが発生しました" in result.error_message
 
     @pytest.mark.asyncio
     async def test_detect_low_risk_no_insight(self, detector):

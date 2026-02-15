@@ -813,7 +813,7 @@ class TestDetectMainFlow:
             result = await detector.detect()
 
         assert result.success is False
-        assert 'Exception' in result.error_message
+        assert "感情検出中に内部エラーが発生しました" in result.error_message
 
 
 # ================================================================

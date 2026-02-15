@@ -104,7 +104,7 @@ class KnowledgeHandler:
         self.phase3_config = phase3_knowledge_config or {}
         self.admin_account_id = admin_account_id
         # Phase 4: org_id for soulkun_knowledge queries
-        self.organization_id = self.phase3_config.get("organization_id", "org_soulsyncs")
+        self.organization_id = self.phase3_config.get("organization_id", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
     # =====================================================
     # キーワード・クエリ処理（静的メソッド）
@@ -416,7 +416,7 @@ class KnowledgeHandler:
         try:
             api_url = self.phase3_config.get("api_url", "")
             timeout = self.phase3_config.get("timeout", 30)
-            organization_id = self.phase3_config.get("organization_id", "org_soulsyncs")
+            organization_id = self.phase3_config.get("organization_id", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
             threshold = self.phase3_config.get("similarity_threshold", 0.5)
             keyword_weight = self.phase3_config.get("keyword_weight", 0.4)
             vector_weight = self.phase3_config.get("vector_weight", 0.6)

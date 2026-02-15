@@ -101,7 +101,7 @@ class TruthResolver:
 
     使用例:
         resolver = TruthResolver(
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             api_clients={"chatwork": chatwork_client},
             db_accessor=db_accessor,
             memory_accessor=memory_accessor,
@@ -568,7 +568,7 @@ def create_truth_resolver(
 
     使用例:
         resolver = create_truth_resolver(
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             api_clients={"chatwork": chatwork_client},
             db_accessor=db_accessor,
         )

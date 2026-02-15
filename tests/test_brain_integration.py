@@ -433,7 +433,7 @@ class TestBrainIntegrationInit:
         """全パラメータで初期化"""
         integration = BrainIntegration(
             pool=mock_pool,
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             handlers=mock_handlers,
             capabilities=mock_capabilities,
             get_ai_response_func=mock_get_ai_response,
@@ -442,7 +442,7 @@ class TestBrainIntegrationInit:
         )
 
         assert integration.pool is mock_pool
-        assert integration.org_id == "org_soulsyncs"
+        assert integration.org_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         assert integration.handlers == mock_handlers
         assert integration.capabilities == mock_capabilities
         assert integration.firestore_db is mock_firestore
@@ -949,7 +949,7 @@ class TestFactoryFunctions:
         """全パラメータで作成"""
         integration = create_integration(
             pool=mock_pool,
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             handlers=mock_handlers,
             capabilities=mock_capabilities,
             get_ai_response_func=mock_get_ai_response,
@@ -958,7 +958,7 @@ class TestFactoryFunctions:
         )
 
         assert integration.pool is mock_pool
-        assert integration.org_id == "org_soulsyncs"
+        assert integration.org_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         assert integration.handlers == mock_handlers
 
 

@@ -29,7 +29,7 @@
 使用例:
     from lib.brain import SoulkunBrain, BrainResponse
 
-    brain = SoulkunBrain(pool=db_pool, org_id="org_soulsyncs")
+    brain = SoulkunBrain(pool=db_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
     response = await brain.process_message(
         message="自分のタスク教えて",
         room_id="123456",

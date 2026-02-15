@@ -270,7 +270,7 @@ class BrainDecision:
         decision = BrainDecision(
             capabilities=SYSTEM_CAPABILITIES,
             get_ai_response_func=get_ai_response,
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         )
         result = await decision.decide(understanding, context)
     """
@@ -1343,7 +1343,7 @@ def create_decision(
     使用例:
         decision = create_decision(
             capabilities=SYSTEM_CAPABILITIES,
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         )
     """
     return BrainDecision(

@@ -81,7 +81,7 @@ class TestGetDailyReportData:
             MagicMock(fetchall=MagicMock(return_value=[model_row])),
         ]
 
-        result = _cost_mod._get_daily_report_data(mock_conn, "org_soulsyncs")
+        result = _cost_mod._get_daily_report_data(mock_conn, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         assert result["total_cost"] == 150.5
         assert result["total_requests"] == 42
@@ -100,7 +100,7 @@ class TestGetDailyReportData:
             MagicMock(fetchall=MagicMock(return_value=[])),
         ]
 
-        result = _cost_mod._get_daily_report_data(mock_conn, "org_soulsyncs")
+        result = _cost_mod._get_daily_report_data(mock_conn, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         assert result["total_cost"] == 0
         assert result["total_requests"] == 0
@@ -119,7 +119,7 @@ class TestGetMonthlySummary:
             fetchone=MagicMock(return_value=row)
         )
 
-        result = _cost_mod._get_monthly_summary(mock_conn, "org_soulsyncs")
+        result = _cost_mod._get_monthly_summary(mock_conn, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         assert result["total_cost"] == 3500.0
         assert result["total_requests"] == 200
@@ -132,7 +132,7 @@ class TestGetMonthlySummary:
             fetchone=MagicMock(return_value=None)
         )
 
-        result = _cost_mod._get_monthly_summary(mock_conn, "org_soulsyncs")
+        result = _cost_mod._get_monthly_summary(mock_conn, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         assert result["total_cost"] == 0
         assert result["total_requests"] == 0

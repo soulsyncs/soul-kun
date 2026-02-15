@@ -166,7 +166,7 @@ class BrainMemoryAccess:
     並列クエリ、エラーハンドリング、フォールバック機能を持つ。
 
     使用例:
-        memory = BrainMemoryAccess(pool=db_pool, org_id="org_soulsyncs")
+        memory = BrainMemoryAccess(pool=db_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # 並列で全ての記憶を取得
         context = await memory.get_all_context(

@@ -8,7 +8,7 @@ Phase 4 の Row Level Security と連携。
     from lib.tenant import TenantContext, get_current_tenant
 
     # リクエストごとにテナントを設定
-    with TenantContext("org_soulsyncs"):
+    with TenantContext("5f98365f-e7c5-4f48-9918-7fe9aabae5df"):
         tenant_id = get_current_tenant()
         # このブロック内では org_soulsyncs がテナント
 
@@ -247,7 +247,7 @@ class TenantAccessDeniedError(TenantError):
 # Phase 4: デフォルトテナント（社内用）
 # =============================================================================
 
-DEFAULT_TENANT_ID = "org_soulsyncs"
+DEFAULT_TENANT_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 def get_default_tenant() -> str:

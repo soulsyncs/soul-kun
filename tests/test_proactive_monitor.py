@@ -375,7 +375,7 @@ class TestHelperMethods:
 
     def test_get_chatwork_tasks_org_id_known(self, monitor):
         result = monitor._get_chatwork_tasks_org_id(SAMPLE_ORG_ID)
-        assert result == "org_soulsyncs"
+        assert result == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_get_chatwork_tasks_org_id_unknown(self, monitor):
         result = monitor._get_chatwork_tasks_org_id("unknown-uuid")
@@ -1806,4 +1806,4 @@ class TestConstants:
 
     def test_org_uuid_to_slug_mapping(self):
         assert SAMPLE_ORG_ID in ORGANIZATION_UUID_TO_SLUG
-        assert ORGANIZATION_UUID_TO_SLUG[SAMPLE_ORG_ID] == "org_soulsyncs"
+        assert ORGANIZATION_UUID_TO_SLUG[SAMPLE_ORG_ID] == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"

@@ -20,7 +20,7 @@
     from lib.brain.capability_bridge import CapabilityBridge
 
     # 初期化
-    bridge = CapabilityBridge(pool=db_pool, org_id="org_soulsyncs")
+    bridge = CapabilityBridge(pool=db_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
     # メッセージ前処理（添付ファイル処理）
     enriched_message, multimodal_context = await bridge.preprocess_message(
@@ -111,7 +111,7 @@ class CapabilityBridge:
     3. フィードバック機能の統合（Feedback）
 
     使用例:
-        bridge = CapabilityBridge(pool=db_pool, org_id="org_soulsyncs")
+        bridge = CapabilityBridge(pool=db_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # 前処理
         enriched, context = await bridge.preprocess_message(...)
@@ -170,7 +170,7 @@ class CapabilityBridge:
     def _parse_org_uuid(self) -> UUID:
         """org_id文字列をUUIDに変換するヘルパー
 
-        UUID形式でない場合（例: "org_soulsyncs"）はuuid5で決定論的に変換する。
+        UUID形式でない場合（例: "5f98365f-e7c5-4f48-9918-7fe9aabae5df"）はuuid5で決定論的に変換する。
         """
         if isinstance(self.org_id, UUID):
             return self.org_id

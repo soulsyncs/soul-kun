@@ -124,7 +124,7 @@ def sample_learning():
     """サンプル学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.ALIAS.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="mtg",
@@ -149,7 +149,7 @@ def sample_ceo_learning():
     """サンプルCEO教えデータ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.RULE.value,
         trigger_type=TriggerType.ALWAYS.value,
         trigger_value="*",
@@ -829,13 +829,13 @@ class TestLearningExtractor:
 
     def test_extract_sets_organization_id(self, sample_detection_result):
         """組織IDが設定される"""
-        extractor = LearningExtractor("org_soulsyncs")
+        extractor = LearningExtractor("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         learning = extractor.extract(
             detection_result=sample_detection_result,
             message="test",
             taught_by_account_id="12345",
         )
-        assert learning.organization_id == "org_soulsyncs"
+        assert learning.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_extract_generates_uuid(self, sample_detection_result):
         """UUIDが生成される"""

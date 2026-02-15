@@ -296,7 +296,7 @@ def set_tenant_context(conn, tenant_id: str) -> None:
 
     使用例:
         with get_db_session() as conn:
-            set_tenant_context(conn, "org_soulsyncs")
+            set_tenant_context(conn, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
             # 以降のクエリは自動的にテナントでフィルタ
             result = conn.execute(text("SELECT * FROM tasks"))
     """

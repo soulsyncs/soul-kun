@@ -28,7 +28,7 @@ Phase M1: 脳との統合モジュール
         message_text="この画像を確認して",
         attachments=[{"data": image_bytes, "filename": "image.png"}],
         pool=db_pool,
-        org_id="org_soulsyncs",
+        org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         room_id="123",
         user_id="456",
     )
@@ -250,7 +250,7 @@ async def process_message_with_multimodal(
             message_text="この画像を確認して",
             attachments=[{"data": image_bytes, "filename": "receipt.jpg"}],
             pool=db_pool,
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             room_id="123",
             user_id="456",
         )

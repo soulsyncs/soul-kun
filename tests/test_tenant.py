@@ -286,7 +286,7 @@ class TestGetDefaultTenant:
     def test_returns_default_tenant(self):
         """デフォルトテナントIDを返す"""
         assert get_default_tenant() == DEFAULT_TENANT_ID
-        assert get_default_tenant() == "org_soulsyncs"
+        assert get_default_tenant() == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 class TestGetCurrentOrDefaultTenant:

@@ -30,19 +30,19 @@ class TestPineconeClient:
     def test_get_namespace(self, mock_pinecone):
         """namespace生成のテスト"""
         client = PineconeClient(api_key="test-key")
-        namespace = client.get_namespace("org_soulsyncs")
-        assert namespace == "org_org_soulsyncs"
+        namespace = client.get_namespace("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+        assert namespace == "org_5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_generate_pinecone_id(self, mock_pinecone):
         """Pinecone ID生成のテスト"""
         client = PineconeClient(api_key="test-key")
         pinecone_id = client.generate_pinecone_id(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             document_id="doc_manual001",
             version=1,
             chunk_index=0
         )
-        assert pinecone_id == "org_soulsyncs_doc_manual001_v1_chunk0"
+        assert pinecone_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc_manual001_v1_chunk0"
 
     def test_parse_pinecone_id(self, mock_pinecone):
         """Pinecone IDパースのテスト"""

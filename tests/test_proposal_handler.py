@@ -527,4 +527,4 @@ class TestOrgIdIsolation:
             admin_account_id="67890",
             is_admin=MagicMock()
         )
-        assert handler.organization_id == "org_soulsyncs"
+        assert handler.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"

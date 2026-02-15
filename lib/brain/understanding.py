@@ -303,7 +303,7 @@ class BrainUnderstanding:
         understanding = BrainUnderstanding(
             capabilities=SYSTEM_CAPABILITIES,  # v10.30.0追加
             get_ai_response_func=get_ai_response,
-            org_id="org_soulsyncs"
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         )
         result = await understanding.understand(
             message="あれどうなった？",

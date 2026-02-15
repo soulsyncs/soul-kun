@@ -113,7 +113,7 @@ def get_brain():
             from lib.brain import SoulkunBrain
             _brain_instance = SoulkunBrain(
                 pool=get_pool(),
-                org_id="org_soulsyncs",
+                org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             )
             print("✅ Brain instance initialized (v10.50.0)")
         except Exception as e:

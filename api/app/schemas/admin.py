@@ -9,7 +9,9 @@ PII保護:
     - 統計値・集計値のみを返す
 """
 
-from datetime import date, datetime
+from __future__ import annotations
+
+import datetime as dt
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -71,7 +73,7 @@ class AlertSummary(BaseModel):
     alert_type: str = Field(..., description="アラート種別")
     severity: str = Field(..., description="重要度（critical/warning/info）")
     message: str = Field(..., description="アラートメッセージ")
-    created_at: datetime = Field(..., description="作成日時")
+    created_at: dt.datetime = Field(..., description="作成日時")
     is_resolved: bool = Field(False, description="解決済みか")
 
 
@@ -82,7 +84,7 @@ class InsightSummary(BaseModel):
     insight_type: str = Field(..., description="インサイト種別")
     title: str = Field(..., description="タイトル")
     summary: str = Field(..., description="概要")
-    created_at: datetime = Field(..., description="作成日時")
+    created_at: dt.datetime = Field(..., description="作成日時")
 
 
 class DashboardKPIs(BaseModel):
@@ -108,7 +110,7 @@ class DashboardSummaryResponse(BaseModel):
     recent_insights: List[InsightSummary] = Field(
         default_factory=list, description="最近のインサイト（最大5件）"
     )
-    generated_at: datetime = Field(..., description="生成日時")
+    generated_at: dt.datetime = Field(..., description="生成日時")
 
 
 # =============================================================================
@@ -119,7 +121,7 @@ class DashboardSummaryResponse(BaseModel):
 class BrainDailyMetric(BaseModel):
     """Brain日次メトリクス"""
 
-    date: date = Field(..., description="日付")
+    date: dt.date = Field(..., description="日付")
     conversations: int = Field(0, description="会話数")
     avg_latency_ms: float = Field(0.0, description="平均レイテンシ（ミリ秒）")
     error_rate: float = Field(0.0, description="エラー率（0.0-1.0）")
@@ -144,7 +146,7 @@ class BrainLogEntry(BaseModel):
     """
 
     id: str = Field(..., description="ログID")
-    created_at: datetime = Field(..., description="作成日時")
+    created_at: dt.datetime = Field(..., description="作成日時")
     selected_action: str = Field(..., description="選択されたアクション")
     decision_confidence: Optional[float] = Field(
         None, description="判断確信度（0.0-1.0）"
@@ -193,7 +195,7 @@ class CostMonthlyResponse(BaseModel):
 class CostDailyEntry(BaseModel):
     """日次コストエントリ"""
 
-    date: date = Field(..., description="日付")
+    date: dt.date = Field(..., description="日付")
     cost: float = Field(0.0, description="コスト（USD）")
     requests: int = Field(0, description="リクエスト数")
 
@@ -254,7 +256,7 @@ class MemberResponse(BaseModel):
     role_level: Optional[int] = Field(None, description="権限レベル（1-6）")
     department: Optional[str] = Field(None, description="所属部署名")
     department_id: Optional[str] = Field(None, description="所属部署ID")
-    created_at: Optional[datetime] = Field(None, description="作成日時")
+    created_at: Optional[dt.datetime] = Field(None, description="作成日時")
 
 
 class MembersListResponse(BaseModel):

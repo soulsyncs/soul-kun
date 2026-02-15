@@ -56,10 +56,10 @@ import_resource "google_service_account.scheduler_invoker" \
   "projects/${PROJECT}/serviceAccounts/scheduler-invoker@${PROJECT}.iam.gserviceaccount.com"
 
 # Cloud Functions (Gen2)
+# NOTE: chatwork-webhook と proactive-monitor は Cloud Run v2 (Docker) に移行済み。
+#       TF state には Cloud Functions として存在しない。再インポート禁止。
 # format: "terraform_key:gcp_name" (同じ場合はキーのみ)
 FUNCTIONS=(
-  "chatwork-webhook"
-  "proactive-monitor"
   "watch_google_drive"
   "supabase_sync"
   "pattern-detection"

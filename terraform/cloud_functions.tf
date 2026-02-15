@@ -421,6 +421,7 @@ resource "google_cloudfunctions2_function" "functions" {
       service_config[0].environment_variables,
       service_config[0].secret_environment_variables,
       service_config[0].available_memory,
+      service_config[0].timeout_seconds,
       service_config[0].max_instance_count,
       service_config[0].min_instance_count,
       service_config[0].service_account_email,

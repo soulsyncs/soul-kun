@@ -9,6 +9,15 @@ import {
   Brain,
   DollarSign,
   Users,
+  Network,
+  Target,
+  Heart,
+  CheckSquare,
+  Lightbulb,
+  Video,
+  Zap,
+  BookOpen,
+  Settings,
   LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,10 +25,24 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/use-auth';
 
 const navigation = [
+  // 概要
   { name: 'ダッシュボード', href: '/', icon: LayoutDashboard },
-  { name: 'AI脳分析', href: '/brain', icon: Brain },
-  { name: 'コスト管理', href: '/costs', icon: DollarSign },
+  // 組織
+  { name: '組織図', href: '/org-chart', icon: Network },
   { name: 'メンバー', href: '/members', icon: Users },
+  // マネジメント
+  { name: '目標管理', href: '/goals', icon: Target },
+  { name: 'ウェルネス', href: '/wellness', icon: Heart },
+  { name: 'タスク', href: '/tasks', icon: CheckSquare },
+  // 分析
+  { name: 'AI脳分析', href: '/brain', icon: Brain },
+  { name: 'インサイト', href: '/insights', icon: Lightbulb },
+  { name: 'ミーティング', href: '/meetings', icon: Video },
+  // 運用
+  { name: 'プロアクティブ', href: '/proactive', icon: Zap },
+  { name: 'CEO教え', href: '/teachings', icon: BookOpen },
+  { name: 'コスト管理', href: '/costs', icon: DollarSign },
+  { name: 'システム', href: '/system', icon: Settings },
 ];
 
 export function Sidebar() {

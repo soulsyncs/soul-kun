@@ -23,6 +23,33 @@ const CostsPage = lazy(() =>
 const MembersPage = lazy(() =>
   import('@/pages/members').then((m) => ({ default: m.MembersPage }))
 );
+const OrgChartPage = lazy(() =>
+  import('@/pages/org-chart').then((m) => ({ default: m.OrgChartPage }))
+);
+const GoalsPage = lazy(() =>
+  import('@/pages/goals').then((m) => ({ default: m.GoalsPage }))
+);
+const WellnessPage = lazy(() =>
+  import('@/pages/wellness').then((m) => ({ default: m.WellnessPage }))
+);
+const TasksPage = lazy(() =>
+  import('@/pages/tasks').then((m) => ({ default: m.TasksPage }))
+);
+const InsightsPage = lazy(() =>
+  import('@/pages/insights').then((m) => ({ default: m.InsightsPage }))
+);
+const MeetingsPage = lazy(() =>
+  import('@/pages/meetings').then((m) => ({ default: m.MeetingsPage }))
+);
+const ProactivePage = lazy(() =>
+  import('@/pages/proactive').then((m) => ({ default: m.ProactivePage }))
+);
+const TeachingsPage = lazy(() =>
+  import('@/pages/teachings').then((m) => ({ default: m.TeachingsPage }))
+);
+const SystemPage = lazy(() =>
+  import('@/pages/system').then((m) => ({ default: m.SystemPage }))
+);
 
 // Loading fallback
 function PageLoader() {
@@ -95,11 +122,74 @@ const membersRoute = new Route({
   component: () => <ProtectedRoute component={MembersPage} />,
 });
 
+const orgChartRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/org-chart',
+  component: () => <ProtectedRoute component={OrgChartPage} />,
+});
+
+const goalsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/goals',
+  component: () => <ProtectedRoute component={GoalsPage} />,
+});
+
+const wellnessRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/wellness',
+  component: () => <ProtectedRoute component={WellnessPage} />,
+});
+
+const tasksRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/tasks',
+  component: () => <ProtectedRoute component={TasksPage} />,
+});
+
+const insightsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/insights',
+  component: () => <ProtectedRoute component={InsightsPage} />,
+});
+
+const meetingsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/meetings',
+  component: () => <ProtectedRoute component={MeetingsPage} />,
+});
+
+const proactiveRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/proactive',
+  component: () => <ProtectedRoute component={ProactivePage} />,
+});
+
+const teachingsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/teachings',
+  component: () => <ProtectedRoute component={TeachingsPage} />,
+});
+
+const systemRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/system',
+  component: () => <ProtectedRoute component={SystemPage} />,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
+  orgChartRoute,
+  goalsRoute,
+  wellnessRoute,
+  tasksRoute,
   brainRoute,
+  insightsRoute,
+  meetingsRoute,
+  proactiveRoute,
+  teachingsRoute,
   costsRoute,
+  systemRoute,
   membersRoute,
 ]);
 

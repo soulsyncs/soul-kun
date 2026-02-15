@@ -130,7 +130,7 @@ def ensure_processed_messages_table():
                 CREATE TABLE IF NOT EXISTS processed_messages (
                     message_id VARCHAR(50) PRIMARY KEY,
                     room_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
             """))
@@ -155,7 +155,7 @@ def mark_as_processed(message_id, room_id):
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO processed_messages (message_id, room_id, organization_id, processed_at)
-                    VALUES (:message_id, :room_id, 'org_soulsyncs', :processed_at)
+                    VALUES (:message_id, :room_id, '5f98365f-e7c5-4f48-9918-7fe9aabae5df', :processed_at)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {

@@ -18,7 +18,7 @@ terraform_state_bucket    = "soulkun-terraform-state"
 
 # Organization IDs
 supabase_org_id = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
-cloudsql_org_id = "org_soulsyncs"
+cloudsql_org_id = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 # Supabase
 supabase_url = "https://adzxpeboaoiojepcxlyc.supabase.co"

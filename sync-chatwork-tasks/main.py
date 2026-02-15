@@ -1292,7 +1292,7 @@ def regenerate_bad_summaries(
     Args:
         conn: DB接続
         cursor: DBカーソル
-        organization_id: テナントID（デフォルト: org_soulsyncs）【v10.14.1追加】
+        organization_id: テナントID（デフォルト: 5f98365f-e7c5-4f48-9918-7fe9aabae5df）【v10.14.1追加】
         offset: 開始位置（バッチ処理の再開に使用）
         limit: 一度に処理する件数
 
@@ -1429,7 +1429,7 @@ def report_summary_quality(
     Args:
         conn: DB接続
         cursor: DBカーソル
-        organization_id: テナントID（デフォルト: org_soulsyncs）【v10.14.1追加】
+        organization_id: テナントID（デフォルト: 5f98365f-e7c5-4f48-9918-7fe9aabae5df）【v10.14.1追加】
 
     Returns:
         品質レポートの辞書
@@ -4112,7 +4112,7 @@ def report_proposal_to_admin(proposal_id: int, proposer_name: str, key: str, val
                         conn.execute(sqlalchemy.text("""
                             UPDATE knowledge_proposals
                             SET admin_notified = TRUE
-                            WHERE organization_id = 'org_soulsyncs' AND id = :id
+                            WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND id = :id
                         """), {"id": proposal_id})
                 except Exception as e:
                     print(f"⚠️ admin_notified更新エラー: {e}")
@@ -5230,7 +5230,7 @@ def ensure_processed_messages_table():
                 CREATE TABLE IF NOT EXISTS processed_messages (
                     message_id VARCHAR(50) PRIMARY KEY,
                     room_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
             """))
@@ -5255,7 +5255,7 @@ def mark_as_processed(message_id, room_id):
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO processed_messages (message_id, room_id, organization_id, processed_at)
-                    VALUES (:message_id, :room_id, 'org_soulsyncs', :processed_at)
+                    VALUES (:message_id, :room_id, '5f98365f-e7c5-4f48-9918-7fe9aabae5df', :processed_at)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {
@@ -5284,7 +5284,7 @@ def ensure_overdue_tables():
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
                     account_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     reminder_date DATE NOT NULL,
                     overdue_days INTEGER NOT NULL,
                     escalated BOOLEAN DEFAULT FALSE,
@@ -5302,7 +5302,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_limit_changes (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     old_limit_time BIGINT,
                     new_limit_time BIGINT,
                     detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -5322,7 +5322,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS dm_room_cache (
                     account_id BIGINT PRIMARY KEY,
                     dm_room_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 );
             """))
@@ -5332,7 +5332,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_escalations (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     escalated_date DATE NOT NULL,
                     escalated_to_requester BOOLEAN DEFAULT FALSE,
                     escalated_to_admin BOOLEAN DEFAULT FALSE,
@@ -5369,7 +5369,7 @@ def ensure_knowledge_tables():
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS soulkun_knowledge (
                     id SERIAL PRIMARY KEY,
-                    organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(255) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     category TEXT NOT NULL DEFAULT 'other',
                     key TEXT NOT NULL,
                     value TEXT NOT NULL,
@@ -5389,7 +5389,7 @@ def ensure_knowledge_tables():
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS knowledge_proposals (
                     id SERIAL PRIMARY KEY,
-                    organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(255) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     proposed_by_account_id TEXT NOT NULL,
                     proposed_by_name TEXT,
                     proposed_in_room_id TEXT,
@@ -5556,7 +5556,7 @@ def create_proposal(proposed_by_account_id: str, proposed_by_name: str,
                 INSERT INTO knowledge_proposals
                 (organization_id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                  category, key, value, message_id, status)
-                VALUES ('org_soulsyncs', :account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
+                VALUES ('5f98365f-e7c5-4f48-9918-7fe9aabae5df', :account_id, :name, :room_id, :category, :key, :value, :message_id, 'pending')
                 RETURNING id
             """), {
                 "account_id": proposed_by_account_id,
@@ -5589,7 +5589,7 @@ def get_pending_proposals():
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at
                 FROM knowledge_proposals
-                WHERE organization_id = 'org_soulsyncs' AND status = 'pending'
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND status = 'pending'
                 ORDER BY created_at ASC
             """))
             rows = result.fetchall()
@@ -5619,7 +5619,7 @@ def get_proposal_by_id(proposal_id: int):
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at, status
                 FROM knowledge_proposals
-                WHERE organization_id = 'org_soulsyncs' AND id = :id
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND id = :id
             """), {"id": proposal_id})
             row = result.fetchone()
             if row:
@@ -5656,7 +5656,7 @@ def get_unnotified_proposals():
                 SELECT id, proposed_by_account_id, proposed_by_name, proposed_in_room_id,
                        category, key, value, message_id, created_at
                 FROM knowledge_proposals
-                WHERE organization_id = 'org_soulsyncs' AND status = 'pending' AND admin_notified = FALSE
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND status = 'pending' AND admin_notified = FALSE
                 ORDER BY created_at ASC
             """))
             rows = result.fetchall()
@@ -5705,7 +5705,7 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             result = conn.execute(sqlalchemy.text("""
                 SELECT category, key, value, proposed_by_account_id
                 FROM knowledge_proposals
-                WHERE organization_id = 'org_soulsyncs' AND id = :id AND status = 'pending'
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND id = :id AND status = 'pending'
             """), {"id": proposal_id})
             row = result.fetchone()
             
@@ -5718,7 +5718,7 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             # 知識に反映（Phase 4: org_id対応）
             conn.execute(sqlalchemy.text("""
                 INSERT INTO soulkun_knowledge (organization_id, category, key, value, created_by, updated_at)
-                VALUES ('org_soulsyncs', :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
+                VALUES ('5f98365f-e7c5-4f48-9918-7fe9aabae5df', :category, :key, :value, :created_by, CURRENT_TIMESTAMP)
                 ON CONFLICT (organization_id, category, key)
                 DO UPDATE SET value = :value, updated_at = CURRENT_TIMESTAMP
             """), {
@@ -5732,7 +5732,7 @@ def approve_proposal(proposal_id: int, reviewed_by: str):
             conn.execute(sqlalchemy.text("""
                 UPDATE knowledge_proposals
                 SET status = 'approved', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE organization_id = 'org_soulsyncs' AND id = :id
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND id = :id
             """), {"id": proposal_id, "reviewed_by": reviewed_by})
         
         print(f"✅ 提案ID={proposal_id}を承認: {key}={value}")
@@ -5751,7 +5751,7 @@ def reject_proposal(proposal_id: int, reviewed_by: str):
             conn.execute(sqlalchemy.text("""
                 UPDATE knowledge_proposals
                 SET status = 'rejected', reviewed_by = :reviewed_by, reviewed_at = CURRENT_TIMESTAMP
-                WHERE organization_id = 'org_soulsyncs' AND id = :id AND status = 'pending'
+                WHERE organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df' AND id = :id AND status = 'pending'
             """), {"id": proposal_id, "reviewed_by": reviewed_by})
         print(f"✅ 提案ID={proposal_id}を却下")
         return True
@@ -7272,7 +7272,7 @@ def is_deadline_alert_already_sent(task_id: int, conn) -> bool:
             WHERE target_type = 'task'
               AND target_id = %s
               AND notification_type = 'deadline_alert'
-              AND organization_id = 'org_soulsyncs'
+              AND organization_id = '5f98365f-e7c5-4f48-9918-7fe9aabae5df'
         """, (task_id,))
         result = cursor.fetchone()
         cursor.close()
@@ -7308,7 +7308,7 @@ def log_deadline_alert_for_manual_task(
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS notification_logs (
                 id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                organization_id VARCHAR(100) DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                 notification_type VARCHAR(50) NOT NULL,
                 target_type VARCHAR(50) NOT NULL,
                 target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
@@ -7341,7 +7341,7 @@ def log_deadline_alert_for_manual_task(
                 channel_target,
                 metadata
             ) VALUES (
-                'org_soulsyncs',
+                '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                 'deadline_alert',
                 'task',
                 %s,

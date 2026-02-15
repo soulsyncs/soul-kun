@@ -195,7 +195,7 @@ class KnowledgeHandler:
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE IF NOT EXISTS soulkun_knowledge (
                         id SERIAL PRIMARY KEY,
-                        organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(255) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         category TEXT NOT NULL DEFAULT 'other',
                         key TEXT NOT NULL,
                         value TEXT NOT NULL,
@@ -214,7 +214,7 @@ class KnowledgeHandler:
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE IF NOT EXISTS knowledge_proposals (
                         id SERIAL PRIMARY KEY,
-                        organization_id VARCHAR(255) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(255) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         proposed_by_account_id TEXT NOT NULL,
                         proposed_by_name TEXT,
                         proposed_in_room_id TEXT,

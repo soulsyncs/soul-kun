@@ -10,7 +10,7 @@ Phase 4 の Row Level Security と連携。
     # リクエストごとにテナントを設定
     with TenantContext("5f98365f-e7c5-4f48-9918-7fe9aabae5df"):
         tenant_id = get_current_tenant()
-        # このブロック内では org_soulsyncs がテナント
+        # このブロック内では 5f98365f-e7c5-4f48-9918-7fe9aabae5df がテナント
 
 使用例（FastAPI）:
     from lib.tenant import TenantContext

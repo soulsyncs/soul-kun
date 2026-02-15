@@ -9,7 +9,7 @@
 #     --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/watch_google_drive" \
 #     --http-method=POST \
 #     --headers="Content-Type=application/json" \
-#     --message-body='{"organization_id":"org_soulsyncs","root_folder_id":"YOUR_ROOT_FOLDER_ID"}' \
+#     --message-body='{"organization_id":"5f98365f-e7c5-4f48-9918-7fe9aabae5df","root_folder_id":"YOUR_ROOT_FOLDER_ID"}' \
 #     --oidc-service-account-email="scheduler-sa@soulkun-production.iam.gserviceaccount.com" \
 #     --attempt-deadline=540s
 
@@ -29,7 +29,7 @@ target:
     Content-Type: application/json
   body: |
     {
-      "organization_id": "org_soulsyncs",
+      "organization_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
       "root_folder_id": "YOUR_ROOT_FOLDER_ID"
     }
   oidcToken:

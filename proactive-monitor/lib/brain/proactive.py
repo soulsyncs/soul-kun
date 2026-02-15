@@ -339,14 +339,14 @@ class ProactiveMonitor:
         """
         chatwork_tasks テーブル用の organization_id を取得
 
-        chatwork_tasks.organization_id は VARCHAR型で 'org_soulsyncs' 等の文字列。
+        chatwork_tasks.organization_id は VARCHAR型で '5f98365f-e7c5-4f48-9918-7fe9aabae5df' 等の文字列。
         users.organization_id は UUID型。この変換を行う。
 
         Args:
             uuid_org_id: UUID形式のorganization_id
 
         Returns:
-            str: chatwork_tasks用のorganization_id（'org_soulsyncs' 等）
+            str: chatwork_tasks用のorganization_id（'5f98365f-e7c5-4f48-9918-7fe9aabae5df' 等）
         """
         return ORGANIZATION_UUID_TO_SLUG.get(uuid_org_id, DEFAULT_CHATWORK_TASKS_ORG_ID)
 
@@ -576,7 +576,7 @@ class ProactiveMonitor:
         try:
             from sqlalchemy import text
 
-            # chatwork_tasks.organization_idはVARCHAR型（'org_soulsyncs'等）
+            # chatwork_tasks.organization_idはVARCHAR型（'5f98365f-e7c5-4f48-9918-7fe9aabae5df'等）
             chatwork_org_id = self._get_chatwork_tasks_org_id(user_ctx.organization_id)
 
             query = text("""
@@ -744,7 +744,7 @@ class ProactiveMonitor:
         try:
             from sqlalchemy import text
 
-            # chatwork_tasks.organization_idはVARCHAR型（'org_soulsyncs'等）
+            # chatwork_tasks.organization_idはVARCHAR型（'5f98365f-e7c5-4f48-9918-7fe9aabae5df'等）
             chatwork_org_id = self._get_chatwork_tasks_org_id(user_ctx.organization_id)
 
             # 直近24時間以内に完了したタスク数

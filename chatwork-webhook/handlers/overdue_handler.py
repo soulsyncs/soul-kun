@@ -195,7 +195,7 @@ class OverdueHandler:
                         id SERIAL PRIMARY KEY,
                         task_id BIGINT NOT NULL,
                         account_id BIGINT NOT NULL,
-                        organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         reminder_date DATE NOT NULL,
                         overdue_days INTEGER NOT NULL,
                         escalated BOOLEAN DEFAULT FALSE,
@@ -213,7 +213,7 @@ class OverdueHandler:
                     CREATE TABLE IF NOT EXISTS task_limit_changes (
                         id SERIAL PRIMARY KEY,
                         task_id BIGINT NOT NULL,
-                        organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         old_limit_time BIGINT,
                         new_limit_time BIGINT,
                         detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -233,7 +233,7 @@ class OverdueHandler:
                     CREATE TABLE IF NOT EXISTS dm_room_cache (
                         account_id BIGINT PRIMARY KEY,
                         dm_room_id BIGINT NOT NULL,
-                        organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                     );
                 """))
@@ -243,7 +243,7 @@ class OverdueHandler:
                     CREATE TABLE IF NOT EXISTS task_escalations (
                         id SERIAL PRIMARY KEY,
                         task_id BIGINT NOT NULL,
-                        organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         escalated_date DATE NOT NULL,
                         escalated_to_requester BOOLEAN DEFAULT FALSE,
                         escalated_to_admin BOOLEAN DEFAULT FALSE,

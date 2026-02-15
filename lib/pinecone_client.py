@@ -103,7 +103,7 @@ class PineconeClient:
             organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             vectors=[
                 {
-                    "id": "org_soulsyncs_doc123_v1_chunk0",
+                    "id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc123_v1_chunk0",
                     "values": [0.1, 0.2, ...],  # 768次元（Gemini Embedding）
                     "metadata": {
                         "document_id": "doc123",
@@ -174,7 +174,7 @@ class PineconeClient:
         組織IDからnamespaceを生成
 
         フォーマット: org_{organization_id}
-        例: org_soulsyncs
+        例: 5f98365f-e7c5-4f48-9918-7fe9aabae5df
         """
         return f"org_{organization_id}"
 
@@ -540,7 +540,7 @@ class PineconeClient:
         Pinecone IDを生成
 
         フォーマット: {org_id}_{doc_id}_v{version}_chunk{index}
-        例: org_soulsyncs_doc_manual001_v1_chunk0
+        例: 5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc_manual001_v1_chunk0
         """
         return f"{organization_id}_{document_id}_v{version}_chunk{chunk_index}"
 
@@ -549,7 +549,7 @@ class PineconeClient:
         Pinecone IDをパース
 
         フォーマット: {org_id}_{doc_id}_v{version}_chunk{index}
-        例: org_soulsyncs_doc_manual001_v1_chunk0
+        例: 5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc_manual001_v1_chunk0
             → organization_id: "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
             → document_id: "doc_manual001"
             → version: 1
@@ -587,7 +587,7 @@ class PineconeClient:
 
         # Step 3: organization_id と document_id を分離
         # document_idは "doc" で始まることを想定
-        # 例: "org_soulsyncs_doc_manual001" → org_soulsyncs + doc_manual001
+        # 例: "5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc_manual001" → 5f98365f-e7c5-4f48-9918-7fe9aabae5df + doc_manual001
         org_doc_str = version_parts[0]
 
         # "_doc" を探して分割（document_idは "doc" で始まる規約）

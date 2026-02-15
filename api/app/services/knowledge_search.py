@@ -441,7 +441,7 @@ class KnowledgeSearchService:
         organization_id (テキスト識別子) から UUID を解決
 
         Args:
-            organization_id: テキスト識別子 (例: org_soulsyncs) または UUID
+            organization_id: テキスト識別子 (例: 5f98365f-e7c5-4f48-9918-7fe9aabae5df) または UUID
 
         Returns:
             UUID文字列、見つからない場合はNone

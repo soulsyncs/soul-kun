@@ -35,8 +35,8 @@ class PersonService:
         self.get_pool = get_pool
         self.organization_id = organization_id
 
-    def get_or_create_person(self, name: str) -> int:
-        """人物を取得、なければ作成してIDを返す"""
+    def get_or_create_person(self, name: str) -> str:
+        """人物を取得、なければ作成してIDを返す（UUID文字列）"""
         pool = self.get_pool()
         with pool.begin() as conn:
             result = conn.execute(
@@ -44,12 +44,12 @@ class PersonService:
                 {"name": name, "org_id": self.organization_id}
             ).fetchone()
             if result:
-                return result[0]
+                return str(result[0])
             result = conn.execute(
                 sqlalchemy.text("INSERT INTO persons (name, organization_id) VALUES (:name, :org_id) RETURNING id"),
                 {"name": name, "org_id": self.organization_id}
             )
-            return result.fetchone()[0]
+            return str(result.fetchone()[0])
 
     def save_person_attribute(
         self,

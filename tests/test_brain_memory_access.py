@@ -457,7 +457,7 @@ class TestPersonInfoAdapter:
     @pytest.mark.asyncio
     async def test_get_person_info_success(self, brain_memory, mock_pool):
         """正常に人物情報を取得（JOINクエリ）"""
-        person_id = 123
+        person_id = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         mock_conn = Mock()
 
         # v10.74.0: JOINクエリは1回のexecuteで4カラム行を返す

@@ -268,6 +268,7 @@ def is_toall_mention(body):
 _ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
 def get_or_create_person(name):
+    """人物を取得、なければ作成してIDを返す（UUID文字列）"""
     pool = get_pool()
     with pool.begin() as conn:
         result = conn.execute(
@@ -275,12 +276,12 @@ def get_or_create_person(name):
             {"name": name, "org_id": _ORGANIZATION_ID}
         ).fetchone()
         if result:
-            return result[0]
+            return str(result[0])
         result = conn.execute(
             sqlalchemy.text("INSERT INTO persons (name, organization_id) VALUES (:name, :org_id) RETURNING id"),
             {"name": name, "org_id": _ORGANIZATION_ID}
         )
-        return result.fetchone()[0]
+        return str(result.fetchone()[0])
 
 def save_person_attribute(person_name, attribute_type, attribute_value, source="conversation"):
     person_id = get_or_create_person(person_name)

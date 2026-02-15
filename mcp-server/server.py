@@ -362,9 +362,9 @@ async def read_resource(uri: str) -> str:
             return json.dumps(rows, ensure_ascii=False, default=str)
 
         # テンプレートリソース: soulkun://persons/{id}
-        person_match = re.match(r"^soulkun://persons/(\d+)$", uri)
+        person_match = re.match(r"^soulkun://persons/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$", uri)
         if person_match:
-            person_id = int(person_match.group(1))
+            person_id = person_match.group(1)
             rows = await asyncio.to_thread(
                 _run_db_query,
                 """SELECT id, display_name, department, position

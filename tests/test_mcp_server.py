@@ -413,13 +413,14 @@ class TestReadResource:
     @pytest.mark.asyncio
     async def test_read_person_by_id(self):
         from server import read_resource
+        person_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
         mock_rows = [
-            {"id": 42, "display_name": "山田花子", "department": "管理部", "position": "課長"},
+            {"id": person_uuid, "display_name": "山田花子", "department": "管理部", "position": "課長"},
         ]
         with patch("server._run_db_query", return_value=mock_rows) as mock_query:
-            result = await read_resource("soulkun://persons/42")
+            result = await read_resource(f"soulkun://persons/{person_uuid}")
             data = json.loads(result)
-            assert data["id"] == 42
+            assert data["id"] == person_uuid
             assert data["display_name"] == "山田花子"
             # org_idフィルタ検証（鉄則#1）
             mock_query.assert_called_once()
@@ -428,8 +429,9 @@ class TestReadResource:
     @pytest.mark.asyncio
     async def test_read_person_not_found(self):
         from server import read_resource
+        person_uuid = "00000000-0000-0000-0000-000000000999"
         with patch("server._run_db_query", return_value=[]):
-            result = await read_resource("soulkun://persons/999")
+            result = await read_resource(f"soulkun://persons/{person_uuid}")
             data = json.loads(result)
             assert "error" in data
             assert "not found" in data["error"].lower()

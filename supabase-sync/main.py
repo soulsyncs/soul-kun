@@ -447,19 +447,19 @@ def bridge_to_person_attributes(
         {"emp_ids": cs_ids, "org_id": ORGANIZATION_ID}
     )
 
-    # cs_id → person_id マップ
-    cs_to_person: Dict[str, int] = {}
+    # cs_id → person_id マップ（UUID文字列）
+    cs_to_person: Dict[str, str] = {}
     for row in result:
-        cs_to_person[row[0]] = row[1]
+        cs_to_person[row[0]] = str(row[1])
 
-    # sb_id → person_id マップ
-    emp_to_person: Dict[str, int] = {}
+    # sb_id → person_id マップ（UUID文字列）
+    emp_to_person: Dict[str, str] = {}
     for sb_id, cs_id in mapping.items():
         pid = cs_to_person.get(cs_id)
         if pid is not None:
             emp_to_person[sb_id] = pid
 
-    def _upsert_attr(person_id: int, attr_type: str, attr_value: str):
+    def _upsert_attr(person_id: str, attr_type: str, attr_value: str):
         """person_attributesにUPSERT"""
         nonlocal updated
         if not attr_value:

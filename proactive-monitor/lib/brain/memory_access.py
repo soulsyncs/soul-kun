@@ -602,12 +602,8 @@ class BrainMemoryAccess:
                     params: Dict[str, Any] = {"org_id": self.org_id, "limit": limit}
                     where_clause = "WHERE p.organization_id = :org_id"
                     if person_id:
-                        try:
-                            int(person_id)
-                            where_clause += " AND p.id = CAST(:person_id AS integer)"
-                            params["person_id"] = person_id
-                        except (ValueError, TypeError):
-                            pass  # persons.id is integer; skip non-integer person_id
+                        where_clause += " AND p.id = CAST(:person_id AS uuid)"
+                        params["person_id"] = person_id
                     result = conn.execute(
                         text(f"""
                             SELECT p.id, p.name,

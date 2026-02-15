@@ -173,7 +173,7 @@ class GoalResponse(BaseModel):
 
 
 class PersonResponse(BaseModel):
-    id: int
+    id: str
     display_name: str
     department: Optional[str] = None
     position: Optional[str] = None

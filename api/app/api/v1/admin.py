@@ -41,6 +41,7 @@ def _escape_like(value: str) -> str:
 from app.schemas.admin import (
     # Auth
     GoogleAuthRequest,
+    TokenLoginRequest,
     AuthTokenResponse,
     AuthMeResponse,
     # Dashboard
@@ -256,17 +257,16 @@ async def auth_google(request: GoogleAuthRequest):
                     },
                 )
 
-            # 4. department_id取得（org_idフィルタ追加: 3AI合意 MEDIUM-2）
+            # 4. department_id取得（user_idで既にorg_idスコープ済み）
             dept_result = conn.execute(
                 text("""
                     SELECT department_id
                     FROM user_departments
                     WHERE user_id = :user_id
-                      AND organization_id = :org_id
                       AND ended_at IS NULL
                     LIMIT 1
                 """),
-                {"user_id": user_id, "org_id": organization_id},
+                {"user_id": user_id},
             )
             dept_row = dept_result.fetchone()
             department_id = str(dept_row[0]) if dept_row and dept_row[0] else None
@@ -303,11 +303,12 @@ async def auth_google(request: GoogleAuthRequest):
         details={"method": "google", "role_level": role_level},
     )
 
-    # httpOnly cookieでJWTを返す（3AI合意 CRITICAL-2）
+    # JWTをレスポンスボディ + httpOnly cookieで返す
     response = JSONResponse(content={
         "status": "success",
         "token_type": "bearer",
         "expires_in": expires_minutes * 60,
+        "access_token": token,
     })
     response.set_cookie(
         key="access_token",
@@ -316,6 +317,111 @@ async def auth_google(request: GoogleAuthRequest):
         secure=os.getenv("ENVIRONMENT") == "production",
         samesite="strict",
         max_age=expires_minutes * 60,
+        path="/api/v1/admin",
+    )
+    return response
+
+
+@router.post(
+    "/auth/token-login",
+    response_model=AuthTokenResponse,
+    responses={
+        401: {"model": AdminErrorResponse, "description": "無効なトークン"},
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+    },
+    summary="トークンによるログイン（暫定認証）",
+    description="""
+CLIで生成したJWTトークンを検証し、httpOnly cookieにセットする。
+Google OAuth Client ID未設定時の暫定認証手段。
+
+## セキュリティ
+- JWTの署名・有効期限を検証
+- DBでユーザー存在確認 + organization_idフィルタ
+- 権限レベル5以上を確認
+    """,
+)
+async def auth_token_login(request: TokenLoginRequest):
+    """CLIで発行したJWTを検証してcookieにセット"""
+
+    # 1. JWT検証（署名・有効期限・必須claims）
+    payload = decode_jwt(request.token)
+    user_id = payload.get("sub")
+    org_id = payload.get("org_id")
+
+    # 2. DBでユーザー存在確認（org_idフィルタ: 鉄則#1）
+    pool = get_db_pool()
+    try:
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, organization_id
+                    FROM users
+                    WHERE id::text = :user_id
+                      AND organization_id = :org_id
+                    LIMIT 1
+                """),
+                {"user_id": user_id, "org_id": org_id},
+            )
+            user_row = result.fetchone()
+
+            if not user_row:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "status": "failed",
+                        "error_code": "USER_NOT_FOUND",
+                        "error_message": "登録されていないユーザーです",
+                    },
+                )
+
+            # 3. 権限レベルチェック
+            role_level = get_user_role_level_sync(conn, user_id)
+            if role_level < ADMIN_MIN_LEVEL:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "status": "failed",
+                        "error_code": "INSUFFICIENT_PERMISSION",
+                        "error_message": "管理者権限（Level 5以上）が必要です",
+                    },
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Token login DB error", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "failed",
+                "error_code": "INTERNAL_ERROR",
+                "error_message": "内部エラーが発生しました",
+            },
+        )
+
+    log_audit_event(
+        logger=logger,
+        action="admin_token_login",
+        resource_type="auth",
+        resource_id=user_id,
+        user_id=user_id,
+        details={"method": "token", "role_level": role_level},
+    )
+
+    # httpOnly cookieでトークンをセット
+    expires_in = payload.get("exp", 0) - payload.get("iat", 0)
+    response = JSONResponse(content={
+        "status": "success",
+        "token_type": "bearer",
+        "expires_in": max(expires_in, 3600),
+    })
+    response.set_cookie(
+        key="access_token",
+        value=request.token,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT") == "production",
+        samesite="strict",
+        max_age=max(expires_in, 3600),
         path="/api/v1/admin",
     )
     return response
@@ -369,7 +475,7 @@ async def auth_me(user: UserContext = Depends(require_admin)):
                     SELECT u.name, u.email,
                            COALESCE(MAX(r.level), 2) as role_level,
                            MAX(r.name) as role_name,
-                           MAX(ud.department_id) as department_id
+                           MAX(ud.department_id::text) as department_id
                     FROM users u
                     LEFT JOIN user_departments ud
                         ON u.id = ud.user_id AND ud.ended_at IS NULL
@@ -541,8 +647,8 @@ async def get_dashboard_summary(
                 text("""
                     SELECT COUNT(*) as active_count
                     FROM bottleneck_alerts
-                    WHERE organization_id = :org_id
-                      AND is_resolved = FALSE
+                    WHERE organization_id::text = :org_id
+                      AND status = 'active'
                 """),
                 {"org_id": organization_id},
             )
@@ -552,9 +658,9 @@ async def get_dashboard_summary(
             # --- 最近のアラート（最大5件） ---
             recent_alerts_result = conn.execute(
                 text("""
-                    SELECT id, alert_type, severity, message, created_at, is_resolved
+                    SELECT id, bottleneck_type, risk_level, target_name, created_at, status
                     FROM bottleneck_alerts
-                    WHERE organization_id = :org_id
+                    WHERE organization_id::text = :org_id
                     ORDER BY created_at DESC
                     LIMIT 5
                 """),
@@ -569,7 +675,7 @@ async def get_dashboard_summary(
                         severity=row[2] or "info",
                         message=row[3] or "",
                         created_at=row[4],
-                        is_resolved=bool(row[5]) if row[5] is not None else False,
+                        is_resolved=(row[5] != "active") if row[5] else False,
                     )
                 )
 

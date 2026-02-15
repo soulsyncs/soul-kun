@@ -16,10 +16,10 @@ import { Separator } from '@/components/ui/separator';
 import { useAuth } from '@/hooks/use-auth';
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Brain Analytics', href: '/brain', icon: Brain },
-  { name: 'Cost Tracking', href: '/costs', icon: DollarSign },
-  { name: 'Members', href: '/members', icon: Users },
+  { name: 'ダッシュボード', href: '/', icon: LayoutDashboard },
+  { name: 'AI脳分析', href: '/brain', icon: Brain },
+  { name: 'コスト管理', href: '/costs', icon: DollarSign },
+  { name: 'メンバー', href: '/members', icon: Users },
 ];
 
 export function Sidebar() {
@@ -30,7 +30,7 @@ export function Sidebar() {
     <div className="flex h-full w-64 flex-col border-r bg-card">
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <h1 className="text-xl font-bold">Soul-kun Admin</h1>
+        <h1 className="text-xl font-bold">ソウルくん管理画面</h1>
       </div>
 
       <Separator />
@@ -64,9 +64,9 @@ export function Sidebar() {
       {/* User info and logout */}
       <div className="p-4">
         <div className="mb-3 text-sm">
-          <div className="font-medium">{user?.name ?? 'Admin'}</div>
+          <div className="font-medium">{user?.name ?? '管理者'}</div>
           <div className="text-muted-foreground">
-            Level {user?.role_level ?? '-'}
+            レベル {user?.role_level ?? '-'}
             {user?.role ? ` (${user.role})` : ''}
           </div>
         </div>
@@ -77,7 +77,7 @@ export function Sidebar() {
           onClick={logout}
         >
           <LogOut className="mr-2 h-4 w-4" />
-          Logout
+          ログアウト
         </Button>
       </div>
     </div>

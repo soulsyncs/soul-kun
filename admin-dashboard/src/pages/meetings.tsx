@@ -114,9 +114,11 @@ export function MeetingsPage() {
                         <Badge variant="outline" className="text-xs">
                           {meeting.meeting_type}
                         </Badge>
-                        <Badge variant="outline" className="text-xs">
-                          {meeting.source}
-                        </Badge>
+                        {meeting.source && meeting.source !== meeting.meeting_type && (
+                          <Badge variant="outline" className="text-xs">
+                            {meeting.source}
+                          </Badge>
+                        )}
                         {meeting.meeting_date && (
                           <span>{meeting.meeting_date.slice(0, 10)}</span>
                         )}
@@ -163,7 +165,9 @@ export function MeetingsPage() {
                       </div>
                       <div className="text-xs text-muted-foreground mt-1 flex gap-2">
                         <Badge variant="outline">{detailData.meeting.meeting_type}</Badge>
-                        <Badge variant="outline">{detailData.meeting.source}</Badge>
+                        {detailData.meeting.source && detailData.meeting.source !== detailData.meeting.meeting_type && (
+                          <Badge variant="outline">{detailData.meeting.source}</Badge>
+                        )}
                         {detailData.meeting.meeting_date && (
                           <span>{detailData.meeting.meeting_date.slice(0, 10)}</span>
                         )}

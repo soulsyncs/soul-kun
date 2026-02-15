@@ -27,6 +27,7 @@ from sqlalchemy import text
 
 from lib.db import get_db_pool
 from lib.logging import get_logger, log_audit_event
+from lib.text_utils import clean_chatwork_tags
 from app.deps.auth import get_current_user, create_access_token, decode_jwt
 from app.services.access_control import get_user_role_level_sync
 from app.services.knowledge_search import UserContext
@@ -3457,8 +3458,11 @@ async def get_insights_list(
         insights = [
             InsightSummary(
                 id=str(r[0]), insight_type=r[1], source_type=r[2],
-                importance=r[3], title=r[4], description=r[5],
-                recommended_action=r[6], status=r[7],
+                importance=r[3],
+                title=clean_chatwork_tags(r[4]) if r[4] else "",
+                description=clean_chatwork_tags(r[5]) if r[5] else "",
+                recommended_action=clean_chatwork_tags(r[6]) if r[6] else None,
+                status=r[7],
                 department_name=r[8],
                 created_at=str(r[9]) if r[9] else None,
             )
@@ -4209,7 +4213,7 @@ async def get_system_metrics(
                            avg_confidence
                     FROM brain_daily_metrics
                     WHERE organization_id = :org_id
-                      AND metric_date >= CURRENT_DATE - :days
+                      AND metric_date >= CURRENT_DATE - (INTERVAL '1 day' * :days)
                     ORDER BY metric_date
                 """),
                 {"org_id": organization_id, "days": days},

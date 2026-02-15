@@ -193,7 +193,7 @@ class BottleneckDetector(BaseDetector):
             self.log_error("Bottleneck detection failed", e)
             return DetectionResult(
                 success=False,
-                error_message=str(e),
+                error_message="ボトルネック検出中に内部エラーが発生しました",
             )
 
     async def _detect_overdue_tasks(self) -> list[dict[str, Any]]:
@@ -493,7 +493,7 @@ class BottleneckDetector(BaseDetector):
         except Exception as e:
             self._logger.error(
                 "Failed to save bottleneck alert",
-                extra={"error": str(e)}
+                extra={"error_type": type(e).__name__}
             )
             return None
 

@@ -459,7 +459,7 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                         extra={
                             "organization_id": str(self._org_id),
                             "insight_id": str(insight_id),
-                            "error": str(notify_err),
+                            "error_type": type(notify_err).__name__,
                         }
                     )
 
@@ -481,7 +481,7 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                 "Failed to save insight",
                 extra={
                     "organization_id": str(self._org_id),
-                    "error": str(e),
+                    "error_type": type(e).__name__,
                 }
             )
             raise InsightCreateError(
@@ -638,7 +638,6 @@ class BaseDetector(ABC, Generic[DetectionResultT]):
                 "organization_id": str(self._org_id),
                 "detector_type": self._detector_type.value,
                 "error_type": type(error).__name__,
-                "error_message": str(error),
             },
             exc_info=True
         )

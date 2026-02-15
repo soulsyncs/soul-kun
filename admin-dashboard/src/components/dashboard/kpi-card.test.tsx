@@ -46,7 +46,7 @@ describe('KpiCard', () => {
       <KpiCard title="Growth" value={100} icon={Activity} change={12.5} />
     );
     expect(screen.getByText('12.5%')).toBeInTheDocument();
-    expect(screen.getByText('vs previous period')).toBeInTheDocument();
+    expect(screen.getByText('前期間比')).toBeInTheDocument();
   });
 
   it('shows negative trend with percentage', () => {
@@ -58,7 +58,7 @@ describe('KpiCard', () => {
 
   it('hides trend when change is undefined', () => {
     render(<KpiCard title="Static" value={100} icon={Activity} />);
-    expect(screen.queryByText('vs previous period')).not.toBeInTheDocument();
+    expect(screen.queryByText('前期間比')).not.toBeInTheDocument();
   });
 
   it('shows neutral badge when change is 0', () => {

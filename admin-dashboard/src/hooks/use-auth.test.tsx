@@ -16,6 +16,7 @@ vi.mock('@/lib/api', () => ({
     auth: {
       me: vi.fn(),
       loginWithGoogle: vi.fn(),
+      logout: vi.fn().mockResolvedValue(undefined),
     },
   },
   ApiError: class extends Error {
@@ -26,6 +27,8 @@ vi.mock('@/lib/api', () => ({
       this.status = status;
     }
   },
+  setBearerToken: vi.fn(),
+  clearBearerToken: vi.fn(),
 }));
 
 import { api } from '@/lib/api';
@@ -118,8 +121,8 @@ describe('useAuth', () => {
       expect(result.current.isAuthenticated).toBe(true);
     });
 
-    act(() => {
-      result.current.logout();
+    await act(async () => {
+      await result.current.logout();
     });
 
     expect(result.current.isAuthenticated).toBe(false);

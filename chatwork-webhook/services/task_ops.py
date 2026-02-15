@@ -31,6 +31,32 @@ def _escape_ilike(value: str) -> str:
     return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _katakana_to_hiragana(text: str) -> str:
+    """カタカナをひらがなに変換（v10.56.26）"""
+    result = []
+    for char in text:
+        code = ord(char)
+        # カタカナ（U+30A1〜U+30F6）をひらがな（U+3041〜U+3096）に変換
+        if 0x30A1 <= code <= 0x30F6:
+            result.append(chr(code - 0x60))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
+def _hiragana_to_katakana(text: str) -> str:
+    """ひらがなをカタカナに変換（v10.56.26）"""
+    result = []
+    for char in text:
+        code = ord(char)
+        # ひらがな（U+3041〜U+3096）をカタカナ（U+30A1〜U+30F6）に変換
+        if 0x3041 <= code <= 0x3096:
+            result.append(chr(code + 0x60))
+        else:
+            result.append(char)
+    return ''.join(result)
+
+
 # テナントID（CLAUDE.md 鉄則#1: 全クエリにorganization_idフィルター必須）
 _ORGANIZATION_ID = os.getenv("PHASE3_ORGANIZATION_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 MEMORY_DEFAULT_ORG_ID = _ORGANIZATION_ID
@@ -109,7 +135,7 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
     clean_name = re.sub(r'(さん|くん|ちゃん|様|氏)$', '', name.strip())
     # ★ スペースを除去して正規化（半角・全角両方）
     normalized_name = clean_name.replace(' ', '').replace('　', '')
-    print(f"👤 担当者検索: 入力='{name}' → クリーニング後='{clean_name}' → 正規化='{normalized_name}'")
+    print(f"👤 担当者検索開始")
     
     with pool.connect() as conn:
         # 完全一致で検索（クリーニング後の名前）
@@ -122,7 +148,7 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
             {"org_id": organization_id, "name": clean_name}
         ).fetchone()
         if result:
-            print(f"✅ 完全一致で発見: {clean_name} → {result[0]}")
+            print(f"✅ 完全一致で発見: account_id={result[0]}")
             return result[0]
 
         # 部分一致で検索（クリーニング後の名前）
@@ -135,7 +161,7 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
             {"org_id": organization_id, "pattern": f"%{_escape_ilike(clean_name)}%"}
         ).fetchone()
         if result:
-            print(f"✅ 部分一致で発見: {clean_name} → {result[0]} ({result[1]})")
+            print(f"✅ 部分一致で発見: account_id={result[0]}")
             return result[0]
 
         # ★ スペース除去して正規化した名前で検索（NEW）
@@ -150,7 +176,7 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
             {"org_id": organization_id, "pattern": f"%{_escape_ilike(normalized_name)}%"}
         ).fetchone()
         if result:
-            print(f"✅ 正規化検索で発見: {normalized_name} → {result[0]} ({result[1]})")
+            print(f"✅ 正規化検索で発見: account_id={result[0]}")
             return result[0]
 
         # 元の名前でも検索（念のため）
@@ -164,10 +190,43 @@ def get_chatwork_account_id_by_name(name, organization_id: str = None):
                 {"org_id": organization_id, "pattern": f"%{_escape_ilike(name)}%"}
             ).fetchone()
             if result:
-                print(f"✅ 元の名前で部分一致: {name} → {result[0]} ({result[1]})")
+                print(f"✅ 元の名前で部分一致: account_id={result[0]}")
                 return result[0]
 
-        print(f"❌ 担当者が見つかりません: {name} (クリーニング後: {clean_name}, 正規化: {normalized_name})")
+        # v10.56.26: カタカナ・ひらがな変換で検索
+        # 入力がカタカナの場合はひらがなに変換、ひらがなの場合はカタカナに変換して検索
+        hiragana_name = _katakana_to_hiragana(clean_name)
+        katakana_name = _hiragana_to_katakana(clean_name)
+
+        # ひらがな版で検索
+        if hiragana_name != clean_name:
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT account_id, name FROM chatwork_users
+                    WHERE organization_id = :org_id AND name ILIKE :pattern ESCAPE '\\'
+                    LIMIT 1
+                """),
+                {"org_id": organization_id, "pattern": f"%{_escape_ilike(hiragana_name)}%"}
+            ).fetchone()
+            if result:
+                print(f"✅ ひらがな変換で発見: account_id={result[0]}")
+                return result[0]
+
+        # カタカナ版で検索
+        if katakana_name != clean_name:
+            result = conn.execute(
+                sqlalchemy.text("""
+                    SELECT account_id, name FROM chatwork_users
+                    WHERE organization_id = :org_id AND name ILIKE :pattern ESCAPE '\\'
+                    LIMIT 1
+                """),
+                {"org_id": organization_id, "pattern": f"%{_escape_ilike(katakana_name)}%"}
+            ).fetchone()
+            if result:
+                print(f"✅ カタカナ変換で発見: account_id={result[0]}")
+                return result[0]
+
+        print(f"❌ 担当者が見つかりません")
         return None
 
 def create_chatwork_task(room_id, task_body, assigned_to_account_id, limit=None):

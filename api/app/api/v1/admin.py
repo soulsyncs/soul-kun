@@ -3694,7 +3694,7 @@ async def get_meetings_list(
     description="ミーティングの詳細（議事録・録音含む）（Level 5+）",
 )
 async def get_meeting_detail(
-    meeting_id: str,
+    meeting_id: str = Path(..., pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", description="ミーティングID (UUID)"),
     user: UserContext = Depends(require_admin),
 ):
     organization_id = user.organization_id or DEFAULT_ORG_ID
@@ -3720,7 +3720,7 @@ async def get_meeting_detail(
             try:
                 t_result = conn.execute(
                     text("""
-                        SELECT mt.transcript_text
+                        SELECT COALESCE(mt.sanitized_transcript, mt.raw_transcript) as transcript_text
                         FROM meeting_transcripts mt
                         WHERE mt.meeting_id = :meeting_id
                           AND mt.organization_id = :org_id
@@ -3732,8 +3732,8 @@ async def get_meeting_detail(
                 t_row = t_result.fetchone()
                 if t_row:
                     transcript_text = t_row[0]
-            except Exception:
-                pass  # meeting_transcripts テーブルがない場合はスキップ
+            except Exception as e:
+                logger.warning("Failed to fetch transcript", meeting_id=meeting_id, error=str(e))
 
             log_audit_event(
                 logger=logger, action="get_meeting_detail",

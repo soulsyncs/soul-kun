@@ -13863,19 +13863,20 @@
     },
     "person_attributes": {
       "id": "integer",
-      "person_id": "integer",
+      "person_id": "uuid",
       "attribute_type": "character varying",
       "attribute_value": "text",
       "source": "character varying",
+      "organization_id": "uuid",
       "created_at": "timestamp without time zone",
-      "updated_at": "timestamp without time zone",
-      "organization_id": "character varying"
+      "updated_at": "timestamp without time zone"
     },
     "person_events": {
       "id": "integer",
-      "person_id": "integer",
+      "person_id": "uuid",
       "event_description": "text",
       "event_date": "date",
+      "organization_id": "uuid",
       "created_at": "timestamp without time zone"
     },
     "persona_addons": {
@@ -13920,11 +13921,11 @@
       "updated_at": "timestamp with time zone"
     },
     "persons": {
-      "id": "integer",
+      "id": "uuid",
       "name": "character varying",
+      "organization_id": "uuid",
       "created_at": "timestamp without time zone",
-      "updated_at": "timestamp without time zone",
-      "organization_id": "character varying"
+      "updated_at": "timestamp without time zone"
     },
     "processed_messages_backup": {
       "message_id": "bigint",

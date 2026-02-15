@@ -174,7 +174,7 @@ class TestPydanticModels:
 
     def test_person_response_model(self):
         person = mobile_main.PersonResponse(
-            id=1,
+            id="a1b2c3d4-e5f6-7890-abcd-ef1234567890",
             display_name="田中太郎",
             department="営業部",
             position="リーダー",
@@ -500,7 +500,7 @@ class TestAuthenticatedEndpoints:
         from fastapi.testclient import TestClient
         headers = self._get_auth_header()
         mock_rows = [
-            {"id": 1, "display_name": "田中太郎", "department": "営業部", "position": "リーダー"},
+            {"id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "display_name": "田中太郎", "department": "営業部", "position": "リーダー"},
         ]
         with patch.object(mobile_main, "_run_db_query", return_value=mock_rows) as mock_query:
             client = TestClient(mobile_main.app)

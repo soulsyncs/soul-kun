@@ -114,29 +114,33 @@ class TestPersonServiceGetOrCreatePerson:
     """get_or_create_personのテスト"""
 
     def test_get_existing_person(self, person_service, mock_pool):
-        """既存の人物を取得"""
+        """既存の人物を取得（UUID文字列を返す）"""
         # Setup mock
         mock_conn = MagicMock()
         mock_pool.begin.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.begin.return_value.__exit__ = Mock(return_value=False)
-        mock_conn.execute.return_value.fetchone.return_value = (123,)
+        person_uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+        mock_conn.execute.return_value.fetchone.return_value = (person_uuid,)
 
         result = person_service.get_or_create_person("田中太郎")
 
-        assert result == 123
+        assert result == person_uuid
+        assert isinstance(result, str)
         mock_conn.execute.assert_called_once()
 
     def test_create_new_person(self, person_service, mock_pool):
-        """新規人物を作成"""
+        """新規人物を作成（UUID文字列を返す）"""
         mock_conn = MagicMock()
         mock_pool.begin.return_value.__enter__ = Mock(return_value=mock_conn)
         mock_pool.begin.return_value.__exit__ = Mock(return_value=False)
+        new_uuid = "b2c3d4e5-f6a7-8901-bcde-f12345678901"
         # 最初のSELECTでNone、次のINSERTで新ID
-        mock_conn.execute.return_value.fetchone.side_effect = [None, (456,)]
+        mock_conn.execute.return_value.fetchone.side_effect = [None, (new_uuid,)]
 
         result = person_service.get_or_create_person("新規太郎")
 
-        assert result == 456
+        assert result == new_uuid
+        assert isinstance(result, str)
         assert mock_conn.execute.call_count == 2
 
 

@@ -41,6 +41,12 @@ class GoogleAuthRequest(BaseModel):
     id_token: str = Field(..., description="Google ID Token")
 
 
+class TokenLoginRequest(BaseModel):
+    """トークンログインリクエスト（暫定認証用）"""
+
+    token: str = Field(..., description="JWT access token")
+
+
 class AuthTokenResponse(BaseModel):
     """認証トークンレスポンス（トークンはhttpOnly cookieで配信）"""
 

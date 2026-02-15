@@ -41,6 +41,7 @@ def _escape_like(value: str) -> str:
 from app.schemas.admin import (
     # Auth
     GoogleAuthRequest,
+    TokenLoginRequest,
     AuthTokenResponse,
     AuthMeResponse,
     # Dashboard
@@ -316,6 +317,111 @@ async def auth_google(request: GoogleAuthRequest):
         secure=os.getenv("ENVIRONMENT") == "production",
         samesite="strict",
         max_age=expires_minutes * 60,
+        path="/api/v1/admin",
+    )
+    return response
+
+
+@router.post(
+    "/auth/token-login",
+    response_model=AuthTokenResponse,
+    responses={
+        401: {"model": AdminErrorResponse, "description": "無効なトークン"},
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+    },
+    summary="トークンによるログイン（暫定認証）",
+    description="""
+CLIで生成したJWTトークンを検証し、httpOnly cookieにセットする。
+Google OAuth Client ID未設定時の暫定認証手段。
+
+## セキュリティ
+- JWTの署名・有効期限を検証
+- DBでユーザー存在確認 + organization_idフィルタ
+- 権限レベル5以上を確認
+    """,
+)
+async def auth_token_login(request: TokenLoginRequest):
+    """CLIで発行したJWTを検証してcookieにセット"""
+
+    # 1. JWT検証（署名・有効期限・必須claims）
+    payload = decode_jwt(request.token)
+    user_id = payload.get("sub")
+    org_id = payload.get("org_id")
+
+    # 2. DBでユーザー存在確認（org_idフィルタ: 鉄則#1）
+    pool = get_db_pool()
+    try:
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, organization_id
+                    FROM users
+                    WHERE id::text = :user_id
+                      AND organization_id = :org_id
+                    LIMIT 1
+                """),
+                {"user_id": user_id, "org_id": org_id},
+            )
+            user_row = result.fetchone()
+
+            if not user_row:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail={
+                        "status": "failed",
+                        "error_code": "USER_NOT_FOUND",
+                        "error_message": "登録されていないユーザーです",
+                    },
+                )
+
+            # 3. 権限レベルチェック
+            role_level = get_user_role_level_sync(conn, user_id)
+            if role_level < ADMIN_MIN_LEVEL:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "status": "failed",
+                        "error_code": "INSUFFICIENT_PERMISSION",
+                        "error_message": "管理者権限（Level 5以上）が必要です",
+                    },
+                )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Token login DB error", error=str(e))
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "failed",
+                "error_code": "INTERNAL_ERROR",
+                "error_message": "内部エラーが発生しました",
+            },
+        )
+
+    log_audit_event(
+        logger=logger,
+        action="admin_token_login",
+        resource_type="auth",
+        resource_id=user_id,
+        user_id=user_id,
+        details={"method": "token", "role_level": role_level},
+    )
+
+    # httpOnly cookieでトークンをセット
+    expires_in = payload.get("exp", 0) - payload.get("iat", 0)
+    response = JSONResponse(content={
+        "status": "success",
+        "token_type": "bearer",
+        "expires_in": max(expires_in, 3600),
+    })
+    response.set_cookie(
+        key="access_token",
+        value=request.token,
+        httponly=True,
+        secure=os.getenv("ENVIRONMENT") == "production",
+        samesite="strict",
+        max_age=max(expires_in, 3600),
         path="/api/v1/admin",
     )
     return response

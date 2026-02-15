@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { api, ApiError } from '@/lib/api';
+import { api, ApiError, setBearerToken, clearBearerToken } from '@/lib/api';
 import type { AuthMeResponse } from '@/types/api';
 
 interface AuthContextType {
@@ -19,6 +19,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   loginWithGoogle: (idToken: string) => Promise<void>;
+  loginWithToken: (token: string) => Promise<void>;
   logout: () => Promise<void>;
   refetch: () => Promise<void>;
 }
@@ -54,12 +55,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await fetchUser();
   };
 
+  const loginWithToken = async (token: string) => {
+    setBearerToken(token);
+    await api.auth.loginWithToken(token);
+    await fetchUser();
+  };
+
   const logout = async () => {
     try {
       await api.auth.logout();
     } catch {
       // best effort — cookie may already be expired
     }
+    clearBearerToken();
     queryClient.clear();
     setUser(null);
   };
@@ -69,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isLoading,
     isAuthenticated: user !== null,
     loginWithGoogle,
+    loginWithToken,
     logout,
     refetch: fetchUser,
   };

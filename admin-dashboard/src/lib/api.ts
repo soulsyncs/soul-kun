@@ -37,6 +37,17 @@ interface RequestOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>;
 }
 
+// In-memory Bearer token (used for cross-origin token-login flow)
+let _bearerToken: string | null = null;
+
+export function setBearerToken(token: string) {
+  _bearerToken = token;
+}
+
+export function clearBearerToken() {
+  _bearerToken = null;
+}
+
 async function fetchWithAuth<T>(
   endpoint: string,
   options: RequestOptions = {}
@@ -58,12 +69,18 @@ async function fetchWithAuth<T>(
     }
   }
 
+  const authHeaders: Record<string, string> = {};
+  if (_bearerToken) {
+    authHeaders['Authorization'] = `Bearer ${_bearerToken}`;
+  }
+
   const config: RequestInit = {
     ...fetchOptions,
-    credentials: 'include', // httpOnly cookie auth
+    credentials: 'include', // httpOnly cookie auth (fallback)
     headers: {
       'Content-Type': 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
+      ...authHeaders,
       ...fetchOptions.headers,
     },
   };
@@ -107,6 +124,12 @@ export const api = {
       fetchWithAuth<AuthTokenResponse>('/admin/auth/google', {
         method: 'POST',
         body: JSON.stringify({ id_token: idToken }),
+      }),
+
+    loginWithToken: (token: string) =>
+      fetchWithAuth<AuthTokenResponse>('/admin/auth/token-login', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
       }),
 
     me: () => fetchWithAuth<AuthMeResponse>('/admin/auth/me'),

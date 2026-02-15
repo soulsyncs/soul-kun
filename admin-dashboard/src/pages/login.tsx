@@ -1,9 +1,7 @@
 /**
  * Login page
  * Google OAuth login for admin users (Level 5+)
- *
- * For MVP, shows a "Sign in with Google" button.
- * Google Identity Services (GIS) will be loaded from CDN.
+ * Falls back to token-based login when Google Client ID is not configured.
  */
 
 import { useEffect, useCallback, useState } from 'react';
@@ -42,7 +40,8 @@ const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 export function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { loginWithGoogle, isAuthenticated } = useAuth();
+  const [tokenInput, setTokenInput] = useState('');
+  const { loginWithGoogle, loginWithToken, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
   // Redirect if already authenticated
@@ -77,6 +76,35 @@ export function LoginPage() {
     },
     [loginWithGoogle, navigate]
   );
+
+  const handleTokenLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = tokenInput.trim();
+    if (!trimmed) {
+      setError('トークンを入力してください');
+      return;
+    }
+    setError('');
+    setIsLoading(true);
+    try {
+      await loginWithToken(trimmed);
+      navigate({ to: '/' });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.status === 401) {
+          setError('トークンが無効または期限切れです');
+        } else if (err.status === 403) {
+          setError('管理者権限（Level 5以上）が必要です');
+        } else {
+          setError('ログインに失敗しました');
+        }
+      } else {
+        setError('予期しないエラーが発生しました');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Initialize Google Identity Services
   useEffect(() => {
@@ -120,22 +148,37 @@ export function LoginPage() {
         <CardHeader className="space-y-1 text-center">
           <CardTitle className="text-2xl font-bold">Soul-kun Admin</CardTitle>
           <CardDescription>
-            Sign in with your Google account to access the dashboard
+            {GOOGLE_CLIENT_ID
+              ? 'Sign in with your Google account to access the dashboard'
+              : 'Access token to sign in to the dashboard'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
-          {/* Google Sign-In button */}
+          {/* Google Sign-In button (when configured) */}
           {GOOGLE_CLIENT_ID ? (
             <div id="google-signin-button" />
           ) : (
-            <p className="text-sm text-muted-foreground text-center">
-              Google Client ID not configured.
-              <br />
-              Set VITE_GOOGLE_CLIENT_ID in .env
-            </p>
+            /* Token-based login (fallback) */
+            <form onSubmit={handleTokenLogin} className="w-full space-y-3">
+              <textarea
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="JWT token"
+                rows={3}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                disabled={isLoading}
+              />
+              <button
+                type="submit"
+                disabled={isLoading || !tokenInput.trim()}
+                className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isLoading ? 'Authenticating...' : 'Sign in'}
+              </button>
+            </form>
           )}
 
-          {isLoading && (
+          {isLoading && GOOGLE_CLIENT_ID && (
             <p className="text-sm text-muted-foreground animate-pulse">
               Authenticating...
             </p>

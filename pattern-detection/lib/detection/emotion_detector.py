@@ -505,8 +505,10 @@ class EmotionDetector(BaseDetector):
                     'message_time': _ensure_aware(message['send_time']),
                 }
         except Exception as e:
+            # 診断ログ: DatabaseErrorの根本原因特定（3AI合議 2026-02-15）
+            safe_msg = str(e)[:200].replace('\n', ' ')
             self._logger.warning(
-                f"Failed to query existing emotion score for message {message_id}: {type(e).__name__}"
+                f"Failed to query existing emotion score for message {message_id}: {type(e).__name__}: {safe_msg}"
             )
 
         # 2. 新しく計算
@@ -701,7 +703,9 @@ class EmotionDetector(BaseDetector):
             self._conn.execute(text("RELEASE SAVEPOINT save_emotion_score"))
 
         except Exception as e:
-            self._logger.warning(f"Failed to save emotion score: {type(e).__name__}")
+            # 診断ログ: DatabaseErrorの根本原因特定（3AI合議 2026-02-15）
+            safe_msg = str(e)[:200].replace('\n', ' ')
+            self._logger.warning(f"Failed to save emotion score: {type(e).__name__}: {safe_msg}")
             try:
                 self._conn.execute(text("ROLLBACK TO SAVEPOINT save_emotion_score"))
             except Exception as rollback_err:
@@ -745,7 +749,9 @@ class EmotionDetector(BaseDetector):
             return 0.0
 
         except Exception as e:
-            self._logger.warning(f"Failed to calculate baseline: {type(e).__name__}")
+            # 診断ログ: DatabaseErrorの根本原因特定（3AI合議 2026-02-15）
+            safe_msg = str(e)[:200].replace('\n', ' ')
+            self._logger.warning(f"Failed to calculate baseline: {type(e).__name__}: {safe_msg}")
             return 0.0
 
     def _calculate_consecutive_negative_days(

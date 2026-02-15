@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 export function BrainPage() {
   const [days, setDays] = useState(7);
@@ -79,9 +80,9 @@ export function BrainPage() {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Brain Analytics</h1>
+            <h1 className="text-3xl font-bold">AI脳分析</h1>
             <p className="text-muted-foreground">
-              LLM Brain decision metrics and performance
+              ソウルくんのAI脳（LLM Brain）の判断性能と実績
             </p>
           </div>
           <div className="flex gap-2">
@@ -95,7 +96,7 @@ export function BrainPage() {
                     : 'bg-secondary text-secondary-foreground hover:bg-accent'
                 }`}
               >
-                {d}d
+                {d}日間
               </button>
             ))}
           </div>
@@ -104,13 +105,13 @@ export function BrainPage() {
         {isLoading ? (
           <div className="flex items-center justify-center h-96">
             <div className="animate-pulse text-muted-foreground">
-              Loading analytics...
+              分析データを読み込み中...
             </div>
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-96">
             <div className="text-destructive">
-              Failed to load brain analytics. Please try again later.
+              データの読み込みに失敗しました。しばらくしてからお試しください。
             </div>
           </div>
         ) : (
@@ -120,7 +121,8 @@ export function BrainPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Conversations ({days}d)
+                    総会話数（{days}日間）
+                    <InfoTooltip text="選択した期間にソウルくんが処理した会話の合計回数です" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -132,7 +134,8 @@ export function BrainPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Avg Latency
+                    平均レイテンシ
+                    <InfoTooltip text="AI脳が判断を下すまでにかかる平均時間です。短いほど高速に応答しています" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -144,7 +147,8 @@ export function BrainPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total Cost ({days}d)
+                    総コスト（{days}日間）
+                    <InfoTooltip text="AI利用にかかった費用の合計（USドル）です" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -159,17 +163,20 @@ export function BrainPage() {
             <Tabs defaultValue="conversations">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Daily Metrics</CardTitle>
+                  <CardTitle>
+                    日別メトリクス
+                    <InfoTooltip text="日ごとの推移をグラフで確認できます。タブで表示項目を切り替えられます" />
+                  </CardTitle>
                   <TabsList>
-                    <TabsTrigger value="conversations">Conversations</TabsTrigger>
-                    <TabsTrigger value="latency">Latency</TabsTrigger>
-                    <TabsTrigger value="errors">Error Rate</TabsTrigger>
+                    <TabsTrigger value="conversations">会話数</TabsTrigger>
+                    <TabsTrigger value="latency">レイテンシ</TabsTrigger>
+                    <TabsTrigger value="errors">エラー率</TabsTrigger>
                   </TabsList>
                 </CardHeader>
                 <CardContent>
                   {chartData.length === 0 ? (
                     <div className="flex items-center justify-center h-64 text-muted-foreground">
-                      No data for this period
+                      この期間のデータがありません
                     </div>
                   ) : (
                     <>
@@ -190,6 +197,7 @@ export function BrainPage() {
                               dataKey="conversations"
                               fill="var(--color-chart-1)"
                               radius={[4, 4, 0, 0]}
+                              name="会話数"
                             />
                           </BarChart>
                         </ResponsiveContainer>
@@ -211,7 +219,7 @@ export function BrainPage() {
                               }}
                               formatter={(value: number | undefined) => [
                                 `${(value ?? 0).toFixed(1)}ms`,
-                                'Avg Latency',
+                                '平均レイテンシ',
                               ]}
                             />
                             <Legend />
@@ -221,7 +229,7 @@ export function BrainPage() {
                               stroke="var(--color-chart-2)"
                               strokeWidth={2}
                               dot={{ r: 4 }}
-                              name="Avg Latency"
+                              name="平均レイテンシ"
                             />
                           </LineChart>
                         </ResponsiveContainer>
@@ -243,7 +251,7 @@ export function BrainPage() {
                               }}
                               formatter={(value: number | undefined) => [
                                 `${(value ?? 0).toFixed(2)}%`,
-                                'Error Rate',
+                                'エラー率',
                               ]}
                             />
                             <Line
@@ -252,7 +260,7 @@ export function BrainPage() {
                               stroke="var(--color-destructive)"
                               strokeWidth={2}
                               dot={{ r: 4 }}
-                              name="Error Rate"
+                              name="エラー率"
                             />
                           </LineChart>
                         </ResponsiveContainer>
@@ -267,9 +275,10 @@ export function BrainPage() {
             <Card>
               <CardHeader>
                 <CardTitle>
-                  Recent Decision Logs
+                  最近の判断ログ
+                  <InfoTooltip text="ソウルくんのAI脳が行った判断の履歴です。どんなアクションを、どれくらいの確信度で決定したかがわかります" />
                   <span className="text-sm font-normal text-muted-foreground ml-2">
-                    ({logsData?.total_count ?? 0} total)
+                    （全{logsData?.total_count ?? 0}件）
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -277,10 +286,10 @@ export function BrainPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Time</TableHead>
-                      <TableHead>Action</TableHead>
-                      <TableHead className="text-right">Confidence</TableHead>
-                      <TableHead className="text-right">Duration</TableHead>
+                      <TableHead>日時</TableHead>
+                      <TableHead>アクション</TableHead>
+                      <TableHead className="text-right">確信度</TableHead>
+                      <TableHead className="text-right">処理時間</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -318,7 +327,7 @@ export function BrainPage() {
                           colSpan={4}
                           className="text-center text-muted-foreground h-24"
                         >
-                          No decision logs available
+                          判断ログがありません
                         </TableCell>
                       </TableRow>
                     )}

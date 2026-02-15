@@ -61,14 +61,14 @@ export function LoginPage() {
       } catch (err) {
         if (err instanceof ApiError) {
           if (err.status === 401 || err.status === 403) {
-            setError('Access denied. Please check your permissions.');
+            setError('アクセスが拒否されました。権限を確認してください。');
           } else if (err.status >= 500) {
-            setError('Server error. Please try again later.');
+            setError('サーバーエラーが発生しました。しばらくしてからお試しください。');
           } else {
-            setError('Login failed. Please try again.');
+            setError('ログインに失敗しました。もう一度お試しください。');
           }
         } else {
-          setError('An unexpected error occurred');
+          setError('予期しないエラーが発生しました');
         }
       } finally {
         setIsLoading(false);
@@ -146,11 +146,11 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-muted/50">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
-          <CardTitle className="text-2xl font-bold">Soul-kun Admin</CardTitle>
+          <CardTitle className="text-2xl font-bold">ソウルくん管理画面</CardTitle>
           <CardDescription>
             {GOOGLE_CLIENT_ID
-              ? 'Sign in with your Google account to access the dashboard'
-              : 'Access token to sign in to the dashboard'}
+              ? 'Googleアカウントでログインしてください'
+              : 'アクセストークンを入力してログイン'}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
@@ -163,7 +163,7 @@ export function LoginPage() {
               <textarea
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="JWT token"
+                placeholder="JWTトークン"
                 rows={3}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={isLoading}
@@ -173,14 +173,14 @@ export function LoginPage() {
                 disabled={isLoading || !tokenInput.trim()}
                 className="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isLoading ? 'Authenticating...' : 'Sign in'}
+                {isLoading ? '認証中...' : 'ログイン'}
               </button>
             </form>
           )}
 
           {isLoading && GOOGLE_CLIENT_ID && (
             <p className="text-sm text-muted-foreground animate-pulse">
-              Authenticating...
+              認証中...
             </p>
           )}
 
@@ -191,7 +191,7 @@ export function LoginPage() {
           )}
 
           <p className="text-xs text-muted-foreground text-center mt-4">
-            Access restricted to Level 5+ administrators only
+            レベル5以上の管理者のみアクセスできます
           </p>
         </CardContent>
       </Card>

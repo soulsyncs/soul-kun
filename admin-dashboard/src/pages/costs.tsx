@@ -36,6 +36,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const CHART_COLORS = [
   'var(--color-chart-1)',
@@ -44,6 +45,13 @@ const CHART_COLORS = [
   'var(--color-chart-4)',
   'var(--color-chart-5)',
 ];
+
+const STATUS_LABELS: Record<string, string> = {
+  exceeded: '予算超過',
+  warning: '注意',
+  ok: '順調',
+  on_track: '順調',
+};
 
 export function CostsPage() {
   const { data: dailyData, isLoading: dailyLoading, isError: dailyError } =
@@ -95,22 +103,22 @@ export function CostsPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold">Cost Tracking</h1>
+          <h1 className="text-3xl font-bold">コスト管理</h1>
           <p className="text-muted-foreground">
-            AI usage costs, budget monitoring, and breakdowns
+            AI利用コスト、予算管理、内訳分析
           </p>
         </div>
 
         {isLoading ? (
           <div className="flex items-center justify-center h-96">
             <div className="animate-pulse text-muted-foreground">
-              Loading cost data...
+              コストデータを読み込み中...
             </div>
           </div>
         ) : isError ? (
           <div className="flex items-center justify-center h-96">
             <div className="text-destructive">
-              Failed to load cost data. Please try again later.
+              データの読み込みに失敗しました。しばらくしてからお試しください。
             </div>
           </div>
         ) : (
@@ -120,7 +128,8 @@ export function CostsPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Total (30d)
+                    合計（30日間）
+                    <InfoTooltip text="過去30日間にAI利用でかかった費用の合計です" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -132,7 +141,8 @@ export function CostsPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Daily Average
+                    日次平均
+                    <InfoTooltip text="1日あたりの平均コストです" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -144,7 +154,8 @@ export function CostsPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Current Month
+                    今月
+                    <InfoTooltip text="今月の累計コストです" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -159,7 +170,8 @@ export function CostsPage() {
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Budget Status
+                    予算状況
+                    <InfoTooltip text="今月の予算に対する利用状況です。バーが右端に近いほど予算を使い切りそうです" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -173,11 +185,7 @@ export function CostsPage() {
                               : 'secondary'
                           }
                         >
-                          {currentMonth.status === 'exceeded'
-                            ? 'Over Budget'
-                            : currentMonth.status === 'warning'
-                              ? 'Warning'
-                              : 'On Track'}
+                          {STATUS_LABELS[currentMonth.status] ?? currentMonth.status}
                         </Badge>
                       </div>
                       {/* Budget progress bar */}
@@ -205,7 +213,7 @@ export function CostsPage() {
                     </>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      No budget set
+                      予算が設定されていません
                     </p>
                   )}
                 </CardContent>
@@ -215,12 +223,15 @@ export function CostsPage() {
             {/* Daily Cost Chart */}
             <Card>
               <CardHeader>
-                <CardTitle>Daily Cost (30 days)</CardTitle>
+                <CardTitle>
+                  日別コスト（30日間）
+                  <InfoTooltip text="過去30日間のAI利用コストを日ごとに棒グラフで表示しています" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 {dailyChartData.length === 0 ? (
                   <div className="flex items-center justify-center h-64 text-muted-foreground">
-                    No daily cost data
+                    日別コストデータがありません
                   </div>
                 ) : (
                   <ResponsiveContainer width="100%" height={350}>
@@ -239,13 +250,14 @@ export function CostsPage() {
                         }}
                         formatter={(value: number | undefined) => [
                           `$${(value ?? 0).toFixed(4)}`,
-                          'Cost',
+                          'コスト',
                         ]}
                       />
                       <Bar
                         dataKey="cost"
                         fill="var(--color-chart-1)"
                         radius={[4, 4, 0, 0]}
+                        name="コスト"
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -257,10 +269,13 @@ export function CostsPage() {
             <Tabs defaultValue="model">
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between">
-                  <CardTitle>Cost Breakdown (30d)</CardTitle>
+                  <CardTitle>
+                    コスト内訳（30日間）
+                    <InfoTooltip text="どのAIモデルにどれくらいの費用がかかっているかの内訳です" />
+                  </CardTitle>
                   <TabsList>
-                    <TabsTrigger value="model">By Model</TabsTrigger>
-                    <TabsTrigger value="tier">By Tier</TabsTrigger>
+                    <TabsTrigger value="model">モデル別</TabsTrigger>
+                    <TabsTrigger value="tier">ティア別</TabsTrigger>
                   </TabsList>
                 </CardHeader>
                 <CardContent>
@@ -296,7 +311,7 @@ export function CostsPage() {
                               }}
                               formatter={(value: number | undefined) => [
                                 `$${(value ?? 0).toFixed(4)}`,
-                                'Cost',
+                                'コスト',
                               ]}
                             />
                           </PieChart>
@@ -306,10 +321,10 @@ export function CostsPage() {
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Model</TableHead>
-                            <TableHead className="text-right">Cost</TableHead>
-                            <TableHead className="text-right">Requests</TableHead>
-                            <TableHead className="text-right">Share</TableHead>
+                            <TableHead>モデル</TableHead>
+                            <TableHead className="text-right">コスト</TableHead>
+                            <TableHead className="text-right">リクエスト数</TableHead>
+                            <TableHead className="text-right">割合</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -339,10 +354,10 @@ export function CostsPage() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Tier</TableHead>
-                          <TableHead className="text-right">Cost</TableHead>
-                          <TableHead className="text-right">Requests</TableHead>
-                          <TableHead className="text-right">Share</TableHead>
+                          <TableHead>ティア</TableHead>
+                          <TableHead className="text-right">コスト</TableHead>
+                          <TableHead className="text-right">リクエスト数</TableHead>
+                          <TableHead className="text-right">割合</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -370,7 +385,7 @@ export function CostsPage() {
                               colSpan={4}
                               className="text-center text-muted-foreground h-24"
                             >
-                              No tier data
+                              ティアデータがありません
                             </TableCell>
                           </TableRow>
                         )}
@@ -384,17 +399,20 @@ export function CostsPage() {
             {/* Monthly Summary Table */}
             <Card>
               <CardHeader>
-                <CardTitle>Monthly Summary</CardTitle>
+                <CardTitle>
+                  月次サマリー
+                  <InfoTooltip text="月ごとのコスト・リクエスト数・予算消化状況の一覧です" />
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Month</TableHead>
-                      <TableHead className="text-right">Cost</TableHead>
-                      <TableHead className="text-right">Requests</TableHead>
-                      <TableHead className="text-right">Budget</TableHead>
-                      <TableHead className="text-right">Status</TableHead>
+                      <TableHead>月</TableHead>
+                      <TableHead className="text-right">コスト</TableHead>
+                      <TableHead className="text-right">リクエスト数</TableHead>
+                      <TableHead className="text-right">予算</TableHead>
+                      <TableHead className="text-right">ステータス</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -420,7 +438,7 @@ export function CostsPage() {
                                 : 'secondary'
                             }
                           >
-                            {m.status}
+                            {STATUS_LABELS[m.status] ?? m.status}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -431,7 +449,7 @@ export function CostsPage() {
                           colSpan={5}
                           className="text-center text-muted-foreground h-24"
                         >
-                          No monthly data
+                          月次データがありません
                         </TableCell>
                       </TableRow>
                     )}

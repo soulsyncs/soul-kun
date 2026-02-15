@@ -7,6 +7,7 @@ import { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Router, Route, RootRoute, RouterProvider, Navigate } from '@tanstack/react-router';
 import { AuthProvider, useAuth } from '@/hooks/use-auth';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { LoginPage } from '@/pages/login';
 
 // Lazy-loaded pages (code splitting)
@@ -27,7 +28,7 @@ const MembersPage = lazy(() =>
 function PageLoader() {
   return (
     <div className="flex items-center justify-center min-h-screen">
-      <div className="animate-pulse text-muted-foreground">Loading...</div>
+      <div className="animate-pulse text-muted-foreground">読み込み中...</div>
     </div>
   );
 }
@@ -114,9 +115,11 @@ declare module '@tanstack/react-router' {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <TooltipProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </TooltipProvider>
     </QueryClientProvider>
   );
 }

@@ -257,17 +257,16 @@ async def auth_google(request: GoogleAuthRequest):
                     },
                 )
 
-            # 4. department_id取得（org_idフィルタ追加: 3AI合意 MEDIUM-2）
+            # 4. department_id取得（user_idで既にorg_idスコープ済み）
             dept_result = conn.execute(
                 text("""
                     SELECT department_id
                     FROM user_departments
                     WHERE user_id = :user_id
-                      AND organization_id = :org_id
                       AND ended_at IS NULL
                     LIMIT 1
                 """),
-                {"user_id": user_id, "org_id": organization_id},
+                {"user_id": user_id},
             )
             dept_row = dept_result.fetchone()
             department_id = str(dept_row[0]) if dept_row and dept_row[0] else None
@@ -304,11 +303,12 @@ async def auth_google(request: GoogleAuthRequest):
         details={"method": "google", "role_level": role_level},
     )
 
-    # httpOnly cookieでJWTを返す（3AI合意 CRITICAL-2）
+    # JWTをレスポンスボディ + httpOnly cookieで返す
     response = JSONResponse(content={
         "status": "success",
         "token_type": "bearer",
         "expires_in": expires_minutes * 60,
+        "access_token": token,
     })
     response.set_cookie(
         key="access_token",

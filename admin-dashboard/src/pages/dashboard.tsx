@@ -25,6 +25,7 @@ import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   MessageSquare,
   AlertTriangle,
@@ -35,6 +36,12 @@ import {
 } from 'lucide-react';
 
 type Period = 'today' | '7d' | '30d';
+
+const PERIOD_LABELS: Record<Period, string> = {
+  today: '今日',
+  '7d': '7日間',
+  '30d': '30日間',
+};
 
 export function DashboardPage() {
   const [period, setPeriod] = useState<Period>('7d');
@@ -57,7 +64,7 @@ export function DashboardPage() {
       <AppLayout>
         <div className="flex items-center justify-center h-96">
           <div className="animate-pulse text-muted-foreground">
-            Loading dashboard...
+            ダッシュボードを読み込み中...
           </div>
         </div>
       </AppLayout>
@@ -69,7 +76,7 @@ export function DashboardPage() {
       <AppLayout>
         <div className="flex items-center justify-center h-96">
           <div className="text-destructive">
-            Failed to load dashboard data. Please try again later.
+            データの読み込みに失敗しました。しばらくしてからお試しください。
           </div>
         </div>
       </AppLayout>
@@ -91,9 +98,9 @@ export function DashboardPage() {
         {/* Header with period selector */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <h1 className="text-3xl font-bold">ダッシュボード</h1>
             <p className="text-muted-foreground">
-              Soul-kun performance overview
+              ソウルくんのパフォーマンス概要
             </p>
           </div>
           <div className="flex gap-2">
@@ -107,7 +114,7 @@ export function DashboardPage() {
                     : 'bg-secondary text-secondary-foreground hover:bg-accent'
                 }`}
               >
-                {p}
+                {PERIOD_LABELS[p]}
               </button>
             ))}
           </div>
@@ -116,37 +123,43 @@ export function DashboardPage() {
         {/* KPI Grid */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           <KpiCard
-            title="Conversations"
+            title="会話数"
             value={kpis?.total_conversations ?? 0}
             icon={MessageSquare}
+            tooltip="ソウルくんがユーザーと行った会話の回数です"
           />
           <KpiCard
-            title="Avg Response Time"
+            title="平均応答時間"
             value={kpis?.avg_response_time_ms ?? 0}
             icon={Clock}
             format="ms"
+            tooltip="ソウルくんが質問を受けてから返答するまでの平均時間です（ミリ秒 = 1/1000秒）"
           />
           <KpiCard
-            title="Error Rate"
+            title="エラー率"
             value={((kpis?.error_rate ?? 0) * 100).toFixed(2) + '%'}
             icon={AlertTriangle}
+            tooltip="全リクエストのうち、エラーが発生した割合です。低いほど安定しています"
           />
           <KpiCard
-            title="Cost Today"
+            title="本日のコスト"
             value={kpis?.total_cost_today ?? 0}
             icon={DollarSign}
             format="currency"
+            tooltip="今日のAI利用にかかった費用（USドル）です"
           />
           <KpiCard
-            title="Budget Remaining"
+            title="予算残高"
             value={kpis?.monthly_budget_remaining ?? 0}
             icon={Activity}
             format="currency"
+            tooltip="今月の予算のうち、まだ使える残りの金額です"
           />
           <KpiCard
-            title="Active Alerts"
+            title="アクティブアラート"
             value={kpis?.active_alerts_count ?? 0}
             icon={Zap}
+            tooltip="現在対応が必要な警告の数です。0が理想です"
           />
         </div>
 
@@ -154,21 +167,24 @@ export function DashboardPage() {
         <Tabs defaultValue="conversations">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Brain Metrics Trend</CardTitle>
+              <CardTitle>
+                AI脳メトリクス推移
+                <InfoTooltip text="ソウルくんのAI脳の動作状況を日ごとにグラフで表示しています" />
+              </CardTitle>
               <TabsList>
-                <TabsTrigger value="conversations">Conversations</TabsTrigger>
-                <TabsTrigger value="latency">Latency</TabsTrigger>
-                <TabsTrigger value="cost">Cost</TabsTrigger>
+                <TabsTrigger value="conversations">会話数</TabsTrigger>
+                <TabsTrigger value="latency">レイテンシ</TabsTrigger>
+                <TabsTrigger value="cost">コスト</TabsTrigger>
               </TabsList>
             </CardHeader>
             <CardContent>
               {metricsLoading ? (
                 <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  Loading chart...
+                  グラフを読み込み中...
                 </div>
               ) : chartData.length === 0 ? (
                 <div className="flex items-center justify-center h-64 text-muted-foreground">
-                  No data for this period
+                  この期間のデータがありません
                 </div>
               ) : (
                 <>
@@ -189,6 +205,7 @@ export function DashboardPage() {
                           dataKey="conversations"
                           fill="var(--color-chart-1)"
                           radius={[4, 4, 0, 0]}
+                          name="会話数"
                         />
                       </BarChart>
                     </ResponsiveContainer>
@@ -210,7 +227,7 @@ export function DashboardPage() {
                           }}
                           formatter={(value: number | undefined) => [
                             `${(value ?? 0).toFixed(1)}ms`,
-                            'Avg Latency',
+                            '平均レイテンシ',
                           ]}
                         />
                         <Area
@@ -220,6 +237,7 @@ export function DashboardPage() {
                           fill="var(--color-chart-2)"
                           fillOpacity={0.2}
                           strokeWidth={2}
+                          name="平均レイテンシ"
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -241,7 +259,7 @@ export function DashboardPage() {
                           }}
                           formatter={(value: number | undefined) => [
                             `$${(value ?? 0).toFixed(4)}`,
-                            'Cost',
+                            'コスト',
                           ]}
                         />
                         <Area
@@ -251,6 +269,7 @@ export function DashboardPage() {
                           fill="var(--color-chart-4)"
                           fillOpacity={0.2}
                           strokeWidth={2}
+                          name="コスト"
                         />
                       </AreaChart>
                     </ResponsiveContainer>
@@ -266,11 +285,14 @@ export function DashboardPage() {
           {/* Recent Alerts */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Alerts</CardTitle>
+              <CardTitle>
+                最近のアラート
+                <InfoTooltip text="システムが検知した異常や注意が必要な事象の一覧です" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {alerts.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recent alerts</p>
+                <p className="text-sm text-muted-foreground">最近のアラートはありません</p>
               ) : (
                 <div className="space-y-3">
                   {alerts.map((alert) => (
@@ -296,7 +318,7 @@ export function DashboardPage() {
                       </div>
                       {alert.is_resolved && (
                         <Badge variant="secondary" className="text-green-600">
-                          Resolved
+                          解決済み
                         </Badge>
                       )}
                     </div>
@@ -309,12 +331,15 @@ export function DashboardPage() {
           {/* Recent Insights */}
           <Card>
             <CardHeader>
-              <CardTitle>Recent Insights</CardTitle>
+              <CardTitle>
+                最近のインサイト
+                <InfoTooltip text="ソウルくんが自動的に発見した傾向や改善提案です" />
+              </CardTitle>
             </CardHeader>
             <CardContent>
               {insights.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  No recent insights
+                  最近のインサイトはありません
                 </p>
               ) : (
                 <div className="space-y-3">

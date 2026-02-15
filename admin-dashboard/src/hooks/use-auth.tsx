@@ -51,7 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginWithGoogle = async (idToken: string) => {
-    await api.auth.loginWithGoogle(idToken);
+    const res = await api.auth.loginWithGoogle(idToken);
+    if (res.access_token) {
+      setBearerToken(res.access_token);
+    }
     await fetchUser();
   };
 

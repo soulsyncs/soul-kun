@@ -22,6 +22,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const LIMIT = 20;
 
@@ -49,9 +50,9 @@ export function MembersPage() {
       <div className="space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl font-bold">Members</h1>
+          <h1 className="text-3xl font-bold">メンバー</h1>
           <p className="text-muted-foreground">
-            {totalCount} members registered
+            {totalCount}名のメンバーが登録されています
           </p>
         </div>
 
@@ -62,7 +63,7 @@ export function MembersPage() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                placeholder="Search by name or email..."
+                placeholder="名前またはメールで検索..."
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value);
@@ -77,19 +78,22 @@ export function MembersPage() {
         {/* Members Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Member List</CardTitle>
+            <CardTitle>
+              メンバー一覧
+              <InfoTooltip text="ソウルくんに登録されている全メンバーの一覧です。検索で絞り込みができます" />
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {isLoading ? (
               <div className="flex items-center justify-center h-64">
                 <div className="animate-pulse text-muted-foreground">
-                  Loading members...
+                  メンバーを読み込み中...
                 </div>
               </div>
             ) : isError ? (
               <div className="flex items-center justify-center h-64">
                 <div className="text-destructive">
-                  Failed to load members. Please try again later.
+                  メンバーの読み込みに失敗しました。しばらくしてからお試しください。
                 </div>
               </div>
             ) : (
@@ -97,11 +101,11 @@ export function MembersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead className="text-right">Level</TableHead>
-                      <TableHead className="text-right">Joined</TableHead>
+                      <TableHead>名前</TableHead>
+                      <TableHead>部署</TableHead>
+                      <TableHead>役職</TableHead>
+                      <TableHead className="text-right">レベル</TableHead>
+                      <TableHead className="text-right">登録日</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -142,8 +146,8 @@ export function MembersPage() {
                           className="text-center text-muted-foreground h-24"
                         >
                           {search
-                            ? `No members found for "${search}"`
-                            : 'No members found'}
+                            ? `「${search}」に一致するメンバーが見つかりません`
+                            : 'メンバーが見つかりません'}
                         </TableCell>
                       </TableRow>
                     )}
@@ -154,8 +158,8 @@ export function MembersPage() {
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between mt-4 pt-4 border-t">
                     <p className="text-sm text-muted-foreground">
-                      Showing {offset + 1}-
-                      {Math.min(offset + LIMIT, totalCount)} of {totalCount}
+                      {offset + 1}-
+                      {Math.min(offset + LIMIT, totalCount)}件目 / 全{totalCount}件
                     </p>
                     <div className="flex gap-2">
                       <Button
@@ -165,7 +169,7 @@ export function MembersPage() {
                         disabled={offset <= 0}
                       >
                         <ChevronLeft className="h-4 w-4" />
-                        Prev
+                        前へ
                       </Button>
                       <span className="flex items-center text-sm text-muted-foreground px-2">
                         {page} / {totalPages}
@@ -176,7 +180,7 @@ export function MembersPage() {
                         onClick={() => setOffset(offset + LIMIT)}
                         disabled={page >= totalPages}
                       >
-                        Next
+                        次へ
                         <ChevronRight className="h-4 w-4" />
                       </Button>
                     </div>

@@ -32,7 +32,7 @@ class ProposalHandler:
         admin_account_id: str,
         is_admin: Callable[[str], bool],
         save_person_attribute: Callable[[str, str, str, str], bool] = None,
-        organization_id: str = "org_soulsyncs",
+        organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
     ):
         """
         Args:

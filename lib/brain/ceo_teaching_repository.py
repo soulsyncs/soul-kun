@@ -45,7 +45,7 @@ def _check_uuid_format(org_id: str) -> bool:
     organization_idがUUID形式かどうかをチェック
 
     ceo_teachingsテーブルのorganization_idカラムはUUID型のため、
-    "org_soulsyncs"のようなテキスト形式の場合はクエリを実行できない。
+    "5f98365f-e7c5-4f48-9918-7fe9aabae5df"のようなテキスト形式の場合はクエリを実行できない。
 
     Args:
         org_id: 組織ID
@@ -75,7 +75,7 @@ class CEOTeachingRepository:
 
     【注意】organization_idがUUID形式でない場合
     ceo_teachingsテーブルのorganization_idカラムはUUID型のため、
-    "org_soulsyncs"のようなテキスト形式の場合はDBクエリを実行せず、
+    "5f98365f-e7c5-4f48-9918-7fe9aabae5df"のようなテキスト形式の場合はDBクエリを実行せず、
     空のリスト/Noneを返します。これにより、PostgreSQLの
     "invalid input syntax for type uuid" エラーを防ぎます。
     """

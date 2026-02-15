@@ -15,7 +15,7 @@
 
     service = DepartmentMappingService(
         db_pool=pool,
-        organization_id="org_soulsyncs"
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
     )
 
     # 部署名からUUIDを取得
@@ -64,7 +64,7 @@ class DepartmentMappingService:
 
         Args:
             db_pool: SQLAlchemy Engine または Connection Pool
-            organization_id: 組織ID（"org_soulsyncs" または UUID文字列）
+            organization_id: 組織ID（"5f98365f-e7c5-4f48-9918-7fe9aabae5df" または UUID文字列）
             cache_ttl_seconds: キャッシュの有効期限（秒）、デフォルト300秒（5分）
         """
         self.db_pool = db_pool

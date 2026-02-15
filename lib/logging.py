@@ -16,7 +16,7 @@ Cloud Logging と連携した構造化ログを提供。
         "severity": "INFO",
         "message": "User logged in",
         "user_id": "user_123",
-        "tenant_id": "org_soulsyncs",
+        "tenant_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         "timestamp": "2026-01-17T10:00:00Z"
     }
 

@@ -10,13 +10,13 @@ Pinecone ベクターDB 連携モジュール
 
     # ベクターをupsert
     await client.upsert_vectors(
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         vectors=[{"id": "chunk_001", "values": [...], "metadata": {...}}]
     )
 
     # 検索
     results = await client.search(
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         query_vector=[...],
         filters={"classification": {"$in": ["public", "internal"]}}
     )
@@ -96,11 +96,11 @@ class PineconeClient:
         client = PineconeClient()
 
         # インデックス情報
-        stats = await client.describe_index_stats("org_soulsyncs")
+        stats = await client.describe_index_stats("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # ベクターをupsert
         await client.upsert_vectors(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             vectors=[
                 {
                     "id": "org_soulsyncs_doc123_v1_chunk0",
@@ -117,7 +117,7 @@ class PineconeClient:
 
         # 検索
         results = await client.search(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             query_vector=[0.1, 0.2, ...],
             top_k=5,
             filters={"classification": {"$in": ["public", "internal"]}}
@@ -550,14 +550,14 @@ class PineconeClient:
 
         フォーマット: {org_id}_{doc_id}_v{version}_chunk{index}
         例: org_soulsyncs_doc_manual001_v1_chunk0
-            → organization_id: "org_soulsyncs"
+            → organization_id: "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
             → document_id: "doc_manual001"
             → version: 1
             → chunk_index: 0
 
         Returns:
             {
-                "organization_id": "org_soulsyncs",
+                "organization_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
                 "document_id": "doc_manual001",
                 "version": 1,
                 "chunk_index": 0

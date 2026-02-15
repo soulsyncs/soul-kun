@@ -91,7 +91,7 @@ else:
 if _USE_ADMIN_CONFIG:
     DEFAULT_ORG_ID = _admin_cfg.organization_id
 else:
-    DEFAULT_ORG_ID = "org_soulsyncs"
+    DEFAULT_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 # =====================================================

@@ -370,12 +370,12 @@ class TestBrainLearningInit:
     def test_init_with_options(self):
         """オプション指定で初期化"""
         learning = BrainLearning(
-            org_id="org_soulsyncs",
+            org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             enable_logging=False,
             enable_learning=False,
         )
 
-        assert learning.org_id == "org_soulsyncs"
+        assert learning.org_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         assert learning.enable_logging is False
         assert learning.enable_learning is False
 

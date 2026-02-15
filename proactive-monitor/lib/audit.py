@@ -14,7 +14,7 @@ Soul-kun 監査ログモジュール
     log_audit(
         conn=conn,
         cursor=cursor,
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         action=AuditAction.UPDATE,
         resource_type=AuditResourceType.CHATWORK_TASK,
         resource_id="task_123",
@@ -103,7 +103,7 @@ def log_audit(
         log_audit(
             conn=conn,
             cursor=cursor,
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="regenerate",
             resource_type="chatwork_task",
             resource_id="task_123",
@@ -209,7 +209,7 @@ def log_audit_batch(
         log_audit_batch(
             conn=conn,
             cursor=cursor,
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="regenerate",
             resource_type="chatwork_task",
             items=[
@@ -280,7 +280,7 @@ async def log_audit_async(
 
     Example:
         await log_audit_async(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="create",
             resource_type="drive_permission",
             resource_id="folder_abc123",

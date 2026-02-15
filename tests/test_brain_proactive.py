@@ -41,7 +41,7 @@ def sample_user_context():
     """サンプルユーザーコンテキスト"""
     return UserContext(
         user_id="user_123",
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         chatwork_account_id="cw_456",
         dm_room_id="room_789",
         last_activity_at=datetime.now(JST) - timedelta(days=1),
@@ -53,7 +53,7 @@ def inactive_user_context():
     """長期不在のユーザーコンテキスト"""
     return UserContext(
         user_id="user_inactive",
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         chatwork_account_id="cw_inactive",
         dm_room_id="room_inactive",
         last_activity_at=datetime.now(JST) - timedelta(days=20),
@@ -159,7 +159,7 @@ class TestTrigger:
         trigger = Trigger(
             trigger_type=TriggerType.GOAL_ABANDONED,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
             details={"goal_id": "goal_456", "days_since_update": 10},
         )
@@ -173,7 +173,7 @@ class TestTrigger:
         trigger = Trigger(
             trigger_type=TriggerType.TASK_OVERLOAD,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.HIGH,
             details={"count": 8},
         )
@@ -191,7 +191,7 @@ class TestProactiveMessage:
         trigger = Trigger(
             trigger_type=TriggerType.GOAL_ACHIEVED,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
         )
         message = ProactiveMessage(
@@ -208,7 +208,7 @@ class TestProactiveMessage:
         trigger = Trigger(
             trigger_type=TriggerType.EMOTION_DECLINE,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.CRITICAL,
         )
         message = ProactiveMessage(
@@ -230,7 +230,7 @@ class TestProactiveAction:
         trigger = Trigger(
             trigger_type=TriggerType.GOAL_ABANDONED,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
         )
         message = ProactiveMessage(
@@ -247,7 +247,7 @@ class TestProactiveAction:
         trigger = Trigger(
             trigger_type=TriggerType.TASK_OVERLOAD,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.HIGH,
         )
         message = ProactiveMessage(
@@ -270,7 +270,7 @@ class TestUserContext:
     def test_creation(self, sample_user_context):
         """正しく作成できる"""
         assert sample_user_context.user_id == "user_123"
-        assert sample_user_context.organization_id == "org_soulsyncs"
+        assert sample_user_context.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         assert sample_user_context.dm_room_id == "room_789"
 
     def test_last_activity(self, inactive_user_context):
@@ -297,7 +297,7 @@ class TestCheckResult:
         trigger = Trigger(
             trigger_type=TriggerType.LONG_ABSENCE,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
             details={"days": 15},
         )
@@ -349,7 +349,7 @@ class TestProactiveMonitorShouldAct:
         """DMルームがなければアクションを取らない"""
         user_ctx = UserContext(
             user_id="user_no_dm",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             chatwork_account_id=None,
             dm_room_id=None,
         )
@@ -370,7 +370,7 @@ class TestProactiveMonitorGenerateMessage:
         trigger = Trigger(
             trigger_type=TriggerType.GOAL_ABANDONED,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
             details={"goal_name": "毎日1時間読書", "days": 10},
         )
@@ -384,7 +384,7 @@ class TestProactiveMonitorGenerateMessage:
         trigger = Trigger(
             trigger_type=TriggerType.TASK_OVERLOAD,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.HIGH,
             details={"count": 8, "overdue_count": 3},
         )
@@ -397,7 +397,7 @@ class TestProactiveMonitorGenerateMessage:
         trigger = Trigger(
             trigger_type=TriggerType.EMOTION_DECLINE,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.CRITICAL,
         )
         message = monitor._generate_message(trigger)
@@ -409,7 +409,7 @@ class TestProactiveMonitorGenerateMessage:
         trigger = Trigger(
             trigger_type=TriggerType.GOAL_ACHIEVED,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             priority=ActionPriority.MEDIUM,
             details={"goal_name": "資格取得"},
         )
@@ -495,13 +495,13 @@ class TestHelperMethods:
         """既知のUUIDからchatwork_tasks用のorg_idを取得できる"""
         uuid_org_id = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
         result = monitor._get_chatwork_tasks_org_id(uuid_org_id)
-        assert result == "org_soulsyncs"
+        assert result == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_get_chatwork_tasks_org_id_unknown_uuid(self, monitor):
         """未知のUUIDはデフォルト値を返す"""
         uuid_org_id = "12345678-1234-1234-1234-123456789012"
         result = monitor._get_chatwork_tasks_org_id(uuid_org_id)
-        assert result == "org_soulsyncs"
+        assert result == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_get_chatwork_account_id_int_valid(self, monitor):
         """有効なaccount_idを整数に変換できる"""

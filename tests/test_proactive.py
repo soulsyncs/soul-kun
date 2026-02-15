@@ -87,8 +87,8 @@ class _Result:
 
 def test_get_chatwork_tasks_org_id():
     monitor = ProactiveMonitor()
-    assert monitor._get_chatwork_tasks_org_id("5f98365f-e7c5-4f48-9918-7fe9aabae5df") == "org_soulsyncs"
-    assert monitor._get_chatwork_tasks_org_id("unknown") == "org_soulsyncs"
+    assert monitor._get_chatwork_tasks_org_id("5f98365f-e7c5-4f48-9918-7fe9aabae5df") == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
+    assert monitor._get_chatwork_tasks_org_id("unknown") == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 def test_get_chatwork_account_id_int():

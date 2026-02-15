@@ -975,7 +975,7 @@ def watch_google_drive(request: Request):
 
     リクエストボディ:
     {
-        "organization_id": "org_soulsyncs",
+        "organization_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         "root_folder_id": "FOLDER_ID",
         "full_sync": false  // オプション: 全ファイル再取り込み
     }

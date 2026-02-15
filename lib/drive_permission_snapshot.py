@@ -100,7 +100,7 @@ class PermissionSnapshot:
     created_at: str  # ISO format
     created_by: str
     folder_states: List[FolderPermissionState]
-    organization_id: str = "org_soulsyncs"  # テナント分離（v10.28.0追加）
+    organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"  # テナント分離（v10.28.0追加）
     metadata: Dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -134,7 +134,7 @@ class PermissionSnapshot:
             created_at=data['created_at'],
             created_by=data.get('created_by', 'unknown'),
             folder_states=folder_states,
-            organization_id=data.get('organization_id', 'org_soulsyncs'),
+            organization_id=data.get('organization_id', '5f98365f-e7c5-4f48-9918-7fe9aabae5df'),
             metadata=data.get('metadata', {})
         )
 
@@ -198,7 +198,7 @@ class SnapshotManager:
         service_account_info: Optional[dict] = None,
         service_account_file: Optional[str] = None,
         max_snapshots: int = DEFAULT_MAX_SNAPSHOTS,
-        organization_id: str = "org_soulsyncs",
+        organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
     ):
         """
         Args:
@@ -340,7 +340,7 @@ class SnapshotManager:
                     data = json.load(f)
 
                     # テナント分離: organization_idでフィルタ（Phase 4対応）
-                    snapshot_org_id = data.get('organization_id', 'org_soulsyncs')
+                    snapshot_org_id = data.get('organization_id', '5f98365f-e7c5-4f48-9918-7fe9aabae5df')
                     if not include_all_orgs and snapshot_org_id != self.organization_id:
                         continue
 

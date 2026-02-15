@@ -36,7 +36,7 @@ class TestLogAuditAsync:
     async def test_log_audit_async_success(self):
         """正常にログ出力される"""
         result = await log_audit_async(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="create",
             resource_type="drive_permission",
             resource_id="folder_123",
@@ -49,7 +49,7 @@ class TestLogAuditAsync:
     async def test_log_audit_async_minimal(self):
         """最小限のパラメータでも動作"""
         result = await log_audit_async(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="delete",
             resource_type="drive_permission",
         )
@@ -59,7 +59,7 @@ class TestLogAuditAsync:
     async def test_log_audit_async_with_classification(self):
         """機密区分を指定して動作"""
         result = await log_audit_async(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             action="update",
             resource_type="drive_folder",
             classification="restricted",
@@ -74,7 +74,7 @@ class TestLogDrivePermissionChange:
     async def test_log_add_permission(self):
         """権限追加のログ"""
         result = await log_drive_permission_change(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folder_id="folder_123",
             folder_name="営業部",
             action="add",
@@ -87,7 +87,7 @@ class TestLogDrivePermissionChange:
     async def test_log_remove_permission(self):
         """権限削除のログ"""
         result = await log_drive_permission_change(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folder_id="folder_123",
             folder_name="営業部",
             action="remove",
@@ -100,7 +100,7 @@ class TestLogDrivePermissionChange:
     async def test_log_update_permission(self):
         """権限更新のログ"""
         result = await log_drive_permission_change(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folder_id="folder_123",
             folder_name="営業部",
             action="update",
@@ -114,7 +114,7 @@ class TestLogDrivePermissionChange:
     async def test_log_dry_run(self):
         """dry_runモードのログ"""
         result = await log_drive_permission_change(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folder_id="folder_123",
             folder_name="営業部",
             action="add",
@@ -132,7 +132,7 @@ class TestLogDriveSyncSummary:
     async def test_log_sync_summary(self):
         """同期サマリーのログ"""
         result = await log_drive_sync_summary(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folders_processed=10,
             permissions_added=5,
             permissions_removed=2,
@@ -145,7 +145,7 @@ class TestLogDriveSyncSummary:
     async def test_log_sync_summary_with_errors(self):
         """エラーありの同期サマリー"""
         result = await log_drive_sync_summary(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folders_processed=10,
             permissions_added=3,
             permissions_removed=1,
@@ -158,7 +158,7 @@ class TestLogDriveSyncSummary:
     async def test_log_sync_summary_dry_run(self):
         """dry_runモードの同期サマリー"""
         result = await log_drive_sync_summary(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folders_processed=10,
             permissions_added=5,
             permissions_removed=2,
@@ -172,7 +172,7 @@ class TestLogDriveSyncSummary:
     async def test_log_sync_summary_with_snapshot(self):
         """スナップショット付きの同期サマリー"""
         result = await log_drive_sync_summary(
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             folders_processed=10,
             permissions_added=5,
             permissions_removed=2,

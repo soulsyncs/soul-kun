@@ -208,7 +208,7 @@ class DrivePermissionSyncService:
         supabase_key: str,
         service_account_info: Optional[dict] = None,
         service_account_file: Optional[str] = None,
-        organization_id: str = "org_soulsyncs",
+        organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         root_folder_id: Optional[str] = None,
         protected_emails: Optional[List[str]] = None,
     ):

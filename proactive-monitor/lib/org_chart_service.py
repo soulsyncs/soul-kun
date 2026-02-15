@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 # ================================================================
 
 # デフォルトの組織ID
-DEFAULT_ORGANIZATION_ID = "org_soulsyncs"
+DEFAULT_ORGANIZATION_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 # 役職レベルの定義（roles.levelに対応）
 ROLE_LEVELS = {

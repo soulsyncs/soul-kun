@@ -76,9 +76,9 @@ class TestBrainStateManagerInit:
     def test_init_stores_org_id(self):
         """org_idが保存される"""
         mock_pool = MagicMock()
-        manager = BrainStateManager(pool=mock_pool, org_id="org_soulsyncs")
+        manager = BrainStateManager(pool=mock_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
-        assert manager.org_id == "org_soulsyncs"
+        assert manager.org_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_init_detects_uuid_format(self):
         """UUID形式のorg_idを正しく検出する"""

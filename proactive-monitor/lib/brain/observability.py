@@ -135,7 +135,7 @@ class BrainObservability:
     脳が統一的に観測を管理する。
 
     Usage:
-        observability = BrainObservability(org_id="org_soulsyncs")
+        observability = BrainObservability(org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # コンテキスト適用のログ
         observability.log_context(

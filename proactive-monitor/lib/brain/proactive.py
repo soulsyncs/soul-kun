@@ -71,9 +71,9 @@ class ActionPriority(Enum):
 # chatwork_tasksテーブルはVARCHAR型のorganization_idを使用
 # TODO Phase 4B: organizations テーブルから動的に取得
 ORGANIZATION_UUID_TO_SLUG = {
-    "5f98365f-e7c5-4f48-9918-7fe9aabae5df": "org_soulsyncs",  # Soul Syncs
+    "5f98365f-e7c5-4f48-9918-7fe9aabae5df": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",  # Soul Syncs
 }
-DEFAULT_CHATWORK_TASKS_ORG_ID = "org_soulsyncs"
+DEFAULT_CHATWORK_TASKS_ORG_ID = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 # トリガー閾値
 GOAL_ABANDONED_DAYS = 7          # 目標放置とみなす日数

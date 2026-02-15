@@ -123,7 +123,7 @@ class TestKnowledgeHandlerInit:
         """デフォルトorg_idが設定されることを確認"""
         mock_pool, _ = create_mock_pool()
         handler = KnowledgeHandler(get_pool=lambda: mock_pool)
-        assert handler.organization_id == "org_soulsyncs"
+        assert handler.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_init_sets_custom_org_id(self):
         """カスタムorg_idが設定されることを確認"""
@@ -979,7 +979,7 @@ class TestPhase4OrgIsolation:
     def test_handler_default_organization_id(self):
         """org_id未指定時はデフォルト値"""
         handler = create_handler(phase3_knowledge_config={})
-        assert handler.organization_id == "org_soulsyncs"
+        assert handler.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
     def test_save_knowledge_includes_org_id(self):
         """save_knowledgeがorg_idパラメータを含む"""

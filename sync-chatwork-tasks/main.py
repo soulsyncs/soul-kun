@@ -1272,7 +1272,7 @@ def regenerate_all_summaries(conn, cursor, offset: int = 0, limit: int = 50) -> 
 def regenerate_bad_summaries(
     conn,
     cursor,
-    organization_id: str = "org_soulsyncs",
+    organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
     offset: int = 0,
     limit: int = 50
 ) -> dict:
@@ -1413,7 +1413,7 @@ def regenerate_bad_summaries(
 def report_summary_quality(
     conn,
     cursor,
-    organization_id: str = "org_soulsyncs"
+    organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 ) -> dict:
     """
     要約品質のレポートを生成する
@@ -5435,7 +5435,7 @@ def is_admin(account_id):
     return str(account_id) == str(ADMIN_ACCOUNT_ID)
 
 
-def save_knowledge(category: str, key: str, value: str, created_by: str = None, organization_id: str = "org_soulsyncs"):
+def save_knowledge(category: str, key: str, value: str, created_by: str = None, organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"):
     """知識を保存（既存の場合は更新）"""
     try:
         pool = get_pool()
@@ -5461,7 +5461,7 @@ def save_knowledge(category: str, key: str, value: str, created_by: str = None, 
         return False
 
 
-def delete_knowledge(category: str = None, key: str = None, organization_id: str = "org_soulsyncs"):
+def delete_knowledge(category: str = None, key: str = None, organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"):
     """知識を削除"""
     try:
         pool = get_pool()
@@ -5486,7 +5486,7 @@ def delete_knowledge(category: str = None, key: str = None, organization_id: str
 KNOWLEDGE_LIMIT = 50  # プロンプトに含める知識の最大件数
 KNOWLEDGE_VALUE_MAX_LENGTH = 200  # 各知識の値の最大文字数
 
-def get_all_knowledge(limit: int = None, organization_id: str = "org_soulsyncs"):
+def get_all_knowledge(limit: int = None, organization_id: str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"):
     """全ての知識を取得"""
     try:
         pool = get_pool()
@@ -7887,7 +7887,7 @@ def sync_chatwork_tasks(request):
                     # v10.14.1: organization_idを明示的に渡す
                     batch_result = regenerate_bad_summaries(
                         conn, cursor,
-                        organization_id="org_soulsyncs",
+                        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
                         offset=offset,
                         limit=50
                     )
@@ -7941,7 +7941,7 @@ def sync_chatwork_tasks(request):
                 # v10.14.1: organization_idを明示的に渡す
                 quality_result = report_summary_quality(
                     conn, cursor,
-                    organization_id="org_soulsyncs"
+                    organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df"
                 )
             except Exception as e:
                 print(f"⚠️ 品質レポートエラー: {e}")

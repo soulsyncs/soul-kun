@@ -128,7 +128,7 @@ class TestEpisode:
             importance_score=0.9,
             emotional_valence=0.8,
             user_id="user_123",
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         )
         assert episode.id == "ep_001"
         assert episode.episode_type == EpisodeType.ACHIEVEMENT
@@ -184,8 +184,8 @@ class TestEpisodicMemoryInit:
 
     def test_create_with_organization_id(self):
         """organization_idを指定して作成できる"""
-        memory = create_episodic_memory(organization_id="org_soulsyncs")
-        assert memory.organization_id == "org_soulsyncs"
+        memory = create_episodic_memory(organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+        assert memory.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 class TestEpisodicMemoryCreateEpisode:
@@ -439,7 +439,7 @@ class TestFactory:
         """オプション付きで作成できる"""
         memory = create_episodic_memory(
             pool=None,
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         )
         assert isinstance(memory, EpisodicMemory)
-        assert memory.organization_id == "org_soulsyncs"
+        assert memory.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"

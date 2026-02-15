@@ -59,7 +59,7 @@ def sample_teaching():
     """サンプル教え"""
     return CEOTeaching(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         ceo_user_id="1728974",
         statement="失敗を恐れずに挑戦することが大切",
         reasoning="失敗から学ぶことで成長できる",
@@ -80,7 +80,7 @@ def sample_conflict():
     """サンプル矛盾情報"""
     return ConflictInfo(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         teaching_id=str(uuid4()),
         conflict_type=ConflictType.SDT,
         conflict_subtype="autonomy",
@@ -95,7 +95,7 @@ def sample_alert(sample_teaching, sample_conflict):
     """サンプルアラート"""
     return GuardianAlert(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         teaching_id=sample_teaching.id,
         conflict_summary="軽微な矛盾が1件検出されました",
         alert_message="🐺 確認させてほしいウル",
@@ -384,7 +384,7 @@ class TestCEOLearningService:
 
     def test_is_ceo_user(self, mock_pool):
         """CEOユーザー判定が正しいこと"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # CEO
         assert service.is_ceo_user("1728974") is True
@@ -394,19 +394,19 @@ class TestCEOLearningService:
 
     def test_is_ceo_user_with_ceo_user_id_match(self, mock_pool):
         """ceo_user_id指定時、DB照合で一致すればTrue"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         service._get_user_id_from_account_id = MagicMock(return_value="uuid-ceo-123")
         assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is True
 
     def test_is_ceo_user_with_ceo_user_id_mismatch(self, mock_pool):
         """ceo_user_id指定時、DB照合で不一致ならFalse"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         service._get_user_id_from_account_id = MagicMock(return_value="uuid-other-456")
         assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is False
 
     def test_is_ceo_user_with_ceo_user_id_db_miss_fallback(self, mock_pool):
         """ceo_user_id指定時、DB照合失敗ならCEO_ACCOUNT_IDSにフォールバック"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         service._get_user_id_from_account_id = MagicMock(return_value=None)
         # CEO_ACCOUNT_IDSにある → True
         assert service.is_ceo_user("1728974", ceo_user_id="uuid-ceo-123") is True
@@ -415,21 +415,21 @@ class TestCEOLearningService:
 
     def test_estimate_categories_mvv(self, mock_pool):
         """MVVカテゴリを推定できること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         categories = service._estimate_categories("可能性を信じることが大切")
         assert TeachingCategory.MVV_MISSION in categories
 
     def test_estimate_categories_choice_theory(self, mock_pool):
         """選択理論カテゴリを推定できること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         categories = service._estimate_categories("5つの欲求を意識しよう")
         assert TeachingCategory.CHOICE_THEORY in categories
 
     def test_calculate_relevance_score(self, mock_pool, sample_teaching):
         """関連度スコアを計算できること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         score = service._calculate_relevance_score(
             sample_teaching,
@@ -442,7 +442,7 @@ class TestCEOLearningService:
     @pytest.mark.asyncio
     async def test_process_ceo_message_non_ceo(self, mock_pool):
         """非CEOのメッセージは処理されないこと"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         result = await service.process_ceo_message(
             message="テストメッセージ",
@@ -456,7 +456,7 @@ class TestCEOLearningService:
     @pytest.mark.asyncio
     async def test_process_ceo_message_no_llm(self, mock_pool):
         """LLMなしでは教え抽出されないこと"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         result = await service.process_ceo_message(
             message="挑戦を恐れるな",
@@ -469,7 +469,7 @@ class TestCEOLearningService:
 
     def test_parse_extraction_response(self, mock_pool):
         """抽出レスポンスを解析できること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         response = """
 ```json
@@ -495,7 +495,7 @@ class TestCEOLearningService:
 
     def test_parse_extraction_response_empty(self, mock_pool):
         """空レスポンスを解析できること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         response = """```json
 {"teachings": []}
@@ -505,7 +505,7 @@ class TestCEOLearningService:
 
     def test_parse_extraction_response_invalid(self, mock_pool):
         """無効なレスポンスをハンドリングできること"""
-        service = CEOLearningService(mock_pool, "org_soulsyncs")
+        service = CEOLearningService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         teachings = service._parse_extraction_response("invalid json")
         assert len(teachings) == 0
@@ -569,7 +569,7 @@ class TestGuardianService:
 
     def test_parse_severity(self, mock_pool):
         """深刻度を解析できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         assert service._parse_severity("high") == Severity.HIGH
         assert service._parse_severity("medium") == Severity.MEDIUM
@@ -578,21 +578,21 @@ class TestGuardianService:
 
     def test_generate_conflict_summary_no_conflicts(self, mock_pool):
         """矛盾なしの要約を生成できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         summary = service._generate_conflict_summary([])
         assert "検出されませんでした" in summary
 
     def test_generate_conflict_summary_with_conflicts(self, mock_pool, sample_conflict):
         """矛盾ありの要約を生成できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         summary = service._generate_conflict_summary([sample_conflict])
         assert "軽微な矛盾が1件" in summary
 
     def test_generate_conflict_summary_with_high_severity(self, mock_pool):
         """HIGH深刻度の要約を生成できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         high_conflict = ConflictInfo(
             conflict_type=ConflictType.MVV,
@@ -605,7 +605,7 @@ class TestGuardianService:
 
     def test_generate_alert_message(self, mock_pool, sample_teaching, sample_conflict):
         """アラートメッセージを生成できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         message = service._generate_alert_message(
             sample_teaching,
@@ -619,7 +619,7 @@ class TestGuardianService:
 
     def test_parse_llm_response_valid(self, mock_pool):
         """有効なLLMレスポンスを解析できること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         response = """
 ```json
@@ -635,7 +635,7 @@ class TestGuardianService:
 
     def test_parse_llm_response_invalid(self, mock_pool):
         """無効なLLMレスポンスをハンドリングできること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         result = service._parse_llm_response("invalid json")
         assert result["overall_alignment"] is True  # デフォルト
@@ -644,7 +644,7 @@ class TestGuardianService:
     @pytest.mark.asyncio
     async def test_validate_teaching_no_llm(self, mock_pool, sample_teaching):
         """LLMなしで検証が安全に完了すること"""
-        service = GuardianService(mock_pool, "org_soulsyncs")
+        service = GuardianService(mock_pool, "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         result = await service.validate_teaching(sample_teaching)
         assert result.is_valid is True

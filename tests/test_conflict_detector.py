@@ -76,7 +76,7 @@ def sample_user_learning():
     """サンプルユーザー学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.ALIAS.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="mtg",
@@ -101,7 +101,7 @@ def sample_ceo_learning():
     """サンプルCEO教えデータ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.RULE.value,
         trigger_type=TriggerType.ALWAYS.value,
         trigger_value="*",
@@ -127,7 +127,7 @@ def sample_manager_learning():
     """サンプルマネージャー学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.RULE.value,
         trigger_type=TriggerType.CONTEXT.value,
         trigger_value="報告",
@@ -151,7 +151,7 @@ def conflicting_alias_learning():
     """mtgの別定義（矛盾する別名）"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.ALIAS.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="mtg",
@@ -176,7 +176,7 @@ def sample_fact_learning():
     """サンプル事実学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.FACT.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="田中",
@@ -199,7 +199,7 @@ def conflicting_fact_learning():
     """矛盾する事実学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.FACT.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="田中",
@@ -222,7 +222,7 @@ def sample_preference_learning():
     """サンプル好み学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.PREFERENCE.value,
         trigger_type=TriggerType.ALWAYS.value,
         trigger_value="*",
@@ -246,7 +246,7 @@ def conflicting_preference_learning():
     """矛盾する好み学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.PREFERENCE.value,
         trigger_type=TriggerType.ALWAYS.value,
         trigger_value="*",
@@ -270,7 +270,7 @@ def sample_correction_learning():
     """サンプル修正学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.CORRECTION.value,
         trigger_type=TriggerType.PATTERN.value,
         trigger_value="田中",
@@ -292,7 +292,7 @@ def conflicting_correction_learning():
     """矛盾する修正学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.CORRECTION.value,
         trigger_type=TriggerType.PATTERN.value,
         trigger_value="田中",
@@ -314,7 +314,7 @@ def sample_procedure_learning():
     """サンプル手順学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.PROCEDURE.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="経費精算",
@@ -336,7 +336,7 @@ def conflicting_procedure_learning():
     """矛盾する手順学習データ"""
     return Learning(
         id=str(uuid4()),
-        organization_id="org_soulsyncs",
+        organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
         category=LearningCategory.PROCEDURE.value,
         trigger_type=TriggerType.KEYWORD.value,
         trigger_value="経費精算",
@@ -374,9 +374,9 @@ class TestConflictDetectorInit:
 
     def test_init_creates_default_repository(self):
         """デフォルトリポジトリが作成される"""
-        detector = ConflictDetector("org_soulsyncs")
+        detector = ConflictDetector("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
         assert isinstance(detector.repository, LearningRepository)
-        assert detector.repository.organization_id == "org_soulsyncs"
+        assert detector.repository.organization_id == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 # =============================================================================
@@ -445,7 +445,7 @@ class TestDetectConflicts:
         # 同じカテゴリ・条件で異なるアクションの学習
         conflicting_user_learning = Learning(
             id=str(uuid4()),
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             category=LearningCategory.RULE.value,
             trigger_type=TriggerType.ALWAYS.value,
             trigger_value="*",
@@ -536,7 +536,7 @@ class TestHasCeoConflict:
         # 同じカテゴリ・条件で異なるアクションの学習を作成
         conflicting_user_learning = Learning(
             id=str(uuid4()),
-            organization_id="org_soulsyncs",
+            organization_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             category=LearningCategory.RULE.value,
             trigger_type=TriggerType.ALWAYS.value,
             trigger_value="*",

@@ -47,7 +47,7 @@ class TestConstants:
 
     def test_default_organization_id(self):
         """デフォルト組織ID"""
-        assert DEFAULT_ORGANIZATION_ID == "org_soulsyncs"
+        assert DEFAULT_ORGANIZATION_ID == "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 
 
 # ================================================================

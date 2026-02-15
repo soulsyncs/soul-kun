@@ -599,7 +599,7 @@ class FolderMapper:
     フォルダパスから権限情報を決定するクラス
 
     使用例（静的マッピング）:
-        mapper = FolderMapper("org_soulsyncs")
+        mapper = FolderMapper("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         path = ["ソウルくん用フォルダ", "社員限定", "業務マニュアル"]
         permissions = mapper.map_folder_to_permissions(path)
@@ -607,7 +607,7 @@ class FolderMapper:
 
     使用例（動的マッピング - Phase 3.5 DB連携）:
         mapper = FolderMapper(
-            "org_soulsyncs",
+            "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
             db_pool=db_pool,
             use_dynamic_departments=True
         )

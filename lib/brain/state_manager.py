@@ -70,7 +70,7 @@ class BrainStateManager:
     統一的に管理する。
 
     使用例:
-        state_manager = BrainStateManager(pool=db_pool, org_id="org_soulsyncs")
+        state_manager = BrainStateManager(pool=db_pool, org_id="5f98365f-e7c5-4f48-9918-7fe9aabae5df")
 
         # 状態取得
         state = await state_manager.get_current_state(room_id, user_id)

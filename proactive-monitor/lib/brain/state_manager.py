@@ -102,7 +102,7 @@ class BrainStateManager:
 
         # org_idがUUID形式かどうかを判定
         # brain_conversation_statesテーブルはorganization_idがUUID型
-        # 'org_soulsyncs'などのテキスト形式の場合はクエリをスキップ
+        # org_idがUUID形式でない場合（テキスト識別子など）はクエリをスキップ
         self._org_id_is_uuid = self._check_uuid_format(org_id)
 
         logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}, uuid_org={self._org_id_is_uuid}")

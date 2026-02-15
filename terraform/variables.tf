@@ -69,7 +69,7 @@ variable "supabase_org_id" {
 variable "cloudsql_org_id" {
   description = "Cloud SQL organization ID (org_chart)"
   type        = string
-  default     = "org_soulsyncs"
+  default     = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
 }
 
 # Supabase

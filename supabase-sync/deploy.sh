@@ -62,7 +62,7 @@ gcloud functions deploy supabase_sync \
     --region=asia-northeast1 \
     --max-instances=1 \
     --entry-point=supabase_sync \
-    --update-env-vars="SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_ORG_ID=5f98365f-e7c5-4f48-9918-7fe9aabae5df,CLOUDSQL_ORG_ID=org_soulsyncs" \
+    --update-env-vars="SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_ORG_ID=5f98365f-e7c5-4f48-9918-7fe9aabae5df,CLOUDSQL_ORG_ID=5f98365f-e7c5-4f48-9918-7fe9aabae5df" \
     --set-secrets="SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest"
 
 # 4. Cloud Schedulerジョブ作成

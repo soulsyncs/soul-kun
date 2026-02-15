@@ -66,8 +66,8 @@ ORGANIZATION_ID = os.getenv(
     'SOULKUN_ORG_ID',
     '5f98365f-e7c5-4f48-9918-7fe9aabae5df'
 )
-# Cloud SQL側はorg_soulsyncsを使うテーブルもある
-CLOUDSQL_ORG_ID = os.getenv('CLOUDSQL_ORG_ID', 'org_soulsyncs')
+# Cloud SQL側のorganization_idはUUID文字列を使用
+CLOUDSQL_ORG_ID = os.getenv('CLOUDSQL_ORG_ID', '5f98365f-e7c5-4f48-9918-7fe9aabae5df')
 
 SUPABASE_URL = os.getenv(
     'SUPABASE_URL',
@@ -424,7 +424,7 @@ def bridge_to_person_attributes(
     Brain の context_builder が既存パスで読めるようにする。
 
     Note: persons/person_attributes は ORGANIZATION_ID (UUID) を使用。
-          form_employee_* テーブルの CLOUDSQL_ORG_ID ('org_soulsyncs') とは異なる。
+          form_employee_* テーブルの CLOUDSQL_ORG_ID ('5f98365f-e7c5-4f48-9918-7fe9aabae5df') とは異なる。
 
     Returns:
         更新した属性数

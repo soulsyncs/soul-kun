@@ -71,7 +71,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 環境変数
-ORGANIZATION_ID = os.getenv('ORGANIZATION_ID', 'org_soulsyncs')
+ORGANIZATION_ID = os.getenv('ORGANIZATION_ID', '5f98365f-e7c5-4f48-9918-7fe9aabae5df')
 ROOT_FOLDER_ID = os.getenv('SOULKUN_DRIVE_ROOT_FOLDER_ID')
 SUPABASE_URL = os.getenv('SUPABASE_URL')
 SNAPSHOT_STORAGE_PATH = os.getenv(

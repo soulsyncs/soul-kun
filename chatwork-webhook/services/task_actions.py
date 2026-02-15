@@ -313,7 +313,7 @@ def log_deadline_alert(task_id, room_id: str, account_id: str, limit_date, days_
             conn.execute(sqlalchemy.text("""
                 CREATE TABLE IF NOT EXISTS notification_logs (
                     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                    organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     notification_type VARCHAR(50) NOT NULL,
                     target_type VARCHAR(50) NOT NULL,
                     target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応

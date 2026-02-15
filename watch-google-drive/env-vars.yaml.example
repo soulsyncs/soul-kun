@@ -24,7 +24,7 @@ DB_NAME: soulkun_tasks
 DB_USER: soulkun_user
 
 # 組織設定
-ORGANIZATION_ID: org_soulsyncs
+ORGANIZATION_ID: 5f98365f-e7c5-4f48-9918-7fe9aabae5df
 
 # Googleドライブ監視対象フォルダID
 # Googleドライブでフォルダを開いたときのURLから取得:

@@ -111,7 +111,7 @@ class KnowledgeSearchResponse(BaseModel):
                 "results": [
                     {
                         "chunk_id": "550e8400-e29b-41d4-a716-446655440000",
-                        "pinecone_id": "org_soulsyncs_doc123_v1_chunk0",
+                        "pinecone_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df_doc123_v1_chunk0",
                         "score": 0.92,
                         "content": "経費精算の手順は以下の通りです...",
                         "page_number": 1,

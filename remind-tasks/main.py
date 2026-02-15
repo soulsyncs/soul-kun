@@ -3370,7 +3370,7 @@ def ensure_processed_messages_table():
                 CREATE TABLE IF NOT EXISTS processed_messages (
                     message_id VARCHAR(50) PRIMARY KEY,
                     room_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     processed_at TIMESTAMP WITH TIME ZONE NOT NULL
                 );
             """))
@@ -3395,7 +3395,7 @@ def mark_as_processed(message_id, room_id):
             conn.execute(
                 sqlalchemy.text("""
                     INSERT INTO processed_messages (message_id, room_id, organization_id, processed_at)
-                    VALUES (:message_id, :room_id, 'org_soulsyncs', :processed_at)
+                    VALUES (:message_id, :room_id, '5f98365f-e7c5-4f48-9918-7fe9aabae5df', :processed_at)
                     ON CONFLICT (message_id) DO NOTHING
                 """),
                 {
@@ -3490,7 +3490,7 @@ def ensure_overdue_tables():
                 conn.execute(sqlalchemy.text("""
                     CREATE TABLE notification_logs (
                         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-                        organization_id VARCHAR(100) DEFAULT 'org_soulsyncs',
+                        organization_id VARCHAR(100) DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         notification_type VARCHAR(50) NOT NULL,
                         target_type VARCHAR(50) NOT NULL,
                         target_id TEXT,  -- BIGINTから変更: task_id（数値）とuser_id（UUID）両方対応
@@ -3534,7 +3534,7 @@ def ensure_overdue_tables():
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
                     account_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     reminder_date DATE NOT NULL,
                     overdue_days INTEGER NOT NULL,
                     escalated BOOLEAN DEFAULT FALSE,
@@ -3555,7 +3555,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_limit_changes (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     old_limit_time BIGINT,
                     new_limit_time BIGINT,
                     detected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -3578,7 +3578,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS dm_room_cache (
                     account_id BIGINT PRIMARY KEY,
                     dm_room_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     cached_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
                 )
             """))
@@ -3591,7 +3591,7 @@ def ensure_overdue_tables():
                 CREATE TABLE IF NOT EXISTS task_escalations (
                     id SERIAL PRIMARY KEY,
                     task_id BIGINT NOT NULL,
-                    organization_id VARCHAR(100) NOT NULL DEFAULT 'org_soulsyncs',
+                    organization_id VARCHAR(100) NOT NULL DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                     escalated_date DATE NOT NULL,
                     escalated_to_requester BOOLEAN DEFAULT FALSE,
                     escalated_to_admin BOOLEAN DEFAULT FALSE,
@@ -3614,7 +3614,7 @@ def ensure_overdue_tables():
             # organization_idカラムを追加（既存テーブルへの追加）
             conn.execute(sqlalchemy.text("""
                 ALTER TABLE chatwork_tasks
-                ADD COLUMN IF NOT EXISTS organization_id VARCHAR(100) DEFAULT 'org_soulsyncs'
+                ADD COLUMN IF NOT EXISTS organization_id VARCHAR(100) DEFAULT '5f98365f-e7c5-4f48-9918-7fe9aabae5df'
             """))
             # department_idカラムも追加（既に存在する場合もあるがIF NOT EXISTSで安全）
             conn.execute(sqlalchemy.text("""
@@ -3682,7 +3682,7 @@ def migrate_legacy_to_notification_logs(conn):
                 created_at
             )
             SELECT
-                'org_soulsyncs',
+                '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                 'task_reminder',
                 'task',
                 task_id,
@@ -3715,7 +3715,7 @@ def migrate_legacy_to_notification_logs(conn):
                 created_at
             )
             SELECT
-                'org_soulsyncs',
+                '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                 'task_escalation',
                 'task',
                 task_id,
@@ -4395,7 +4395,7 @@ def send_overdue_reminder_to_dm(account_id, tasks, today):
                         metadata
                     )
                     VALUES (
-                        'org_soulsyncs',
+                        '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         'task_reminder',
                         'task',
                         :task_id,
@@ -4541,7 +4541,7 @@ def process_escalations(overdue_tasks, today):
                         metadata
                     )
                     VALUES (
-                        'org_soulsyncs',
+                        '5f98365f-e7c5-4f48-9918-7fe9aabae5df',
                         'task_escalation',
                         'task',
                         :task_id,

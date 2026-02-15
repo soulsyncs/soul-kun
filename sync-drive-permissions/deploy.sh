@@ -56,7 +56,7 @@ gcloud functions deploy sync_drive_permissions \
     --region=asia-northeast1 \
     --max-instances=1 \
     --entry-point=sync_drive_permissions \
-    --update-env-vars="ORGANIZATION_ID=org_soulsyncs,SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_DRIVE_ROOT_FOLDER_ID=1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp" \
+    --update-env-vars="ORGANIZATION_ID=5f98365f-e7c5-4f48-9918-7fe9aabae5df,SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_DRIVE_ROOT_FOLDER_ID=1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp" \
     --set-secrets="SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest"
 
 echo ""

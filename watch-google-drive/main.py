@@ -95,7 +95,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # 環境変数
-ORGANIZATION_ID = os.getenv('ORGANIZATION_ID', 'org_soulsyncs')
+ORGANIZATION_ID = os.getenv('ORGANIZATION_ID', '5f98365f-e7c5-4f48-9918-7fe9aabae5df')
 ROOT_FOLDER_ID = os.getenv('ROOT_FOLDER_ID')
 CHUNK_SIZE = int(os.getenv('CHUNK_SIZE', '1000'))
 CHUNK_OVERLAP = int(os.getenv('CHUNK_OVERLAP', '200'))
@@ -135,7 +135,7 @@ class DatabaseOperations:
         organization_id (テキスト識別子) から UUID を解決
 
         Args:
-            organization_id: テキスト識別子 (例: org_soulsyncs) または UUID
+            organization_id: テキスト識別子 (例: 5f98365f-e7c5-4f48-9918-7fe9aabae5df) または UUID
 
         Returns:
             UUID文字列、見つからない場合はNone

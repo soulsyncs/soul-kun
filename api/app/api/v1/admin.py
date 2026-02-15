@@ -369,7 +369,7 @@ async def auth_me(user: UserContext = Depends(require_admin)):
                     SELECT u.name, u.email,
                            COALESCE(MAX(r.level), 2) as role_level,
                            MAX(r.name) as role_name,
-                           MAX(ud.department_id) as department_id
+                           MAX(ud.department_id::text) as department_id
                     FROM users u
                     LEFT JOIN user_departments ud
                         ON u.id = ud.user_id AND ud.ended_at IS NULL
@@ -541,8 +541,8 @@ async def get_dashboard_summary(
                 text("""
                     SELECT COUNT(*) as active_count
                     FROM bottleneck_alerts
-                    WHERE organization_id = :org_id
-                      AND is_resolved = FALSE
+                    WHERE organization_id::text = :org_id
+                      AND status = 'active'
                 """),
                 {"org_id": organization_id},
             )
@@ -552,9 +552,9 @@ async def get_dashboard_summary(
             # --- 最近のアラート（最大5件） ---
             recent_alerts_result = conn.execute(
                 text("""
-                    SELECT id, alert_type, severity, message, created_at, is_resolved
+                    SELECT id, bottleneck_type, risk_level, target_name, created_at, status
                     FROM bottleneck_alerts
-                    WHERE organization_id = :org_id
+                    WHERE organization_id::text = :org_id
                     ORDER BY created_at DESC
                     LIMIT 5
                 """),
@@ -569,7 +569,7 @@ async def get_dashboard_summary(
                         severity=row[2] or "info",
                         message=row[3] or "",
                         created_at=row[4],
-                        is_resolved=bool(row[5]) if row[5] is not None else False,
+                        is_resolved=(row[5] != "active") if row[5] else False,
                     )
                 )
 

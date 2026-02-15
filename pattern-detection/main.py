@@ -468,9 +468,69 @@ def weekly_report(request: Request):
                 # 週次レポートサービスを初期化
                 service = WeeklyReportService(conn, org_uuid)
 
-                # レポートを生成（asyncio対応）
+                # 3AI合議（2026-02-16）: asyncio.run()を1回にまとめる
+                # 旧: asyncio.run()を4回呼び出し → CF Gen2で RuntimeError
+                # 新: 1つのasync関数にまとめて1回だけ呼ぶ
                 import asyncio
-                report_id = asyncio.run(service.generate_weekly_report())
+                import requests as http_requests
+
+                async def _run_weekly_report():
+                    """週次レポートの生成・送信を一括実行（asyncio.run 1回で完結）"""
+                    nonlocal sent
+
+                    # レポート生成
+                    _report_id = await service.generate_weekly_report()
+                    if not _report_id:
+                        return None
+
+                    print(f"📄 レポート生成完了: {_report_id}")
+
+                    if dry_run:
+                        sent = False
+                        print(f"🧪 DRY RUN: レポート送信スキップ")
+                        return _report_id
+
+                    # レポートを取得してChatWork形式にフォーマット
+                    report_record = await service.get_report(_report_id)
+                    if not report_record:
+                        sent = False
+                        print(f"❌ レポートレコード取得失敗: {_report_id}")
+                        return _report_id
+
+                    chatwork_message = service.format_for_chatwork(report_record)
+
+                    # ChatWorkに送信（同期HTTP）
+                    chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+                    response = http_requests.post(
+                        f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
+                        headers={"X-ChatWorkToken": chatwork_token},
+                        data={"body": chatwork_message},
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        message_id = response.json().get("message_id")
+                        await service.mark_as_sent(
+                            report_id=_report_id,
+                            sent_to=[],
+                            sent_via="chatwork",
+                            chatwork_room_id=room_id,
+                            chatwork_message_id=str(message_id) if message_id else None,
+                        )
+                        sent = True
+                        print(f"✅ レポート送信完了: message_id={message_id}")
+                    else:
+                        await service.mark_as_failed(
+                            report_id=_report_id,
+                            error_message=f"ChatWork API error: status={response.status_code}",
+                        )
+                        sent = False
+                        print(f"❌ ChatWork送信失敗: status={response.status_code}")
+
+                    return _report_id
+
+                sent = False
+                report_id = asyncio.run(_run_weekly_report())
 
                 if not report_id:
                     return jsonify({
@@ -481,52 +541,8 @@ def weekly_report(request: Request):
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }), 200
 
-                print(f"📄 レポート生成完了: {report_id}")
-
-                # レポートを送信
                 if not dry_run:
-                    import requests as http_requests
-
-                    # レポートを取得してChatWork形式にフォーマット
-                    report_record = asyncio.run(service.get_report(report_id))
-                    if report_record:
-                        chatwork_message = service.format_for_chatwork(report_record)
-
-                        # ChatWorkに送信
-                        chatwork_token = get_secret("SOULKUN_CHATWORK_TOKEN")
-                        response = http_requests.post(
-                            f"https://api.chatwork.com/v2/rooms/{room_id}/messages",
-                            headers={"X-ChatWorkToken": chatwork_token},
-                            data={"body": chatwork_message},
-                            timeout=30
-                        )
-
-                        if response.status_code == 200:
-                            message_id = response.json().get("message_id")
-                            asyncio.run(service.mark_as_sent(
-                                report_id=report_id,
-                                sent_to=[],
-                                sent_via="chatwork",
-                                chatwork_room_id=room_id,
-                                chatwork_message_id=str(message_id) if message_id else None,
-                            ))
-                            sent = True
-                            print(f"✅ レポート送信完了: message_id={message_id}")
-                        else:
-                            asyncio.run(service.mark_as_failed(
-                                report_id=report_id,
-                                error_message=f"ChatWork API error: status={response.status_code}",
-                            ))
-                            sent = False
-                            print(f"❌ ChatWork送信失敗: status={response.status_code}")
-                    else:
-                        sent = False
-                        print(f"❌ レポートレコード取得失敗: {report_id}")
-
                     conn.commit()
-                else:
-                    sent = False
-                    print(f"🧪 DRY RUN: レポート送信スキップ")
             except Exception:
                 conn.rollback()
                 raise

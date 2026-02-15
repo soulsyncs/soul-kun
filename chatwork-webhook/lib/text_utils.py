@@ -376,8 +376,8 @@ def clean_chatwork_tags(body: str) -> str:
                     body = extracted_text
             # 引用からも抽出できない場合は元のテキストを使用（タグ除去後）
 
-        # 2. [qtmeta ...] タグを除去（残っている場合）
-        body = re.sub(r'\[qtmeta[^\]]*\]', '', body)
+        # 2. [qtmeta ...] タグを除去（残っている場合。閉じ括弧なし=切り詰めも対応）
+        body = re.sub(r'\[qtmeta[^\]]*\]?', '', body)
 
         # 3. [qt] [/qt] の単独タグを除去
         body = re.sub(r'\[/?qt\]', '', body)
@@ -409,6 +409,10 @@ def clean_chatwork_tags(body: str) -> str:
 
         # 11. [hr] タグを除去
         body = re.sub(r'\[hr\]', '', body)
+
+        # 11.5. [task aid=xxx st=xxx]...[/task] タグを除去（内容は残す。閉じ括弧なし=切り詰めも対応）
+        body = re.sub(r'\[task\s+[^\]]*\]?', '', body, flags=re.IGNORECASE)
+        body = re.sub(r'\[/task\]', '', body, flags=re.IGNORECASE)
 
         # 12. その他の [...] 形式のタグを慎重に除去
         body = re.sub(r'\[/?[a-z]+(?::[^\]]+)?\]', '', body, flags=re.IGNORECASE)

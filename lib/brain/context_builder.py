@@ -672,11 +672,20 @@ class ContextBuilder:
                                     return lt < now_ts
                                 return False
 
+                            def _resolve_summary(summary, body):
+                                """summaryが欠落・プレースホルダーの場合、bodyから生成"""
+                                if summary and summary != "（タスク内容を確認してください）":
+                                    return summary
+                                if body:
+                                    clean = body.strip()[:60]
+                                    return clean if clean else None
+                                return None
+
                             data["tasks"] = [
                                 TaskInfo(
                                     task_id=str(r[0]) if r[0] else "",
                                     body=r[1] or "",
-                                    summary=r[2],
+                                    summary=_resolve_summary(r[2], r[1]),
                                     status=r[3] or "open",
                                     due_date=_parse_lt(r[4]),
                                     room_id=str(r[5]) if r[5] else None,
@@ -707,6 +716,8 @@ class ContextBuilder:
                                 WHERE u.chatwork_account_id = :user_id
                                   AND g.organization_id = CAST(:org_id AS uuid)
                                   AND g.status = 'active'
+                                  AND (g.deadline IS NULL OR g.deadline >= CURRENT_DATE)
+                                  AND (g.period_end IS NULL OR g.period_end >= CURRENT_DATE)
                                 ORDER BY g.created_at DESC LIMIT 5
                             """), {"user_id": user_id, "org_id": org_id}).fetchall()
                             data["goals"] = [

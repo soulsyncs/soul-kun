@@ -525,6 +525,8 @@ class ProactiveMonitor:
                 WHERE organization_id = CAST(:org_id AS uuid)
                   AND user_id = CAST(:user_id AS uuid)
                   AND status = 'active'
+                  AND (deadline IS NULL OR deadline >= CURRENT_DATE)
+                  AND (period_end IS NULL OR period_end >= CURRENT_DATE)
                   AND updated_at < :threshold AT TIME ZONE 'Asia/Tokyo'
                 ORDER BY updated_at ASC
                 LIMIT 1

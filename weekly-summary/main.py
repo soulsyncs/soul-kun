@@ -189,32 +189,80 @@ def get_dm_room_id(account_id):
 # メイン処理
 # ============================================
 
+def _is_already_sent(conn, org_id, notification_type, target_id, notification_date):
+    """notification_logsで送信済みかチェック（重複送信防止）"""
+    try:
+        result = conn.execute(
+            sqlalchemy.text("""
+                SELECT 1 FROM notification_logs
+                WHERE organization_id = :org_id
+                  AND notification_type = :ntype
+                  AND target_id = :tid
+                  AND notification_date = :ndate
+                LIMIT 1
+            """),
+            {"org_id": org_id, "ntype": notification_type, "tid": target_id, "ndate": notification_date}
+        ).fetchone()
+        return result is not None
+    except Exception as e:
+        print(f"[重複チェック] エラー（送信を許可）: {type(e).__name__}")
+        return False
+
+
+def _record_sent(conn, org_id, notification_type, target_id, target_type, notification_date, channel_target):
+    """notification_logsに送信記録を保存"""
+    import uuid
+    try:
+        conn.execute(
+            sqlalchemy.text("""
+                INSERT INTO notification_logs
+                    (id, organization_id, notification_type, target_type, target_id,
+                     notification_date, sent_at, status, channel, channel_target)
+                VALUES
+                    (:id, :org_id, :ntype, :ttype, :tid,
+                     :ndate, NOW(), 'success', 'chatwork', :channel_target)
+                ON CONFLICT (organization_id, target_type, target_id, notification_date, notification_type)
+                DO NOTHING
+            """),
+            {
+                "id": str(uuid.uuid4()), "org_id": org_id, "ntype": notification_type,
+                "ttype": target_type, "tid": target_id,
+                "ndate": notification_date, "channel_target": channel_target,
+            }
+        )
+        conn.commit()
+    except Exception as e:
+        print(f"[送信記録] エラー: {type(e).__name__}")
+
+
 def send_weekly_summaries():
     """
     全スタッフに週次サマリーを送信
-    
+
     設計書v7.2.1準拠:
     - 毎週金曜18:00に実行
     - その週にタスクが1件以上あった人のみ対象
     - 各スタッフの個人チャット（DM）に送信
     - ChatWork APIレート制限対策: 1秒に1通ペース
+    - v11.1.1: notification_logsで重複送信防止
     """
     # 今週の月曜日と金曜日を計算
     today = datetime.now()
     days_since_monday = today.weekday()
     monday = (today - timedelta(days=days_since_monday)).replace(hour=0, minute=0, second=0, microsecond=0)
     friday = monday + timedelta(days=4)
-    
+
     start_date = monday.strftime('%Y-%m-%d')
     end_date = friday.strftime('%Y-%m-%d')
-    
+
     print(f"[週次サマリー] 集計期間: {start_date} ~ {end_date}")
     
     # 全スタッフを取得
     db_pool = get_db_pool()
     with db_pool.connect() as conn:
         users = conn.execute(
-            sqlalchemy.text("SELECT account_id, name FROM chatwork_users")
+            sqlalchemy.text("SELECT account_id, name FROM chatwork_users WHERE organization_id = :org_id"),
+            {'org_id': _ORGANIZATION_ID}
         ).fetchall()
     
     sent_count = 0
@@ -222,44 +270,56 @@ def send_weekly_summaries():
     error_count = 0
     no_dm_room_users = []
     
+    notification_date = today.strftime('%Y-%m-%d')
+
     for user in users:
         account_id = user.account_id
         name = user.name or f"ID:{account_id}"
-        
+
         # 週次サマリーを取得
         summary = get_weekly_task_summary(account_id, start_date, end_date)
-        
+
         # タスクが0件の人はスキップ
         if summary['total_tasks'] == 0:
             print(f"[週次サマリー] {name}: タスク0件のためスキップ")
             skip_count += 1
             continue
-        
+
         # DMルームIDを取得
         dm_room_id = get_dm_room_id(account_id)
-        
+
         if not dm_room_id:
             print(f"[週次サマリー] {name}: DMルームIDが見つからないためスキップ")
             no_dm_room_users.append({'account_id': account_id, 'name': name})
             skip_count += 1
             continue
-        
+
+        # v11.1.1: 重複送信チェック
+        with db_pool.connect() as check_conn:
+            if _is_already_sent(check_conn, _ORGANIZATION_ID, "weekly_summary", str(account_id), notification_date):
+                print(f"[週次サマリー] {name}: 本日送信済みのためスキップ")
+                skip_count += 1
+                continue
+
         # メッセージを生成
         message = generate_weekly_summary_message(name, summary)
-        
+
         # DMを送信
         try:
             success = send_chatwork_message(dm_room_id, message)
             if success:
                 print(f"[週次サマリー] {name}: 送信成功（完了率: {summary['completion_rate']}%）")
                 sent_count += 1
+                # 送信記録を保存
+                with db_pool.connect() as rec_conn:
+                    _record_sent(rec_conn, _ORGANIZATION_ID, "weekly_summary", str(account_id), "user", notification_date, str(dm_room_id))
             else:
                 print(f"[週次サマリー] {name}: 送信失敗")
                 error_count += 1
         except Exception as e:
-            print(f"[週次サマリー] {name}: エラー - {str(e)}")
+            print(f"[週次サマリー] {name}: エラー - {type(e).__name__}")
             error_count += 1
-        
+
         # レート制限対策: 1秒待機
         time.sleep(1)
     

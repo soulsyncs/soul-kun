@@ -27,8 +27,14 @@ def _load_cleanup_module():
         "google.cloud", "google.cloud.firestore",
         "httpx",
         "lib.db", "lib.secrets", "lib.config", "lib",
-        "functions_framework",
+        "pg8000", "sqlalchemy",
     ]
+
+    # flaskが無い環境（ローカル）ではモックする
+    try:
+        import flask  # noqa: F401
+    except ImportError:
+        _MOCK_NAMES.append("flask")
 
     # 既存のモジュールを退避
     saved = {name: sys.modules.pop(name) for name in _MOCK_NAMES if name in sys.modules}
@@ -37,10 +43,14 @@ def _load_cleanup_module():
         for mod_name in _MOCK_NAMES:
             sys.modules[mod_name] = MagicMock()
 
-        # functions_framework.http デコレータをパススルーに
-        mock_ff = MagicMock()
-        mock_ff.http = lambda fn: fn
-        sys.modules["functions_framework"] = mock_ff
+        # flaskをモックした場合、Flask appとjsonifyを構築
+        if "flask" in _MOCK_NAMES:
+            mock_flask = MagicMock()
+            mock_app = MagicMock()
+            mock_app.test_request_context.return_value.__enter__ = MagicMock()
+            mock_app.test_request_context.return_value.__exit__ = MagicMock(return_value=False)
+            mock_flask.Flask.return_value = mock_app
+            sys.modules["flask"] = mock_flask
 
         cleanup_dir = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "cleanup-old-data"
@@ -111,8 +121,9 @@ def _run_cleanup(rowcount_map=None):
     with patch.object(_cleanup_mod, "get_pool", return_value=mock_pool), \
          patch.object(_cleanup_mod, "db", mock_db), \
          patch.object(_cleanup_mod, "jsonify", side_effect=lambda d: _FakeResponse(d)):
-        resp = _cleanup_mod.cleanup_old_data(MagicMock())
-        return resp.get_json()
+        with _cleanup_mod.app.test_request_context(json={}):
+            resp = _cleanup_mod.cleanup_old_data()
+            return resp.get_json()
 
 
 # ============================================================
@@ -182,8 +193,9 @@ class TestCleanupErrorHandling:
         with patch.object(_cleanup_mod, "get_pool", return_value=mock_pool), \
              patch.object(_cleanup_mod, "db", mock_db), \
              patch.object(_cleanup_mod, "jsonify", side_effect=lambda d: _FakeResponse(d)):
-            resp = _cleanup_mod.cleanup_old_data(MagicMock())
-            data = resp.get_json()
+            with _cleanup_mod.app.test_request_context(json={}):
+                resp = _cleanup_mod.cleanup_old_data()
+                data = resp.get_json()
 
         assert data["status"] == "partial"
         assert data["results"]["brain_decision_logs"] == 0
@@ -210,8 +222,9 @@ class TestCleanupErrorHandling:
         with patch.object(_cleanup_mod, "get_pool", return_value=mock_pool), \
              patch.object(_cleanup_mod, "db", mock_db), \
              patch.object(_cleanup_mod, "jsonify", side_effect=lambda d: _FakeResponse(d)):
-            resp = _cleanup_mod.cleanup_old_data(MagicMock())
-            data = resp.get_json()
+            with _cleanup_mod.app.test_request_context(json={}):
+                resp = _cleanup_mod.cleanup_old_data()
+                data = resp.get_json()
 
         for err in data["results"]["errors"]:
             assert "secret" not in err

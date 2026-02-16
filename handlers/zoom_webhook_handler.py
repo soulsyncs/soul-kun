@@ -113,6 +113,14 @@ async def handle_zoom_webhook_event(
 
     interface = ZoomBrainInterface(pool, organization_id)
 
+    # ChatworkClientをタスク自動作成用に取得
+    chatwork_client = None
+    try:
+        from lib.chatwork import ChatworkClient
+        chatwork_client = ChatworkClient()
+    except Exception as e:
+        logger.warning("ChatworkClient init failed (task creation disabled): %s", type(e).__name__)
+
     # Webhook経由: meeting_idを直接指定して録画を取得
     zoom_meeting_id = str(meeting_id_raw) if meeting_id_raw else None
 
@@ -123,6 +131,7 @@ async def handle_zoom_webhook_event(
         zoom_meeting_id=zoom_meeting_id,
         zoom_user_email=host_email or None,
         get_ai_response_func=get_ai_response_func,
+        chatwork_client=chatwork_client,
     )
 
     # Webhook起点であることをデータに記録

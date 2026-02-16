@@ -67,6 +67,8 @@ cp "$LIB_SRC/detection/constants.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/exceptions.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/pattern_detector.py" "$LIB_DST/detection/"
 cp "$LIB_SRC/detection/personalization_detector.py" "$LIB_DST/detection/"
+cp "$LIB_SRC/detection/bottleneck_detector.py" "$LIB_DST/detection/"
+cp "$LIB_SRC/detection/emotion_detector.py" "$LIB_DST/detection/"
 
 # insights モジュール
 mkdir -p "$LIB_DST/insights"
@@ -74,15 +76,12 @@ cp "$LIB_SRC/insights/__init__.py" "$LIB_DST/insights/"
 cp "$LIB_SRC/insights/insight_service.py" "$LIB_DST/insights/"
 cp "$LIB_SRC/insights/weekly_report_service.py" "$LIB_DST/insights/"
 
-# audit モジュール（週次レポートで使用）
-if [ -f "$LIB_SRC/audit.py" ]; then
-    cp "$LIB_SRC/audit.py" "$LIB_DST/"
-fi
-
-# text_utils（パターン正規化で使用）
-if [ -f "$LIB_SRC/text_utils.py" ]; then
-    cp "$LIB_SRC/text_utils.py" "$LIB_DST/"
-fi
+# 共通ライブラリ（main.pyが直接import）
+for f in db.py secrets.py config.py audit.py text_utils.py; do
+    if [ -f "$LIB_SRC/$f" ]; then
+        cp "$LIB_SRC/$f" "$LIB_DST/"
+    fi
+done
 
 # lib/__init__.py を作成
 cat > "$LIB_DST/__init__.py" << 'EOF'

@@ -27,14 +27,14 @@ def _load_cleanup_module():
         "google.cloud", "google.cloud.firestore",
         "httpx",
         "lib.db", "lib.secrets", "lib.config", "lib",
-        "pg8000", "sqlalchemy",
     ]
 
-    # flaskが無い環境（ローカル）ではモックする
-    try:
-        import flask  # noqa: F401
-    except ImportError:
-        _MOCK_NAMES.append("flask")
+    # ローカルに無いパッケージはモックする
+    for pkg in ["pg8000", "sqlalchemy", "flask"]:
+        try:
+            __import__(pkg)
+        except ImportError:
+            _MOCK_NAMES.append(pkg)
 
     # 既存のモジュールを退避
     saved = {name: sys.modules.pop(name) for name in _MOCK_NAMES if name in sys.modules}
@@ -42,15 +42,6 @@ def _load_cleanup_module():
     try:
         for mod_name in _MOCK_NAMES:
             sys.modules[mod_name] = MagicMock()
-
-        # flaskをモックした場合、Flask appとjsonifyを構築
-        if "flask" in _MOCK_NAMES:
-            mock_flask = MagicMock()
-            mock_app = MagicMock()
-            mock_app.test_request_context.return_value.__enter__ = MagicMock()
-            mock_app.test_request_context.return_value.__exit__ = MagicMock(return_value=False)
-            mock_flask.Flask.return_value = mock_app
-            sys.modules["flask"] = mock_flask
 
         cleanup_dir = os.path.join(
             os.path.dirname(os.path.dirname(__file__)), "cleanup-old-data"

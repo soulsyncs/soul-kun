@@ -47,6 +47,9 @@ const ProactivePage = lazy(() =>
 const TeachingsPage = lazy(() =>
   import('@/pages/teachings').then((m) => ({ default: m.TeachingsPage }))
 );
+const IntegrationsPage = lazy(() =>
+  import('@/pages/integrations').then((m) => ({ default: m.IntegrationsPage }))
+);
 const SystemPage = lazy(() =>
   import('@/pages/system').then((m) => ({ default: m.SystemPage }))
 );
@@ -170,6 +173,12 @@ const teachingsRoute = new Route({
   component: () => <ProtectedRoute component={TeachingsPage} />,
 });
 
+const integrationsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/integrations',
+  component: () => <ProtectedRoute component={IntegrationsPage} />,
+});
+
 const systemRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/system',
@@ -189,6 +198,7 @@ const routeTree = rootRoute.addChildren([
   proactiveRoute,
   teachingsRoute,
   costsRoute,
+  integrationsRoute,
   systemRoute,
   membersRoute,
 ]);

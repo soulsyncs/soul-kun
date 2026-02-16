@@ -813,3 +813,32 @@ class SelfDiagnosesResponse(BaseModel):
     status: str = "success"
     diagnoses: List[SelfDiagnosisSummary] = Field(default_factory=list)
     total_count: int = 0
+
+
+# =============================================================================
+# Google Calendar 連携
+# =============================================================================
+
+
+class GoogleCalendarStatusResponse(BaseModel):
+    """Googleカレンダー接続状態"""
+
+    status: str = "success"
+    is_connected: bool = False
+    google_email: Optional[str] = None
+    connected_at: Optional[str] = None
+    token_valid: bool = False
+
+
+class GoogleCalendarConnectResponse(BaseModel):
+    """OAuth認可URL"""
+
+    status: str = "success"
+    auth_url: str = Field(..., description="GoogleのOAuth認可画面URL")
+
+
+class GoogleCalendarDisconnectResponse(BaseModel):
+    """接続解除結果"""
+
+    status: str = "success"
+    message: str = "Googleカレンダー連携を解除しました"

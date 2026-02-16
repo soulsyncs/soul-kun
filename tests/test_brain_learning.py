@@ -794,7 +794,7 @@ class TestUpdateMemory:
         sample_handler_result,
         sample_context,
     ):
-        """Firestoreなしでも動作する"""
+        """Firestoreなしでも動作する（会話はwebhookレイヤーで保存済みなのでTrue）"""
         result = await brain_learning_no_deps.update_memory(
             message="タスクを教えて",
             result=sample_handler_result,
@@ -805,7 +805,7 @@ class TestUpdateMemory:
         )
 
         assert isinstance(result, MemoryUpdate)
-        assert result.conversation_saved is False
+        assert result.conversation_saved is True
 
 
 # =============================================================================

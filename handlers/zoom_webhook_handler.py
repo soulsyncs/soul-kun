@@ -93,7 +93,7 @@ async def handle_zoom_webhook_event(
     calendar_description = None
     calendar_event_title = None
     calendar_attendees = []
-    calendar_event = await _lookup_calendar_event(start_time, topic)
+    calendar_event = await _lookup_calendar_event(start_time, topic, pool, organization_id)
     if calendar_event:
         calendar_description = calendar_event.description
         calendar_event_title = calendar_event.title
@@ -150,18 +150,29 @@ async def handle_zoom_webhook_event(
 
 
 async def _lookup_calendar_event(
-    start_time_str: str, topic: str
+    start_time_str: str,
+    topic: str,
+    pool: Optional[Any] = None,
+    organization_id: Optional[str] = None,
 ) -> Optional[Any]:
     """
     Google Calendar照合（Phase 3）。
 
     ENABLE_GOOGLE_CALENDAR=trueの場合のみ実行。
+    OAuth（DB）→ サービスアカウント → ADC の優先順位で認証。
     エラー時はNoneを返し、議事録生成は継続する。
     """
     try:
-        from lib.meetings.google_calendar_client import create_calendar_client_from_env
+        client = None
+        # 優先: DBのOAuthトークン
+        if pool and organization_id:
+            from lib.meetings.google_calendar_client import create_calendar_client_from_db
+            client = create_calendar_client_from_db(pool, organization_id)
 
-        client = create_calendar_client_from_env()
+        # フォールバック: 環境変数ベース
+        if client is None:
+            from lib.meetings.google_calendar_client import create_calendar_client_from_env
+            client = create_calendar_client_from_env()
         if client is None:
             return None
 

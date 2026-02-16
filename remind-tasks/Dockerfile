@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 COPY remind-tasks/ /app/remind-tasks/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/remind-tasks/lib/
 
 ENV PYTHONPATH=/app:/app/remind-tasks
 ENV PORT=8080

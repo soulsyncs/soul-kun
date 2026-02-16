@@ -8,6 +8,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 COPY sync-drive-permissions/ /app/sync-drive-permissions/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/sync-drive-permissions/lib/
 
 ENV PYTHONPATH=/app:/app/sync-drive-permissions
 ENV PORT=8080

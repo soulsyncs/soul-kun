@@ -15,6 +15,8 @@ COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 
 # check-reply-messages のアプリケーションコードをコピー
 COPY check-reply-messages/ /app/check-reply-messages/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/check-reply-messages/lib/
 
 # Python パスを設定（lib/ と check-reply-messages/ の両方を参照可能に）
 ENV PYTHONPATH=/app:/app/check-reply-messages

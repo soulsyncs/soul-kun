@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 COPY report-generator/ /app/report-generator/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/report-generator/lib/
 
 ENV PYTHONPATH=/app:/app/report-generator
 ENV PORT=8080

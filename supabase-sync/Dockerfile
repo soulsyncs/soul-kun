@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 COPY supabase-sync/ /app/supabase-sync/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/supabase-sync/lib/
 
 ENV PYTHONPATH=/app:/app/supabase-sync
 ENV PORT=8080

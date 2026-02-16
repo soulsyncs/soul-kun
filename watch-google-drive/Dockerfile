@@ -25,6 +25,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 COPY watch-google-drive/ /app/watch-google-drive/
+# サービスローカルのlib/を削除（ルートのlib/を使用するため）
+RUN rm -rf /app/watch-google-drive/lib/
 
 ENV PYTHONPATH=/app:/app/watch-google-drive
 ENV PORT=8080

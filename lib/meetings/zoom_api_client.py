@@ -183,6 +183,38 @@ class ZoomAPIClient:
         logger.debug("find_transcript_url: no TRANSCRIPT found in %d files", len(recording_files))
         return None
 
+    def find_recording_play_url(
+        self, recording_data: Dict[str, Any]
+    ) -> Optional[str]:
+        """
+        Find the shared recording play URL from recording data.
+
+        Zoom provides share_url at the top level of recording data,
+        which is a browser-viewable link to the recording.
+        Falls back to searching recording_files for MP4 play_url.
+
+        Returns:
+            Play URL string, or None if no recording available
+        """
+        # 1. トップレベルのshare_url（最も汎用的）
+        share_url = recording_data.get("share_url")
+        if share_url:
+            logger.debug("find_recording_play_url: share_url found")
+            return share_url
+
+        # 2. recording_filesからMP4のplay_urlを探す
+        recording_files = recording_data.get("recording_files", [])
+        for file_info in recording_files:
+            file_type = file_info.get("file_type")
+            if file_type == "MP4":
+                play_url = file_info.get("play_url")
+                if play_url:
+                    logger.debug("find_recording_play_url: MP4 play_url found")
+                    return play_url
+
+        logger.debug("find_recording_play_url: no recording URL found")
+        return None
+
 
 def create_zoom_client_from_secrets() -> ZoomAPIClient:
     """

@@ -31,6 +31,13 @@ from lib.meetings.minutes_generator import (
     format_chatwork_minutes,
     CHATWORK_MINUTES_SYSTEM_PROMPT,
 )
+from lib.meetings.docs_brain_integration import (
+    create_meeting_docs_publisher,
+)
+from lib.meetings.task_extractor import (
+    extract_and_create_tasks,
+    TaskExtractionResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -86,6 +93,8 @@ class ZoomBrainInterface:
         zoom_meeting_id: Optional[str] = None,
         zoom_user_email: Optional[str] = None,
         get_ai_response_func: Optional[Callable] = None,
+        chatwork_client=None,
+        recording_data_override: Optional[Dict[str, Any]] = None,
     ) -> HandlerResult:
         """
         Zoom議事録を生成する。
@@ -120,6 +129,7 @@ class ZoomBrainInterface:
                     data={},
                 )
 
+            assert recording_data is not None  # Noneは上でreturn済み
             api_files = recording_data.get("recording_files", [])
             logger.debug("recording_files types: %s, meeting_id=%s",
                          [f.get("file_type") for f in api_files], recording_data.get("id"))
@@ -267,9 +277,58 @@ class ZoomBrainInterface:
                     get_ai_response_func,
                 )
 
-            # Step 8: Build result
+            # Step 8: 録画URL取得
+            assert recording_data is not None  # Step 1で早期リターン済み
+            recording_play_url = await asyncio.to_thread(
+                zoom_client.find_recording_play_url,
+                recording_data,
+            )
+
+            # Step 9: Googleドキュメント保存（有効時のみ）
+            document_url = ""
+            if minutes:
+                try:
+                    docs_publisher = create_meeting_docs_publisher(
+                        pool=self.pool,
+                        organization_id=self.organization_id,
+                    )
+                    if docs_publisher:
+                        docs_result = await docs_publisher.publish_to_google_docs(
+                            meeting_id=meeting_id,
+                            minutes_text=minutes,
+                            title=resolved_title,
+                            expected_version=2,
+                        )
+                        document_url = docs_result.get("document_url", "")
+                        if document_url:
+                            logger.info("Minutes saved to Google Docs: %s", document_url)
+                except Exception as e:
+                    logger.warning("Google Docs publish failed: %s", type(e).__name__)
+
+            # Step 10: タスク自動抽出＆ChatWork作成
+            task_result: Optional[TaskExtractionResult] = None
+            if minutes and get_ai_response_func:
+                try:
+                    task_result = await extract_and_create_tasks(
+                        minutes_text=minutes,
+                        meeting_title=resolved_title,
+                        room_id=room_id,
+                        organization_id=self.organization_id,
+                        get_ai_response_func=get_ai_response_func,
+                        chatwork_client=chatwork_client,
+                        name_resolver=self._build_name_resolver(),
+                    )
+                    if task_result and task_result.total_extracted > 0:
+                        logger.info(
+                            "Tasks extracted: %d, created: %d",
+                            task_result.total_extracted,
+                            task_result.total_created,
+                        )
+                except Exception as e:
+                    logger.warning("Task extraction failed: %s", type(e).__name__)
+
+            # Step 11: Build result（3点セットメッセージ）
             # CLAUDE.md §3-2 #8: speakersリスト（話者名=PII）はresult_dataに含めない。
-            # 人数のみ返す。LLM議事録にはsanitized_textから生成された情報のみ含まれる。
             result_data: Dict[str, Any] = {
                 "meeting_id": meeting_id,
                 "status": "transcribed",
@@ -279,11 +338,19 @@ class ZoomBrainInterface:
                 "duration_seconds": vtt_transcript.duration_seconds,
                 "pii_removed_count": pii_count,
                 "segment_count": len(vtt_transcript.segments),
+                "recording_url": recording_play_url or "",
+                "document_url": document_url,
             }
 
             if minutes:
                 result_data["minutes_text"] = minutes
-                message = format_chatwork_minutes(minutes, resolved_title)
+                message = self._build_delivery_message(
+                    title=resolved_title,
+                    minutes_text=minutes,
+                    recording_url=recording_play_url,
+                    document_url=document_url,
+                    task_result=task_result,
+                )
             else:
                 message = self._build_transcript_only_message(
                     resolved_title,
@@ -403,6 +470,99 @@ class ZoomBrainInterface:
             logger.warning("Minutes generation failed: %s", type(e).__name__)
 
         return None
+
+    def _build_name_resolver(self):
+        """
+        名前→ChatWork account_id 解決関数を返す。
+
+        chatwork_usersテーブルとusersテーブルからLIKE検索で名前を解決。
+        """
+        from sqlalchemy import text as sa_text
+
+        pool = self.pool
+        org_id = self.organization_id
+
+        def resolver(name: str) -> Optional[str]:
+            if not name:
+                return None
+            # 「さん」「くん」等の敬称を除去
+            clean_name = name.rstrip("さんくんちゃん様氏")
+            if not clean_name:
+                return None
+
+            with pool.connect() as conn:
+                # chatwork_usersテーブルから検索
+                row = conn.execute(
+                    sa_text("""
+                        SELECT cu.account_id
+                        FROM chatwork_users cu
+                        WHERE cu.organization_id = :org_id
+                          AND cu.name LIKE :pattern
+                        LIMIT 1
+                    """),
+                    {"org_id": org_id, "pattern": f"%{clean_name}%"},
+                ).fetchone()
+                if row:
+                    return str(row[0])
+
+                # usersテーブルからもフォールバック検索
+                row = conn.execute(
+                    sa_text("""
+                        SELECT u.chatwork_account_id
+                        FROM users u
+                        WHERE u.organization_id = :org_id
+                          AND u.name LIKE :pattern
+                          AND u.chatwork_account_id IS NOT NULL
+                        LIMIT 1
+                    """),
+                    {"org_id": org_id, "pattern": f"%{clean_name}%"},
+                ).fetchone()
+                if row:
+                    return str(row[0])
+
+            return None
+
+        return resolver
+
+    @staticmethod
+    def _build_delivery_message(
+        title: str,
+        minutes_text: str,
+        recording_url: Optional[str] = None,
+        document_url: Optional[str] = None,
+        task_result: Optional[TaskExtractionResult] = None,
+    ) -> str:
+        """
+        3点セット（録画URL + GoogleドキュメントURL + 議事録テキスト）の
+        ChatWorkメッセージを組み立てる。
+        """
+        parts = [f"[info][title]\U0001f4cb {title} - 議事録[/title]"]
+
+        # (a) 録画動画URL
+        if recording_url:
+            parts.append(f"\U0001f3ac 録画: {recording_url}")
+        # (b) GoogleドキュメントURL
+        if document_url:
+            parts.append(f"\U0001f4c4 Google Docs: {document_url}")
+        # 区切り
+        if recording_url or document_url:
+            parts.append("")
+
+        # (c) 議事録テキスト
+        parts.append(minutes_text)
+
+        # タスク抽出結果
+        if task_result and task_result.total_extracted > 0:
+            parts.append("")
+            parts.append(f"\u2705 タスク: {task_result.total_created}件作成")
+            if task_result.total_unassigned > 0:
+                parts.append(
+                    f"\u26a0 担当者不明: {task_result.total_unassigned}件"
+                    "（手動で担当者を設定してください）"
+                )
+
+        parts.append("[/info]")
+        return "\n".join(parts)
 
     @staticmethod
     def _build_transcript_only_message(

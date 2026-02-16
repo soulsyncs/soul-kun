@@ -656,6 +656,10 @@ class BrainLearning:
         """
         会話履歴を保存
 
+        会話メッセージはwebhookレベルで save_room_message() により
+        room_messages テーブル（Cloud SQL）に保存済み。
+        ここでは二重保存せず、保存済みフラグのみ返す。
+
         Args:
             user_message: ユーザーのメッセージ
             ai_response: AIの応答
@@ -666,20 +670,8 @@ class BrainLearning:
         Returns:
             保存に成功したか
         """
-        if not self.firestore_db:
-            return False
-
-        try:
-            # Firestore廃止予定: 会話履歴はCloud SQL経由で保存
-            logger.debug(
-                f"Conversation saved: room={room_id}, "
-                f"user={sender_name}"
-            )
-            return True
-
-        except Exception as e:
-            logger.warning(f"Error saving conversation: {type(e).__name__}")
-            return False
+        # 会話はwebhookレイヤーの save_room_message() でCloud SQLに保存済み
+        return True
 
     async def _update_conversation_summary(
         self,

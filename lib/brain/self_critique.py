@@ -795,47 +795,43 @@ class SelfCritique:
 
     def _fix_incomplete_sentence(self, response: str) -> str:
         """
-        途切れた文を修正
+        途切れた文を修正（トーン付与はLLMに任せる）
         """
         # 助詞で終わっている場合、適切な終わり方を追加
         if re.search(r"[をにがはでとへもの]$", response):
             response = response.rstrip("をにがはでとへもの")
-            response += "...だウル🐺"
+            response += "..."
 
         # 読点で終わっている場合
         if response.endswith("、"):
             response = response.rstrip("、")
-            response += "ウル🐺"
+            response += "。"
 
         return response
 
     def _fix_tone(self, response: str) -> str:
         """
-        トーンを修正
+        トーンを修正（ウル付与はLLMのシステムプロンプトで頻度制御するため、
+        ここでは硬い表現を柔らかくするだけに留める）
         """
         # 硬い終わり方を柔らかくする
         if response.endswith("です。"):
-            response = response[:-2] + "ウル🐺"
+            response = response[:-2] + "だよ。"
         elif response.endswith("ます。"):
-            response = response[:-2] + "ウル🐺"
-
-        # ソウルくんらしい表現がなければ追加
-        if not any(re.search(p, response) for p in SOULKUN_TONE_PATTERNS):
-            if not response.endswith(("🐺", "ウル", "！", "!")):
-                response += " ウル🐺"
+            response = response[:-1] + "！"
 
         return response
 
     def _fix_too_short(self, response: str, original_message: str) -> str:
         """
-        短すぎる回答を修正
+        短すぎる回答を修正（トーン付与はLLMに任せる）
         """
         # 最低限の補足を追加
         if len(response) < 10:
             if "？" in original_message or "?" in original_message:
-                response += " 詳しく知りたいことがあれば聞いてウル🐺"
+                response += " 詳しく知りたいことがあれば聞いてね！"
             else:
-                response += " 他に何かあれば言ってウル🐺"
+                response += " 他に何かあれば言ってね！"
 
         return response
 

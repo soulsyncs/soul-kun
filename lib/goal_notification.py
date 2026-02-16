@@ -757,7 +757,7 @@ def send_daily_reminder_to_user(
         'org_id': org_id,
         'notification_type': notification_type,
     })
-    ignored_days = consecutive_result.fetchone()[0] or 0
+    ignored_days = int(consecutive_result.fetchone()[0] or 0)
 
     if ignored_days >= 3:
         # 3日以上無視されている場合、月曜日のみ送信（週1回に減頻）

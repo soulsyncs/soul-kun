@@ -469,7 +469,8 @@ RISK_LEVELS: Dict[str, str] = {
 }
 
 # 確認が必要なリスクレベル
-CONFIRMATION_REQUIRED_RISK_LEVELS: Set[str] = {"high"}
+# v11.2.0 Step 0-1: "medium"を追加。目標削除、記憶削除、一斉通知なども確認必須に
+CONFIRMATION_REQUIRED_RISK_LEVELS: Set[str] = {"medium", "high"}
 
 # =============================================================================
 # 状態タイプ

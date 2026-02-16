@@ -451,7 +451,7 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             }
         },
         "handler": "delete_memory",
-        "requires_confirmation": False,
+        "requires_confirmation": True,  # v11.2.0 Step 0-1: 削除操作は確認必須
         "required_data": [],
         "brain_metadata": {
             "decision_keywords": {
@@ -546,7 +546,7 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             }
         },
         "handler": "forget_knowledge",
-        "requires_confirmation": False,
+        "requires_confirmation": True,  # v11.2.0 Step 0-1: 削除操作は確認必須
         "required_data": ["sender_account_id"],
         "brain_metadata": {
             "decision_keywords": {

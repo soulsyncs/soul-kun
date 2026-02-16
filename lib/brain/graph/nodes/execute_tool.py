@@ -23,6 +23,16 @@ from lib.brain.models import DecisionResult, ConversationMessage
 logger = logging.getLogger(__name__)
 
 
+async def _log_tool_audit(**kwargs) -> bool:
+    """audit_bridgeへの遅延import呼び出し（fire-and-forget用）"""
+    try:
+        from lib.brain.audit_bridge import log_tool_execution
+        return await log_tool_execution(**kwargs)
+    except Exception as e:
+        logger.warning("[execute_tool] audit_bridge failed: %s", e)
+        return False
+
+
 def make_execute_tool(brain: "SoulkunBrain"):
     """SoulkunBrainを参照するexecute_toolノードを生成"""
 
@@ -88,6 +98,22 @@ def make_execute_tool(brain: "SoulkunBrain"):
                 account_id=state["account_id"],
                 execution_time_ms=brain._elapsed_ms(start_time),
                 error_code=result.data.get("error_code") if result.data and not result.success else None,
+            )
+
+            # Step 0-2: 監査ログ記録（fire-and-forget）
+            approval_result = state.get("approval_result")
+            risk_level = approval_result.risk_level if approval_result else "low"
+            brain._fire_and_forget(
+                _log_tool_audit(
+                    organization_id=state["organization_id"],
+                    tool_name=tool_call.tool_name,
+                    account_id=state["account_id"],
+                    success=result.success,
+                    risk_level=risk_level,
+                    reasoning=llm_result.reasoning,
+                    parameters=tool_call.parameters,
+                    error_code=result.data.get("error_code") if result.data and not result.success else None,
+                )
             )
 
             # Phase 2F: アクション結果の学習記録（fire-and-forget）

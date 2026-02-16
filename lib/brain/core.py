@@ -535,6 +535,13 @@ class SoulkunBrain:
         self.llm_context_builder: Optional[ContextBuilder] = None
         self._init_llm_brain()
 
+        # Step 0-3: 緊急停止チェッカー
+        from lib.brain.emergency_stop import EmergencyStopChecker
+        self.emergency_stop_checker = EmergencyStopChecker(
+            pool=pool,
+            org_id=org_id,
+        )
+
         # Phase 3: LangGraph Brain処理グラフ
         self._brain_graph = None
         self._init_brain_graph()

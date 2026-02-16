@@ -275,7 +275,7 @@ locals {
       description          = "Check and process reply messages"
       entry_point          = "check_reply_messages"
       source_dir           = "check-reply-messages"
-      memory               = "512Mi"
+      memory               = "1024Mi"
       timeout              = 120
       max_instances        = 6
       min_instances        = 0

@@ -1129,6 +1129,31 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
 
     results = {'success': 0, 'skipped': 0, 'failed': 0, 'blocked': 0}
 
+    # Phase 2.5: 期限切れゴール自動キャンセル（7日以上経過分）
+    # period_end または deadline のいずれかが7日以上過ぎたゴールを自動キャンセル
+    try:
+        expired_result = conn.execute(sqlalchemy.text("""
+            UPDATE goals
+            SET status = 'cancelled',
+                updated_at = CURRENT_TIMESTAMP,
+                updated_by = 'system_auto_expire'
+            WHERE organization_id = CAST(:org_id AS UUID)
+              AND status = 'active'
+              AND (
+                  (period_end IS NOT NULL AND period_end < CURRENT_DATE - INTERVAL '7 days')
+                  OR (deadline IS NOT NULL AND deadline < CURRENT_DATE - INTERVAL '7 days')
+              )
+            RETURNING id, title
+        """), {'org_id': org_id})
+        expired_rows = expired_result.fetchall()
+        if expired_rows:
+            conn.commit()
+            logger.info(f"期限切れゴール自動キャンセル: {len(expired_rows)}件")
+            for row in expired_rows:
+                logger.info(f"  - goal_id={row[0]}, title={row[1]}")
+    except Exception as e:
+        logger.warning(f"期限切れゴール自動キャンセルエラー: {type(e).__name__}: {e}")
+
     # アクティブな目標を持つユーザーを取得（テナント分離: users, goalsの両方でorg_idフィルタ）
     result = conn.execute(sqlalchemy.text("""
         SELECT DISTINCT

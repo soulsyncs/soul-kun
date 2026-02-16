@@ -92,8 +92,9 @@ def make_guardian_check(brain: "SoulkunBrain"):
             if action_str in ("allow", "modify") and tool_calls:
                 gate = get_approval_gate()
                 first_tool = tool_calls[0]
+                tool_name = getattr(first_tool, "tool_name", getattr(first_tool, "name", "unknown"))
                 approval_result = gate.check(
-                    first_tool.name,
+                    tool_name,
                     first_tool.parameters if hasattr(first_tool, "parameters") else {},
                 )
                 # 確認が必要な場合、guardian_action を "confirm" にエスカレーション
@@ -104,7 +105,7 @@ def make_guardian_check(brain: "SoulkunBrain"):
                     action_str = "confirm"
                     logger.info(
                         "ApprovalGate escalated to confirm: tool=%s level=%s",
-                        first_tool.name,
+                        tool_name,
                         approval_result.level.value,
                     )
 

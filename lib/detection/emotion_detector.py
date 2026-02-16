@@ -434,7 +434,7 @@ class EmotionDetector(BaseDetector):
                     send_time
                 FROM room_messages
                 WHERE organization_id = CAST(:org_id AS uuid)
-                  AND account_id = :account_id
+                  AND account_id = CAST(:account_id AS bigint)
                   AND send_time >= :cutoff_date
                   AND body IS NOT NULL
                   AND LENGTH(body) > 10
@@ -730,7 +730,7 @@ class EmotionDetector(BaseDetector):
                 SELECT AVG(es.sentiment_score)
                 FROM emotion_scores es
                 INNER JOIN room_messages rm ON es.message_id = rm.message_id
-                WHERE rm.account_id = :account_id
+                WHERE rm.account_id = CAST(:account_id AS bigint)
                   AND es.organization_id = :org_id
                   AND es.message_time >= :start_date
                   AND es.message_time < :end_date

@@ -842,3 +842,34 @@ class GoogleCalendarDisconnectResponse(BaseModel):
 
     status: str = "success"
     message: str = "Googleカレンダー連携を解除しました"
+
+
+# =============================================================================
+# 緊急停止（Emergency Stop）— Step 0-3
+# =============================================================================
+
+
+class EmergencyStopStatusResponse(BaseModel):
+    """緊急停止の状態"""
+
+    status: str = "success"
+    is_active: bool = False
+    activated_by: Optional[str] = None
+    deactivated_by: Optional[str] = None
+    reason: Optional[str] = None
+    activated_at: Optional[str] = None
+    deactivated_at: Optional[str] = None
+
+
+class EmergencyStopActivateRequest(BaseModel):
+    """緊急停止の有効化リクエスト"""
+
+    reason: str = Field("", description="停止理由")
+
+
+class EmergencyStopActionResponse(BaseModel):
+    """緊急停止の操作結果"""
+
+    status: str = "success"
+    message: str = Field(..., description="操作結果メッセージ")
+    is_active: bool = Field(..., description="操作後の停止状態")

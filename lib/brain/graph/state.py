@@ -40,6 +40,7 @@ class BrainGraphState(TypedDict, total=False):
     # === Guardian結果 ===
     guardian_result: Any  # GuardianResult
     guardian_action: str  # "allow", "block", "confirm", "modify"
+    approval_result: Any  # Optional[ApprovalCheckResult] — Step 0-1 承認ゲート判定
 
     # === 実行 ===
     tool_calls_to_execute: Optional[List[Any]]

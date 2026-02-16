@@ -34,6 +34,9 @@ ENV_LOG_EXECUTION_ID = "LOG_EXECUTION_ID"
 # System Prompt v2
 ENV_SYSTEM_PROMPT_V2 = "ENABLE_SYSTEM_PROMPT_V2"
 
+# Step A: Web検索API
+ENV_TAVILY_API_KEY = "TAVILY_API_KEY"
+
 # ナレッジ検索回答生成（Phase 3.5: Brain Tool統合後に追加予定）
 
 

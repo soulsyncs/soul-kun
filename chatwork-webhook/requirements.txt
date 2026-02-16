@@ -14,3 +14,4 @@ jpholiday>=0.1.9
 pytz>=2024.1
 langfuse~=2.0
 langgraph==1.0.8
+tavily-python>=0.5.0

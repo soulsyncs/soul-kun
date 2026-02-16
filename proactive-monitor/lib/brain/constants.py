@@ -462,6 +462,7 @@ RISK_LEVELS: Dict[str, str] = {
     "query_knowledge": "low",
     "forget_knowledge": "medium",
     "query_org_chart": "low",
+    "web_search": "low",
     "send_announcement": "medium",
     "delete": "high",
     "remove": "high",

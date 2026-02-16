@@ -1816,6 +1816,66 @@ async def _brain_handle_general_conversation(params, room_id, account_id, sender
         return HandlerResult(success=False, message=f"ごめんウル...もう一度試してほしいウル🐺")
 
 
+# =====================================================
+# Step A-1: Web検索ハンドラー
+# =====================================================
+
+async def _brain_handle_web_search(params, room_id, account_id, sender_name, context):
+    """
+    Web検索ハンドラー
+
+    Step A-1: Tavily APIを使ったWeb検索。
+    検索結果はBrain層が合成回答に使う（needs_answer_synthesis=True）。
+
+    NOTE: Tavily SDKはrequestsベースの同期I/O。
+    asyncio.to_thread()で包んでイベントループをブロックしない（CLAUDE.md §3-2 #6）。
+    """
+    try:
+        import asyncio
+        from lib.brain.web_search import get_web_search_client, format_search_results
+
+        query = params.get("query", "")
+        if not query:
+            return HandlerResult(
+                success=False,
+                message="検索クエリが指定されていないウル🐺 何を調べたいか教えてほしいウル！",
+            )
+
+        max_results = params.get("max_results", 5)
+        client = get_web_search_client()
+        # CLAUDE.md §3-2 #6: sync I/Oをasyncでブロックしないようにオフロード
+        search_result = await asyncio.to_thread(
+            client.search, query=query, max_results=max_results
+        )
+
+        if not search_result.get("success"):
+            error_msg = search_result.get("error", "検索に失敗しました")
+            return HandlerResult(
+                success=False,
+                message=f"ウェブ検索でエラーが発生したウル🐺 ({error_msg})",
+            )
+
+        # 検索結果をフォーマットしてBrain合成用データとして返す
+        formatted = format_search_results(search_result)
+        return HandlerResult(
+            success=True,
+            message=formatted,
+            data={
+                "needs_answer_synthesis": True,
+                "search_results": search_result.get("results", []),
+                "search_answer": search_result.get("answer"),
+                "search_query": query,
+                "result_count": search_result.get("result_count", 0),
+            },
+        )
+    except Exception as e:
+        logger.error("web_search handler error: %s", e, exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="ウェブ検索でエラーが発生したウル🐺 もう一度試してほしいウル！",
+        )
+
+
 def build_brain_handlers() -> Dict[str, Callable]:
     """
     脳用ハンドラーのマッピングを構築
@@ -1851,6 +1911,7 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "proposal_decision": _brain_handle_proposal_decision,
         "api_limitation": _brain_handle_api_limitation,
         "general_conversation": _brain_handle_general_conversation,
+        "web_search": _brain_handle_web_search,  # Step A-1
     }
 
 

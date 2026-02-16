@@ -1353,6 +1353,56 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 4,
         },
     },
+
+    # =========================================================================
+    # 外部検索（Step A: 手足を与える）
+    # =========================================================================
+    "web_search": {
+        "name": "ウェブ検索",
+        "description": "インターネット上の最新情報を検索する。社内ナレッジにない情報、最新ニュース、技術情報、一般知識などの検索に対応。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "〇〇について調べて",
+            "最新の〇〇情報を教えて",
+            "〇〇をネットで検索して",
+            "〇〇って何？調べて",
+            "〇〇の最新ニュースを教えて",
+        ],
+        "params_schema": {
+            "query": {
+                "type": "string",
+                "description": "検索クエリ（日本語または英語）",
+                "required": True,
+                "note": "ユーザーの意図を反映した具体的な検索クエリを生成すること"
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "最大結果件数（1-10）",
+                "required": False,
+                "default": 5,
+            },
+        },
+        "handler": "web_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["検索して", "調べて", "ネットで", "ウェブで", "ググって"],
+                "secondary": ["最新", "ニュース", "情報", "教えて"],
+                "negative": ["タスク", "目標", "ナレッジ", "社内"],
+            },
+            "intent_keywords": {
+                "primary": ["ウェブ検索", "ネット検索", "インターネット検索", "調べて"],
+                "secondary": ["検索", "調査", "情報収集"],
+                "modifiers": ["調べて", "検索", "教えて", "ググって"],
+                "negative": ["社内", "ナレッジ", "マニュアル"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
 }
 
 

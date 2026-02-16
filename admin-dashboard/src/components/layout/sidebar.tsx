@@ -18,6 +18,7 @@ import {
   Zap,
   BookOpen,
   Settings,
+  Link2,
   LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -42,6 +43,7 @@ const navigation = [
   { name: 'プロアクティブ', href: '/proactive', icon: Zap },
   { name: 'CEO教え', href: '/teachings', icon: BookOpen },
   { name: 'コスト管理', href: '/costs', icon: DollarSign },
+  { name: '連携設定', href: '/integrations', icon: Link2 },
   { name: 'システム', href: '/system', icon: Settings },
 ];
 

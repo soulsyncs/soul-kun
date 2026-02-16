@@ -439,4 +439,30 @@ export const api = {
       );
     },
   },
+
+  // ===== 連携設定 =====
+  integrations: {
+    getGoogleCalendarStatus: () =>
+      fetchWithAuth<{
+        status: string;
+        is_connected: boolean;
+        google_email: string | null;
+        connected_at: string | null;
+        token_valid: boolean;
+      }>('/admin/integrations/google-calendar/status'),
+
+    getGoogleCalendarConnectUrl: () =>
+      fetchWithAuth<{
+        status: string;
+        auth_url: string;
+      }>('/admin/integrations/google-calendar/connect'),
+
+    disconnectGoogleCalendar: () =>
+      fetchWithAuth<{
+        status: string;
+        message: string;
+      }>('/admin/integrations/google-calendar/disconnect', {
+        method: 'POST',
+      }),
+  },
 };

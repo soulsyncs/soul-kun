@@ -24,7 +24,7 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-from lib.admin_config import DEFAULT_ADMIN_ROOM_ID, DEFAULT_BOT_ACCOUNT_ID
+from lib.admin_config import DEFAULT_ADMIN_DM_ROOM_ID, DEFAULT_ADMIN_ROOM_ID, DEFAULT_BOT_ACCOUNT_ID
 from lib.brain.models import HandlerResult
 
 logger = logging.getLogger(__name__)
@@ -74,9 +74,6 @@ async def handle_zoom_webhook_event(
         f.get("file_type") == "TRANSCRIPT" for f in recording_files
     )
 
-    logger.debug("Webhook payload recording_files types: %s, has_transcript=%s",
-                 [f.get("file_type") for f in recording_files], has_transcript)
-
     # CLAUDE.md §3-2 #8: PIIをログに含めない（topic/host_emailはマスク）
     logger.info(
         "Zoom webhook: recording.completed meeting_id=%s, has_transcript=%s, host=%s",
@@ -96,7 +93,7 @@ async def handle_zoom_webhook_event(
     calendar_description = None
     calendar_event_title = None
     calendar_attendees = []
-    calendar_event = await _lookup_calendar_event(start_time, topic)
+    calendar_event = await _lookup_calendar_event(start_time, topic, pool, organization_id)
     if calendar_event:
         calendar_description = calendar_event.description
         calendar_event_title = calendar_event.title
@@ -116,6 +113,14 @@ async def handle_zoom_webhook_event(
 
     interface = ZoomBrainInterface(pool, organization_id)
 
+    # ChatworkClientをタスク自動作成用に取得
+    chatwork_client = None
+    try:
+        from lib.chatwork import ChatworkClient
+        chatwork_client = ChatworkClient()
+    except Exception as e:
+        logger.warning("ChatworkClient init failed (task creation disabled): %s", type(e).__name__)
+
     # Webhook経由: meeting_idを直接指定して録画を取得
     zoom_meeting_id = str(meeting_id_raw) if meeting_id_raw else None
 
@@ -126,34 +131,48 @@ async def handle_zoom_webhook_event(
         zoom_meeting_id=zoom_meeting_id,
         zoom_user_email=host_email or None,
         get_ai_response_func=get_ai_response_func,
+        chatwork_client=chatwork_client,
     )
 
     # Webhook起点であることをデータに記録
-    if result.data:
-        result.data["trigger"] = "webhook"
-        result.data["webhook_event"] = "recording.completed"
-        result.data["room_resolved_by"] = (
-            "calendar+router" if calendar_event else "router"
-        )
-        if calendar_attendees:
-            result.data["attendee_count"] = len(calendar_attendees)
+    if result.data is None:
+        result.data = {}
+    result.data["trigger"] = "webhook"
+    result.data["webhook_event"] = "recording.completed"
+    result.data["room_id"] = resolved_room_id
+    result.data["room_resolved_by"] = (
+        "calendar+router" if calendar_event else "router"
+    )
+    if calendar_attendees:
+        result.data["attendee_count"] = len(calendar_attendees)
 
     return result
 
 
 async def _lookup_calendar_event(
-    start_time_str: str, topic: str
+    start_time_str: str,
+    topic: str,
+    pool: Optional[Any] = None,
+    organization_id: Optional[str] = None,
 ) -> Optional[Any]:
     """
     Google Calendar照合（Phase 3）。
 
     ENABLE_GOOGLE_CALENDAR=trueの場合のみ実行。
+    OAuth（DB）→ サービスアカウント → ADC の優先順位で認証。
     エラー時はNoneを返し、議事録生成は継続する。
     """
     try:
-        from lib.meetings.google_calendar_client import create_calendar_client_from_env
+        client = None
+        # 優先: DBのOAuthトークン
+        if pool and organization_id:
+            from lib.meetings.google_calendar_client import create_calendar_client_from_db
+            client = create_calendar_client_from_db(pool, organization_id)
 
-        client = create_calendar_client_from_env()
+        # フォールバック: 環境変数ベース
+        if client is None:
+            from lib.meetings.google_calendar_client import create_calendar_client_from_env
+            client = create_calendar_client_from_env()
         if client is None:
             return None
 
@@ -208,4 +227,4 @@ def _resolve_room_id(
         logger.warning(
             "Room routing failed (fallback to admin): %s", type(e).__name__
         )
-        return DEFAULT_ADMIN_ROOM_ID
+        return DEFAULT_ADMIN_DM_ROOM_ID

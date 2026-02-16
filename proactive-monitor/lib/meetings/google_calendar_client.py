@@ -24,7 +24,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +75,10 @@ class GoogleCalendarClient:
     Zoom録画情報との時間帯照合を行い、
     会議のカレンダー情報（説明欄、参加者等）を取得する。
 
-    認証: サービスアカウント or Application Default Credentials
-    （GoogleDriveClientと同パターン）
+    認証優先順位:
+      1. OAuth（管理画面から接続したユーザートークン）
+      2. サービスアカウント
+      3. Application Default Credentials
     """
 
     def __init__(
@@ -84,12 +86,20 @@ class GoogleCalendarClient:
         service_account_file: Optional[str] = None,
         service_account_info: Optional[dict] = None,
         calendar_id: Optional[str] = None,
+        oauth_access_token: Optional[str] = None,
+        oauth_refresh_token: Optional[str] = None,
+        oauth_client_id: Optional[str] = None,
+        oauth_client_secret: Optional[str] = None,
     ):
         """
         Args:
             service_account_file: サービスアカウントJSONファイルのパス
             service_account_info: サービスアカウント情報の辞書
             calendar_id: GoogleカレンダーID（デフォルト: 環境変数 or "primary"）
+            oauth_access_token: OAuth access_token（管理画面から接続時）
+            oauth_refresh_token: OAuth refresh_token（自動更新用）
+            oauth_client_id: OAuthクライアントID（トークンリフレッシュ用）
+            oauth_client_secret: OAuthクライアントシークレット（トークンリフレッシュ用）
         """
         self.calendar_id = (
             calendar_id
@@ -99,16 +109,40 @@ class GoogleCalendarClient:
         self._service = None
         self._sa_file = service_account_file
         self._sa_info = service_account_info
+        self._oauth_access_token = oauth_access_token
+        self._oauth_refresh_token = oauth_refresh_token
+        self._oauth_client_id = oauth_client_id
+        self._oauth_client_secret = oauth_client_secret
 
     def _get_service(self):
-        """Lazy-init Calendar API service."""
+        """Lazy-init Calendar API service.
+
+        優先順位: OAuth → サービスアカウント → ADC
+        """
         if self._service is not None:
             return self._service
 
-        from google.oauth2 import service_account as sa_module
         from googleapiclient.discovery import build
 
         scopes = ["https://www.googleapis.com/auth/calendar.readonly"]
+
+        # 優先1: OAuth（管理画面から接続したユーザートークン）
+        if self._oauth_access_token:
+            from google.oauth2.credentials import Credentials as OAuthCredentials
+
+            credentials = OAuthCredentials(
+                token=self._oauth_access_token,
+                refresh_token=self._oauth_refresh_token,
+                token_uri="https://oauth2.googleapis.com/token",
+                client_id=self._oauth_client_id,
+                client_secret=self._oauth_client_secret,
+                scopes=scopes,
+            )
+            self._service = build("calendar", "v3", credentials=credentials)
+            return self._service
+
+        # 優先2-3: サービスアカウント or ADC
+        from google.oauth2 import service_account as sa_module
 
         if self._sa_info:
             credentials = sa_module.Credentials.from_service_account_info(
@@ -359,3 +393,79 @@ def create_calendar_client_from_env() -> Optional[GoogleCalendarClient]:
         return None
 
     return GoogleCalendarClient()
+
+
+def create_calendar_client_from_db(
+    pool: Any,
+    organization_id: str,
+) -> Optional[GoogleCalendarClient]:
+    """
+    DBに保存されたOAuthトークンからGoogleCalendarClientを生成する。
+
+    優先順位:
+      1. DBにOAuthトークンがあればそれを使う
+      2. なければcreate_calendar_client_from_env()にフォールバック
+
+    Args:
+        pool: SQLAlchemyのconnection pool
+        organization_id: 組織ID
+
+    Returns:
+        GoogleCalendarClient or None
+    """
+    try:
+        from sqlalchemy import text as sa_text
+
+        with pool.connect() as conn:
+            conn.execute(
+                sa_text(
+                    "SELECT set_config('app.current_organization_id', :org_id, true)"
+                ),
+                {"org_id": organization_id},
+            )
+            row = conn.execute(
+                sa_text("""
+                    SELECT access_token, refresh_token, token_expiry
+                    FROM google_oauth_tokens
+                    WHERE organization_id = :org_id
+                      AND service_name = 'google_calendar'
+                      AND is_active = TRUE
+                    LIMIT 1
+                """),
+                {"org_id": organization_id},
+            ).fetchone()
+
+        if row:
+            access_token = row[0]
+            refresh_token = row[1]
+
+            # 暗号化されている場合は復号
+            encryption_key = os.getenv("GOOGLE_OAUTH_ENCRYPTION_KEY", "")
+            if encryption_key:
+                try:
+                    from cryptography.fernet import Fernet
+
+                    f = Fernet(encryption_key.encode())
+                    access_token = f.decrypt(access_token.encode()).decode()
+                    refresh_token = f.decrypt(refresh_token.encode()).decode()
+                except Exception:
+                    pass  # 復号失敗時はそのまま使う（非暗号化トークンの可能性）
+
+            oauth_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+            oauth_client_secret = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+
+            logger.info("Using OAuth credentials from DB for Google Calendar")
+            return GoogleCalendarClient(
+                oauth_access_token=access_token,
+                oauth_refresh_token=refresh_token,
+                oauth_client_id=oauth_client_id,
+                oauth_client_secret=oauth_client_secret,
+            )
+
+    except Exception as e:
+        logger.warning(
+            "Failed to load OAuth token from DB: %s", type(e).__name__
+        )
+
+    # フォールバック: 環境変数ベース
+    return create_calendar_client_from_env()

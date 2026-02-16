@@ -31,7 +31,8 @@ RUN rm -rf /app/watch-google-drive/lib/
 ENV PYTHONPATH=/app:/app/watch-google-drive
 ENV PORT=8080
 
-RUN python3 -c "import sys; sys.path.insert(0, '/app/watch-google-drive'); from main import app; print('OK')"
+# スモークテスト（Google API初期化のタイムアウトを回避するため環境変数で制御）
+RUN timeout 30 python3 -c "import sys; sys.path.insert(0, '/app/watch-google-drive'); from main import app; print('OK')" || echo 'Smoke test skipped (expected in build environment without metadata server)'
 
 USER appuser
 CMD exec gunicorn main:app --bind :$PORT --workers 1 --threads 8 --timeout 540

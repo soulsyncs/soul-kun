@@ -119,6 +119,8 @@ def make_mock_brain():
     brain.llm_guardian.check = AsyncMock()
     brain.llm_state_manager = MagicMock()
     brain.llm_state_manager.set_pending_action = AsyncMock()
+    # Step 0-3: 緊急停止チェッカーは通常テストでは無効（停止していない状態）
+    brain.emergency_stop_checker = None
     brain.session_orchestrator = MagicMock()
     brain.session_orchestrator.continue_session = AsyncMock()
     brain.memory_manager = MagicMock()

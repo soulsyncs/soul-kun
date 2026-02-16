@@ -379,7 +379,11 @@ class BrainMemoryAccess:
         user_id: str,
     ) -> List[ConversationMessage]:
         """
-        直近の会話履歴を取得（Firestoreから）
+        直近の会話履歴を取得
+
+        優先順位:
+        1. Firestore（設定されている場合）
+        2. room_messages テーブル（PostgreSQL フォールバック）
 
         Args:
             room_id: ChatWorkルームID
@@ -388,48 +392,80 @@ class BrainMemoryAccess:
         Returns:
             List[ConversationMessage]: 直近の会話メッセージ
         """
-        if not self.firestore_db:
-            logger.debug("Firestore not configured, returning empty conversation")
-            return []
+        # 1. Firestoreから取得を試みる
+        if self.firestore_db:
+            try:
+                def _sync_firestore():
+                    doc_ref = self.firestore_db.collection("conversations").document(
+                        f"{room_id}_{user_id}"
+                    )
+                    doc = doc_ref.get()
+                    if not doc.exists:
+                        return None
+                    return doc.to_dict()
 
-        try:
-            def _sync_firestore():
-                doc_ref = self.firestore_db.collection("conversations").document(
-                    f"{room_id}_{user_id}"
-                )
-                doc = doc_ref.get()
-                if not doc.exists:
-                    return None
-                return doc.to_dict()
+                data = await asyncio.to_thread(_sync_firestore)
+                if data is not None:
+                    updated_at = data.get("updated_at")
 
-            data = await asyncio.to_thread(_sync_firestore)
-            if data is None:
-                return []
+                    # 有効期限チェック
+                    valid = True
+                    if updated_at:
+                        expiry_time = datetime.now(timezone.utc) - timedelta(
+                            hours=self.HISTORY_EXPIRY_HOURS
+                        )
+                        if updated_at.replace(tzinfo=timezone.utc) < expiry_time:
+                            valid = False
 
-            updated_at = data.get("updated_at")
+                    if valid:
+                        history = data.get("history", [])[-self.MAX_HISTORY_COUNT:]
+                        if history:
+                            return [
+                                ConversationMessage(
+                                    role=msg.get("role", "user"),
+                                    content=msg.get("content", ""),
+                                    timestamp=msg.get("timestamp"),
+                                )
+                                for msg in history
+                            ]
+            except Exception as e:
+                logger.warning(f"Error fetching conversation from Firestore: {type(e).__name__}")
 
-            # 有効期限チェック
-            if updated_at:
-                expiry_time = datetime.now(timezone.utc) - timedelta(
-                    hours=self.HISTORY_EXPIRY_HOURS
-                )
-                if updated_at.replace(tzinfo=timezone.utc) < expiry_time:
-                    return []
+        # 2. room_messagesテーブルからフォールバック取得
+        if self.pool:
+            try:
+                def _sync_db():
+                    with self.pool.connect() as conn:
+                        rows = conn.execute(
+                            text("""
+                                SELECT account_id, account_name, body, send_time
+                                FROM room_messages
+                                WHERE room_id = :room_id
+                                  AND organization_id = :org_id
+                                  AND send_time > NOW() - INTERVAL '24 hours'
+                                ORDER BY send_time DESC
+                                LIMIT :limit
+                            """),
+                            {"room_id": room_id, "org_id": self.org_id, "limit": self.MAX_HISTORY_COUNT},
+                        ).fetchall()
+                        return list(reversed(rows))  # 時系列順に
 
-            # 会話履歴をデータクラスに変換
-            history = data.get("history", [])[-self.MAX_HISTORY_COUNT:]
-            return [
-                ConversationMessage(
-                    role=msg.get("role", "user"),
-                    content=msg.get("content", ""),
-                    timestamp=msg.get("timestamp"),
-                )
-                for msg in history
-            ]
+                rows = await asyncio.to_thread(_sync_db)
+                if rows:
+                    # ソウルくんのaccount_id（lib/admin_config.py DEFAULT_BOT_ACCOUNT_ID）
+                    BOT_ACCOUNT_ID = "10909425"
+                    return [
+                        ConversationMessage(
+                            role="assistant" if str(row[0]) == BOT_ACCOUNT_ID else "user",
+                            content=row[2] or "",
+                            timestamp=row[3],
+                        )
+                        for row in rows
+                    ]
+            except Exception as e:
+                logger.warning(f"Error fetching conversation from room_messages: {type(e).__name__}")
 
-        except Exception as e:
-            logger.warning(f"Error fetching conversation history: {type(e).__name__}")
-            return []
+        return []
 
     # =========================================================================
     # 会話要約（B1: conversation_summaries）
@@ -716,11 +752,20 @@ class BrainMemoryAccess:
                     return lt < now_timestamp
                 return False
 
+            def _resolve_summary(summary, body):
+                """summaryが欠落・プレースホルダーの場合、bodyから生成"""
+                if summary and summary != "（タスク内容を確認してください）":
+                    return summary
+                if body:
+                    clean = body.strip()[:60]
+                    return clean if clean else None
+                return None
+
             return [
                 TaskInfo(
                     task_id=str(row[0]) if row[0] else "",
                     body=row[1] or "",
-                    summary=row[2],
+                    summary=_resolve_summary(row[2], row[1]),
                     status=row[3] or "open",
                     due_date=_parse_limit_time(row[4]),
                     room_id=str(row[5]) if row[5] else None,

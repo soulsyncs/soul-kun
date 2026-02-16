@@ -733,6 +733,39 @@ def send_daily_reminder_to_user(
         logger.info(f"既に回答済み: user={user_id}")
         return ('skipped', 'already_answered')
 
+    # Phase 1a-2: 連続無視チェック（しつこい催促防止）
+    # 直近7日間でリマインドを送ったが回答がなかった日数を数える
+    consecutive_result = conn.execute(sqlalchemy.text("""
+        SELECT COUNT(*) AS ignored_days
+        FROM notification_logs nl
+        WHERE nl.organization_id = CAST(:org_id AS TEXT)
+          AND nl.target_id = CAST(:user_id AS TEXT)
+          AND nl.notification_type = :notification_type
+          AND nl.status = 'success'
+          AND nl.notification_date >= CURRENT_DATE - INTERVAL '7 days'
+          AND nl.notification_date < CURRENT_DATE
+          AND NOT EXISTS (
+              SELECT 1 FROM goal_progress gp
+              JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
+              WHERE g.user_id = CAST(:user_id AS UUID)
+                AND g.organization_id = CAST(:org_id AS UUID)
+                AND gp.organization_id = CAST(:org_id AS UUID)
+                AND gp.progress_date = nl.notification_date
+          )
+    """), {
+        'user_id': user_id,
+        'org_id': org_id,
+        'notification_type': notification_type,
+    })
+    ignored_days = consecutive_result.fetchone()[0] or 0
+
+    if ignored_days >= 3:
+        # 3日以上無視されている場合、月曜日のみ送信（週1回に減頻）
+        day_of_week = today.weekday()  # 0=月曜
+        if day_of_week != 0:
+            logger.info(f"連続{ignored_days}日無視のため今日はスキップ（月曜のみ送信）: user={user_id}")
+            return ('skipped', f'ignored_{ignored_days}_days_not_monday')
+
     # Phase 1b: pending挿入またはfailed/stale-pendingの再試行
     result = conn.execute(sqlalchemy.text("""
         INSERT INTO notification_logs (
@@ -1101,6 +1134,8 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
         WHERE u.organization_id = CAST(:org_id AS TEXT)
           AND g.organization_id = CAST(:org_id AS UUID)
           AND g.status = 'active'
+          AND (g.deadline IS NULL OR g.deadline >= CURRENT_DATE)
+          AND (g.period_end IS NULL OR g.period_end >= CURRENT_DATE)
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
 
@@ -1118,13 +1153,15 @@ def scheduled_daily_check(conn, org_id: str, send_message_func, dry_run: bool = 
             results['blocked'] = results.get('blocked', 0) + 1
             continue
 
-        # ユーザーのアクティブな目標を取得
+        # ユーザーのアクティブな目標を取得（期限切れ除外）
         goals_result = conn.execute(sqlalchemy.text("""
             SELECT id, title, goal_type, target_value, current_value, unit, deadline
             FROM goals
             WHERE user_id = CAST(:user_id AS UUID)
               AND organization_id = CAST(:org_id AS UUID)
               AND status = 'active'
+              AND (deadline IS NULL OR deadline >= CURRENT_DATE)
+              AND (period_end IS NULL OR period_end >= CURRENT_DATE)
             ORDER BY created_at
         """), {'user_id': user_id, 'org_id': org_id})
 
@@ -1193,6 +1230,8 @@ def scheduled_daily_reminder(conn, org_id: str, send_message_func, dry_run: bool
         WHERE u.organization_id = CAST(:org_id AS TEXT)
           AND g.organization_id = CAST(:org_id AS UUID)
           AND g.status = 'active'
+          AND (g.deadline IS NULL OR g.deadline >= CURRENT_DATE)
+          AND (g.period_end IS NULL OR g.period_end >= CURRENT_DATE)
           AND u.chatwork_room_id IS NOT NULL
     """), {'org_id': org_id})
 
@@ -1284,13 +1323,15 @@ def scheduled_morning_feedback(conn, org_id: str, send_message_func, dry_run: bo
             results['blocked'] = results.get('blocked', 0) + 1
             continue
 
-        # ユーザーの目標を取得
+        # ユーザーの目標を取得（期限切れ除外）
         goals_result = conn.execute(sqlalchemy.text("""
             SELECT id, title, goal_type, target_value, current_value, unit, deadline
             FROM goals
             WHERE user_id = CAST(:user_id AS UUID)
               AND organization_id = CAST(:org_id AS UUID)
               AND status = 'active'
+              AND (deadline IS NULL OR deadline >= CURRENT_DATE)
+              AND (period_end IS NULL OR period_end >= CURRENT_DATE)
             ORDER BY created_at
         """), {'user_id': user_id, 'org_id': org_id})
 

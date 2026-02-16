@@ -581,13 +581,13 @@ def log_sync_result(
 
 @app.route("/", methods=["POST"])
 def supabase_sync():
-    request = flask_request
     """
     Supabase → Cloud SQL フォームデータ同期
 
     Request body (JSON):
         dry_run: bool (default: false) - trueの場合、読み取りのみ
     """
+    request = flask_request
     start_time = time.time()
     # MEDIUM-6: UUID suffix で一意性を保証
     sync_id = f"FORM-SYNC-{datetime.now(JST).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"

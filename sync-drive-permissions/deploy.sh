@@ -1,91 +1,144 @@
 #!/bin/bash
-# sync-drive-permissions デプロイスクリプト
-# Phase F: Google Drive 自動権限管理機能
+# =============================================================================
+# sync-drive-permissions デプロイスクリプト（Cloud Run版）
+# =============================================================================
+#
+# 目的:
+#   sync-drive-permissions を安全にCloud Runにデプロイする
+#
+# 使い方:
+#   ./sync-drive-permissions/deploy.sh              # 本番デプロイ
+#   ./sync-drive-permissions/deploy.sh --dry-run    # 確認のみ（デプロイしない）
+#   ./sync-drive-permissions/deploy.sh --skip-tests # テストをスキップ
+#
+# =============================================================================
 
-set -e
+set -eo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+# カラー出力
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-echo "=== sync-drive-permissions デプロイ ==="
-echo "Script directory: $SCRIPT_DIR"
-echo "Root directory: $ROOT_DIR"
+# プロジェクトルートに移動
+cd "$(dirname "$0")/.."
 
-# 1. libディレクトリにファイルをコピー
-echo ""
-echo "=== Step 1: Copying lib files ==="
+# 設定
+REGION="${REGION:-asia-northeast1}"
+PROJECT=$(gcloud config get-value project 2>/dev/null)
+AR_REPO="${AR_REPO:-cloud-run}"
+SERVICE="sync-drive-permissions"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE}:${IMAGE_TAG}"
 
-LIB_FILES=(
-    "__init__.py"
-    "config.py"
-    "secrets.py"
-    "audit.py"
-    "chatwork.py"
-    "google_drive.py"
-    "drive_permission_manager.py"
-    "drive_permission_sync_service.py"
-    "drive_permission_snapshot.py"
-    "drive_permission_change_detector.py"
-    "org_chart_service.py"
-)
+# オプション解析
+DRY_RUN=false
+SKIP_TESTS=false
 
-for file in "${LIB_FILES[@]}"; do
-    if [ -f "$ROOT_DIR/lib/$file" ]; then
-        cp "$ROOT_DIR/lib/$file" "$SCRIPT_DIR/lib/"
-        echo "  Copied: $file"
-    else
-        echo "  WARNING: $file not found in $ROOT_DIR/lib/"
-    fi
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --skip-tests)
+            SKIP_TESTS=true
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            exit 1
+            ;;
+    esac
 done
 
-# 2. Cloud Functionをデプロイ
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BLUE}sync-drive-permissions Cloud Run デプロイ${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "=== Step 2: Deploying Cloud Function ==="
-
-cd "$SCRIPT_DIR"
-
-# SUPABASE_ANON_KEYはSecret Managerから取得（JWTをソースコードにハードコードしない）
-# SUPABASE_URLは機密情報ではないため環境変数で設定
-gcloud functions deploy sync_drive_permissions \
-    --gen2 \
-    --runtime python311 \
-    --trigger-http \
-    --allow-unauthenticated=false \
-    --timeout=540 \
-    --memory=512MB \
-    --region=asia-northeast1 \
-    --max-instances=1 \
-    --entry-point=sync_drive_permissions \
-    --update-env-vars="ORGANIZATION_ID=5f98365f-e7c5-4f48-9918-7fe9aabae5df,SUPABASE_URL=https://adzxpeboaoiojepcxlyc.supabase.co,SOULKUN_DRIVE_ROOT_FOLDER_ID=1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp" \
-    --set-secrets="SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest"
-
+echo -e "  プロジェクト: ${GREEN}$PROJECT${NC}"
+echo -e "  イメージ: $IMAGE"
 echo ""
-echo "=== Step 3: Creating Cloud Scheduler job ==="
 
-# Cloud Schedulerジョブを作成（既存の場合はスキップ）
-if ! gcloud scheduler jobs describe sync-drive-permissions-daily --location=asia-northeast1 &>/dev/null; then
-    gcloud scheduler jobs create http sync-drive-permissions-daily \
-        --schedule="0 2 * * *" \
-        --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/sync_drive_permissions" \
-        --http-method=POST \
-        --time-zone="Asia/Tokyo" \
-        --message-body='{"dry_run": false, "remove_unlisted": false, "create_snapshot": true}' \
-        --oidc-service-account-email="scheduler-invoker@soulkun-production.iam.gserviceaccount.com" \
-        --location=asia-northeast1
-    echo "  Created: sync-drive-permissions-daily (02:00 JST)"
-else
-    echo "  Scheduler job already exists: sync-drive-permissions-daily"
+if [ "$DRY_RUN" = true ]; then
+    echo -e "${YELLOW}ドライランモード（デプロイしない）${NC}"
+    echo ""
 fi
 
+# =============================================================================
+# Step 1: テスト実行
+# =============================================================================
+
+if [ "$SKIP_TESTS" = true ]; then
+    echo -e "  [1/4] テスト... ${YELLOW}SKIP${NC}"
+else
+    echo -e "  ${BLUE}[1/4] Import smoke test${NC}"
+    if ! python3 -c "import sys; sys.path.insert(0, 'sync-drive-permissions'); from main import app; print('OK')"; then
+        echo -e "  ${RED}FAIL: Import test に失敗${NC}"
+        exit 1
+    fi
+    echo -e "  ${GREEN}PASS${NC}"
+fi
 echo ""
-echo "=== Deployment Complete ==="
+
+# =============================================================================
+# Step 2: gcloud 確認
+# =============================================================================
+
+echo -e "  ${BLUE}[2/4] 環境確認${NC}"
+if ! command -v gcloud &> /dev/null; then
+    echo -e "  ${RED}FAIL: gcloud CLI がインストールされていません${NC}"
+    exit 1
+fi
+if [ -z "$PROJECT" ]; then
+    echo -e "  ${RED}FAIL: GCPプロジェクトが設定されていません${NC}"
+    exit 1
+fi
+echo -e "  ${GREEN}PASS${NC}"
 echo ""
-echo "Function URL: https://asia-northeast1-soulkun-production.cloudfunctions.net/sync_drive_permissions"
+
+if [ "$DRY_RUN" = true ]; then
+    echo "実行コマンド（参考）:"
+    echo "  docker build -f sync-drive-permissions/Dockerfile -t $IMAGE ."
+    echo "  docker push $IMAGE"
+    echo "  gcloud run deploy $SERVICE --image=$IMAGE --region=$REGION ..."
+    echo ""
+    echo -e "${GREEN}ドライラン完了${NC}"
+    exit 0
+fi
+
+# =============================================================================
+# Step 3: Docker ビルド & プッシュ
+# =============================================================================
+
+echo -e "  ${BLUE}[3/4] Docker ビルド & プッシュ${NC}"
+docker build -f sync-drive-permissions/Dockerfile -t "$IMAGE" .
+docker push "$IMAGE"
+echo -e "  ${GREEN}PASS${NC}"
 echo ""
-echo "Manual execution (dry_run):"
-echo "  curl -X POST -H 'Content-Type: application/json' -d '{\"dry_run\": true}' \\"
-echo "    https://asia-northeast1-soulkun-production.cloudfunctions.net/sync_drive_permissions"
+
+# =============================================================================
+# Step 4: Cloud Run デプロイ
+# =============================================================================
+
+echo -e "  ${BLUE}[4/4] Cloud Run デプロイ${NC}"
+
+# IMPORTANT: --update-env-vars を使用（--set-env-vars 禁止！CLAUDE.md #22）
+gcloud run deploy "$SERVICE" \
+    --image="$IMAGE" \
+    --region="$REGION" \
+    --memory=512Mi \
+    --timeout=540s \
+    --no-allow-unauthenticated \
+    --min-instances=0 \
+    --max-instances=1 \
+    --update-env-vars="ENVIRONMENT=production"
+
 echo ""
-echo "Manual execution (actual):"
-echo "  curl -X POST -H 'Content-Type: application/json' -d '{\"dry_run\": false}' \\"
-echo "    https://asia-northeast1-soulkun-production.cloudfunctions.net/sync_drive_permissions"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${GREEN}デプロイ完了${NC}"
+echo ""
+echo "  ログ確認: gcloud run services logs read $SERVICE --region=$REGION --limit=50"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

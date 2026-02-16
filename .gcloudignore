@@ -37,14 +37,25 @@ ENV/
 Thumbs.db
 
 # Project specific - exclude unneeded directories
-# NOTE: chatwork-webhook/ は Cloud Build で必要なため除外しない
-sync-chatwork-tasks/
-remind-tasks/
+# NOTE: Cloud Run移行のため、各サービスディレクトリは除外しない
 daily-reflection/
 docs/
 *.md
 
+# Large directories not needed in any service image
+terraform/
+admin-dashboard/
+test-results/
+tmp_scheduler_backup/
+.claude/
+node_modules/
+
+# Unused/legacy services
+api/
+weekly-summary/
+cost-report/
+
 # Keep essential directories (explicitly NOT ignored)
 !lib/
-!api/
 !chatwork-webhook/
+!proactive-monitor/

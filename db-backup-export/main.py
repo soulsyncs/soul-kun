@@ -1,5 +1,5 @@
 """
-DBバックアップエクスポート - Cloud Function
+DBバックアップエクスポート - Cloud Run
 
 毎月1日にCloud SQLからCloud Storageにエクスポートする。
 10年保存用のアーカイブバックアップ。
@@ -7,13 +7,15 @@ DBバックアップエクスポート - Cloud Function
 Cloud Scheduler: 毎月1日 03:00 JST
 """
 
-import functions_framework
+import os
+from flask import Flask, jsonify
 from googleapiclient.discovery import build
 from google.auth import default
 from datetime import datetime
 import pytz
 import json
 
+app = Flask(__name__)
 
 # 設定
 PROJECT_ID = "soulkun-production"
@@ -22,8 +24,8 @@ DATABASE_NAME = "soulkun_tasks"
 BUCKET_NAME = "soulkun-backup-archive"
 
 
-@functions_framework.http
-def db_backup_export(request):
+@app.route("/", methods=["POST"])
+def db_backup_export():
     """
     Cloud SQLをCloud Storageにエクスポート
 
@@ -74,3 +76,7 @@ def db_backup_export(request):
             "success": False,
             "error": str(e),
         }), 500, {'Content-Type': 'application/json'}
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

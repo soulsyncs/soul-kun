@@ -33,20 +33,20 @@ Dockerfile*
 cloudbuild*.yaml
 .dockerignore
 
-# Other services (not needed in chatwork-webhook or proactive-monitor images)
+# Unused/legacy services
 api/
-supabase-sync/
-watch-google-drive/
-sync-chatwork-tasks/
-sync-drive-permissions/
-pattern-detection/
 weekly-summary/
-report-generator/
-db-backup-export/
 cost-report/
-remind-tasks/
-cleanup-old-data/
-check-reply-messages/
+
+# Large directories not needed in any service image
+terraform/
+admin-dashboard/
+test-results/
+tmp_scheduler_backup/
+.claude/
+node_modules/
+.venv/
+venv/
 
 # OS files
 .DS_Store

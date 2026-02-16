@@ -1,5 +1,6 @@
-import functions_framework
-from flask import jsonify
+from flask import Flask, request as flask_request, jsonify
+
+app = Flask(__name__)
 from google.cloud import firestore
 import httpx
 import re
@@ -2893,8 +2894,9 @@ Person, die mit dir spricht: {sender_name}""",
 
 # ===== メインハンドラ（返信検出機能追加） =====
 
-@functions_framework.http
-def chatwork_webhook(request):
+@app.route("/chatwork-webhook", methods=["POST"])
+def chatwork_webhook():
+    request = flask_request
     try:
         # テーブル存在確認（二重処理防止の要）
         try:
@@ -4852,8 +4854,8 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
             notify_dm_not_available(assignee_name, assignee_id, task_for_notify, "期限変更理由質問")
 
 
-@functions_framework.http
-def check_reply_messages(request):
+@app.route("/check-reply-messages", methods=["POST"])
+def check_reply_messages():
     """5分ごとに実行：返信ボタンとメンションのメッセージを検出
     
     堅牢なエラーハンドリング版 - あらゆるエッジケースに対応
@@ -5321,10 +5323,10 @@ def sync_room_members():
         print(f"Error in sync_room_members: {e}")
         traceback.print_exc()
 
-@functions_framework.http
-def sync_chatwork_tasks(request):
+@app.route("/sync-chatwork-tasks", methods=["POST"])
+def sync_chatwork_tasks():
     """
-    Cloud Function: ChatWorkのタスクをDBと同期
+    Cloud Run: ChatWorkのタスクをDBと同期
     30分ごとに実行される
     
     ★★★ v6.8.5: conn/cursor安全化 & キャッシュリセット追加 ★★★
@@ -5572,10 +5574,10 @@ def sync_chatwork_tasks(request):
         except:
             pass
 
-@functions_framework.http
-def remind_tasks(request):
+@app.route("/", methods=["POST"])
+def remind_tasks():
     """
-    Cloud Function: タスクのリマインドを送信
+    Cloud Run: タスクのリマインドを送信
 
     ★★★ v10.6.0: 大幅改修 ★★★
     - 担当者ごとにタスクを集約してDMで1通送信
@@ -6371,10 +6373,10 @@ def process_completed_tasks_summary():
 # クリーンアップ機能（古いデータの自動削除）
 # ========================================
 
-@functions_framework.http
-def cleanup_old_data(request):
+@app.route("/cleanup-old-data", methods=["POST"])
+def cleanup_old_data():
     """
-    Cloud Function: 古いデータを自動削除
+    Cloud Run: 古いデータを自動削除
     毎日03:00 JSTに実行される
     
     削除対象:
@@ -6628,10 +6630,10 @@ def _send_chatwork_message_wrapper(room_id, message):
     return send_reminder_with_test_guard(int(room_id), message)
 
 
-@functions_framework.http
-def goal_daily_check(request):
+@app.route("/goal-daily-check", methods=["POST"])
+def goal_daily_check():
     """
-    Cloud Function: 17:00 目標進捗確認
+    Cloud Run: 17:00 目標進捗確認
 
     全スタッフにその日の振り返りを問いかけるDMを送信。
     1ユーザーが複数目標を持っていても、1通にまとめて送信。
@@ -6644,6 +6646,7 @@ def goal_daily_check(request):
             "dry_run": true   // 省略時は環境変数DRY_RUNに従う
         }
     """
+    request = flask_request
     print("=" * 60)
     print("=== 🎯 Phase 2.5: 17時進捗確認 開始 (v10.15.0) ===")
     print(f"DRY_RUN: {DRY_RUN}")
@@ -6708,10 +6711,10 @@ def goal_daily_check(request):
         }), 500
 
 
-@functions_framework.http
-def goal_daily_reminder(request):
+@app.route("/goal-daily-reminder", methods=["POST"])
+def goal_daily_reminder():
     """
-    Cloud Function: 18:00 未回答リマインド
+    Cloud Run: 18:00 未回答リマインド
 
     17時の進捗確認に未回答のスタッフにリマインドDMを送信。
 
@@ -6723,6 +6726,7 @@ def goal_daily_reminder(request):
             "dry_run": true   // 省略時は環境変数DRY_RUNに従う
         }
     """
+    request = flask_request
     print("=" * 60)
     print("=== 🔔 Phase 2.5: 18時未回答リマインド 開始 (v10.15.0) ===")
     print(f"DRY_RUN: {DRY_RUN}")
@@ -6787,10 +6791,10 @@ def goal_daily_reminder(request):
         }), 500
 
 
-@functions_framework.http
-def goal_morning_feedback(request):
+@app.route("/goal-morning-feedback", methods=["POST"])
+def goal_morning_feedback():
     """
-    Cloud Function: 08:00 朝フィードバック
+    Cloud Run: 08:00 朝フィードバック
 
     以下を送信:
     1. 個人フィードバック: 昨日進捗報告したスタッフへのフィードバックDM
@@ -6804,6 +6808,7 @@ def goal_morning_feedback(request):
             "dry_run": true   // 省略時は環境変数DRY_RUNに従う
         }
     """
+    request = flask_request
     print("=" * 60)
     print("=== ☀️ Phase 2.5: 8時朝フィードバック 開始 (v10.15.0) ===")
     print(f"DRY_RUN: {DRY_RUN}")
@@ -6868,10 +6873,10 @@ def goal_morning_feedback(request):
         }), 500
 
 
-@functions_framework.http
-def goal_consecutive_unanswered_check(request):
+@app.route("/goal-consecutive-unanswered", methods=["POST"])
+def goal_consecutive_unanswered_check():
     """
-    Cloud Function: 3日連続未回答チェック
+    Cloud Run: 3日連続未回答チェック
 
     3日連続で進捗報告がないスタッフを検出し、
     そのスタッフのチームリーダー・部長にアラートを送信。
@@ -6886,6 +6891,7 @@ def goal_consecutive_unanswered_check(request):
             "dry_run": true   // 省略時は環境変数DRY_RUNに従う
         }
     """
+    request = flask_request
     print("=" * 60)
     print("=== ⚠️ Phase 2.5: 連続未回答チェック 開始 (v10.15.0) ===")
     print(f"DRY_RUN: {DRY_RUN}")
@@ -6958,3 +6964,7 @@ def goal_consecutive_unanswered_check(request):
             "notification_type": "goal_consecutive_unanswered",
             "error": sanitize_error(e),
         }), 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

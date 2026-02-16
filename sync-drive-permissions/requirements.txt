@@ -1,11 +1,11 @@
-# sync-drive-permissions Cloud Function dependencies
+# sync-drive-permissions Cloud Run dependencies
 # Phase F: Google Drive 自動権限管理機能
 
-# Cloud Functions framework
-functions-framework>=3.4.0
-
-# Flask (required by functions-framework)
+# Web framework
 Flask>=2.3.0
+
+# WSGI server
+gunicorn>=21.0.0
 
 # Google APIs
 google-api-python-client>=2.111.0

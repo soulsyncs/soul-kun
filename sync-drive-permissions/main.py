@@ -1,26 +1,10 @@
 """
-Google Drive 権限同期 Cloud Function
+Google Drive 権限同期 Cloud Run サービス
 
 組織図と連携してGoogle Driveフォルダの共有権限を自動同期する。
 
 デプロイ:
-    gcloud functions deploy sync_drive_permissions \
-        --runtime python311 \
-        --trigger-http \
-        --allow-unauthenticated=false \
-        --timeout=540 \
-        --memory=512MB \
-        --region=asia-northeast1 \
-        --max-instances=1 \
-        --env-vars-file=env-vars.yaml
-
-Cloud Scheduler:
-    gcloud scheduler jobs create http sync-drive-permissions-daily \
-        --schedule="0 2 * * *" \
-        --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/sync_drive_permissions" \
-        --http-method=POST \
-        --time-zone="Asia/Tokyo" \
-        --oidc-service-account-email="scheduler-invoker@soulkun-production.iam.gserviceaccount.com"
+    Cloud Build + Dockerfile でビルド・デプロイ
 
 Phase F: Google Drive 自動権限管理機能
 Created: 2026-01-26
@@ -35,11 +19,11 @@ from typing import Optional
 import logging
 import tempfile
 
-import functions_framework
-from flask import Request, jsonify
+from flask import Flask, request as flask_request, jsonify
 
-# Cloud Functions デプロイ時はlibが同じディレクトリにある
-# ローカル開発時はプロジェクトルートから参照
+app = Flask(__name__)
+
+# Cloud Run / ローカル開発時のlib参照
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if os.path.exists(os.path.join(current_dir, 'lib')):
     sys.path.insert(0, current_dir)
@@ -154,8 +138,8 @@ def get_supabase_key() -> str:
 # メインエントリポイント
 # ================================================================
 
-@functions_framework.http
-def sync_drive_permissions(request: Request):
+@app.route("/", methods=["POST"])
+def sync_drive_permissions():
     """
     Google Drive権限同期のメインエントリポイント
 
@@ -182,6 +166,7 @@ def sync_drive_permissions(request: Request):
             "message": str
         }
     """
+    request = flask_request
     try:
         # リクエストパラメータを取得
         if request.is_json:
@@ -367,8 +352,8 @@ async def _run_sync(
 # 管理用エンドポイント
 # ================================================================
 
-@functions_framework.http
-def list_snapshots(request: Request):
+@app.route("/list-snapshots", methods=["GET", "POST"])
+def list_snapshots():
     """
     スナップショット一覧を取得
 
@@ -409,8 +394,8 @@ def list_snapshots(request: Request):
         }), 500
 
 
-@functions_framework.http
-def rollback_snapshot(request: Request):
+@app.route("/rollback-snapshot", methods=["POST"])
+def rollback_snapshot():
     """
     スナップショットからロールバック
 
@@ -432,6 +417,7 @@ def rollback_snapshot(request: Request):
             "message": str
         }
     """
+    request = flask_request
     try:
         if request.is_json:
             data = request.get_json()

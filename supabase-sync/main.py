@@ -38,12 +38,13 @@ import logging
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 
-import functions_framework
-from flask import Request, jsonify
+from flask import Flask, Request, request as flask_request, jsonify
 import httpx
 from sqlalchemy import text as sql_text
 
-# Cloud Functions デプロイ時はlibが同じディレクトリにある
+app = Flask(__name__)
+
+# Cloud Run / ローカル開発時のlib参照
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if os.path.exists(os.path.join(current_dir, 'lib')):
     sys.path.insert(0, current_dir)
@@ -578,14 +579,15 @@ def log_sync_result(
 # ================================================================
 
 
-@functions_framework.http
-def supabase_sync(request: Request):
+@app.route("/", methods=["POST"])
+def supabase_sync():
     """
     Supabase → Cloud SQL フォームデータ同期
 
     Request body (JSON):
         dry_run: bool (default: false) - trueの場合、読み取りのみ
     """
+    request = flask_request
     start_time = time.time()
     # MEDIUM-6: UUID suffix で一意性を保証
     sync_id = f"FORM-SYNC-{datetime.now(JST).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"

@@ -1,104 +1,77 @@
 #!/bin/bash
-# =====================================================
-# watch-google-drive デプロイスクリプト
-# ★★★ v10.25.0: google-genai SDK対応 ★★★
-# =====================================================
-#
-# 使い方:
-#   ./deploy.sh
-#
-# このスクリプトは以下を行います:
-# 1. soul-kun/lib/ から必要なファイルをコピー
-# 2. gcloud functions deploy を実行
-# =====================================================
+# =============================================================================
+# watch-google-drive デプロイスクリプト（Cloud Run版）
+# =============================================================================
+set -eo pipefail
 
-set -e  # エラー時に停止
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_SRC="$SCRIPT_DIR/../lib"
-LIB_DST="$SCRIPT_DIR/lib"
+cd "$(dirname "$0")/.."
 
-echo "=============================================="
-echo "watch-google-drive デプロイ開始"
-echo "=============================================="
+REGION="${REGION:-asia-northeast1}"
+PROJECT=$(gcloud config get-value project 2>/dev/null)
+AR_REPO="${AR_REPO:-cloud-run}"
+SERVICE="watch-google-drive"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE}:${IMAGE_TAG}"
 
-# 1. lib/ ディレクトリを更新
-echo ""
-echo "📁 共通ライブラリをコピー中..."
-mkdir -p "$LIB_DST"
+DRY_RUN=false
+SKIP_TESTS=false
 
-# 必要なファイルをコピー
-# ★ v10.25.0: embedding.py は google-genai SDK に更新済み
-cp "$LIB_SRC/embedding.py" "$LIB_DST/"
-cp "$LIB_SRC/pinecone_client.py" "$LIB_DST/"
-cp "$LIB_SRC/google_drive.py" "$LIB_DST/"
-cp "$LIB_SRC/db.py" "$LIB_DST/"
-cp "$LIB_SRC/config.py" "$LIB_DST/"
-cp "$LIB_SRC/secrets.py" "$LIB_DST/"
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run) DRY_RUN=true; shift ;;
+        --skip-tests) SKIP_TESTS=true; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
 
-echo "   ✅ embedding.py (v10.25.0 google-genai SDK)"
-echo "   ✅ pinecone_client.py"
-echo "   ✅ google_drive.py"
-echo "   ✅ db.py"
-echo "   ✅ config.py"
-echo "   ✅ secrets.py"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BLUE}watch-google-drive Cloud Run デプロイ${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "  プロジェクト: ${GREEN}$PROJECT${NC}"
+echo -e "  イメージ: $IMAGE"
+if [ "$DRY_RUN" = true ]; then echo -e "${YELLOW}ドライランモード${NC}"; fi
 
-# document_processor.py は既存のものを使用
-if [ -f "$LIB_DST/document_processor.py" ]; then
-    echo "   ✅ document_processor.py (existing)"
+if [ "$SKIP_TESTS" = true ]; then
+    echo -e "  [1/4] テスト... ${YELLOW}SKIP${NC}"
+else
+    echo -e "  ${BLUE}[1/4] Import smoke test${NC}"
+    python3 -c "import sys; sys.path.insert(0, 'watch-google-drive'); from main import app; print('OK')" || exit 1
+    echo -e "  ${GREEN}PASS${NC}"
 fi
 
-# __init__.py を作成
-cat > "$LIB_DST/__init__.py" << 'EOF'
-"""
-watch-google-drive用 lib パッケージ
+echo -e "  ${BLUE}[2/4] 環境確認${NC}"
+command -v gcloud &>/dev/null || { echo -e "  ${RED}FAIL: gcloud未インストール${NC}"; exit 1; }
+[ -z "$PROJECT" ] && { echo -e "  ${RED}FAIL: プロジェクト未設定${NC}"; exit 1; }
+echo -e "  ${GREEN}PASS${NC}"
 
-★★★ v10.25.0: google-genai SDK対応 ★★★
-"""
+if [ "$DRY_RUN" = true ]; then
+    echo "  docker build -f watch-google-drive/Dockerfile -t $IMAGE ."
+    echo "  gcloud run deploy $SERVICE --image=$IMAGE --region=$REGION"
+    echo -e "${GREEN}ドライラン完了${NC}"
+    exit 0
+fi
 
-from lib.embedding import EmbeddingClient
-from lib.pinecone_client import PineconeClient
-from lib.google_drive import GoogleDriveClient
-from lib.db import get_db_pool
-from lib.config import get_settings
-from lib.secrets import get_secret
-from lib.document_processor import DocumentProcessor, ExtractedDocument, Chunk
+echo -e "  ${BLUE}[3/4] Docker ビルド & プッシュ${NC}"
+docker build -f watch-google-drive/Dockerfile -t "$IMAGE" .
+docker push "$IMAGE"
+echo -e "  ${GREEN}PASS${NC}"
 
-__all__ = [
-    'EmbeddingClient',
-    'PineconeClient',
-    'GoogleDriveClient',
-    'get_db_pool',
-    'get_settings',
-    'get_secret',
-    'DocumentProcessor',
-    'ExtractedDocument',
-    'Chunk',
-]
-EOF
-echo "   ✅ __init__.py (created)"
-
-# 2. デプロイ実行
-echo ""
-echo "🚀 Cloud Functions Gen 2 にデプロイ中..."
-gcloud functions deploy watch_google_drive \
-    --gen2 \
-    --runtime=python311 \
-    --region=asia-northeast1 \
-    --source="$SCRIPT_DIR" \
-    --entry-point=watch_google_drive \
-    --trigger-http \
-    --no-allow-unauthenticated \
-    --memory=1024MB \
+echo -e "  ${BLUE}[4/4] Cloud Run デプロイ${NC}"
+gcloud run deploy "$SERVICE" \
+    --image="$IMAGE" \
+    --region="$REGION" \
+    --memory=1Gi \
     --timeout=540s \
-    --max-instances=5 \
-    --env-vars-file="$SCRIPT_DIR/env-vars.yaml" \
-    --set-secrets=GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest,PINECONE_API_KEY=PINECONE_API_KEY:latest
+    --no-allow-unauthenticated \
+    --min-instances=0 \
+    --max-instances=3 \
+    --update-env-vars="ENVIRONMENT=production"
 
-echo ""
-echo "=============================================="
-echo "✅ デプロイ完了"
-echo "=============================================="
-echo ""
-echo "注意: lib/ ディレクトリにコピーしたファイルはgitで追跡されません。"
-echo "      デプロイ時に必ずこのスクリプトを使用してください。"
+echo -e "${GREEN}デプロイ完了${NC}"
+echo "  ログ確認: gcloud run services logs read $SERVICE --region=$REGION --limit=50"

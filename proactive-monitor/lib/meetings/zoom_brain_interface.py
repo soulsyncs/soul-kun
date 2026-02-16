@@ -129,6 +129,7 @@ class ZoomBrainInterface:
                     data={},
                 )
 
+            assert recording_data is not None  # Noneは上でreturn済み
             api_files = recording_data.get("recording_files", [])
             logger.debug("recording_files types: %s, meeting_id=%s",
                          [f.get("file_type") for f in api_files], recording_data.get("id"))
@@ -277,6 +278,7 @@ class ZoomBrainInterface:
                 )
 
             # Step 8: 録画URL取得
+            assert recording_data is not None  # Step 1で早期リターン済み
             recording_play_url = await asyncio.to_thread(
                 zoom_client.find_recording_play_url,
                 recording_data,

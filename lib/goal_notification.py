@@ -735,29 +735,35 @@ def send_daily_reminder_to_user(
 
     # Phase 1a-2: 連続無視チェック（しつこい催促防止）
     # 直近7日間でリマインドを送ったが回答がなかった日数を数える
-    consecutive_result = conn.execute(sqlalchemy.text("""
-        SELECT COUNT(*) AS ignored_days
-        FROM notification_logs nl
-        WHERE nl.organization_id = CAST(:org_id AS TEXT)
-          AND nl.target_id = CAST(:user_id AS TEXT)
-          AND nl.notification_type = :notification_type
-          AND nl.status = 'success'
-          AND nl.notification_date >= CURRENT_DATE - INTERVAL '7 days'
-          AND nl.notification_date < CURRENT_DATE
-          AND NOT EXISTS (
-              SELECT 1 FROM goal_progress gp
-              JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
-              WHERE g.user_id = CAST(:user_id AS UUID)
-                AND g.organization_id = CAST(:org_id AS UUID)
-                AND gp.organization_id = CAST(:org_id AS UUID)
-                AND gp.progress_date = nl.notification_date
-          )
-    """), {
-        'user_id': user_id,
-        'org_id': org_id,
-        'notification_type': notification_type,
-    })
-    ignored_days = int(consecutive_result.fetchone()[0] or 0)
+    ignored_days = 0
+    try:
+        consecutive_result = conn.execute(sqlalchemy.text("""
+            SELECT COUNT(*) AS ignored_days
+            FROM notification_logs nl
+            WHERE nl.organization_id = CAST(:org_id AS TEXT)
+              AND nl.target_id = CAST(:user_id AS TEXT)
+              AND nl.notification_type = :notification_type
+              AND nl.status = 'success'
+              AND nl.notification_date >= CURRENT_DATE - INTERVAL '7 days'
+              AND nl.notification_date < CURRENT_DATE
+              AND NOT EXISTS (
+                  SELECT 1 FROM goal_progress gp
+                  JOIN goals g ON gp.goal_id = g.id AND gp.organization_id = g.organization_id
+                  WHERE g.user_id = CAST(:user_id AS UUID)
+                    AND g.organization_id = CAST(:org_id AS UUID)
+                    AND gp.organization_id = CAST(:org_id AS UUID)
+                    AND gp.progress_date = nl.notification_date
+              )
+        """), {
+            'user_id': user_id,
+            'org_id': org_id,
+            'notification_type': notification_type,
+        })
+        row = consecutive_result.fetchone()
+        if row and row[0] is not None:
+            ignored_days = int(row[0])
+    except Exception as e:
+        logger.warning(f"連続無視チェックエラー（送信を許可）: {type(e).__name__}")
 
     if ignored_days >= 3:
         # 3日以上無視されている場合、月曜日のみ送信（週1回に減頻）

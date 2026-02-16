@@ -1,65 +1,65 @@
 #!/bin/bash
-# =====================================================
-# sync-chatwork-tasks デプロイスクリプト
-# ★★★ v10.14.1: lib/共通化対応 ★★★
-# =====================================================
-#
-# 使い方:
-#   ./deploy.sh
-#
-# このスクリプトは以下を行います:
-# 1. soul-kun/lib/ から必要なファイルをコピー
-# 2. gcloud functions deploy を実行
-# =====================================================
-
-set -e  # エラー時に停止
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LIB_SRC="$SCRIPT_DIR/../lib"
-LIB_DST="$SCRIPT_DIR/lib"
-
-echo "=============================================="
-echo "sync-chatwork-tasks デプロイ開始"
-echo "=============================================="
-
-# 1. lib/ ディレクトリを更新
-echo ""
-echo "📁 共通ライブラリをコピー中..."
-mkdir -p "$LIB_DST"
-
-# 必要なファイルをコピー（v10.18.1: user_utils.py追加）
-cp "$LIB_SRC/text_utils.py" "$LIB_DST/"
-cp "$LIB_SRC/audit.py" "$LIB_DST/"
-cp "$LIB_SRC/user_utils.py" "$LIB_DST/"
-
-echo "   ✅ text_utils.py"
-echo "   ✅ audit.py"
-echo "   ✅ user_utils.py (v10.18.1)"
-
-# __init__.py が最新か確認
-if [ -f "$LIB_DST/__init__.py" ]; then
-    echo "   ✅ __init__.py (existing)"
+# =============================================================================
+# sync-chatwork-tasks デプロイスクリプト（Cloud Run版）
+# =============================================================================
+set -eo pipefail
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+cd "$(dirname "$0")/.."
+REGION="${REGION:-asia-northeast1}"
+PROJECT=$(gcloud config get-value project 2>/dev/null)
+AR_REPO="${AR_REPO:-cloud-run}"
+SERVICE="sync-chatwork-tasks"
+IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE}:${IMAGE_TAG}"
+DRY_RUN=false
+SKIP_TESTS=false
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run) DRY_RUN=true; shift ;;
+        --skip-tests) SKIP_TESTS=true; shift ;;
+        *) echo "Unknown option: $1"; exit 1 ;;
+    esac
+done
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "${BLUE}sync-chatwork-tasks Cloud Run デプロイ${NC}"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo -e "  プロジェクト: ${GREEN}$PROJECT${NC}"
+echo -e "  イメージ: $IMAGE"
+if [ "$DRY_RUN" = true ]; then echo -e "${YELLOW}ドライランモード${NC}"; fi
+if [ "$SKIP_TESTS" = true ]; then
+    echo -e "  [1/4] テスト... ${YELLOW}SKIP${NC}"
 else
-    echo "   ⚠️ __init__.py がありません。作成してください。"
-    exit 1
+    echo -e "  ${BLUE}[1/4] Import smoke test${NC}"
+    python3 -c "import sys; sys.path.insert(0, 'sync-chatwork-tasks'); from main import app; print('OK')" || exit 1
+    echo -e "  ${GREEN}PASS${NC}"
 fi
-
-# 2. デプロイ実行
-echo ""
-echo "🚀 Cloud Functions にデプロイ中..."
-gcloud functions deploy sync-chatwork-tasks \
-    --gen2 \
-    --runtime=python311 \
-    --region=asia-northeast1 \
-    --source="$SCRIPT_DIR" \
-    --entry-point=sync_chatwork_tasks \
-    --trigger-http \
-    --no-allow-unauthenticated \
-    --memory=512MB \
+echo -e "  ${BLUE}[2/4] 環境確認${NC}"
+command -v gcloud &>/dev/null || { echo -e "  ${RED}FAIL: gcloud未インストール${NC}"; exit 1; }
+[ -z "$PROJECT" ] && { echo -e "  ${RED}FAIL: プロジェクト未設定${NC}"; exit 1; }
+echo -e "  ${GREEN}PASS${NC}"
+if [ "$DRY_RUN" = true ]; then
+    echo "  docker build -f sync-chatwork-tasks/Dockerfile -t $IMAGE ."
+    echo "  gcloud run deploy $SERVICE --image=$IMAGE --region=$REGION"
+    echo -e "${GREEN}ドライラン完了${NC}"
+    exit 0
+fi
+echo -e "  ${BLUE}[3/4] Docker ビルド & プッシュ${NC}"
+docker build -f sync-chatwork-tasks/Dockerfile -t "$IMAGE" .
+docker push "$IMAGE"
+echo -e "  ${GREEN}PASS${NC}"
+echo -e "  ${BLUE}[4/4] Cloud Run デプロイ${NC}"
+gcloud run deploy "$SERVICE" \
+    --image="$IMAGE" \
+    --region="$REGION" \
+    --memory=512Mi \
     --timeout=540s \
-    --set-secrets=CHATWORK_API_TOKEN=CHATWORK_API_TOKEN:latest,SOULKUN_CHATWORK_TOKEN=SOULKUN_CHATWORK_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GOOGLE_AI_API_KEY=GOOGLE_AI_API_KEY:latest
-
-echo ""
-echo "=============================================="
-echo "✅ デプロイ完了"
-echo "=============================================="
+    --no-allow-unauthenticated \
+    --min-instances=0 \
+    --max-instances=3 \
+    --update-env-vars="ENVIRONMENT=production"
+echo -e "${GREEN}デプロイ完了${NC}"
+echo "  ログ確認: gcloud run services logs read $SERVICE --region=$REGION --limit=50"

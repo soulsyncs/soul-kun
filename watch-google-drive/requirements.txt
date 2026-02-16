@@ -1,8 +1,9 @@
-# watch-google-drive Cloud Function requirements
+# watch-google-drive Cloud Run requirements
 # Phase 3: Googleドライブ監視ジョブ
 
-# Cloud Functions
-functions-framework==3.5.0
+# Web Framework & Server
+Flask>=2.0.0
+gunicorn>=21.0.0
 
 # Google APIs
 google-api-python-client==2.111.0

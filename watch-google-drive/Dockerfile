@@ -1,10 +1,5 @@
-# watch-google-drive Cloud Function Dockerfile
-# .doc形式サポートのためantiwordとLibreOfficeをインストール
-
-# Google Cloud Functions Python 3.11 base image
 FROM python:3.11-slim
 
-# 環境変数の設定
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
@@ -21,17 +16,20 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# 作業ディレクトリの設定
+RUN adduser --disabled-password --gecos '' appuser
 WORKDIR /app
 
-# Pythonの依存関係をインストール
-COPY requirements.txt .
+COPY watch-google-drive/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# アプリケーションコードをコピー
-COPY . .
+COPY lib/ /app/lib/
+COPY chatwork-webhook/lib/persona/ /app/lib/persona/
+COPY watch-google-drive/ /app/watch-google-drive/
 
-# Cloud Functionsのエントリーポイント
-# functions-frameworkがPORT環境変数で指定されたポートでリッスン
+ENV PYTHONPATH=/app:/app/watch-google-drive
 ENV PORT=8080
-CMD exec functions-framework --target=watch_google_drive --port=${PORT}
+
+RUN python3 -c "import sys; sys.path.insert(0, '/app/watch-google-drive'); from main import app; print('OK')"
+
+USER appuser
+CMD exec gunicorn main:app --bind :$PORT --workers 1 --threads 8 --timeout 540

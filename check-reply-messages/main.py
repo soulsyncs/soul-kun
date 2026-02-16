@@ -1,5 +1,6 @@
-import functions_framework
-from flask import jsonify
+from flask import Flask, request as flask_request, jsonify
+
+app = Flask(__name__)
 from google.cloud import firestore
 import httpx
 import re
@@ -1783,8 +1784,9 @@ Person, die mit dir spricht: {sender_name}""",
 
 # ===== メインハンドラ（返信検出機能追加） =====
 
-@functions_framework.http
-def chatwork_webhook(request):
+@app.route("/chatwork-webhook", methods=["POST"])
+def chatwork_webhook():
+    request = flask_request
     try:
         data = request.get_json()
 
@@ -2254,8 +2256,8 @@ def mark_as_processed(message_id, room_id):
     except Exception as e:
         print(f"処理済みマークエラー: {e}")
 
-@functions_framework.http
-def check_reply_messages(request):
+@app.route("/", methods=["POST"])
+def check_reply_messages():
     """5分ごとに実行：返信ボタンとメンションのメッセージを検出
     
     堅牢なエラーハンドリング版 - あらゆるエッジケースに対応
@@ -2722,8 +2724,8 @@ def sync_room_members():
     except Exception as e:
         print(f"Error in sync_room_members: {e}")
 
-@functions_framework.http
-def sync_chatwork_tasks(request):
+@app.route("/sync-chatwork-tasks", methods=["POST"])
+def sync_chatwork_tasks():
     """
     Cloud Function: ChatWorkのタスクをDBと同期
     30分ごとに実行される
@@ -2922,8 +2924,8 @@ def sync_chatwork_tasks(request):
         cursor.close()
         conn.close()
 
-@functions_framework.http
-def remind_tasks(request):
+@app.route("/remind-tasks", methods=["POST"])
+def remind_tasks():
     """
     Cloud Function: タスクのリマインドを送信
     毎日8:30 JSTに実行される
@@ -3027,8 +3029,8 @@ def remind_tasks(request):
 # クリーンアップ機能（古いデータの自動削除）
 # ========================================
 
-@functions_framework.http
-def cleanup_old_data(request):
+@app.route("/cleanup-old-data", methods=["POST"])
+def cleanup_old_data():
     """
     Cloud Function: 古いデータを自動削除
     毎日03:00 JSTに実行される
@@ -3212,3 +3214,7 @@ def cleanup_old_data(request):
         "status": "ok" if not results["errors"] else "partial",
         "results": results
     })
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

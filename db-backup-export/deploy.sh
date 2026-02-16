@@ -1,15 +1,15 @@
 #!/bin/bash
 # =============================================================================
-# supabase-sync デプロイスクリプト（Cloud Run版）
+# db-backup-export デプロイスクリプト（Cloud Run版）
 # =============================================================================
 #
 # 目的:
-#   supabase-sync を安全にCloud Runにデプロイする
+#   db-backup-export を安全にCloud Runにデプロイする
 #
 # 使い方:
-#   ./supabase-sync/deploy.sh              # 本番デプロイ
-#   ./supabase-sync/deploy.sh --dry-run    # 確認のみ（デプロイしない）
-#   ./supabase-sync/deploy.sh --skip-tests # テストをスキップ
+#   ./db-backup-export/deploy.sh              # 本番デプロイ
+#   ./db-backup-export/deploy.sh --dry-run    # 確認のみ（デプロイしない）
+#   ./db-backup-export/deploy.sh --skip-tests # テストをスキップ
 #
 # =============================================================================
 
@@ -29,7 +29,7 @@ cd "$(dirname "$0")/.."
 REGION="${REGION:-asia-northeast1}"
 PROJECT=$(gcloud config get-value project 2>/dev/null)
 AR_REPO="${AR_REPO:-cloud-run}"
-SERVICE="supabase-sync"
+SERVICE="db-backup-export"
 IMAGE_TAG="${IMAGE_TAG:-$(git rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)}"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${AR_REPO}/${SERVICE}:${IMAGE_TAG}"
 
@@ -55,7 +55,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo -e "${BLUE}supabase-sync Cloud Run デプロイ${NC}"
+echo -e "${BLUE}db-backup-export Cloud Run デプロイ${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo -e "  プロジェクト: ${GREEN}$PROJECT${NC}"
@@ -75,7 +75,7 @@ if [ "$SKIP_TESTS" = true ]; then
     echo -e "  [1/4] テスト... ${YELLOW}SKIP${NC}"
 else
     echo -e "  ${BLUE}[1/4] Import smoke test${NC}"
-    if ! python3 -c "import sys; sys.path.insert(0, 'supabase-sync'); from main import app; print('OK')"; then
+    if ! python3 -c "import sys; sys.path.insert(0, 'db-backup-export'); from main import app; print('OK')"; then
         echo -e "  ${RED}FAIL: Import test に失敗${NC}"
         exit 1
     fi
@@ -101,7 +101,7 @@ echo ""
 
 if [ "$DRY_RUN" = true ]; then
     echo "実行コマンド（参考）:"
-    echo "  docker build -f supabase-sync/Dockerfile -t $IMAGE ."
+    echo "  docker build -f db-backup-export/Dockerfile -t $IMAGE ."
     echo "  docker push $IMAGE"
     echo "  gcloud run deploy $SERVICE --image=$IMAGE --region=$REGION ..."
     echo ""
@@ -114,7 +114,7 @@ fi
 # =============================================================================
 
 echo -e "  ${BLUE}[3/4] Docker ビルド & プッシュ${NC}"
-docker build -f supabase-sync/Dockerfile -t "$IMAGE" .
+docker build -f db-backup-export/Dockerfile -t "$IMAGE" .
 docker push "$IMAGE"
 echo -e "  ${GREEN}PASS${NC}"
 echo ""

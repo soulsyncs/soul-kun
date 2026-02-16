@@ -1,5 +1,4 @@
-import functions_framework
-from flask import jsonify
+from flask import Flask, request as flask_request, jsonify
 from google.cloud import firestore
 import httpx
 import re
@@ -64,6 +63,8 @@ try:
 except ImportError as e:
     print(f"⚠️ lib/admin_config.py not available (using fallback): {e}")
     USE_ADMIN_CONFIG = False
+
+app = Flask(__name__)
 
 PROJECT_ID = "soulkun-production"
 db = firestore.Client(project=PROJECT_ID)
@@ -4711,8 +4712,9 @@ Person, die mit dir spricht: {sender_name}""",
 
 # ===== メインハンドラ（返信検出機能追加） =====
 
-@functions_framework.http
-def chatwork_webhook(request):
+@app.route("/chatwork-webhook", methods=["POST"])
+def chatwork_webhook():
+    request = flask_request
     try:
         # =====================================================
         # v6.8.9: Webhook署名検証（セキュリティ強化）
@@ -6665,10 +6667,10 @@ def detect_and_report_limit_changes(cursor, task_id, old_limit, new_limit, task_
             notify_dm_not_available(assignee_name, assignee_id, task_for_notify, "期限変更理由質問")
 
 
-@functions_framework.http
-def check_reply_messages(request):
+@app.route("/check-reply-messages", methods=["POST"])
+def check_reply_messages():
     """5分ごとに実行：返信ボタンとメンションのメッセージを検出
-    
+
     堅牢なエラーハンドリング版 - あらゆるエッジケースに対応
     """
     try:
@@ -7484,10 +7486,10 @@ def send_deadline_alert_to_requester(
         return False
 
 
-@functions_framework.http
-def sync_chatwork_tasks(request):
+@app.route("/", methods=["POST"])
+def sync_chatwork_tasks():
     """
-    Cloud Function: ChatWorkのタスクをDBと同期
+    Cloud Run: ChatWorkのタスクをDBと同期
 
     ★★★ v10.3.4: APIコール最適化 ★★★
     - openタスク同期: 1時間ごと（デフォルト）
@@ -7497,6 +7499,7 @@ def sync_chatwork_tasks(request):
     パラメータ:
     - include_done: 'true' の場合、doneタスクも同期する
     """
+    request = flask_request
     global _runtime_dm_cache, _runtime_direct_rooms, _runtime_contacts_cache, _runtime_contacts_fetched_ok, _dm_unavailable_buffer, _room_members_api_cache
 
     # ★★★ v10.3.4: パラメータ取得 ★★★
@@ -7985,10 +7988,10 @@ def sync_chatwork_tasks(request):
 # =====================================================
 # v10.3.4: メンバー同期用エントリーポイント（週1回実行）
 # =====================================================
-@functions_framework.http
-def sync_room_members_handler(request):
+@app.route("/sync-room-members", methods=["POST"])
+def sync_room_members_handler():
     """
-    Cloud Function: ルームメンバーをDBに同期
+    Cloud Run: ルームメンバーをDBに同期
     週1回（月曜8:00 JST）に実行される
 
     ★★★ v10.3.4: タスク同期から分離してAPI呼び出しを最適化 ★★★
@@ -8019,10 +8022,10 @@ def sync_room_members_handler(request):
         return (f'Error: {str(e)}', 500)
 
 
-@functions_framework.http
-def remind_tasks(request):
+@app.route("/remind-tasks", methods=["POST"])
+def remind_tasks():
     """
-    Cloud Function: タスクのリマインドを送信
+    Cloud Run: タスクのリマインドを送信
     毎日8:30 JSTに実行される
     """
     print("=== Starting task reminders ===")
@@ -8143,10 +8146,10 @@ def remind_tasks(request):
 # クリーンアップ機能（古いデータの自動削除）
 # ========================================
 
-@functions_framework.http
-def cleanup_old_data(request):
+@app.route("/cleanup-old-data", methods=["POST"])
+def cleanup_old_data():
     """
-    Cloud Function: 古いデータを自動削除
+    Cloud Run: 古いデータを自動削除
     毎日03:00 JSTに実行される
     
     削除対象:
@@ -8327,3 +8330,8 @@ def cleanup_old_data(request):
         "status": "ok" if not results["errors"] else "partial",
         "results": results
     })
+
+
+if __name__ == "__main__":
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

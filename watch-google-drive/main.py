@@ -1,18 +1,11 @@
 """
-Googleドライブ監視ジョブ Cloud Function
+Googleドライブ監視ジョブ Cloud Run サービス
 
 Googleドライブのファイル変更を監視し、ソウルくんのナレッジDBに反映します。
 Cloud Schedulerから5分ごとに呼び出されます。
 
 デプロイ:
-    gcloud functions deploy watch_google_drive \
-        --runtime python311 \
-        --trigger-http \
-        --allow-unauthenticated=false \
-        --timeout=540 \
-        --memory=512MB \
-        --region=asia-northeast1 \
-        --env-vars-file=env-vars.yaml
+    watch-google-drive/deploy.sh
 
 設計ドキュメント:
     docs/06_phase3_google_drive_integration.md
@@ -28,8 +21,9 @@ from typing import Optional
 import hashlib
 import logging
 
-import functions_framework
-from flask import Request
+from flask import Flask, request as flask_request, jsonify
+
+app = Flask(__name__)
 
 # PostgreSQL配列リテラル変換ユーティリティ
 def to_pg_array(python_list: list) -> str:
@@ -966,8 +960,8 @@ def send_unmatched_folder_alert(
 # メインハンドラ
 # ================================================================
 
-@functions_framework.http
-def watch_google_drive(request: Request):
+@app.route("/", methods=["POST"])
+def watch_google_drive():
     """
     Googleドライブ監視のHTTPハンドラ
 
@@ -980,6 +974,8 @@ def watch_google_drive(request: Request):
         "full_sync": false  // オプション: 全ファイル再取り込み
     }
     """
+    request = flask_request
+
     # リクエストパラメータを取得
     try:
         request_json = request.get_json(silent=True)
@@ -1243,3 +1239,7 @@ def watch_google_drive(request: Request):
             "status": "failed",
             "error": str(e)
         }, 500
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

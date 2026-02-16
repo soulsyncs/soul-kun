@@ -36,8 +36,7 @@ Updated: 2026-01-26 (Phase D: 接続設定集約)
 Version: 1.4
 """
 
-import functions_framework
-from flask import jsonify, Request
+from flask import Flask, request as flask_request, jsonify
 import json
 import traceback
 from datetime import datetime, timedelta, timezone
@@ -60,6 +59,8 @@ from sqlalchemy import text
 from lib.db import get_db_pool as _lib_get_db_pool
 from lib.secrets import get_secret_cached as get_secret
 from lib.config import get_settings
+
+app = Flask(__name__)
 
 
 def get_db_pool():
@@ -311,15 +312,10 @@ def extract_question_text(body: str) -> str:
 # Cloud Function エントリポイント
 # =====================================================
 
-@functions_framework.http
-def pattern_detection(request: Request):
+@app.route("/", methods=["POST"])
+def pattern_detection():
     """
-    パターン検知のメインエントリポイント（ルーター機能付き）
-
-    パスベースルーティング:
-    - /emotion-detection → emotion_detection()
-    - /weekly-report → weekly_report()
-    - その他 → A1パターン検知
+    パターン検知のメインエントリポイント
 
     リクエストパラメータ:
     - hours_back: 分析対象期間（デフォルト: 1時間）
@@ -331,21 +327,7 @@ def pattern_detection(request: Request):
     - results: 分析結果のサマリー
     - timestamp: 実行日時
     """
-    # パスベースルーティング
-    path = request.path or ""
-    print(f"📍 リクエストパス: {path}")
-
-    if path.endswith("/emotion-detection"):
-        print("🔀 ルーティング: emotion_detection")
-        return emotion_detection(request)
-    elif path.endswith("/weekly-report"):
-        print("🔀 ルーティング: weekly_report")
-        return weekly_report(request)
-    elif path.endswith("/daily-insight"):
-        print("🔀 ルーティング: daily_insight_notification")
-        return daily_insight_notification(request)
-
-    # デフォルト: A1パターン検知
+    request = flask_request
     start_time = datetime.now(timezone.utc)
     print(f"🚀 パターン検知開始: {start_time.isoformat()}")
 
@@ -420,8 +402,8 @@ def pattern_detection(request: Request):
         }), 500
 
 
-@functions_framework.http
-def weekly_report(request: Request):
+@app.route("/weekly-report", methods=["POST"])
+def weekly_report():
     """
     週次レポート生成・送信のエントリポイント
 
@@ -437,6 +419,7 @@ def weekly_report(request: Request):
     - report_id: 作成されたレポートID
     - sent: 送信完了かどうか
     """
+    request = flask_request
     from lib.insights.weekly_report_service import WeeklyReportService
 
     start_time = datetime.now(timezone.utc)
@@ -572,8 +555,8 @@ def weekly_report(request: Request):
         }), 500
 
 
-@functions_framework.http
-def personalization_detection(request: Request):
+@app.route("/personalization-detection", methods=["POST"])
+def personalization_detection():
     """
     属人化検出のメインエントリポイント
 
@@ -588,6 +571,7 @@ def personalization_detection(request: Request):
     - results: 検出結果のサマリー
     - timestamp: 実行日時
     """
+    request = flask_request
     from lib.detection.personalization_detector import PersonalizationDetector
 
     start_time = datetime.now(timezone.utc)
@@ -665,8 +649,8 @@ def personalization_detection(request: Request):
         }), 500
 
 
-@functions_framework.http
-def bottleneck_detection(request: Request):
+@app.route("/bottleneck-detection", methods=["POST"])
+def bottleneck_detection():
     """
     ボトルネック検出のメインエントリポイント
 
@@ -686,6 +670,7 @@ def bottleneck_detection(request: Request):
     - results: 検出結果のサマリー
     - timestamp: 実行日時
     """
+    request = flask_request
     from lib.detection.bottleneck_detector import BottleneckDetector
 
     start_time = datetime.now(timezone.utc)
@@ -763,8 +748,8 @@ def bottleneck_detection(request: Request):
         }), 500
 
 
-@functions_framework.http
-def emotion_detection(request: Request):
+@app.route("/emotion-detection", methods=["POST"])
+def emotion_detection():
     """
     感情変化検出のメインエントリポイント
 
@@ -790,6 +775,7 @@ def emotion_detection(request: Request):
     - results: 検出結果のサマリー
     - timestamp: 実行日時
     """
+    request = flask_request
     from lib.detection.emotion_detector import EmotionDetector
 
     start_time = datetime.now(timezone.utc)
@@ -875,8 +861,8 @@ def emotion_detection(request: Request):
 KAZUSAN_DM_ROOM_ID = 417892193
 
 
-@functions_framework.http
-def daily_insight_notification(request: Request):
+@app.route("/daily-insight", methods=["POST"])
+def daily_insight_notification():
     """
     毎日のインサイト通知をカズさんに送信
 
@@ -892,6 +878,7 @@ def daily_insight_notification(request: Request):
     - insights_count: 通知したインサイト数
     - sent: 送信完了かどうか
     """
+    request = flask_request
     import requests as http_requests
 
     start_time = datetime.now(timezone.utc)
@@ -1052,3 +1039,8 @@ def daily_insight_notification(request: Request):
             "traceback": traceback.format_exc(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }), 500
+
+
+if __name__ == "__main__":
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

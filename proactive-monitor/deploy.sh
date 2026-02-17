@@ -138,7 +138,8 @@ gcloud run deploy "$SERVICE" \
     --no-allow-unauthenticated \
     --min-instances=0 \
     --max-instances=5 \
-    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true"
+    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true" \
+    --update-secrets="TAVILY_API_KEY=TAVILY_API_KEY:latest"
 
 echo ""
 

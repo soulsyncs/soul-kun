@@ -559,6 +559,7 @@ try:
         _brain_handle_api_limitation,
         _brain_handle_general_conversation,
         _brain_handle_web_search,  # Step A-1
+        _brain_handle_calendar_read,  # Step A-3
         # セッション継続ハンドラー
         _brain_continue_goal_setting,
         _brain_continue_announcement,
@@ -610,6 +611,7 @@ except ImportError as e:
     _brain_handle_api_limitation = None
     _brain_handle_general_conversation = None
     _brain_handle_web_search = None  # Step A-1
+    _brain_handle_calendar_read = None  # Step A-3
     # セッション継続ハンドラー
     _brain_continue_goal_setting = None
     _brain_continue_announcement = None
@@ -978,6 +980,7 @@ def _get_brain_integration():
                 "api_limitation": _brain_handle_api_limitation,
                 "general_conversation": _brain_handle_general_conversation,
                 "web_search": _brain_handle_web_search,  # Step A-1
+                "calendar_read": _brain_handle_calendar_read,  # Step A-3
                 "continue_goal_setting": _brain_continue_goal_setting,
                 "continue_announcement": _brain_continue_announcement,
                 "continue_task_pending": _brain_continue_task_pending,

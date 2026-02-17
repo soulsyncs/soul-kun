@@ -185,6 +185,95 @@ _MEDIA_TYPE_LABELS = {
     "voice": "音声メッセージ",
 }
 
+# 画像として扱うmedia_type
+_IMAGE_MEDIA_TYPES = {"photo"}
+
+# 画像として扱うMIMEタイプ（documentの場合）
+_IMAGE_MIME_PREFIXES = ("image/",)
+
+MAX_TELEGRAM_FILE_SIZE = 20 * 1024 * 1024  # 20MB（Telegram Bot APIの制限）
+
+
+def download_telegram_file(file_id: str, bot_token: str = "") -> Optional[bytes]:
+    """
+    Telegram Bot APIからファイルをダウンロードする。
+
+    1. getFile APIでfile_pathを取得
+    2. file_pathからバイナリをダウンロード
+
+    Args:
+        file_id: TelegramのファイルID
+        bot_token: Bot APIトークン（省略時は環境変数から取得）
+
+    Returns:
+        bytes: ファイルバイナリ（成功時）
+        None: 失敗時
+    """
+    token = bot_token or TELEGRAM_BOT_TOKEN
+    if not token or not file_id:
+        logger.warning("download_telegram_file: missing token or file_id")
+        return None
+
+    try:
+        with httpx.Client(timeout=30.0) as client:
+            # Step 1: getFileでfile_pathを取得
+            resp = client.get(
+                f"{TELEGRAM_API_BASE}/bot{token}/getFile",
+                params={"file_id": file_id},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            if not data.get("ok"):
+                logger.warning("getFile failed: %s", data.get("description", ""))
+                return None
+
+            file_path = data["result"].get("file_path", "")
+            file_size = data["result"].get("file_size", 0)
+
+            if not file_path:
+                logger.warning("getFile returned empty file_path")
+                return None
+
+            if file_size > MAX_TELEGRAM_FILE_SIZE:
+                logger.warning(
+                    "File too large: %d bytes (limit %d)",
+                    file_size, MAX_TELEGRAM_FILE_SIZE,
+                )
+                return None
+
+            # Step 2: ファイルをダウンロード
+            dl_resp = client.get(
+                f"{TELEGRAM_API_BASE}/file/bot{token}/{file_path}",
+            )
+            dl_resp.raise_for_status()
+            logger.info(
+                "Telegram file downloaded: file_id=%s size=%d",
+                file_id[:20], len(dl_resp.content),
+            )
+            return dl_resp.content
+
+    except httpx.HTTPStatusError as e:
+        logger.error("Telegram file download HTTP error: %s", e.response.status_code)
+        return None
+    except Exception as e:
+        logger.error("Telegram file download error: %s", type(e).__name__)
+        return None
+
+
+def is_image_media(media_info: Dict[str, Any]) -> bool:
+    """メディア情報が画像かどうかを判定する。"""
+    if not media_info:
+        return False
+    media_type = media_info.get("media_type", "")
+    if media_type in _IMAGE_MEDIA_TYPES:
+        return True
+    # document の場合、MIMEタイプで判定
+    if media_type == "document":
+        mime = media_info.get("mime_type", "")
+        return any(mime.startswith(p) for p in _IMAGE_MIME_PREFIXES)
+    return False
+
 
 def extract_telegram_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """

@@ -3091,6 +3091,20 @@ def telegram_webhook():
         else:
             logger.info("Telegram: message received len=%d", len(channel_msg.body))
 
+        # --- 画像検出（file_idのみ記録、ダウンロードはバイパスハンドラー内で非同期実行） ---
+        telegram_bypass_context = {}
+        if (
+            os.environ.get("ENABLE_IMAGE_ANALYSIS", "false").lower() == "true"
+            and media_info
+        ):
+            from lib.channels.telegram_adapter import is_image_media
+            if is_image_media(media_info):
+                file_id = media_info.get("file_id", "")
+                if file_id:
+                    telegram_bypass_context["has_image"] = True
+                    telegram_bypass_context["image_file_id"] = file_id
+                    logger.info("Telegram: image detected for vision AI, file_id=%s", file_id[:20])
+
         # --- Brain処理 ---
         integration = _get_brain_integration()
         if not integration or not integration.is_brain_enabled():
@@ -3099,6 +3113,9 @@ def telegram_webhook():
                 message="🤔 ソウルくんの脳が準備できていないウル...しばらく待ってほしいウル🐺",
             )
             return jsonify({"status": "error", "message": "Brain not ready"}), 503
+
+        from lib.brain.handler_wrappers.bypass_handlers import build_bypass_handlers
+        bypass_handlers = build_bypass_handlers()
 
         import asyncio
         loop = asyncio.new_event_loop()
@@ -3112,6 +3129,8 @@ def telegram_webhook():
                     account_id=ceo_account_id or channel_msg.sender_id,
                     sender_name=channel_msg.sender_name,
                     fallback_func=None,
+                    bypass_context=telegram_bypass_context or None,
+                    bypass_handlers=bypass_handlers if telegram_bypass_context else None,
                 )
             )
         finally:

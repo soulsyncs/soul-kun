@@ -71,6 +71,29 @@ assert "Audit (no table)" in caplog.text
 - 3-copy sync verified: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical after this PR
 - 18/18 tests pass
 
+## Telegram Vision AI patterns (confirmed in PR adding image recognition)
+
+- `download_telegram_file(file_id, bot_token)`: synchronous httpx.Client, 30s timeout, 20MB limit, 2-step (getFile → binary download). Returns bytes or None.
+- `is_image_media(media_info)`: photo type OR document with "image/" MIME prefix. Video/voice/PDF = False.
+- `IMAGE_ANALYSIS = "image_analysis"` BypassType added to `lib/brain/integration.py`
+- `has_image` key in bypass_context triggers IMAGE_ANALYSIS bypass
+- `ENABLE_IMAGE_ANALYSIS` env var: guards download+bypass_context population in main.py only (not inside handler)
+- `handler_wrappers/bypass_handlers.py` is chatwork-webhook ONLY — not in root lib/ or proactive-monitor/lib/ (confirmed again)
+- All 3 copies of integration.py are in sync for IMAGE_ANALYSIS changes (verified)
+- 17/17 new tests pass
+
+### CRITICAL architectural issues found in this PR (Vision AI)
+
+1. **Recursive `process_message()` call**: `_bypass_handle_image_analysis()` calls `integration.process_message()` from within a bypass handler that was itself called by `process_message()`. Avoids infinite loop only because `bypass_context=None` on second call. Violates Guardian/Authorization Gate layering. Pattern to follow: `meeting_audio` handler calls `bridge._handle_meeting_transcription()` directly instead.
+2. **Blocking HTTP in Flask route**: `download_telegram_file()` (synchronous httpx, 30s timeout) is called in the synchronous Flask route before the event loop starts. Blocks one of 8 gunicorn threads. Should move into the async bypass handler.
+3. **Raw Vision output bypasses Guardian Layer**: Fallback paths in the handler return `vision_content` directly without Brain/Guardian filtering.
+
+### `VisionAPIClient` import path in bypass handler
+
+- `chatwork-webhook/lib/brain/handler_wrappers/bypass_handlers.py` imports `from lib.capabilities.multimodal.base import VisionAPIClient`
+- At runtime in chatwork-webhook/ context, Python resolves to `chatwork-webhook/lib/capabilities/multimodal/base.py` — correct
+- NOT tested in test suite for this PR (no test exercises `_bypass_handle_image_analysis()`)
+
 ## Telegram media support patterns (confirmed in PR adding photo/video/document/voice)
 
 - `_extract_media_info(msg)` in `lib/channels/telegram_adapter.py`: pure function, priority order is photo > video > document > voice, returns {} for no media

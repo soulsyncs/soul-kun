@@ -76,10 +76,11 @@ def is_telegram_ceo(chat_id: str) -> bool:
     Returns:
         True: 社長のchat_id
     """
-    if not TELEGRAM_CEO_CHAT_ID:
+    ceo_chat_id = os.environ.get("TELEGRAM_CEO_CHAT_ID", "")
+    if not ceo_chat_id:
         logger.warning("TELEGRAM_CEO_CHAT_ID is not set — rejecting all Telegram messages")
         return False
-    return str(chat_id) == str(TELEGRAM_CEO_CHAT_ID)
+    return str(chat_id) == str(ceo_chat_id)
 
 
 def clean_telegram_message(text: str) -> str:

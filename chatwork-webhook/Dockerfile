@@ -14,10 +14,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY lib/ /app/lib/
 COPY chatwork-webhook/lib/persona/ /app/lib/persona/
 # chatwork-webhook固有のモジュールをオーバーレイ
-# handler_wrappers.py は root lib/brain/ には存在しないため明示的にコピー
+# handler_wrappers/ パッケージは root lib/brain/ には存在しないため明示的にコピー
 # NOTE: chatwork-webhook/lib/brain/ に新しい固有ファイルを追加した場合、
 # ここにCOPY行を追加すること（PYTHONPATHで /app/lib/ が優先されるため）
-COPY chatwork-webhook/lib/brain/handler_wrappers.py /app/lib/brain/handler_wrappers.py
+COPY chatwork-webhook/lib/brain/handler_wrappers/ /app/lib/brain/handler_wrappers/
 
 # chatwork-webhook のアプリケーションコードをコピー
 COPY chatwork-webhook/ /app/chatwork-webhook/

@@ -36,7 +36,6 @@ class TestSearchDriveFiles:
         assert result["success"] is False
         assert "組織ID" in result["error"]
 
-    @patch("lib.brain.drive_tool.sa_text", create=True)
     def test_successful_file_search(self):
         """正常にファイルを検索"""
         pool = MagicMock()

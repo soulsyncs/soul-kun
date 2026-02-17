@@ -99,7 +99,13 @@ class MessageProcessingMixin:
                 f"message={message[:50]}..."
             )
 
-            llm_brain_enabled = is_llm_brain_enabled() and self.llm_brain is not None
+            _flag = is_llm_brain_enabled()
+            _brain_obj = self.llm_brain is not None
+            llm_brain_enabled = _flag and _brain_obj
+            logger.info(
+                "🧠 [DIAG] routing: flag=%s, brain_obj=%s, result=%s",
+                _flag, "SET" if _brain_obj else "NONE", llm_brain_enabled,
+            )
 
             # 1. 記憶層: コンテキスト取得（メッセージも渡して関連知識を検索）
             if llm_brain_enabled:

@@ -45,9 +45,12 @@ def make_llm_inference(brain: "SoulkunBrain"):
                 llm_result.confidence, "graph:llm_inference:confidence"
             )
 
+            # ツール名のみ記録（引数はPIIを含む可能性があるため除外）
+            _tool_names = [tc.tool_name for tc in (llm_result.tool_calls or [])] if llm_result.tool_calls else []
             logger.info(
-                "LLM Brain result: tool_calls=%d, has_text=%s, confidence=%.2f",
+                "🧠 [DIAG] LLM_BRAIN PATH: tool_calls=%d, tools=%s, has_text=%s, confidence=%.2f",
                 len(llm_result.tool_calls or []),
+                _tool_names,
                 llm_result.text_response is not None,
                 confidence_value,
             )

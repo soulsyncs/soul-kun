@@ -329,6 +329,7 @@ class InitializationMixin:
 
         try:
             # LLM Brain コンポーネントの初期化
+            logger.info("🧠 [DIAG] LLMBrain init: attempting...")
             self.llm_brain = LLMBrain()
             self.llm_guardian = GuardianLayer(
                 ceo_teachings=[],  # CEO教えは実行時に取得
@@ -346,9 +347,12 @@ class InitializationMixin:
                 outcome_learning=self.outcome_learning,
                 emotion_reader=self.emotion_reader,
             )
-            logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
+            logger.info(
+                "🧠 [DIAG] LLMBrain init: SUCCESS model=%s, provider=%s",
+                self.llm_brain.model, self.llm_brain.api_provider.value,
+            )
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM Brain: {type(e).__name__}")
+            logger.error("🧠❌ [DIAG] LLMBrain init: FAILED %s", type(e).__name__, exc_info=True)
             self.llm_brain = None
             self.llm_guardian = None
             self.llm_state_manager = None

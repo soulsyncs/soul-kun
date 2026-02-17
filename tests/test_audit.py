@@ -4,6 +4,7 @@ lib/audit.py のテスト
 監査ログモジュールのユニットテスト
 """
 
+import logging
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timezone
@@ -130,27 +131,27 @@ class TestLogAudit:
         assert cursor.execute.called
         assert conn.commit.called
 
-    def test_log_audit_without_table(self, mock_db_conn, capsys):
-        """テーブルが存在しない場合はprint出力のみ"""
+    def test_log_audit_without_table(self, mock_db_conn, caplog):
+        """テーブルが存在しない場合はログ出力のみ"""
         conn, cursor = mock_db_conn
         # テーブル存在チェック: False
         cursor.fetchone.return_value = (False,)
 
-        result = log_audit(
-            conn=conn,
-            cursor=cursor,
-            organization_id="org_test",
-            action="update",
-            resource_type="task",
-            resource_id="task_456",
-        )
+        with caplog.at_level(logging.INFO, logger="lib.audit"):
+            result = log_audit(
+                conn=conn,
+                cursor=cursor,
+                organization_id="org_test",
+                action="update",
+                resource_type="task",
+                resource_id="task_456",
+            )
 
         assert result is True
         # commitは呼ばれない
         assert not conn.commit.called
-        # print出力を確認
-        captured = capsys.readouterr()
-        assert "Audit (no table)" in captured.out
+        # ログ出力を確認
+        assert "Audit (no table)" in caplog.text
 
     def test_log_audit_with_details(self, mock_db_conn):
         """詳細情報付きのログ"""
@@ -197,63 +198,63 @@ class TestLogAudit:
 
         assert result is True
 
-    def test_log_audit_handles_exception(self, mock_db_conn, capsys):
+    def test_log_audit_handles_exception(self, mock_db_conn, caplog):
         """例外発生時のフォールバック"""
         conn, cursor = mock_db_conn
         cursor.execute.side_effect = Exception("DB connection failed")
 
-        result = log_audit(
-            conn=conn,
-            cursor=cursor,
-            organization_id="org_test",
-            action="read",
-            resource_type="document",
-            resource_id="doc_001",
-        )
+        with caplog.at_level(logging.INFO, logger="lib.audit"):
+            result = log_audit(
+                conn=conn,
+                cursor=cursor,
+                organization_id="org_test",
+                action="read",
+                resource_type="document",
+                resource_id="doc_001",
+            )
 
         assert result is False
-        # フォールバックのprint出力を確認
-        captured = capsys.readouterr()
-        assert "Audit log failed" in captured.out
-        assert "Audit (fallback)" in captured.out
+        # フォールバックのログ出力を確認
+        assert "Audit log failed" in caplog.text
+        assert "Audit (fallback)" in caplog.text
 
-    def test_log_audit_exception_with_details(self, mock_db_conn, capsys):
-        """例外発生時に詳細情報もprint出力"""
+    def test_log_audit_exception_with_details(self, mock_db_conn, caplog):
+        """例外発生時に詳細情報もログ出力"""
         conn, cursor = mock_db_conn
         cursor.execute.side_effect = Exception("Connection timeout")
 
-        result = log_audit(
-            conn=conn,
-            cursor=cursor,
-            organization_id="org_test",
-            action="update",
-            resource_type="task",
-            resource_id="task_001",
-            details={"field": "status", "value": "completed"},
-        )
+        with caplog.at_level(logging.INFO, logger="lib.audit"):
+            result = log_audit(
+                conn=conn,
+                cursor=cursor,
+                organization_id="org_test",
+                action="update",
+                resource_type="task",
+                resource_id="task_001",
+                details={"field": "status", "value": "completed"},
+            )
 
         assert result is False
-        captured = capsys.readouterr()
-        assert "Details:" in captured.out
+        assert "Details:" in caplog.text
 
-    def test_log_audit_without_table_with_details(self, mock_db_conn, capsys):
+    def test_log_audit_without_table_with_details(self, mock_db_conn, caplog):
         """テーブルなし+詳細情報の場合"""
         conn, cursor = mock_db_conn
         cursor.fetchone.return_value = (False,)
 
-        result = log_audit(
-            conn=conn,
-            cursor=cursor,
-            organization_id="org_test",
-            action="export",
-            resource_type="document",
-            resource_id="doc_001",
-            details={"format": "pdf"},
-        )
+        with caplog.at_level(logging.INFO, logger="lib.audit"):
+            result = log_audit(
+                conn=conn,
+                cursor=cursor,
+                organization_id="org_test",
+                action="export",
+                resource_type="document",
+                resource_id="doc_001",
+                details={"format": "pdf"},
+            )
 
         assert result is True
-        captured = capsys.readouterr()
-        assert "Details:" in captured.out
+        assert "Details:" in caplog.text
 
 
 class TestLogAuditBatch:

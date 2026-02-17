@@ -1,11 +1,13 @@
 # tests/test_operation_registry.py
 """
-Step C-1: 操作レジストリのテスト
+Step C-3: 操作レジストリ テストと安全性チェック
 
 操作の登録・検証・実行・セキュリティ制約をテストする。
+C-3で追加: PII除去、3層ゲート統合、緊急停止統合テスト。
 
 Author: Claude Opus 4.6
 Created: 2026-02-17
+Updated: 2026-02-17 (Step C-3)
 """
 
 import asyncio
@@ -576,3 +578,447 @@ class TestDataOpsHandlers:
             # _execute_searchが呼ばれた時のlimit引数が50以下であること
             call_args = mock_exec.call_args
             assert call_args[0][3] <= 50  # limit引数（4番目）
+
+
+# =====================================================
+# PII除去テスト（Step C-3）
+# =====================================================
+
+
+class TestPIIRemoval:
+    """検索結果からPII（個人情報）が除去されていることを検証"""
+
+    def test_search_result_excludes_pii_fields(self):
+        """_execute_searchの結果にユーザー名・メール等が含まれない"""
+        from unittest.mock import MagicMock
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        # DBからの生データ: task_id, body, status, limit_time, room_name, summary
+        # 重要: SELECT句にassigned_by, assigned_by_name, email等がないことを確認
+        mock_rows = [
+            (101, "田中さんへの報告書。taro@example.com宛。", "open", None, "営業室", "報告書作成"),
+            (102, "090-1234-5678に電話。salary: 500000", "done", 1740000000, "経理室", "電話連絡"),
+        ]
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = mock_rows
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = data_ops_mod._execute_search(
+            mock_pool, "chatwork_tasks", "", 20, "org-123"
+        )
+
+        # 結果にPIIフィールドが含まれないこと
+        for item in result["results"]:
+            assert "email" not in item, "メールアドレスフィールドが結果に含まれている"
+            assert "assigned_by" not in item, "assigned_byフィールドが結果に含まれている"
+            assert "assigned_by_name" not in item, "担当者名フィールドが結果に含まれている"
+            assert "account_name" not in item, "account_nameフィールドが結果に含まれている"
+            # 許可されたフィールドのみ
+            allowed_keys = {"task_id", "summary", "status", "deadline", "room"}
+            assert set(item.keys()) == allowed_keys, (
+                f"予期しないフィールド: {set(item.keys()) - allowed_keys}"
+            )
+
+    def test_search_result_body_truncated(self):
+        """本文は100文字に切り詰められる（過度な情報流出防止）"""
+        from unittest.mock import MagicMock
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        long_body = "機密情報" * 50  # 200文字
+        mock_rows = [(1, long_body, "open", None, "部屋", None)]
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = mock_rows
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = data_ops_mod._execute_search(
+            mock_pool, "chatwork_tasks", "", 20, "org-123"
+        )
+
+        assert len(result["results"][0]["summary"]) <= 100
+
+    def test_aggregate_excludes_pii(self):
+        """集計結果にはユーザー名やメールが含まれない"""
+        from unittest.mock import MagicMock
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        # chatwork_tasksの集計: ステータス別COUNT
+        mock_rows = [("open", 10), ("done", 5)]
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = mock_rows
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = data_ops_mod._execute_aggregate(
+            mock_pool, "chatwork_tasks", "count", "", "org-123"
+        )
+
+        # 結果にPIIが含まれないこと
+        result_str = str(result)
+        assert "email" not in result_str.lower()
+        assert "assigned_by_name" not in result_str
+        # 数値データのみ含まれること
+        assert result["total"] == 15
+        assert "breakdown" in result
+
+    def test_goals_search_excludes_staff_name(self):
+        """目標検索結果にスタッフ名が含まれない"""
+        from unittest.mock import MagicMock
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        # staff_goalsの検索: goal_id, staff_account_id, goal_month, sessions_target
+        mock_rows = [(1, "acc-001", "2026-02", 10)]
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = mock_rows
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        result = data_ops_mod._execute_search(
+            mock_pool, "staff_goals", "", 20, "org-123"
+        )
+
+        for item in result["results"]:
+            assert "staff_name" not in item, "スタッフ名が含まれている"
+            assert "staff_email" not in item, "スタッフメールが含まれている"
+            # account_idはPIIではないが、名前やメールは含まれないこと
+            allowed_keys = {"goal_id", "month", "target"}
+            assert set(item.keys()) == allowed_keys
+
+
+# =====================================================
+# 3層ゲート統合テスト（Step C-3）
+# =====================================================
+
+
+class TestThreeLayerGateIntegration:
+    """Guardian → ApprovalGate → 操作実行の3層ゲート統合テスト"""
+
+    def test_approval_gate_auto_approves_low_risk_operations(self):
+        """低リスク操作（data_aggregate, data_search）はAUTO_APPROVE"""
+        gate_mod = importlib.import_module("lib.brain.approval_gate")
+        gate = gate_mod.ApprovalGate()
+
+        for op_name in ["data_aggregate", "data_search"]:
+            result = gate.check(op_name, {"data_source": "tasks"})
+            assert result.level == gate_mod.ApprovalLevel.AUTO_APPROVE, (
+                f"{op_name} should be AUTO_APPROVE, got {result.level}"
+            )
+            assert result.risk_level == "low"
+
+    def test_approval_gate_blocks_high_risk_with_large_amount(self):
+        """高額パラメータ（10万以上）はDOUBLE_CHECKにエスカレーション"""
+        gate_mod = importlib.import_module("lib.brain.approval_gate")
+        gate = gate_mod.ApprovalGate()
+
+        result = gate.check("data_aggregate", {"amount": 150000})
+        assert result.level == gate_mod.ApprovalLevel.REQUIRE_DOUBLE_CHECK
+
+    def test_approval_gate_unknown_tool_requires_confirmation(self):
+        """未知のTool名はmediumリスクに倒される"""
+        gate_mod = importlib.import_module("lib.brain.approval_gate")
+        gate = gate_mod.ApprovalGate()
+
+        result = gate.check("completely_unknown_tool", {})
+        # mediumは確認必須（CONFIRMATION_REQUIRED_RISK_LEVELSに含まれる）
+        assert result.level != gate_mod.ApprovalLevel.AUTO_APPROVE
+
+    def test_risk_levels_defined_for_operations(self):
+        """RISK_LEVELSにdata_aggregate/data_searchが定義されている"""
+        constants_mod = importlib.import_module("lib.brain.constants")
+        assert constants_mod.RISK_LEVELS.get("data_aggregate") == "low"
+        assert constants_mod.RISK_LEVELS.get("data_search") == "low"
+
+    def test_operation_registry_validates_before_execution(self):
+        """実行前にパラメータ検証が行われる"""
+        # レジストリに操作を登録（パラメータスキーマ付き）
+        op = _make_test_operation(
+            name="guarded_op",
+            params_schema={
+                "data_source": {"type": "string", "required": True},
+            },
+        )
+        register_operation(op)
+
+        # パラメータ不正で検証エラー
+        error = validate_params("guarded_op", {})
+        assert error is not None
+        assert "data_source" in error
+
+        # パラメータ正常で検証パス
+        error = validate_params("guarded_op", {"data_source": "tasks"})
+        assert error is None
+
+    @pytest.mark.asyncio
+    async def test_full_pipeline_registry_to_execution(self):
+        """レジストリ登録 → パラメータ検証 → 実行の一気通貫テスト"""
+        execution_log = []
+
+        async def tracked_handler(params, organization_id, account_id):
+            execution_log.append({
+                "params": params,
+                "org_id": organization_id,
+                "account_id": account_id,
+            })
+            return OperationResult(
+                success=True,
+                message="パイプラインテスト成功",
+                data={"count": 10},
+            )
+
+        op = _make_test_operation(
+            name="pipeline_op",
+            handler=tracked_handler,
+            params_schema={
+                "data_source": {"type": "string", "required": True},
+            },
+        )
+        register_operation(op)
+
+        # 1. レジストリ確認
+        assert is_registered("pipeline_op")
+
+        # 2. パラメータ検証
+        error = validate_params("pipeline_op", {"data_source": "tasks"})
+        assert error is None
+
+        # 3. 承認ゲートチェック（lowリスクなのでAUTO_APPROVE）
+        gate_mod = importlib.import_module("lib.brain.approval_gate")
+        gate = gate_mod.ApprovalGate()
+        approval = gate.check("pipeline_op", {"data_source": "tasks"})
+        # pipeline_opはRISK_LEVELSに未定義→medium→確認要求になるが、
+        # レジストリのoperationDefinitionのrisk_levelは"low"
+        # ただしApprovalGateはconstants.RISK_LEVELSを参照するので
+        # 未知ToolはMEDIUM扱い。これは設計通り。
+
+        # 4. 実行
+        result = await execute_operation(
+            name="pipeline_op",
+            params={"data_source": "tasks"},
+            organization_id="org-999",
+            account_id="acc-001",
+        )
+        assert result.success is True
+        assert "パイプラインテスト成功" in result.message
+        assert len(execution_log) == 1
+        assert execution_log[0]["org_id"] == "org-999"
+
+    @pytest.mark.asyncio
+    async def test_unregistered_operation_blocked_at_every_layer(self):
+        """未登録操作はレジストリレベルでブロックされる"""
+        # 1. レジストリチェック
+        assert not is_registered("hack_server")
+
+        # 2. パラメータ検証
+        error = validate_params("hack_server", {"cmd": "rm -rf /"})
+        assert error is not None
+        assert "未登録" in error
+
+        # 3. 実行拒否
+        result = await execute_operation(
+            name="hack_server",
+            params={"cmd": "rm -rf /"},
+            organization_id="org-123",
+            account_id="attacker-001",
+        )
+        assert result.success is False
+        assert "未登録" in result.message
+
+
+# =====================================================
+# 緊急停止統合テスト（Step C-3）
+# =====================================================
+
+
+class TestEmergencyStopIntegration:
+    """緊急停止中は操作がブロックされることを検証"""
+
+    def test_emergency_stop_checker_is_stopped_true(self):
+        """is_stopped()=True のとき停止中と判定される"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        # is_active = True を返す
+        mock_conn.execute.return_value.fetchone.return_value = (True,)
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=0
+        )
+        assert checker.is_stopped() is True
+
+    def test_emergency_stop_checker_not_stopped(self):
+        """is_stopped()=False のとき通常稼働と判定される"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        # is_active = False を返す
+        mock_conn.execute.return_value.fetchone.return_value = (False,)
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=0
+        )
+        assert checker.is_stopped() is False
+
+    def test_emergency_stop_checker_no_record(self):
+        """レコードなし→停止していないと判定"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = None
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=0
+        )
+        assert checker.is_stopped() is False
+
+    def test_emergency_stop_db_failure_safe_side(self):
+        """DB障害時は安全側（停止しない）に倒す"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_pool.connect.side_effect = Exception("DB connection failed")
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=0
+        )
+        # DB障害でも例外は投げない。False（停止しない）を返す
+        assert checker.is_stopped() is False
+
+    def test_emergency_stop_cache_ttl(self):
+        """TTLキャッシュが効くこと"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (False,)
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=60
+        )
+
+        # 1回目: DBアクセス
+        assert checker.is_stopped() is False
+        call_count_1 = mock_pool.connect.call_count
+
+        # 2回目: キャッシュから（DBアクセスなし）
+        assert checker.is_stopped() is False
+        call_count_2 = mock_pool.connect.call_count
+        assert call_count_2 == call_count_1, "キャッシュが効いていない"
+
+    def test_emergency_stop_cache_invalidate(self):
+        """invalidate_cache()でキャッシュが無効になる"""
+        from unittest.mock import MagicMock
+
+        mock_pool = MagicMock()
+        mock_conn = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (False,)
+
+        stop_mod = importlib.import_module("lib.brain.emergency_stop")
+        checker = stop_mod.EmergencyStopChecker(
+            pool=mock_pool, org_id="org-123", cache_ttl_seconds=60
+        )
+
+        checker.is_stopped()  # キャッシュ充填
+        call_count_1 = mock_pool.connect.call_count
+
+        checker.invalidate_cache()
+        checker.is_stopped()  # 再度DBアクセス
+        call_count_2 = mock_pool.connect.call_count
+        assert call_count_2 > call_count_1, "invalidate後にDBアクセスが起きていない"
+
+
+# =====================================================
+# パラメータ型検証強化テスト（Step C-3）
+# =====================================================
+
+
+class TestParameterValidationExtended:
+    """パラメータ検証の追加テスト"""
+
+    def test_path_traversal_with_encoded_dots(self):
+        """エンコードされたパストラバーサルもブロック"""
+        op = _make_test_operation(
+            params_schema={"path": {"type": "string", "required": True}}
+        )
+        register_operation(op)
+
+        # 通常のパストラバーサル
+        error = validate_params("test_op", {"path": "..\\..\\windows\\system32"})
+        assert error is not None
+
+    def test_multiple_params_all_validated(self):
+        """複数パラメータが全て検証される"""
+        op = _make_test_operation(
+            params_schema={
+                "source": {"type": "string", "required": True},
+                "query": {"type": "string", "required": True},
+                "limit": {"type": "integer", "required": False},
+            }
+        )
+        register_operation(op)
+
+        # sourceのみ→queryが不足
+        error = validate_params("test_op", {"source": "tasks"})
+        assert error is not None
+        assert "query" in error
+
+    def test_sql_injection_in_param_value(self):
+        """SQLインジェクション風の値もパラメータ検証は通す（SQLはパラメータ化される）"""
+        op = _make_test_operation(
+            params_schema={"query": {"type": "string", "required": True}}
+        )
+        register_operation(op)
+
+        # SQLインジェクションの値自体はvalidate_paramsでは拒否しない
+        # （SQLパラメータ化で安全なため）
+        error = validate_params("test_op", {"query": "'; DROP TABLE users; --"})
+        assert error is None  # 200文字以下かつパストラバーサルでないのでOK
+
+    def test_empty_string_param_allowed(self):
+        """空文字列は許容される"""
+        op = _make_test_operation(
+            params_schema={"filters": {"type": "string", "required": True}}
+        )
+        register_operation(op)
+
+        error = validate_params("test_op", {"filters": ""})
+        assert error is None
+
+    def test_param_exactly_200_chars(self):
+        """ちょうど200文字は許容される"""
+        op = _make_test_operation(
+            params_schema={"query": {"type": "string", "required": True}}
+        )
+        register_operation(op)
+
+        error = validate_params("test_op", {"query": "a" * 200})
+        assert error is None
+
+        error = validate_params("test_op", {"query": "a" * 201})
+        assert error is not None

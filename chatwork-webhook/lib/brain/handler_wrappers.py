@@ -1876,6 +1876,92 @@ async def _brain_handle_web_search(params, room_id, account_id, sender_name, con
         )
 
 
+# =====================================================
+# Step A-3: Googleカレンダー読み取りハンドラー
+# =====================================================
+
+async def _brain_handle_calendar_read(params, room_id, account_id, sender_name, context):
+    """
+    Googleカレンダー予定読み取りハンドラー
+
+    Step A-3: 管理画面で接続済みのGoogleカレンダーから予定を取得。
+    CLAUDE.md §3-2 #6: sync I/Oは asyncio.to_thread() でオフロード。
+    """
+    try:
+        import asyncio
+        import sys
+        from lib.brain.calendar_tool import list_calendar_events, format_calendar_events
+
+        main = sys.modules.get('main')
+        if not main:
+            return HandlerResult(
+                success=False,
+                message="システムエラーが発生したウル🐺",
+            )
+
+        pool = getattr(main, 'get_pool', lambda: None)()
+        if not pool:
+            return HandlerResult(
+                success=False,
+                message="データベースに接続できないウル🐺",
+            )
+
+        # organization_idの取得
+        org_id = ""
+        if hasattr(context, 'organization_id'):
+            org_id = context.organization_id
+        elif isinstance(context, dict):
+            org_id = context.get('organization_id', '')
+
+        if not org_id:
+            # contextから取れなければ環境変数にフォールバック
+            import os
+            org_id = os.environ.get("ORGANIZATION_ID", "")
+
+        if not org_id:
+            return HandlerResult(
+                success=False,
+                message="組織情報が取得できなかったウル🐺",
+            )
+
+        date_from = params.get("date_from")
+        date_to = params.get("date_to")
+
+        # CLAUDE.md §3-2 #6: sync I/Oをasyncでブロックしないようにオフロード
+        result = await asyncio.to_thread(
+            list_calendar_events,
+            pool=pool,
+            organization_id=org_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+        if not result.get("success"):
+            error_msg = result.get("error", "カレンダー取得に失敗しました")
+            return HandlerResult(
+                success=False,
+                message=f"カレンダーの確認でエラーが発生したウル🐺 ({error_msg})",
+            )
+
+        formatted = format_calendar_events(result)
+        return HandlerResult(
+            success=True,
+            message=formatted,
+            data={
+                "needs_answer_synthesis": True,
+                "calendar_events": result.get("events", []),
+                "date_range": result.get("date_range", ""),
+                "event_count": result.get("event_count", 0),
+            },
+        )
+    except Exception as e:
+        logger.error("calendar_read handler error: %s", e, exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="カレンダーの確認でエラーが発生したウル🐺 もう一度試してほしいウル！",
+        )
+
+
 def build_brain_handlers() -> Dict[str, Callable]:
     """
     脳用ハンドラーのマッピングを構築
@@ -1912,6 +1998,7 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "api_limitation": _brain_handle_api_limitation,
         "general_conversation": _brain_handle_general_conversation,
         "web_search": _brain_handle_web_search,  # Step A-1
+        "calendar_read": _brain_handle_calendar_read,  # Step A-3
     }
 
 

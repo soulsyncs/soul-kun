@@ -1403,6 +1403,53 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 5,
         },
     },
+
+    "calendar_read": {
+        "name": "Googleカレンダー予定確認",
+        "description": "Googleカレンダーの予定を確認する。今日の予定、明日の予定、特定日の予定の表示に対応。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "今日の予定は？",
+            "明日のスケジュールを教えて",
+            "来週月曜の予定は？",
+            "今日は何が入ってる？",
+            "明後日のカレンダーを見せて",
+        ],
+        "params_schema": {
+            "date_from": {
+                "type": "date",
+                "description": "予定を表示する開始日（YYYY-MM-DD形式）",
+                "required": False,
+                "note": "省略時は今日。「明日」→翌日、「来週月曜」→該当日に変換",
+            },
+            "date_to": {
+                "type": "date",
+                "description": "予定を表示する終了日（YYYY-MM-DD形式）",
+                "required": False,
+                "note": "省略時はdate_fromと同じ日",
+            },
+        },
+        "handler": "calendar_read",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["予定", "スケジュール", "カレンダー", "何が入ってる"],
+                "secondary": ["今日の", "明日の", "来週の", "予定確認"],
+                "negative": ["タスク", "目標", "作成", "追加"],
+            },
+            "intent_keywords": {
+                "primary": ["予定確認", "スケジュール確認", "カレンダー確認"],
+                "secondary": ["予定", "スケジュール", "カレンダー"],
+                "modifiers": ["教えて", "見せて", "確認", "何がある"],
+                "negative": ["タスク作成", "目標設定"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
 }
 
 

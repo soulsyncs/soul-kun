@@ -7,6 +7,7 @@ __init__、fire-and-forget管理、学習同期、各サブシステム初期化
 
 import asyncio
 import logging
+import os
 from typing import Optional, Dict, Callable
 
 from lib.brain.memory_flush import AutoMemoryFlusher
@@ -323,12 +324,18 @@ class InitializationMixin:
 
         Feature Flag `ENABLE_LLM_BRAIN` が有効な場合のみ初期化。
         """
-        if not is_llm_brain_enabled():
+        _flag_enabled = is_llm_brain_enabled()
+        logger.info(
+            "🧠 [DIAG] Feature flag check: is_llm_brain_enabled=%s, env_USE_BRAIN_ARCHITECTURE=%s",
+            _flag_enabled, os.environ.get("USE_BRAIN_ARCHITECTURE", "(unset)"),
+        )
+        if not _flag_enabled:
             logger.info("LLM Brain is disabled by feature flag")
             return
 
         try:
             # LLM Brain コンポーネントの初期化
+            logger.info("🧠 [DIAG] LLMBrain init: attempting...")
             self.llm_brain = LLMBrain()
             self.llm_guardian = GuardianLayer(
                 ceo_teachings=[],  # CEO教えは実行時に取得
@@ -346,9 +353,12 @@ class InitializationMixin:
                 outcome_learning=self.outcome_learning,
                 emotion_reader=self.emotion_reader,
             )
-            logger.info("🧠 LLM Brain initialized successfully (Claude Opus 4.5)")
+            logger.info(
+                "🧠 [DIAG] LLMBrain init: SUCCESS model=%s, provider=%s",
+                self.llm_brain.model, self.llm_brain.api_provider.value,
+            )
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM Brain: {type(e).__name__}")
+            logger.error("🧠❌ [DIAG] LLMBrain init: FAILED %s", type(e).__name__, exc_info=True)
             self.llm_brain = None
             self.llm_guardian = None
             self.llm_state_manager = None

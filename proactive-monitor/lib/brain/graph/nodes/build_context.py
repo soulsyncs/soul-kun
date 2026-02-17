@@ -42,6 +42,11 @@ def make_build_context(brain: "SoulkunBrain"):
             )
 
             tools = get_tools_for_llm()
+            logger.info("🧠 [DIAG] tools_for_llm: count=%d", len(tools))
+            logger.debug(
+                "🧠 [DIAG] tools_for_llm: names=%s",
+                [t.get("name", "?") for t in tools] if tools else [],
+            )
 
             return {
                 "llm_context": llm_context,

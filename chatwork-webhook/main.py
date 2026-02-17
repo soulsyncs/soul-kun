@@ -1032,6 +1032,7 @@ def _get_brain_integration():
                     elif hasattr(msg, "to_dict"):
                         history.append(msg.to_dict())
 
+                print(f"🧠 [DIAG] FALLBACK PATH: get_ai_response called (msg_len={len(message)}, context_type={type(context_dict).__name__})")
                 return get_ai_response(message, history, sender_name, context_dict, "ja", account_id)
             except Exception as e:
                 print(f"⚠️ _brain_ai_response_wrapper error: {e}")

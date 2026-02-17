@@ -1497,6 +1497,110 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 5,
         },
     },
+
+    # =========================================================================
+    # 操作系（Step C: 手足を与える）
+    # =========================================================================
+    "data_aggregate": {
+        "name": "データ集計",
+        "description": "CSVやデータの集計・合計・平均・件数カウントなどを計算する。「売上データを合計して」「先月の件数を教えて」などに対応。",
+        "category": "operations",
+        "enabled": True,
+        "trigger_examples": [
+            "売上データを合計して",
+            "先月の件数を教えて",
+            "平均単価を計算して",
+            "部署ごとの集計を出して",
+        ],
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "description": "集計対象のデータ名またはファイル名",
+                "required": True,
+                "note": "DBテーブル名、CSVファイル名、GCSパスのいずれか",
+            },
+            "operation": {
+                "type": "string",
+                "description": "集計方法（sum, avg, count, min, max, group_by）",
+                "required": True,
+            },
+            "filters": {
+                "type": "string",
+                "description": "フィルタ条件（例: 「先月」「営業部」「100万以上」）",
+                "required": False,
+            },
+        },
+        "handler": "data_aggregate",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["集計", "合計", "平均", "カウント", "件数"],
+                "secondary": ["データ", "売上", "数字", "統計"],
+                "negative": ["検索", "ファイル探して", "予定"],
+            },
+            "intent_keywords": {
+                "primary": ["データ集計", "集計して", "合計して", "平均を"],
+                "secondary": ["計算", "数えて", "統計"],
+                "modifiers": ["教えて", "出して", "見せて"],
+                "negative": ["ファイル", "ドライブ", "カレンダー"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    "data_search": {
+        "name": "データ検索",
+        "description": "データベースやCSVから条件に合うデータを検索・一覧表示する。「先月の案件一覧」「売上トップ10」などに対応。",
+        "category": "operations",
+        "enabled": True,
+        "trigger_examples": [
+            "先月の案件を一覧にして",
+            "売上トップ10を見せて",
+            "未完了のタスクを一覧にして",
+            "今月の新規案件は？",
+        ],
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "description": "検索対象のデータ名またはテーブル名",
+                "required": True,
+            },
+            "query": {
+                "type": "string",
+                "description": "検索条件（自然言語）",
+                "required": True,
+                "note": "ユーザーの意図を反映した検索条件を生成すること",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最大件数（デフォルト: 20）",
+                "required": False,
+                "default": 20,
+            },
+        },
+        "handler": "data_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["一覧", "リスト", "トップ", "ランキング"],
+                "secondary": ["データ", "案件", "見せて", "表示"],
+                "negative": ["集計", "合計", "平均"],
+            },
+            "intent_keywords": {
+                "primary": ["データ検索", "一覧にして", "リストを"],
+                "secondary": ["探して", "見せて", "表示して"],
+                "modifiers": ["教えて", "出して"],
+                "negative": ["集計", "カレンダー"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
 }
 
 

@@ -465,6 +465,9 @@ RISK_LEVELS: Dict[str, str] = {
     "web_search": "low",
     "calendar_read": "low",
     "drive_search": "low",
+    # Step C: 操作系（手足を与える）
+    "data_aggregate": "low",
+    "data_search": "low",
     "send_announcement": "medium",
     "delete": "high",
     "remove": "high",

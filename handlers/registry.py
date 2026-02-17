@@ -1601,6 +1601,125 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 5,
         },
     },
+
+    # Step C-5: 書き込み系操作（手足を与える — Phase 2）
+    "report_generate": {
+        "name": "レポート生成",
+        "description": "集計データや分析結果をレポートにまとめて保存する。タイトルと本文を指定してレポートを作成する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "title": {
+                "type": "string",
+                "required": True,
+                "description": "レポートのタイトル",
+            },
+            "content": {
+                "type": "string",
+                "required": True,
+                "description": "レポートの本文",
+            },
+            "format": {
+                "type": "string",
+                "required": False,
+                "default": "text",
+                "description": "出力形式（text or markdown）",
+            },
+        },
+        "handler": "report_generate",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "レポートを作成して",
+            "報告書をまとめて",
+            "このデータをレポートにして",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["レポート", "報告書", "まとめ"],
+                "secondary": ["作成", "生成", "書いて"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "見せて"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
+
+    "csv_export": {
+        "name": "CSVエクスポート",
+        "description": "タスクや目標などのデータをCSVファイルとしてエクスポートする。表計算ソフトで開けるファイルを作成する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "required": True,
+                "description": "エクスポート対象のデータ（tasks/タスク/goals/目標）",
+            },
+            "filters": {
+                "type": "string",
+                "required": False,
+                "default": "",
+                "description": "フィルタ条件（例: 今月の完了タスク）",
+            },
+        },
+        "handler": "csv_export",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "タスクをCSVに出力して",
+            "目標データをエクスポートして",
+            "CSVで書き出して",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["CSV", "エクスポート", "書き出し"],
+                "secondary": ["出力", "ダウンロード"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "集計"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
+
+    "file_create": {
+        "name": "ファイル作成",
+        "description": "テキストファイルやメモを作成して保存する。議事録の下書きやメモの作成に使う。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "filename": {
+                "type": "string",
+                "required": True,
+                "description": "ファイル名",
+            },
+            "content": {
+                "type": "string",
+                "required": True,
+                "description": "ファイルの内容",
+            },
+        },
+        "handler": "file_create",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "ファイルを作成して",
+            "メモを作って",
+            "テキストファイルを保存して",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["ファイル", "テキスト", "メモ"],
+                "secondary": ["作成", "保存", "作って"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "読んで"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
 }
 
 

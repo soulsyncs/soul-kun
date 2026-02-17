@@ -2128,6 +2128,99 @@ async def _brain_handle_data_search(
         )
 
 
+# Step C-5: 書き込み系操作ハンドラー（手足を与える — Phase 2）
+
+
+async def _brain_handle_report_generate(
+    params: Dict[str, Any],
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    context: Any,
+) -> "HandlerResult":
+    """レポート生成ハンドラーラッパー"""
+    from lib.brain.operations.report_ops import handle_report_generate
+
+    org_id = getattr(context, "organization_id", None) or os.environ.get("ORGANIZATION_ID", "")
+    try:
+        result = await handle_report_generate(
+            params=params,
+            organization_id=org_id,
+            account_id=account_id,
+        )
+        return HandlerResult(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+        )
+    except Exception as e:
+        logger.error(f"レポート生成エラー: {e}", exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="レポートの生成でエラーが発生したウル🐺",
+        )
+
+
+async def _brain_handle_csv_export(
+    params: Dict[str, Any],
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    context: Any,
+) -> "HandlerResult":
+    """CSVエクスポートハンドラーラッパー"""
+    from lib.brain.operations.report_ops import handle_csv_export
+
+    org_id = getattr(context, "organization_id", None) or os.environ.get("ORGANIZATION_ID", "")
+    try:
+        result = await handle_csv_export(
+            params=params,
+            organization_id=org_id,
+            account_id=account_id,
+        )
+        return HandlerResult(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+        )
+    except Exception as e:
+        logger.error(f"CSVエクスポートエラー: {e}", exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="CSVの出力でエラーが発生したウル🐺",
+        )
+
+
+async def _brain_handle_file_create(
+    params: Dict[str, Any],
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    context: Any,
+) -> "HandlerResult":
+    """ファイル作成ハンドラーラッパー"""
+    from lib.brain.operations.report_ops import handle_file_create
+
+    org_id = getattr(context, "organization_id", None) or os.environ.get("ORGANIZATION_ID", "")
+    try:
+        result = await handle_file_create(
+            params=params,
+            organization_id=org_id,
+            account_id=account_id,
+        )
+        return HandlerResult(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+        )
+    except Exception as e:
+        logger.error(f"ファイル作成エラー: {e}", exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="ファイルの作成でエラーが発生したウル🐺",
+        )
+
+
 def build_brain_handlers() -> Dict[str, Callable]:
     """
     脳用ハンドラーのマッピングを構築
@@ -2168,6 +2261,9 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "drive_search": _brain_handle_drive_search,  # Step A-5
         "data_aggregate": _brain_handle_data_aggregate,  # Step C-1
         "data_search": _brain_handle_data_search,  # Step C-1
+        "report_generate": _brain_handle_report_generate,  # Step C-5
+        "csv_export": _brain_handle_csv_export,  # Step C-5
+        "file_create": _brain_handle_file_create,  # Step C-5
     }
 
 

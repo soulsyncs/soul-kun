@@ -315,4 +315,50 @@ OPERATION_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 5,
         },
     },
+
+    # -----------------------------------------------------------------
+    # 書き込み系操作（Step C-5 Phase 2）
+    # -----------------------------------------------------------------
+    "report_generate": {
+        "name": "レポート生成",
+        "description": "集計データや分析結果をレポートにまとめてGCSに保存する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "title": {"type": "string", "required": True},
+            "content": {"type": "string", "required": True},
+            "format": {"type": "string", "required": False, "default": "text"},
+        },
+        "handler": "report_generate",
+        "requires_confirmation": True,
+        "brain_metadata": {"risk_level": "medium", "priority": 5},
+    },
+
+    "csv_export": {
+        "name": "CSVエクスポート",
+        "description": "タスクや目標データをCSVファイルとしてGCSにエクスポートする。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "data_source": {"type": "string", "required": True},
+            "filters": {"type": "string", "required": False, "default": ""},
+        },
+        "handler": "csv_export",
+        "requires_confirmation": True,
+        "brain_metadata": {"risk_level": "medium", "priority": 5},
+    },
+
+    "file_create": {
+        "name": "ファイル作成",
+        "description": "テキストファイルやメモを作成してGCSに保存する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "filename": {"type": "string", "required": True},
+            "content": {"type": "string", "required": True},
+        },
+        "handler": "file_create",
+        "requires_confirmation": True,
+        "brain_metadata": {"risk_level": "medium", "priority": 5},
+    },
 }

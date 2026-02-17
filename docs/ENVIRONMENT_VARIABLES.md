@@ -381,6 +381,33 @@ MEETING_GCS_BUCKET=soulkun-meeting-recordings
 
 ---
 
+## Step A: 外部ツール接続
+
+### TAVILY_API_KEY
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | Web検索機能（Tavily Search API）用のAPIキー |
+| 必須 | 条件付き（未設定の場合Web検索は無効化、エラーにはならない） |
+| デフォルト | （未設定 = Web検索無効） |
+| 管理場所 | Secret Manager → Cloud Run `--update-secrets` |
+| 参照コード | `lib/brain/web_search.py` |
+
+**動作:**
+
+| TAVILY_API_KEY | 動作 |
+|---------------|------|
+| 設定あり | Web検索が有効。BrainがTavily APIで最新情報を取得可能 |
+| 未設定 | Web検索は無効。検索リクエスト時に「API keyが設定されていません」エラーを返す |
+
+**Secret Manager への登録:**
+
+```bash
+echo -n "tvly-xxxxx" | gcloud secrets versions add TAVILY_API_KEY --data-file=-
+```
+
+---
+
 ## コンポーネント別設定
 
 ### Cloud Run: chatwork-webhook
@@ -398,6 +425,7 @@ ENVIRONMENT: production
 LANGFUSE_SECRET_KEY: （Secret Manager経由）
 LANGFUSE_PUBLIC_KEY: （Secret Manager経由）
 LANGFUSE_HOST: "https://us.cloud.langfuse.com"
+TAVILY_API_KEY: （Secret Manager経由）
 ```
 
 ### Cloud Functions: watch-google-drive

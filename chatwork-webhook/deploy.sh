@@ -139,7 +139,8 @@ gcloud run deploy "$SERVICE" \
     --allow-unauthenticated \
     --min-instances=1 \
     --max-instances=10 \
-    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
+    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings" \
+    --update-secrets="TAVILY_API_KEY=TAVILY_API_KEY:latest"
 
 echo ""
 

@@ -39,6 +39,8 @@ TARGET_FUNCTIONS=()
 
 # 環境変数（本番必須）— IMPORTANT: --update-env-vars を使用（--set-env-vars 禁止！）
 ENV_VARS_CHATWORK="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings"
+# Secret Manager からマウントするシークレット
+SECRETS_CHATWORK="TAVILY_API_KEY=TAVILY_API_KEY:latest"
 ENV_VARS_PROACTIVE="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true"
 
 # サービス別設定
@@ -227,26 +229,31 @@ for func in "${TARGET_FUNCTIONS[@]}"; do
   eval "max_inst=\"\${$var_name_max}\""
   eval "auth=\"\${$var_name_auth}\""
 
-  # 環境変数を選択
+  # 環境変数とシークレットを選択
   if [[ "$func" == "chatwork-webhook" ]]; then
     env_vars="$ENV_VARS_CHATWORK"
+    secrets="$SECRETS_CHATWORK"
   else
     env_vars="$ENV_VARS_PROACTIVE"
+    secrets=""
   fi
 
   echo "  $func をデプロイ中..."
   # IMPORTANT: --update-env-vars を使用（--set-env-vars 禁止！）
-  if ! gcloud run deploy "$func" \
-    --image="$IMAGE" \
-    --region="$REGION" \
-    --memory="$memory" \
-    --cpu="$cpu" \
-    --timeout=540s \
-    --min-instances="$min_inst" \
-    --max-instances="$max_inst" \
-    $auth \
-    --update-env-vars="$env_vars" \
-    2>&1 | tail -5; then
+  deploy_cmd=(gcloud run deploy "$func"
+    --image="$IMAGE"
+    --region="$REGION"
+    --memory="$memory"
+    --cpu="$cpu"
+    --timeout=540s
+    --min-instances="$min_inst"
+    --max-instances="$max_inst"
+    $auth
+    --update-env-vars="$env_vars")
+  if [[ -n "$secrets" ]]; then
+    deploy_cmd+=(--update-secrets="$secrets")
+  fi
+  if ! "${deploy_cmd[@]}" 2>&1 | tail -5; then
     echo -e "  ${RED}FAIL: $func のデプロイに失敗${NC}"
     exit 1
   fi

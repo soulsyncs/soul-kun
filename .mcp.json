@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "chatwork": {
+      "command": "npx",
+      "args": ["@chatwork/mcp-server"],
+      "env": {
+        "CHATWORK_API_TOKEN": "005eae68e43c3c07d728b8191769e4a9"
+      }
+    }
+  }
+}

@@ -130,6 +130,30 @@ def is_toall_mention(body: str) -> bool:
         return False
 
 
+def extract_chatwork_files(body: str) -> list:
+    """
+    ChatWorkメッセージ本文からファイル添付情報を抽出する。
+
+    ChatWorkではファイルが添付されると本文に [download:FILE_ID] タグが含まれる。
+    クリーニング前の raw_body に対して使うこと。
+
+    Args:
+        body: 元のメッセージ本文（raw_body）
+
+    Returns:
+        list: [{"file_id": "123456"}, ...] ファイルがなければ空リスト
+    """
+    if not body or not isinstance(body, str):
+        return []
+
+    # [download:123456] パターンを検出
+    file_ids = re.findall(r'\[download:(\d+)\]', body)
+    return [{"file_id": fid} for fid in file_ids]
+
+
+_FILE_LABEL = "ファイル"
+
+
 def is_bot_reply_loop(body: str) -> bool:
     """
     ボットの返信パターンを検出（無限ループ防止）
@@ -226,8 +250,21 @@ class ChatworkChannelAdapter(ChannelAdapter):
         else:
             sender_id = str(event.get("account_id", ""))
 
+        # ファイル添付の検出（クリーニング前に実行）
+        files = extract_chatwork_files(raw_body)
+
         # メッセージのクリーニングと判定
         clean_body = self.clean_message(raw_body)
+
+        # ファイルが添付されている場合、プレースホルダーを追加
+        if files:
+            file_count = len(files)
+            label = f"{_FILE_LABEL}{file_count}件" if file_count > 1 else _FILE_LABEL
+            if clean_body:
+                clean_body = f"[{label}を送信] {clean_body}"
+            else:
+                clean_body = f"[{label}を送信]"
+
         is_addressed = self.is_addressed_to_bot(raw_body) or event_type == "mention_to_me"
         is_from_bot = sender_id == self._bot_account_id
         is_loop = is_bot_reply_loop(raw_body)
@@ -252,6 +289,7 @@ class ChatworkChannelAdapter(ChannelAdapter):
             metadata={
                 "room_id": event.get("room_id"),
                 "message_id": event.get("message_id"),
+                "files": files,
             },
         )
 

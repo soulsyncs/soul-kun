@@ -458,17 +458,8 @@ class TestTelegramGroupRestriction:
 class TestTelegramRateLimit:
     """Step B-2: レート制限テスト"""
 
-    def test_rate_limit_function_import(self):
-        """レート制限関数がインポートできる"""
-        import importlib
-        import sys
-
-        # chatwork-webhook/main.pyのモジュールをロード
-        spec = importlib.util.spec_from_file_location(
-            "cw_main_rl_test",
-            os.path.join(os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"),
-        )
-        # モジュール自体はロードせず（依存が大きい）、関数の存在をソースで確認
+    def test_rate_limit_function_exists(self):
+        """レート制限関数がソースコードに存在する"""
         import ast
 
         main_path = os.path.join(

@@ -2959,9 +2959,10 @@ def zoom_webhook():
 # =============================================================================
 
 # --- Step B-2: Telegramレート制限（インメモリ） ---
-import collections as _collections
+import threading as _threading
 
 _telegram_rate_limit: Dict[str, list] = {}
+_telegram_rate_limit_lock = _threading.Lock()
 _TELEGRAM_RATE_LIMIT_MAX = 20    # 1分あたりの上限メッセージ数
 _TELEGRAM_RATE_LIMIT_WINDOW = 60  # ウィンドウ（秒）
 
@@ -2971,6 +2972,7 @@ def _check_telegram_rate_limit(chat_id: str) -> bool:
     Telegramメッセージのレート制限を確認する。
 
     スライディングウィンドウ方式: 直近60秒以内のリクエストが20件以下ならTrue。
+    スレッドセーフ（gunicorn --threads 8 対応）。
     CLAUDE.md §9-3: 監査ログにIDのみ（個人情報なし）。
 
     Args:
@@ -2980,20 +2982,21 @@ def _check_telegram_rate_limit(chat_id: str) -> bool:
         True: 許可（レート制限内）、False: 拒否（レート超過）
     """
     now = time.time()
-    if chat_id not in _telegram_rate_limit:
-        _telegram_rate_limit[chat_id] = []
+    with _telegram_rate_limit_lock:
+        if chat_id not in _telegram_rate_limit:
+            _telegram_rate_limit[chat_id] = []
 
-    # 期限切れのタイムスタンプを除去
-    _telegram_rate_limit[chat_id] = [
-        ts for ts in _telegram_rate_limit[chat_id]
-        if now - ts < _TELEGRAM_RATE_LIMIT_WINDOW
-    ]
+        # 期限切れのタイムスタンプを除去
+        _telegram_rate_limit[chat_id] = [
+            ts for ts in _telegram_rate_limit[chat_id]
+            if now - ts < _TELEGRAM_RATE_LIMIT_WINDOW
+        ]
 
-    if len(_telegram_rate_limit[chat_id]) >= _TELEGRAM_RATE_LIMIT_MAX:
-        return False
+        if len(_telegram_rate_limit[chat_id]) >= _TELEGRAM_RATE_LIMIT_MAX:
+            return False
 
-    _telegram_rate_limit[chat_id].append(now)
-    return True
+        _telegram_rate_limit[chat_id].append(now)
+        return True
 
 
 @app.route("/telegram", methods=["POST"])
@@ -3123,5 +3126,5 @@ def telegram_webhook():
             return jsonify({"status": "ok", "brain": True, "error": "no_response"})
 
     except Exception as e:
-        logger.error("Telegram webhook error: %s: %s", type(e).__name__, e, exc_info=True)
+        logger.error("Telegram webhook error: %s", type(e).__name__, exc_info=True)
         return jsonify({"status": "error", "message": "Internal server error"}), 500

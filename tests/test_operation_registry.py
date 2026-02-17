@@ -423,30 +423,156 @@ class TestSystemCapabilitiesIntegration:
 class TestDataOpsHandlers:
     """データ操作ハンドラーの個別テスト"""
 
-    @pytest.mark.asyncio
-    async def test_data_aggregate_handler(self):
-        """データ集計ハンドラーのスタブ応答"""
+    def test_resolve_data_source(self):
+        """データソース名の解決"""
         data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
-        handle_data_aggregate = data_ops_mod.handle_data_aggregate
-        result = await handle_data_aggregate(
-            params={"data_source": "sales", "operation": "sum", "filters": "先月"},
-            organization_id="org-123",
-            account_id="user-456",
-        )
-        assert result.success is True
-        assert "sales" in result.message
-        assert result.data["status"] == "stub"
+        resolve = data_ops_mod._resolve_data_source
+        assert resolve("tasks") == "chatwork_tasks"
+        assert resolve("タスク") == "chatwork_tasks"
+        assert resolve("goals") == "staff_goals"
+        assert resolve("目標") == "staff_goals"
+        assert resolve("unknown") is None
+        assert resolve("売上") is None
+
+    def test_build_task_filter_status(self):
+        """ステータスフィルタの生成"""
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+        build_filter = data_ops_mod._build_task_filter
+
+        where, params = build_filter("完了")
+        assert "status = :status" in where
+        assert params["status"] == "done"
+
+        where, params = build_filter("未完了")
+        assert "status = :status" in where
+        assert params["status"] == "open"
+
+    def test_build_task_filter_date(self):
+        """時期フィルタの生成"""
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+        build_filter = data_ops_mod._build_task_filter
+
+        where, params = build_filter("今月")
+        assert "created_at >= :date_from" in where
+        assert "date_from" in params
+
+        where, params = build_filter("先月")
+        assert "date_from" in params
+        assert "date_to" in params
+
+    def test_build_task_filter_empty(self):
+        """フィルタなし"""
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+        build_filter = data_ops_mod._build_task_filter
+        where, params = build_filter("")
+        assert where == ""
+        assert params == {}
+
+    def test_extract_keywords(self):
+        """キーワード抽出"""
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+        extract = data_ops_mod._extract_keywords
+        assert extract("先月の未完了タスク") == ""
+        assert extract("営業報告") == "営業報告"
 
     @pytest.mark.asyncio
-    async def test_data_search_handler(self):
-        """データ検索ハンドラーのスタブ応答"""
+    async def test_data_aggregate_unsupported_source(self):
+        """未対応データソースはエラーを返す"""
         data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
-        handle_data_search = data_ops_mod.handle_data_search
-        result = await handle_data_search(
-            params={"data_source": "projects", "query": "未完了の案件"},
+        result = await data_ops_mod.handle_data_aggregate(
+            params={"data_source": "売上", "operation": "sum"},
             organization_id="org-123",
             account_id="user-456",
         )
-        assert result.success is True
-        assert "projects" in result.message
-        assert result.data["status"] == "stub"
+        assert result.success is False
+        assert "対応していません" in result.message
+
+    @pytest.mark.asyncio
+    async def test_data_search_unsupported_source(self):
+        """未対応データソースはエラーを返す"""
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+        result = await data_ops_mod.handle_data_search(
+            params={"data_source": "unknown", "query": "test"},
+            organization_id="org-123",
+            account_id="user-456",
+        )
+        assert result.success is False
+        assert "対応していません" in result.message
+
+    @pytest.mark.asyncio
+    async def test_data_aggregate_with_mock_db(self):
+        """DBモックでの集計テスト"""
+        from unittest.mock import MagicMock, patch
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        # モックDBの結果（ステータス別集計）
+        mock_rows = [("open", 5), ("done", 3)]
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchall.return_value = mock_rows
+        mock_pool = MagicMock()
+        mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
+        mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+
+        with patch.object(data_ops_mod, "_execute_aggregate") as mock_exec:
+            mock_exec.return_value = {
+                "message": "タスク集計:\n合計: 8件\n  - 未完了: 5件\n  - 完了: 3件",
+                "total": 8,
+                "breakdown": {"open": 5, "done": 3},
+                "data_source": "chatwork_tasks",
+                "filters": "",
+            }
+
+            result = await data_ops_mod.handle_data_aggregate(
+                params={"data_source": "tasks", "operation": "count"},
+                organization_id="org-123",
+                account_id="user-456",
+            )
+            assert result.success is True
+            assert "8件" in result.message
+
+    @pytest.mark.asyncio
+    async def test_data_search_with_mock_db(self):
+        """DBモックでの検索テスト"""
+        from unittest.mock import patch
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        with patch.object(data_ops_mod, "_execute_search") as mock_exec:
+            mock_exec.return_value = {
+                "message": "タスク検索結果: 2件\n  1. [未完了] 報告書作成\n  2. [完了] 会議準備",
+                "results": [
+                    {"task_id": "1", "summary": "報告書作成", "status": "未完了", "deadline": "", "room": ""},
+                    {"task_id": "2", "summary": "会議準備", "status": "完了", "deadline": "", "room": ""},
+                ],
+                "total": 2,
+                "data_source": "chatwork_tasks",
+            }
+
+            result = await data_ops_mod.handle_data_search(
+                params={"data_source": "tasks", "query": "報告"},
+                organization_id="org-123",
+                account_id="user-456",
+            )
+            assert result.success is True
+            assert "2件" in result.message
+            assert result.data["total"] == 2
+
+    @pytest.mark.asyncio
+    async def test_data_search_limit_capped(self):
+        """検索のlimitは最大50件に制限される"""
+        from unittest.mock import patch
+
+        data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
+
+        with patch.object(data_ops_mod, "_execute_search") as mock_exec:
+            mock_exec.return_value = {"message": "OK", "results": [], "total": 0}
+
+            await data_ops_mod.handle_data_search(
+                params={"data_source": "tasks", "query": "test", "limit": 100},
+                organization_id="org-123",
+                account_id="user-456",
+            )
+            # _execute_searchが呼ばれた時のlimit引数が50以下であること
+            call_args = mock_exec.call_args
+            assert call_args[0][3] <= 50  # limit引数（4番目）

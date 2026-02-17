@@ -169,9 +169,9 @@ async def _bypass_handle_task_pending(
 
 async def _bypass_handle_image_analysis(message, room_id, account_id, sender_name, context):
     """
-    画像解析バイパスハンドラー
+    画像解析バイパスハンドラー（Telegram / ChatWork 両対応）
 
-    bypass_contextにはfile_idのみが格納されている。
+    bypass_contextにはfile_idとimage_source（"telegram" or "chatwork"）が格納されている。
     このハンドラー内で非同期にダウンロード→Vision API解析を実行し、
     解析結果テキストを直接返す（process_message再帰呼び出しなし）。
 
@@ -187,15 +187,31 @@ async def _bypass_handle_image_analysis(message, room_id, account_id, sender_nam
         if not image_file_id:
             return None
 
-        # Step 1: 非同期でTelegramからファイルをダウンロード
-        from lib.channels.telegram_adapter import download_telegram_file
-        image_data = await asyncio.to_thread(download_telegram_file, image_file_id)
+        image_source = context.get("image_source", "telegram")
+
+        # Step 1: プラットフォームに応じて非同期でファイルをダウンロード
+        if image_source == "chatwork":
+            image_room_id = context.get("image_room_id", str(room_id))
+            from infra.chatwork_api import download_chatwork_file
+            file_bytes, _ = await asyncio.to_thread(
+                download_chatwork_file, image_room_id, image_file_id,
+            )
+            image_data = file_bytes
+        else:
+            from lib.channels.telegram_adapter import download_telegram_file
+            image_data = await asyncio.to_thread(download_telegram_file, image_file_id)
 
         if not image_data:
-            logger.warning("Image download failed for file_id=%s", image_file_id[:20])
+            logger.warning(
+                "Image download failed: source=%s file_id=%s",
+                image_source, str(image_file_id)[:20],
+            )
             return None
 
-        logger.info("Image downloaded in bypass handler: size=%d", len(image_data))
+        logger.info(
+            "Image downloaded in bypass handler: source=%s size=%d",
+            image_source, len(image_data),
+        )
 
         # Step 2: ユーザーの指示を抽出（プレースホルダーを除去）
         instruction = message.strip() if message and message.strip() else ""
@@ -218,7 +234,7 @@ async def _bypass_handle_image_analysis(message, room_id, account_id, sender_nam
             return None
 
         vision_content = vision_result["content"]
-        logger.info("Image analysis completed via bypass handler")
+        logger.info("Image analysis completed via bypass handler: source=%s", image_source)
 
         # Step 4: 解析結果を含む応答テキストを返す（Brainの再帰呼び出しなし）
         return (

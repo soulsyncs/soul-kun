@@ -21,6 +21,8 @@ locals {
     "zoom-client-id",
     "zoom-client-secret",
     "zoom-account-id",
+    # Web Search (Step A)
+    "TAVILY_API_KEY",
   ]
 }
 

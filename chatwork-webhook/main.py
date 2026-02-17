@@ -3110,9 +3110,14 @@ def telegram_webhook():
         finally:
             loop.close()
 
-        # --- 応答送信（Telegram経由） ---
+        # --- 応答送信（Telegram経由、Step B-3: トピック内返信対応） ---
+        topic_id = channel_msg.metadata.get("topic_id", "")
+        send_kwargs = {}
+        if topic_id:
+            send_kwargs["message_thread_id"] = topic_id
+
         if result and result.message and not result.error:
-            adapter.send_message(room_id=chat_id, message=result.message)
+            adapter.send_message(room_id=chat_id, message=result.message, **send_kwargs)
             logger.info(
                 "Telegram: response sent brain=%s time=%sms",
                 result.used_brain, result.processing_time_ms,
@@ -3122,6 +3127,7 @@ def telegram_webhook():
             adapter.send_message(
                 room_id=chat_id,
                 message="🤔 処理中に問題が発生したウル...もう一度試してほしいウル🐺",
+                **send_kwargs,
             )
             return jsonify({"status": "ok", "brain": True, "error": "no_response"})
 

@@ -223,8 +223,12 @@ class TelegramChannelAdapter(ChannelAdapter):
         # CEO権限チェック（メタデータに含めて後段で判定）
         is_ceo = is_telegram_ceo(chat_id)
 
-        # room_idの決定: トピックありならtopic_id、なければchat_id
-        room_id = extracted["topic_id"] if extracted["is_topic"] else chat_id
+        # room_idの決定（Step B-3: 名前空間化でChatWork room_idとの衝突防止）
+        # トピックあり: tg:{chat_id}:{topic_id}、なし: tg:{chat_id}
+        if extracted["is_topic"] and extracted["topic_id"]:
+            room_id = f"tg:{chat_id}:{extracted['topic_id']}"
+        else:
+            room_id = f"tg:{chat_id}"
 
         return ChannelMessage(
             platform="telegram",
@@ -254,6 +258,7 @@ class TelegramChannelAdapter(ChannelAdapter):
         room_id: str,
         message: str,
         reply_to: Optional[str] = None,
+        **kwargs: Any,
     ) -> SendResult:
         """
         Telegram Bot APIでメッセージを送信する。
@@ -262,6 +267,8 @@ class TelegramChannelAdapter(ChannelAdapter):
             room_id: chat_id（送信先）
             message: メッセージ本文（Markdown V2形式非対応、プレーンテキスト）
             reply_to: 返信先のmessage_id（省略可）
+            **kwargs: 追加パラメータ
+                message_thread_id: トピック内返信用のthread_id（Step B-3）
 
         Returns:
             SendResult
@@ -277,6 +284,11 @@ class TelegramChannelAdapter(ChannelAdapter):
             }
             if reply_to:
                 payload["reply_to_message_id"] = int(reply_to)
+
+            # Step B-3: トピック内返信対応
+            thread_id = kwargs.get("message_thread_id")
+            if thread_id:
+                payload["message_thread_id"] = int(thread_id)
 
             # 同期HTTPリクエスト（asyncio.to_threadで呼ばれる前提）
             with httpx.Client(timeout=30.0) as client:

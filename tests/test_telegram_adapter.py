@@ -283,7 +283,7 @@ class TestTelegramChannelAdapterParseWebhook:
         }
         msg = adapter.parse_webhook(update)
         assert msg is not None
-        assert msg.room_id == "55"  # topic_idがroom_idになる
+        assert msg.room_id == "tg:-1001234567890:55"  # 名前空間化されたroom_id
         assert msg.metadata["is_topic"] is True
         assert msg.metadata["topic_id"] == "55"
 
@@ -330,6 +330,108 @@ class TestTelegramChannelAdapterSendMessage:
         adapter = TelegramChannelAdapter(bot_token="test-token")
         result = adapter.send_message("123", "テスト")
         assert result.success is False
+
+
+class TestTelegramSendMessageThreadId:
+    """Step B-3: send_message thread_id対応テスト"""
+
+    @patch("lib.channels.telegram_adapter.httpx.Client")
+    def test_send_with_thread_id(self, mock_client_cls):
+        """message_thread_id付きでトピック内返信"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": {"message_id": 100}}
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        adapter = TelegramChannelAdapter(bot_token="test-token")
+        result = adapter.send_message(
+            "-1001234567890", "テスト応答", message_thread_id="55"
+        )
+
+        assert result.success is True
+        payload = mock_client.post.call_args[1]["json"]
+        assert payload["chat_id"] == "-1001234567890"
+        assert payload["message_thread_id"] == 55
+        assert payload["text"] == "テスト応答"
+
+    @patch("lib.channels.telegram_adapter.httpx.Client")
+    def test_send_without_thread_id(self, mock_client_cls):
+        """thread_idなしではpayloadにmessage_thread_idが含まれない"""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"result": {"message_id": 101}}
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.post.return_value = mock_response
+        mock_client_cls.return_value = mock_client
+
+        adapter = TelegramChannelAdapter(bot_token="test-token")
+        result = adapter.send_message("111", "プライベートメッセージ")
+
+        assert result.success is True
+        payload = mock_client.post.call_args[1]["json"]
+        assert "message_thread_id" not in payload
+
+
+class TestTelegramRoomIdNamespace:
+    """Step B-3: room_id名前空間化テスト"""
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_private_room_id_format(self):
+        """プライベートチャット: tg:{chat_id}"""
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 42,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "text": "テスト",
+            }
+        }
+        msg = adapter.parse_webhook(update)
+        assert msg is not None
+        assert msg.room_id == "tg:111"
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_topic_room_id_format(self):
+        """トピック付き: tg:{chat_id}:{topic_id}"""
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 100,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": -1001234567890, "type": "supergroup"},
+                "text": "/ask 質問",
+                "is_topic_message": True,
+                "message_thread_id": 55,
+            }
+        }
+        msg = adapter.parse_webhook(update)
+        assert msg is not None
+        assert msg.room_id == "tg:-1001234567890:55"
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_room_id_no_collision_with_chatwork(self):
+        """Telegram room_idがChatWorkのroom_id（数字のみ）と衝突しない"""
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 42,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "text": "テスト",
+            }
+        }
+        msg = adapter.parse_webhook(update)
+        assert msg is not None
+        # ChatWorkのroom_idは数字のみ（例: "123456"）
+        # Telegramは "tg:" プレフィックスで区別される
+        assert msg.room_id.startswith("tg:")
 
 
 class TestTelegramChannelAdapterIsAddressed:

@@ -125,6 +125,7 @@ class ChannelAdapter(ABC):
         room_id: str,
         message: str,
         reply_to: Optional[str] = None,
+        **kwargs: Any,
     ) -> SendResult:
         """
         メッセージを送信
@@ -133,6 +134,7 @@ class ChannelAdapter(ABC):
             room_id: 送信先ルームID
             message: メッセージ本文
             reply_to: 返信先のアカウントID（省略可）
+            **kwargs: プラットフォーム固有の追加パラメータ（例: message_thread_id）
 
         Returns:
             SendResult

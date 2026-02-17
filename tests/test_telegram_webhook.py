@@ -138,7 +138,7 @@ class TestTelegramWebhookFlow:
         msg = adapter.parse_webhook(update)
 
         assert msg is not None
-        assert msg.room_id == "55"  # topic_idがroom_idになる
+        assert msg.room_id == "tg:-1001234567890:55"  # 名前空間化されたroom_id
         assert msg.body == "経営会議の議題は？"
         assert msg.metadata["is_topic"] is True
         assert msg.metadata["topic_id"] == "55"
@@ -332,7 +332,7 @@ class TestTelegramE2EFlow:
         # Step 3: Brain用のデータ
         assert msg.body == "売上データを調べて"
         assert msg.sender_name == "カズ 菊地"
-        assert msg.room_id == "111"
+        assert msg.room_id == "tg:111"
         assert msg.platform == "telegram"
 
     @patch.dict(os.environ, {
@@ -364,8 +364,8 @@ class TestTelegramE2EFlow:
         # メッセージクリーニング
         assert msg.body == "今日の予定教えて"
 
-        # トピック情報
-        assert msg.room_id == "55"
+        # トピック情報（名前空間化: tg:{chat_id}:{topic_id}）
+        assert msg.room_id == "tg:-1001234567890:55"
         assert msg.metadata["topic_id"] == "55"
 
     @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})

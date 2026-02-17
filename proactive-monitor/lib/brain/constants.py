@@ -468,6 +468,14 @@ RISK_LEVELS: Dict[str, str] = {
     # Step C: 操作系（手足を与える）
     "data_aggregate": "low",
     "data_search": "low",
+    # Step C-4: 読み取り系（予約）
+    "file_list": "low",
+    "file_read": "low",
+    "text_count": "low",
+    # Step C-5: 書き込み系（予約）
+    "report_generate": "medium",
+    "file_create": "medium",
+    "csv_export": "medium",
     "send_announcement": "medium",
     "delete": "high",
     "remove": "high",

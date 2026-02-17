@@ -16,6 +16,7 @@ LLMの判断結果をチェックし、危険な操作をブロック、また�
 5. 確信度チェック（< 0.7 で確認）
 6. パラメータチェック（高額、複数送信）
 7. 整合性チェック（日付の妥当性等）
+8. 操作系チェック（Step C-4: レジストリ・パラメータ長・パス安全性・レート・クォータ）
 
 【出力】
 - ALLOW: そのまま実行
@@ -29,10 +30,12 @@ Created: 2026-01-30
 
 import re
 import logging
+import time
+from collections import defaultdict, deque
 from enum import Enum
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from datetime import datetime, date, timedelta
+from typing import Optional, List, Dict, Any, Deque, Tuple
 from zoneinfo import ZoneInfo
 
 from lib.brain.llm_brain import LLMBrainResult, ToolCall, ConfidenceScores
@@ -216,6 +219,14 @@ class GuardianLayer:
         # Phase 2E: 学習済みルール（LearningLoopから注入）
         self._learned_rules: List[Dict[str, str]] = []
 
+        # Step C-4: 操作系レートリミッター（インメモリ、インスタンス単位）
+        # key: account_id, value: 呼び出しタイムスタンプのdeque
+        self._op_call_timestamps: Dict[str, Deque[float]] = defaultdict(lambda: deque(maxlen=100))
+        # key: (account_id, date_str), value: {"read": count, "write": count}
+        self._op_daily_counts: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(
+            lambda: {"read": 0, "write": 0}
+        )
+
         logger.info(f"GuardianLayer initialized with {len(self.ceo_teachings)} CEO teachings")
 
     def set_learned_rules(self, rules: List[Dict[str, str]]) -> None:
@@ -285,6 +296,11 @@ class GuardianLayer:
                 consistency_check = self._check_consistency(tool_call)
                 if consistency_check.action != GuardianAction.ALLOW:
                     return consistency_check
+
+                # 優先度8: 操作系チェック（Step C-4）
+                op_check = self._check_operation_safety(tool_call, context)
+                if op_check.action != GuardianAction.ALLOW:
+                    return op_check
 
         # 全てのチェックをパス
         logger.info("Guardian check passed: ALLOW")
@@ -576,6 +592,212 @@ class GuardianLayer:
                 priority_level=7,
             )
 
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    # =========================================================================
+    # Step C-4: 操作系チェック（優先度8）
+    # =========================================================================
+
+    def _is_operation_tool(self, tool_name: str) -> bool:
+        """操作系ツール（category="operations"）かどうかを判定"""
+        try:
+            from handlers.registry import SYSTEM_CAPABILITIES
+            cap = SYSTEM_CAPABILITIES.get(tool_name)
+            return cap is not None and cap.get("category") == "operations"
+        except ImportError:
+            return False
+
+    def _check_operation_safety(
+        self,
+        tool_call: ToolCall,
+        context: LLMContext,
+    ) -> GuardianResult:
+        """
+        優先度8: 操作系の安全性チェック（Step C-4）
+
+        操作系ツール（category="operations"）にのみ適用。
+        5つのチェックを順番に実行する:
+        1. レジストリ登録チェック
+        2. パラメータ長チェック
+        3. パス安全性チェック
+        4. 連続実行チェック（レートリミット）
+        5. 日次クォータチェック
+        """
+        tool_name = tool_call.tool_name
+
+        # 操作系ツールでなければスキップ
+        if not self._is_operation_tool(tool_name):
+            return GuardianResult(action=GuardianAction.ALLOW)
+
+        # 8-1: レジストリ登録チェック
+        registry_check = self._check_operation_registry(tool_name)
+        if registry_check.action != GuardianAction.ALLOW:
+            return registry_check
+
+        # 8-2: パラメータ長チェック
+        param_len_check = self._check_operation_param_length(tool_call)
+        if param_len_check.action != GuardianAction.ALLOW:
+            return param_len_check
+
+        # 8-3: パス安全性チェック
+        path_check = self._check_operation_path_safety(tool_call)
+        if path_check.action != GuardianAction.ALLOW:
+            return path_check
+
+        # 8-4: 連続実行チェック
+        account_id = getattr(context, "account_id", None) or "unknown"
+        rate_check = self._check_operation_rate_limit(tool_name, account_id)
+        if rate_check.action != GuardianAction.ALLOW:
+            return rate_check
+
+        # 8-5: 日次クォータチェック
+        quota_check = self._check_operation_daily_quota(tool_name, account_id)
+        if quota_check.action != GuardianAction.ALLOW:
+            return quota_check
+
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_operation_registry(self, tool_name: str) -> GuardianResult:
+        """8-1: 操作がレジストリに登録されているか"""
+        try:
+            from lib.brain.operations.registry import is_registered
+            if not is_registered(tool_name):
+                logger.warning(
+                    "Guardian: unregistered operation blocked: %s", tool_name
+                )
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"操作「{tool_name}」はレジストリに登録されていません。",
+                    priority_level=8,
+                    risk_level="critical",
+                )
+        except ImportError:
+            # レジストリモジュールがない場合は安全側に倒す
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason="操作レジストリが利用できません。",
+                priority_level=8,
+            )
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_operation_param_length(self, tool_call: ToolCall) -> GuardianResult:
+        """8-2: パラメータが異常に長くないか（200文字超）"""
+        for key, value in tool_call.parameters.items():
+            if isinstance(value, str) and len(value) > 200:
+                logger.warning(
+                    "Guardian: operation param too long: %s=%d chars",
+                    key, len(value),
+                )
+                return GuardianResult(
+                    action=GuardianAction.CONFIRM,
+                    confirmation_question=(
+                        f"🐺 パラメータ「{key}」が{len(value)}文字と長いウル。"
+                        f"正しいですかウル？"
+                    ),
+                    reason=f"パラメータ長超過: {key}={len(value)}文字",
+                    priority_level=8,
+                )
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_operation_path_safety(self, tool_call: ToolCall) -> GuardianResult:
+        """8-3: パラメータにパストラバーサルや絶対パスがないか"""
+        path_keys = ("path", "file_path", "data_source", "file")
+        for key in path_keys:
+            value = tool_call.parameters.get(key)
+            if not isinstance(value, str):
+                continue
+            if ".." in value:
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"パラメータ「{key}」に不正なパスパターン（..）が含まれています。",
+                    priority_level=8,
+                    risk_level="critical",
+                )
+            if value.startswith("/"):
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"パラメータ「{key}」に絶対パスが指定されています。",
+                    priority_level=8,
+                    risk_level="critical",
+                )
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_operation_rate_limit(self, tool_name: str, account_id: str) -> GuardianResult:
+        """8-4: 連続実行チェック（>5回/分 or >3回/10秒でブロック）"""
+        from lib.brain.operations.registry import (
+            OPERATION_RATE_LIMIT_PER_MINUTE,
+            OPERATION_BURST_LIMIT_PER_10SEC,
+        )
+
+        now = time.time()
+        timestamps = self._op_call_timestamps[account_id]
+
+        # バースト検出（10秒以内のコール数）
+        recent_10s = sum(1 for t in timestamps if now - t < 10)
+        if recent_10s >= OPERATION_BURST_LIMIT_PER_10SEC:
+            logger.warning(
+                "Guardian: operation burst limit hit: %s (%d/10s)",
+                account_id, recent_10s,
+            )
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason=f"操作の連続実行が多すぎます（10秒以内に{recent_10s}回）。少し待ってからお試しください。",
+                priority_level=8,
+                risk_level="high",
+            )
+
+        # 分間レート制限
+        recent_1m = sum(1 for t in timestamps if now - t < 60)
+        if recent_1m >= OPERATION_RATE_LIMIT_PER_MINUTE:
+            logger.warning(
+                "Guardian: operation rate limit hit: %s (%d/min)",
+                account_id, recent_1m,
+            )
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason=f"操作の実行回数制限を超えました（1分以内に{recent_1m}回）。少し待ってからお試しください。",
+                priority_level=8,
+                risk_level="high",
+            )
+
+        # タイムスタンプを記録
+        timestamps.append(now)
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_operation_daily_quota(self, tool_name: str, account_id: str) -> GuardianResult:
+        """8-5: 日次クォータチェック（読み取り50回/日、書き込み20回/日）"""
+        from lib.brain.operations.registry import (
+            OPERATION_DAILY_QUOTA_READ,
+            OPERATION_DAILY_QUOTA_WRITE,
+        )
+        from lib.brain.constants import RISK_LEVELS
+
+        today_str = date.today().isoformat()
+        key = (account_id, today_str)
+        counts = self._op_daily_counts[key]
+
+        # risk_levelから読み取り/書き込みを判定
+        risk = RISK_LEVELS.get(tool_name, "medium")
+        if risk in ("medium", "high", "critical"):
+            op_type = "write"
+            quota = OPERATION_DAILY_QUOTA_WRITE
+        else:
+            op_type = "read"
+            quota = OPERATION_DAILY_QUOTA_READ
+
+        if counts[op_type] >= quota:
+            logger.warning(
+                "Guardian: daily quota exceeded: %s %s=%d/%d",
+                account_id, op_type, counts[op_type], quota,
+            )
+            return GuardianResult(
+                action=GuardianAction.BLOCK,
+                blocked_reason=f"本日の{op_type}操作の上限（{quota}回）に達しました。明日以降にお試しください。",
+                priority_level=8,
+                risk_level="high",
+            )
+
+        counts[op_type] += 1
         return GuardianResult(action=GuardianAction.ALLOW)
 
     def _generate_dangerous_confirmation(

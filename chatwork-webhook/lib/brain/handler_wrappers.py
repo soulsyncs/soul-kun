@@ -1962,6 +1962,91 @@ async def _brain_handle_calendar_read(params, room_id, account_id, sender_name, 
         )
 
 
+# =====================================================
+# Step A-5: Googleドライブ ファイル検索ハンドラー
+# =====================================================
+
+async def _brain_handle_drive_search(params, room_id, account_id, sender_name, context):
+    """
+    Googleドライブ ファイル検索ハンドラー
+
+    Step A-5: documentsテーブルからファイル名検索。
+    CLAUDE.md §3-2 #6: sync I/Oは asyncio.to_thread() でオフロード。
+    """
+    try:
+        import asyncio
+        import sys
+        from lib.brain.drive_tool import search_drive_files, format_drive_files
+
+        main = sys.modules.get('main')
+        if not main:
+            return HandlerResult(
+                success=False,
+                message="システムエラーが発生したウル🐺",
+            )
+
+        pool = getattr(main, 'get_pool', lambda: None)()
+        if not pool:
+            return HandlerResult(
+                success=False,
+                message="データベースに接続できないウル🐺",
+            )
+
+        # organization_idの取得
+        org_id = ""
+        if hasattr(context, 'organization_id'):
+            org_id = context.organization_id
+        elif isinstance(context, dict):
+            org_id = context.get('organization_id', '')
+
+        if not org_id:
+            import os
+            org_id = os.environ.get("ORGANIZATION_ID", "")
+
+        if not org_id:
+            return HandlerResult(
+                success=False,
+                message="組織情報が取得できなかったウル🐺",
+            )
+
+        query = params.get("query", "")
+        max_results = params.get("max_results", 10)
+
+        # CLAUDE.md §3-2 #6: sync I/Oをasyncでブロックしないようにオフロード
+        result = await asyncio.to_thread(
+            search_drive_files,
+            pool=pool,
+            organization_id=org_id,
+            query=query if query else None,
+            max_results=max_results,
+        )
+
+        if not result.get("success"):
+            error_msg = result.get("error", "ドライブ検索に失敗しました")
+            return HandlerResult(
+                success=False,
+                message=f"ドライブの検索でエラーが発生したウル🐺 ({error_msg})",
+            )
+
+        formatted = format_drive_files(result)
+        return HandlerResult(
+            success=True,
+            message=formatted,
+            data={
+                "needs_answer_synthesis": True,
+                "drive_files": result.get("files", []),
+                "search_query": query,
+                "file_count": result.get("file_count", 0),
+            },
+        )
+    except Exception as e:
+        logger.error("drive_search handler error: %s", e, exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="ドライブの検索でエラーが発生したウル🐺 もう一度試してほしいウル！",
+        )
+
+
 def build_brain_handlers() -> Dict[str, Callable]:
     """
     脳用ハンドラーのマッピングを構築
@@ -1999,6 +2084,7 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "general_conversation": _brain_handle_general_conversation,
         "web_search": _brain_handle_web_search,  # Step A-1
         "calendar_read": _brain_handle_calendar_read,  # Step A-3
+        "drive_search": _brain_handle_drive_search,  # Step A-5
     }
 
 

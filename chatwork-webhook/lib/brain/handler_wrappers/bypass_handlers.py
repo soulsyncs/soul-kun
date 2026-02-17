@@ -167,6 +167,71 @@ async def _bypass_handle_task_pending(
         return None
 
 
+async def _bypass_handle_image_analysis(message, room_id, account_id, sender_name, context):
+    """
+    画像解析バイパスハンドラー
+
+    bypass_contextにはfile_idのみが格納されている。
+    このハンドラー内で非同期にダウンロード→Vision API解析を実行し、
+    解析結果テキストを直接返す（process_message再帰呼び出しなし）。
+
+    音声処理(_bypass_handle_meeting_audio)と同じパターン:
+    バイパスハンドラー → 機能モジュール呼び出し → 結果を返す
+    """
+    import logging
+    import asyncio
+    logger = logging.getLogger(__name__)
+
+    try:
+        image_file_id = context.get("image_file_id")
+        if not image_file_id:
+            return None
+
+        # Step 1: 非同期でTelegramからファイルをダウンロード
+        from lib.channels.telegram_adapter import download_telegram_file
+        image_data = await asyncio.to_thread(download_telegram_file, image_file_id)
+
+        if not image_data:
+            logger.warning("Image download failed for file_id=%s", image_file_id[:20])
+            return None
+
+        logger.info("Image downloaded in bypass handler: size=%d", len(image_data))
+
+        # Step 2: ユーザーの指示を抽出（プレースホルダーを除去）
+        instruction = message.strip() if message and message.strip() else ""
+        for tag in ["[写真を送信]", "[動画を送信]", "[ファイルを送信]", "[音声メッセージを送信]"]:
+            instruction = instruction.replace(tag, "").strip()
+        if not instruction:
+            instruction = "この画像の内容を詳しく教えてください。"
+
+        # Step 3: Vision APIで画像を解析
+        from lib.capabilities.multimodal.base import VisionAPIClient
+
+        vision_client = VisionAPIClient()
+        vision_result = await vision_client.analyze_image(
+            image_data=image_data,
+            prompt=instruction,
+        )
+
+        if not vision_result or not vision_result.get("content"):
+            logger.warning("Vision API returned empty result")
+            return None
+
+        vision_content = vision_result["content"]
+        logger.info("Image analysis completed via bypass handler")
+
+        # Step 4: 解析結果を含む応答テキストを返す（Brainの再帰呼び出しなし）
+        return (
+            f"🐺 画像を確認したウル！\n\n"
+            f"📷 **画像解析結果:**\n{vision_content}\n\n"
+            f"（ユーザーの質問: {instruction}）"
+        )
+
+    except Exception as e:
+        logger.error("Image analysis bypass error: %s", type(e).__name__, exc_info=True)
+        return None
+
+
 def build_bypass_handlers() -> Dict[str, Callable]:
     """
     バイパスハンドラーのマッピングを構築
@@ -183,6 +248,7 @@ def build_bypass_handlers() -> Dict[str, Callable]:
         # "goal_session": _bypass_handle_goal_session,
         "announcement_pending": _bypass_handle_announcement,
         "meeting_audio": _bypass_handle_meeting_audio,
+        "image_analysis": _bypass_handle_image_analysis,
         # v10.56.14: task_pending バイパスを追加（pending_taskがある場合の処理）
         "task_pending": _bypass_handle_task_pending,
         # "local_command" は既存の脳内処理で対応可能

@@ -97,6 +97,7 @@ class BypassType(str, Enum):
     LOCAL_COMMAND = "local_command"            # ローカルコマンド
     DIRECT_HANDLER = "direct_handler"          # ハンドラー直接呼び出し
     MEETING_AUDIO = "meeting_audio"            # 会議音声ファイル文字起こし
+    IMAGE_ANALYSIS = "image_analysis"          # 画像解析（Vision AI）
 
 
 # =============================================================================
@@ -845,6 +846,15 @@ class BrainIntegration:
                 bypass_type=BypassType.MEETING_AUDIO,
                 should_redirect=True,
                 reason="Meeting audio file detected",
+            )
+
+        # 画像解析（Vision AI: バイナリ前処理済み）
+        if context.get("has_image"):
+            return BypassDetectionResult(
+                is_bypass=True,
+                bypass_type=BypassType.IMAGE_ANALYSIS,
+                should_redirect=True,
+                reason="Image file detected for vision analysis",
             )
 
         return BypassDetectionResult(is_bypass=False)

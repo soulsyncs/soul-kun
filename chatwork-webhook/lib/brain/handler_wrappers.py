@@ -2047,6 +2047,87 @@ async def _brain_handle_drive_search(params, room_id, account_id, sender_name, c
         )
 
 
+# =====================================================
+# Step C-1: 操作系ハンドラー（手足を与える）
+# =====================================================
+
+
+async def _brain_handle_data_aggregate(
+    params: Dict[str, Any],
+    room_id: str = "",
+    account_id: str = "",
+    sender_name: str = "",
+    context: Any = None,
+) -> HandlerResult:
+    """データ集計操作のBrainハンドラー"""
+    try:
+        from lib.brain.operations.data_ops import handle_data_aggregate
+
+        org_id = ""
+        if hasattr(context, 'organization_id'):
+            org_id = context.organization_id
+        elif isinstance(context, dict):
+            org_id = context.get('organization_id', '')
+        if not org_id:
+            import os
+            org_id = os.environ.get("ORGANIZATION_ID", "")
+
+        result = await handle_data_aggregate(
+            params=params,
+            organization_id=org_id,
+            account_id=account_id,
+        )
+        return HandlerResult(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+        )
+    except Exception as e:
+        logger.error(f"データ集計エラー: {e}", exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="データの集計でエラーが発生したウル🐺",
+        )
+
+
+async def _brain_handle_data_search(
+    params: Dict[str, Any],
+    room_id: str = "",
+    account_id: str = "",
+    sender_name: str = "",
+    context: Any = None,
+) -> HandlerResult:
+    """データ検索操作のBrainハンドラー"""
+    try:
+        from lib.brain.operations.data_ops import handle_data_search
+
+        org_id = ""
+        if hasattr(context, 'organization_id'):
+            org_id = context.organization_id
+        elif isinstance(context, dict):
+            org_id = context.get('organization_id', '')
+        if not org_id:
+            import os
+            org_id = os.environ.get("ORGANIZATION_ID", "")
+
+        result = await handle_data_search(
+            params=params,
+            organization_id=org_id,
+            account_id=account_id,
+        )
+        return HandlerResult(
+            success=result.success,
+            message=result.message,
+            data=result.data,
+        )
+    except Exception as e:
+        logger.error(f"データ検索エラー: {e}", exc_info=True)
+        return HandlerResult(
+            success=False,
+            message="データの検索でエラーが発生したウル🐺",
+        )
+
+
 def build_brain_handlers() -> Dict[str, Callable]:
     """
     脳用ハンドラーのマッピングを構築
@@ -2085,6 +2166,8 @@ def build_brain_handlers() -> Dict[str, Callable]:
         "web_search": _brain_handle_web_search,  # Step A-1
         "calendar_read": _brain_handle_calendar_read,  # Step A-3
         "drive_search": _brain_handle_drive_search,  # Step A-5
+        "data_aggregate": _brain_handle_data_aggregate,  # Step C-1
+        "data_search": _brain_handle_data_search,  # Step C-1
     }
 
 

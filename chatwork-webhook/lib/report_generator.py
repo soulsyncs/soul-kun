@@ -19,8 +19,11 @@ from datetime import datetime, timedelta, date
 from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass, field
 import json
+import logging
 import re
 import random
+
+logger = logging.getLogger(__name__)
 
 # v10.31.4: 相対インポートに変更（googleapiclient警告修正）
 from .db import get_db_pool
@@ -39,9 +42,9 @@ try:
     MVV_AVAILABLE = True
 except ImportError:
     MVV_AVAILABLE = False
-    print("⚠️ MVVコンテキストが利用不可（フォールバックモードで動作）")
+    logger.warning("MVVコンテキストが利用不可（フォールバックモードで動作）")
 
-print("✅ lib/report_generator.py loaded for daily/weekly report generation (v10.23.2)")
+logger.info("lib/report_generator.py loaded for daily/weekly report generation (v10.23.2)")
 
 
 # ============================================================
@@ -478,7 +481,7 @@ class DailyReportGenerator:
 
         # データがなければNone
         if not summaries and not completed_tasks:
-            print(f"📝 日報生成スキップ: user={user_name}, date={target_date} (データなし)")
+            logger.info("日報生成スキップ: user=%s, date=%s (データなし)", user_name, target_date)
             return None
 
         # v10.23.2: Phase 2.5目標進捗を取得
@@ -748,7 +751,7 @@ class WeeklyReportGenerator:
 
         # データがなければNone
         if not daily_reports:
-            print(f"📝 週報生成スキップ: user={user_name}, week={week_start}〜{week_end} (データなし)")
+            logger.info("週報生成スキップ: user=%s, week=%s〜%s (データなし)", user_name, week_start, week_end)
             return None
 
         # v10.23.2: Phase 2.5目標進捗を取得
@@ -967,18 +970,18 @@ class ReportDistributor:
             # 本人のDMルームを取得（なければスキップ）
             dm_room_id = self._get_dm_room(user["account_id"])
             if not dm_room_id:
-                print(f"⚠️ DMルームなし: user={user['user_name']}")
+                logger.warning("DMルームなし: user=%s", user['user_name'])
                 return False
 
             # 送信
             message = f"[info][title]日報下書きが完成しました[/title]{report.report_text}[/info]"
             client = ChatworkClient()
             client.send_message(room_id=dm_room_id, message=message)
-            print(f"✅ 日報送信完了: user={user['user_name']}, room={dm_room_id}")
+            logger.info("日報送信完了: user=%s, room=%s", user['user_name'], dm_room_id)
             return True
 
         except Exception as e:
-            print(f"❌ 日報送信エラー: user={user['user_name']}, error={e}")
+            logger.error("日報送信エラー: user=%s, error=%s", user['user_name'], e)
             return False
 
     def send_weekly_report(self, user: Dict, report: WeeklyReport) -> bool:
@@ -986,17 +989,17 @@ class ReportDistributor:
         try:
             dm_room_id = self._get_dm_room(user["account_id"])
             if not dm_room_id:
-                print(f"⚠️ DMルームなし: user={user['user_name']}")
+                logger.warning("DMルームなし: user=%s", user['user_name'])
                 return False
 
             message = f"[info][title]週報下書きが完成しました[/title]{report.report_text}[/info]"
             client = ChatworkClient()
             client.send_message(room_id=dm_room_id, message=message)
-            print(f"✅ 週報送信完了: user={user['user_name']}, room={dm_room_id}")
+            logger.info("週報送信完了: user=%s, room=%s", user['user_name'], dm_room_id)
             return True
 
         except Exception as e:
-            print(f"❌ 週報送信エラー: user={user['user_name']}, error={e}")
+            logger.error("週報送信エラー: user=%s, error=%s", user['user_name'], e)
             return False
 
     def _get_dm_room(self, account_id: str) -> Optional[str]:
@@ -1030,14 +1033,14 @@ def run_daily_report_generation(dry_run: bool = False) -> Dict[str, Any]:
     Returns:
         実行結果
     """
-    print(f"📋 日報生成開始 (dry_run={dry_run})")
+    logger.info("日報生成開始 (dry_run=%s)", dry_run)
 
     target_date = date.today()
     distributor = ReportDistributor()
     daily_generator = DailyReportGenerator()
 
     users = distributor.get_active_users()
-    print(f"   対象ユーザー: {len(users)}人")
+    logger.info("対象ユーザー: %d人", len(users))
 
     results = {
         "target_date": str(target_date),
@@ -1067,13 +1070,13 @@ def run_daily_report_generation(dry_run: bool = False) -> Dict[str, Any]:
                     results["sent"] += 1
 
         except Exception as e:
-            print(f"❌ エラー: user={user['user_name']}, error={e}")
+            logger.error("エラー: user=%s, error=%s", user['user_name'], e)
             results["errors"].append({
                 "user": user["user_name"],
                 "error": str(e)
             })
 
-    print(f"📋 日報生成完了: 生成={results['generated']}, 送信={results['sent']}, スキップ={results['skipped']}")
+    logger.info("日報生成完了: 生成=%d, 送信=%d, スキップ=%d", results['generated'], results['sent'], results['skipped'])
     return results
 
 
@@ -1087,7 +1090,7 @@ def run_weekly_report_generation(dry_run: bool = False) -> Dict[str, Any]:
     Returns:
         実行結果
     """
-    print(f"📊 週報生成開始 (dry_run={dry_run})")
+    logger.info("週報生成開始 (dry_run=%s)", dry_run)
 
     today = date.today()
     # 金曜日を週末とする
@@ -1097,8 +1100,8 @@ def run_weekly_report_generation(dry_run: bool = False) -> Dict[str, Any]:
     weekly_generator = WeeklyReportGenerator()
 
     users = distributor.get_active_users()
-    print(f"   対象ユーザー: {len(users)}人")
-    print(f"   対象週: {week_end - timedelta(days=4)} 〜 {week_end}")
+    logger.info("対象ユーザー: %d人", len(users))
+    logger.info("対象週: %s 〜 %s", week_end - timedelta(days=4), week_end)
 
     results = {
         "week_end": str(week_end),
@@ -1128,13 +1131,13 @@ def run_weekly_report_generation(dry_run: bool = False) -> Dict[str, Any]:
                     results["sent"] += 1
 
         except Exception as e:
-            print(f"❌ エラー: user={user['user_name']}, error={e}")
+            logger.error("エラー: user=%s, error=%s", user['user_name'], e)
             results["errors"].append({
                 "user": user["user_name"],
                 "error": str(e)
             })
 
-    print(f"📊 週報生成完了: 生成={results['generated']}, 送信={results['sent']}, スキップ={results['skipped']}")
+    logger.info("週報生成完了: 生成=%d, 送信=%d, スキップ=%d", results['generated'], results['sent'], results['skipped'])
     return results
 
 

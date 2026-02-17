@@ -457,9 +457,9 @@ class FeatureFlags:
 
     def print_status(self) -> None:
         """フラグの状態をコンソールに表示"""
-        print("=" * 60)
-        print("Feature Flags Status")
-        print("=" * 60)
+        logger.info("=" * 60)
+        logger.info("Feature Flags Status")
+        logger.info("=" * 60)
 
         sections = [
             ("Handler Flags", self.get_handler_flags()),
@@ -469,16 +469,15 @@ class FeatureFlags:
             ("Infrastructure Flags", self.get_infra_flags()),
         ]
 
-        for section_name, flags in sections:
-            print(f"\n{section_name}:")
-            print("-" * 40)
-            for name, value in flags.items():
-                status = "✅" if value else "❌"
-                print(f"  {status} {name}: {value}")
+        for section_name, flags_dict in sections:
+            logger.info("%s:", section_name)
+            logger.info("-" * 40)
+            for name, value in flags_dict.items():
+                logger.info("  %s: %s", name, value)
 
         enabled, total = self.get_enabled_count()
-        print(f"\nTotal: {enabled}/{total} enabled")
-        print("=" * 60)
+        logger.info("Total: %d/%d enabled", enabled, total)
+        logger.info("=" * 60)
 
     def to_dict(self) -> Dict[str, Any]:
         """辞書形式で出力"""

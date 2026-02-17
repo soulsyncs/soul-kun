@@ -642,7 +642,7 @@ class SoulkunBrain:
                 logger.warning("[Phase2E] Init load failed: %s", type(e).__name__)
 
         try:
-            print(f"[DIAG] process_message START t=0.000s")
+            logger.debug("[DIAG] process_message START t=0.000s")
             logger.info(
                 f"🧠 Brain processing: room={room_id}, user={sender_name}, "
                 f"message={message[:50]}..."
@@ -669,7 +669,7 @@ class SoulkunBrain:
                     sender_name=sender_name,
                     message=message,
                 )
-                print(f"[DIAG] _get_context DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
+                logger.debug("[DIAG] _get_context DONE t=%.3fs (took %.3fs)", time.time()-start_time, time.time()-t0)
 
             # 1.5 Phase 2D: CEO教え処理
             # CEOからのメッセージなら教えを抽出（非同期で実行）
@@ -688,14 +688,14 @@ class SoulkunBrain:
                 )
                 if ceo_context:
                     context.ceo_teachings = ceo_context
-                print(f"[DIAG] ceo_teachings DONE t={time.time()-start_time:.3f}s (took {time.time()-t0:.3f}s)")
+                logger.debug("[DIAG] ceo_teachings DONE t=%.3fs (took %.3fs)", time.time()-start_time, time.time()-t0)
 
             # =========================================================
             # v10.50.0: LLM Brain ルーティング
             # Feature Flag `ENABLE_LLM_BRAIN` が有効な場合、LLM脳で処理
             # =========================================================
             if llm_brain_enabled:
-                print(f"[DIAG] routing to LLM Brain t={time.time()-start_time:.3f}s")
+                logger.debug("[DIAG] routing to LLM Brain t=%.3fs", time.time()-start_time)
                 return await self._process_with_llm_brain(
                     message=message,
                     room_id=room_id,

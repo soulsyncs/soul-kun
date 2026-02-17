@@ -324,19 +324,17 @@ class ContextBuilder:
         import time as _time
         _build_t0 = _time.monotonic()
         logger.debug("Building LLM context")
-        print(f"[DIAG] context_builder.build() START (single-conn mode)")
+        logger.debug("[DIAG] context_builder.build() START (single-conn mode)")
 
         async def _safe(coro, name: str, default=None, timeout: float = 15.0):
             """タスクをタイムアウト付きで安全に実行"""
             try:
                 return await asyncio.wait_for(coro, timeout=timeout)
             except asyncio.TimeoutError:
-                print(f"[DIAG] {name} timed out after {timeout}s")
-                logger.warning(f"{name} timed out after {timeout}s")
+                logger.warning("[DIAG] %s timed out after %ss", name, timeout)
                 return default
             except Exception as e:
-                print(f"[DIAG] {name} failed: {type(e).__name__}")
-                logger.warning(f"{name} failed: {type(e).__name__}")
+                logger.warning("[DIAG] %s failed: %s", name, type(e).__name__)
                 return default
 
         # DB接続は同時に1本のみ使用（Cloud SQL Connectorの新規接続ハング回避）
@@ -359,7 +357,7 @@ class ContextBuilder:
         )
 
         _build_elapsed = _time.monotonic() - _build_t0
-        print(f"[DIAG] context_builder.build() ALL tasks done in {_build_elapsed:.3f}s")
+        logger.debug("[DIAG] context_builder.build() ALL tasks done in %.3fs", _build_elapsed)
 
         # 結果を展開（例外はデフォルト値に置換）
         def _unpack(val, default=None):
@@ -502,7 +500,7 @@ class ContextBuilder:
             t0 = _time.monotonic()
             # [DIAG] スレッドキュー待ち時間（Codex指摘: to_threadのキュー詰まり検出）
             if t_before_thread is not None:
-                print(f"[DIAG] thread queue wait: {t0 - t_before_thread:.3f}s")
+                logger.debug("[DIAG] thread queue wait: %.3fs", t0 - t_before_thread)
             data: Dict[str, Any] = {
                 "summary": None,
                 "preferences": None,
@@ -523,9 +521,9 @@ class ContextBuilder:
                     _co = _pool.checkedout() if hasattr(_pool, 'checkedout') else 'N/A'
                     _sz = _pool.size() if hasattr(_pool, 'size') else 'N/A'
                     _ov = _pool.overflow() if hasattr(_pool, 'overflow') else 'N/A'
-                    print(f"[DIAG] pool before connect: status={_ps}, checkedout={_co}, size={_sz}, overflow={_ov}")
+                    logger.debug("[DIAG] pool before connect: status=%s, checkedout=%s, size=%s, overflow=%s", _ps, _co, _sz, _ov)
                 except Exception:
-                    print("[DIAG] pool status unavailable")
+                    logger.debug("[DIAG] pool status unavailable")
 
                 with pool.connect() as conn:
                     # state_managerと同じパターン: rollback()で接続状態をクリーン化
@@ -535,7 +533,7 @@ class ContextBuilder:
                         "SELECT set_config('statement_timeout', '5000', true)"
                     ))
                     t_conn = _time.monotonic()
-                    print(f"[DIAG] _fetch_all_db_data: conn ready in {t_conn - t0:.3f}s")
+                    logger.debug("[DIAG] _fetch_all_db_data: conn ready in %.3fs", t_conn - t0)
                     t_q = _time.monotonic()  # クエリ個別タイミング
 
                     # --- 1. 会話要約 (conversation_summaries) ---
@@ -554,12 +552,12 @@ class ContextBuilder:
                             if row and row[1]:
                                 data["summary"] = str(row[1])
                         except Exception as e:
-                            print(f"[DIAG] summary query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] summary query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_1_summary: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_1_summary: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 2. ユーザー嗜好 (user_preferences) ---
                     if org_is_uuid and memory:
@@ -588,12 +586,12 @@ class ContextBuilder:
                                         prefs.other_preferences[key] = value
                                 data["preferences"] = prefs
                         except Exception as e:
-                            print(f"[DIAG] preferences query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] preferences query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_2_prefs: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_2_prefs: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 3. 人物情報 (persons + person_attributes) ---
                     if memory:
@@ -627,12 +625,12 @@ class ContextBuilder:
                                 for pid, info in person_map.items()
                             ]
                         except Exception as e:
-                            print(f"[DIAG] persons query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] persons query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_3_persons: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_3_persons: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 4. タスク情報 (chatwork_tasks) ---
                     if memory:
@@ -697,12 +695,12 @@ class ContextBuilder:
                                 for r in rows
                             ]
                         except Exception as e:
-                            print(f"[DIAG] tasks query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] tasks query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_4_tasks: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_4_tasks: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 5. 目標情報 (goals) ---
                     if org_is_uuid and memory:
@@ -737,12 +735,12 @@ class ContextBuilder:
                                 for r in rows
                             ]
                         except Exception as e:
-                            print(f"[DIAG] goals query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] goals query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_5_goals: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_5_goals: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 6. ユーザー基本情報 (users) ---
                     try:
@@ -761,12 +759,12 @@ class ContextBuilder:
                                 "role": row[1] or "",
                             }
                     except Exception as e:
-                        print(f"[DIAG] user_info query failed: {type(e).__name__}")
+                        logger.debug("[DIAG] user_info query failed: %s", type(e).__name__)
                         try:
                             conn.rollback()
                         except Exception:
                             pass
-                    print(f"[DIAG] query_6_userinfo: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_6_userinfo: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 7. Phase 2E 学習済み知識 ---
                     if prefetched is None and phase2e_learning:
@@ -782,12 +780,12 @@ class ContextBuilder:
                                     phase2e_learning.build_prompt_instructions(ctx_adds)
                                 )
                         except Exception as e:
-                            print(f"[DIAG] phase2e query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] phase2e query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_7_phase2e: {_time.monotonic() - t_q:.3f}s"); t_q = _time.monotonic()
+                    logger.debug("[DIAG] query_7_phase2e: %.3fs", _time.monotonic() - t_q); t_q = _time.monotonic()
 
                     # --- 8. Phase 2F 行動パターン ---
                     if outcome_learning:
@@ -807,12 +805,12 @@ class ContextBuilder:
                                     + "\n".join(lines)
                                 )
                         except Exception as e:
-                            print(f"[DIAG] outcome query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] outcome query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_8_outcome: {_time.monotonic() - t_q:.3f}s")
+                    logger.debug("[DIAG] query_8_outcome: %.3fs", _time.monotonic() - t_q)
 
                     # --- 9. CEO教え ---
                     if self.ceo_teaching_repository:
@@ -832,23 +830,22 @@ class ContextBuilder:
                                 for t in teachings
                             ]
                         except Exception as e:
-                            print(f"[DIAG] ceo_teachings query failed: {type(e).__name__}")
+                            logger.debug("[DIAG] ceo_teachings query failed: %s", type(e).__name__)
                             try:
                                 conn.rollback()
                             except Exception:
                                 pass
-                    print(f"[DIAG] query_9_ceo: {_time.monotonic() - t_q:.3f}s")
+                    logger.debug("[DIAG] query_9_ceo: %.3fs", _time.monotonic() - t_q)
 
                     t_done = _time.monotonic()
-                    print(
-                        f"[DIAG] _fetch_all_db_data: all 9 queries done "
-                        f"in {t_done - t0:.3f}s"
+                    logger.debug(
+                        "[DIAG] _fetch_all_db_data: all 9 queries done in %.3fs",
+                        t_done - t0,
                     )
 
             except Exception as e:
-                print(f"[DIAG] _fetch_all_db_data: conn failed: {type(e).__name__}")
                 logger.warning(
-                    "DB connection failed in _fetch_all_db_data: %s",
+                    "[DIAG] _fetch_all_db_data: conn failed: %s",
                     type(e).__name__,
                 )
 

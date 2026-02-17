@@ -1379,7 +1379,7 @@ class LearningLoop:
         if not self.pool:
             return 0
         # [DIAG] LearningLoop診断（Codex提案: org_id + pool状態確認）
-        print(f"[DIAG] LearningLoop org_id={self.organization_id}, pool={self.pool is not None}")
+        logger.debug("[DIAG] LearningLoop org_id=%s, pool=%s", self.organization_id, self.pool is not None)
         try:
             from sqlalchemy import text as sa_text
 

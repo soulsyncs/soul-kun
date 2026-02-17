@@ -507,5 +507,5 @@ def health_check() -> bool:
             conn.execute(text("SELECT 1"))
         return True
     except Exception as e:
-        print(f"DB Health Check failed: {type(e).__name__}")
+        logger.error("DB Health Check failed: %s", type(e).__name__)
         return False

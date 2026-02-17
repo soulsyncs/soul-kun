@@ -1140,7 +1140,7 @@ class BrainDecision:
                     "2️⃣ 登録済みの目標を見る/整理する",
                     "3️⃣ 目標の決め方を相談する"
                 ]
-                print(f"🎯 goal_ambiguous: action={action} conf={confidence:.2f} → 3択確認")
+                logger.debug("goal_ambiguous: action=%s conf=%.2f → 3択確認", action, confidence)
                 return (True, question, options)
 
         # 確信度が低い場合（ただし確認不要アクションは除く）

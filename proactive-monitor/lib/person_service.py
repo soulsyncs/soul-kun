@@ -9,9 +9,12 @@ main.pyから分割された人物情報関連の関数を提供する。
 バージョン: v10.48.0
 """
 
+import logging
 import re
 import sqlalchemy
 from typing import Optional, List, Dict, Any, Callable, Tuple
+
+logger = logging.getLogger(__name__)
 
 from lib.brain.hybrid_search import escape_ilike
 
@@ -126,7 +129,7 @@ class PersonService:
                 return True
             except Exception as e:
                 trans.rollback()
-                print(f"削除エラー: {e}")
+                logger.error("削除エラー: %s", e)
                 return False
 
     def get_all_persons_summary(self) -> List[Dict[str, Any]]:
@@ -176,7 +179,7 @@ class PersonService:
                     "starts_with": f"{escape_ilike(partial_name)}%"
                 }
             ).fetchall()
-            print(f"   🔍 search_person_by_partial_name: '{partial_name}' (normalized: '{normalized}') → {len(result)}件")
+            logger.debug("search_person_by_partial_name: %d件ヒット", len(result))
             return [r[0] for r in result]
 
 
@@ -382,7 +385,7 @@ def normalize_person_name(name: Optional[str]) -> Optional[str]:
     # 3. スペース（全角・半角）を除去
     normalized = normalized.replace(' ', '').replace('　', '')
 
-    print(f"   📝 名前正規化: '{name}' → '{normalized}'")
+    logger.debug("名前正規化: '%s' → '%s'", name, normalized)
 
     return normalized.strip()
 

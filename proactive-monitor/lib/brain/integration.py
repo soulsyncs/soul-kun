@@ -989,17 +989,3 @@ def create_integration(
         firestore_db=firestore_db,
         config=config,
     )
-
-
-def is_brain_enabled() -> bool:
-    """
-    環境変数から脳アーキテクチャが有効かを確認
-
-    Returns:
-        有効か
-    """
-    feature_flag = os.environ.get(
-        FEATURE_FLAG_NAME,
-        str(DEFAULT_FEATURE_FLAG)
-    ).lower()
-    return feature_flag in ("true", "1", "yes", "enabled", "shadow", "gradual")

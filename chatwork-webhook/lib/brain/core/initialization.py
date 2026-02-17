@@ -7,6 +7,7 @@ __init__、fire-and-forget管理、学習同期、各サブシステム初期化
 
 import asyncio
 import logging
+import os
 from typing import Optional, Dict, Callable
 
 from lib.brain.memory_flush import AutoMemoryFlusher
@@ -323,7 +324,12 @@ class InitializationMixin:
 
         Feature Flag `ENABLE_LLM_BRAIN` が有効な場合のみ初期化。
         """
-        if not is_llm_brain_enabled():
+        _flag_enabled = is_llm_brain_enabled()
+        logger.info(
+            "🧠 [DIAG] Feature flag check: is_llm_brain_enabled=%s, env_USE_BRAIN_ARCHITECTURE=%s",
+            _flag_enabled, os.environ.get("USE_BRAIN_ARCHITECTURE", "(unset)"),
+        )
+        if not _flag_enabled:
             logger.info("LLM Brain is disabled by feature flag")
             return
 

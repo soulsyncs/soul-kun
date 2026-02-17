@@ -260,6 +260,7 @@ class ChatworkChannelAdapter(ChannelAdapter):
         room_id: str,
         message: str,
         reply_to: Optional[str] = None,
+        **kwargs: Any,
     ) -> SendResult:
         """
         ChatWorkにメッセージを送信

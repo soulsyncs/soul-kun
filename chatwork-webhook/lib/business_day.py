@@ -12,8 +12,11 @@
         return
 """
 
+import logging
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # JST タイムゾーン
 JST = timezone(timedelta(hours=9))
@@ -24,7 +27,7 @@ try:
     _JPHOLIDAY_AVAILABLE = True
 except ImportError:
     _JPHOLIDAY_AVAILABLE = False
-    print("⚠️ jpholidayライブラリが見つかりません。祝日判定はスキップされます。")
+    logger.warning("jpholidayライブラリが見つかりません。祝日判定はスキップされます。")
 
 
 def is_weekend(target_date: Optional[date] = None) -> bool:

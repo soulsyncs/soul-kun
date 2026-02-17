@@ -17,8 +17,11 @@ Soul-kun ユーザー関連ユーティリティ
 - Phase 4: BPaaS（マルチテナント対応済み）
 """
 
+import logging
 import sqlalchemy
 from typing import Optional, Union
+
+logger = logging.getLogger(__name__)
 
 __version__ = "1.0.0"  # v10.18.1: 初版
 
@@ -72,7 +75,7 @@ def get_user_primary_department(
                 return str(row[0])
             return None
     except Exception as e:
-        print(f"⚠️ get_user_primary_department エラー: {e}")
+        logger.error("get_user_primary_department エラー: %s", e)
         return None
 
 

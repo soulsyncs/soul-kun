@@ -32,9 +32,12 @@ from typing import Optional, Dict, Any, List, Tuple
 from uuid import uuid4
 from sqlalchemy import text
 import json
+import logging
 import re
 import os
 import httpx
+
+logger = logging.getLogger(__name__)
 
 # LLM API設定
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
@@ -208,12 +211,12 @@ def _is_pure_confirmation(text: str) -> bool:
 
     # 2. 否定接続チェック（「けど」等があればNG）
     if _has_but_connector(text):
-        print(f"   ⚠️ 否定接続検出: 確認として扱わない")
+        logger.debug("否定接続検出: 確認として扱わない")
         return False
 
     # 3. フィードバック要求チェック
     if _has_feedback_request(text):
-        print(f"   ⚠️ フィードバック要求検出: 確認として扱わない")
+        logger.debug("フィードバック要求検出: 確認として扱わない")
         return False
 
     return True
@@ -893,7 +896,7 @@ class GoalSettingDialogue:
             return None
 
         if not OPENROUTER_API_KEY:
-            print("⚠️ OPENROUTER_API_KEY未設定のためLLM解析をスキップ")
+            logger.warning("OPENROUTER_API_KEY未設定のためLLM解析をスキップ")
             return None
 
         # 既に回答済みの部分を考慮
@@ -941,11 +944,11 @@ class GoalSettingDialogue:
                 json_match = re.search(r'\{[^}]+\}', content, re.DOTALL)
                 if json_match:
                     extracted = json.loads(json_match.group())
-                    print(f"🧠 LLM解析結果: {extracted}")
+                    logger.info("LLM解析結果: %s", extracted)
                     return extracted
 
         except Exception as e:
-            print(f"⚠️ LLM解析エラー: {e}")
+            logger.error("LLM解析エラー: %s", e)
 
         return None
 
@@ -1198,7 +1201,7 @@ class GoalSettingDialogue:
             {"session_id": session_id}
         )
         conn.commit()
-        print(f"   ✅ Session cleared: {session_id}")
+        logger.info("Session cleared: %s", session_id)
 
     def _update_session(self, conn, session_id: str,
                        current_step: str = None,
@@ -1651,7 +1654,7 @@ class GoalSettingDialogue:
         Returns:
             {"success": bool, "message": str, "session_id": str, "step": str}
         """
-        print(f"🎯 GoalSettingDialogue.start_or_continue: room_id={self.room_id}, account_id={self.account_id}")
+        logger.info("GoalSettingDialogue.start_or_continue: room_id=%s, account_id=%s", self.room_id, self.account_id)
 
         with self.pool.connect() as conn:
             # ユーザー情報を取得
@@ -1676,7 +1679,7 @@ class GoalSettingDialogue:
             # v10.40.3: 明示的リスタート要求のチェック
             # 既存セッションがあっても、「やり直したい」等の場合はリセット
             if session is not None and user_message and _wants_restart(user_message):
-                print(f"   🔄 Restart requested: clearing existing session {session['id']}")
+                logger.info("Restart requested: clearing existing session %s", session['id'])
                 self._clear_session(conn, session["id"])
                 session = None  # 新規セッション開始へ
 
@@ -1719,7 +1722,7 @@ class GoalSettingDialogue:
         current_step = session["current_step"]
         step_attempt = self._get_step_attempt_count(conn, session_id, current_step)
 
-        print(f"   Processing step: {current_step}, attempt: {step_attempt}")
+        logger.debug("Processing step: %s, attempt: %s", current_step, step_attempt)
 
         if not user_message:
             # メッセージがない場合は現在の質問を再表示
@@ -1728,7 +1731,7 @@ class GoalSettingDialogue:
         # v10.22.1: 終了コマンドのチェック（最優先）
         for exit_keyword in PATTERN_KEYWORDS["exit"]:
             if exit_keyword in user_message:
-                print(f"   Exit keyword detected: {exit_keyword}")
+                logger.debug("Exit keyword detected: %s", exit_keyword)
                 response = TEMPLATES["exit"].format(user_name=self.user_name)
                 self._log_interaction(
                     conn, session_id, current_step,
@@ -1751,14 +1754,14 @@ class GoalSettingDialogue:
         # v10.31.5: 確認ステップの処理（LLM抽出後）
         # =====================================================
         if current_step == "confirm":
-            print(f"   📋 確認ステップ: ユーザー応答「{user_message[:30]}...」")
+            logger.debug("確認ステップ: ユーザー応答「%s...」", user_message[:30])
 
             # OKパターンをチェック（v10.40.1: 純粋な確認のみ受け付ける）
             # 「合ってるけど、フィードバックして」のような否定接続やFB要求は確認とみなさない
             is_confirmed = _is_pure_confirmation(user_message)
 
             if is_confirmed:
-                print(f"   ✅ 確認OK - 目標を登録します")
+                logger.info("確認OK - 目標を登録します")
                 # セッションから保存済みの回答を取得
                 why_answer = session.get("why_answer", "")
                 what_answer = session.get("what_answer", "")
@@ -1806,7 +1809,7 @@ class GoalSettingDialogue:
                 if is_feedback_request or is_doubt_anxiety:
                     # 導きの対話（目標の質チェック）
                     pattern_type = "feedback_request" if is_feedback_request else "doubt_anxiety"
-                    print(f"   💡 導きの対話へ: {pattern_type}")
+                    logger.debug("導きの対話へ: %s", pattern_type)
 
                     response = self._generate_quality_check_response(
                         session, user_message, pattern_type
@@ -1837,7 +1840,7 @@ class GoalSettingDialogue:
                 # - 「同じ要約を再表示」は絶対にしない
                 # =====================================================
 
-                print(f"   🔄 入力を分析中...")
+                logger.debug("入力を分析中...")
 
                 # 長文の場合のみLLMで修正解析を試みる
                 if len(user_message) >= LONG_RESPONSE_THRESHOLD:
@@ -1898,7 +1901,7 @@ class GoalSettingDialogue:
                 #
                 # 重要: 同じ要約を再表示せず、目標の質を確認する対話へ
                 # =====================================================
-                print(f"   💡 導きの対話へフォールバック（無限ループ防止）")
+                logger.debug("導きの対話へフォールバック（無限ループ防止）")
                 response = self._generate_quality_check_response(
                     session, user_message, "clarification_needed"
                 )
@@ -1923,7 +1926,7 @@ class GoalSettingDialogue:
         # v10.31.5: 不満検出（「答えたじゃん」等）
         # =====================================================
         if self._detect_frustration(user_message):
-            print(f"   😤 不満を検出: {user_message[:30]}...")
+            logger.info("不満を検出: %s...", user_message[:30])
             # 今までの回答を要約して確認
             extracted = {
                 "why": session.get("why_answer", ""),
@@ -1962,7 +1965,7 @@ class GoalSettingDialogue:
         # v10.31.5: 長文の場合はLLMで解析してWHY/WHAT/HOWを抽出
         # =====================================================
         if len(user_message) >= LONG_RESPONSE_THRESHOLD:
-            print(f"   📝 長文を検出（{len(user_message)}文字）- LLM解析を実行")
+            logger.debug("長文を検出（%d文字）- LLM解析を実行", len(user_message))
             extracted = self._analyze_long_response_with_llm(user_message, session)
 
             if extracted:
@@ -2046,7 +2049,7 @@ class GoalSettingDialogue:
 
         # パターン検出（v1.7: コンテキスト付き）
         pattern, evaluation = self._detect_pattern(user_message, current_step, context)
-        print(f"   Detected pattern: {pattern}, evaluation: {evaluation}")
+        logger.debug("Detected pattern: %s, evaluation: %s", pattern, evaluation)
 
         # メンタルヘルス懸念の場合は特別処理
         if pattern == "ng_mental_health":
@@ -2132,7 +2135,7 @@ class GoalSettingDialogue:
 
         # v10.40.3: フェーズ自動判定
         fulfilled = _infer_fulfilled_phases(user_message)
-        print(f"   🧠 フェーズ判定: {fulfilled}")
+        logger.debug("フェーズ判定: %s", fulfilled)
 
         # 回答を保存（現在のステップ + 追加で検出されたフェーズ）
         if current_step == "why":
@@ -2143,7 +2146,7 @@ class GoalSettingDialogue:
             updates = {"why_answer": user_message}
             if fulfilled.get("what"):
                 # WHATレベルの情報（テーマ・目標）が含まれている
-                print(f"   🎯 WHAT情報も検出: テーマ・領域を含む")
+                logger.debug("WHAT情報も検出: テーマ・領域を含む")
                 # テーマを抽出してセッションに保存（次の質問で使う）
                 session["detected_themes"] = user_message
 
@@ -2458,9 +2461,9 @@ class GoalSettingDialogue:
 
         except ImportError:
             # Memory Frameworkが利用不可の場合はスキップ
-            print("⚠️ Memory Framework not available, skipping context enrichment")
+            logger.warning("Memory Framework not available, skipping context enrichment")
         except Exception as e:
-            print(f"⚠️ Memoryコンテキストロードエラー（続行）: {e}")
+            logger.error("Memoryコンテキストロードエラー（続行）: %s", e)
 
     def _get_sync_context(self, enricher) -> Dict[str, Any]:
         """同期的にコンテキストを取得（asyncioなし環境向け）"""
@@ -2475,7 +2478,7 @@ class GoalSettingDialogue:
             context["recommendations"] = enricher._generate_recommendations(context)
             return context
         except Exception as e:
-            print(f"⚠️ Sync context error: {e}")
+            logger.error("Sync context error: %s", e)
             return enricher._empty_context()
 
     def _personalize_feedback(
@@ -2548,7 +2551,7 @@ class GoalSettingDialogue:
                 specificity_score=specificity_score
             )
         except Exception as e:
-            print(f"⚠️ 学習エラー（続行）: {e}")
+            logger.error("学習エラー（続行）: %s", e)
 
     def _update_session_stats_on_complete(self, conn, session: Dict[str, Any]) -> None:
         """セッション完了時に統計を更新"""
@@ -2569,7 +2572,7 @@ class GoalSettingDialogue:
             self._update_preference_on_complete(conn, session)
 
         except Exception as e:
-            print(f"⚠️ セッション統計更新エラー（続行）: {e}")
+            logger.error("セッション統計更新エラー（続行）: %s", e)
 
     def _get_total_retry_count(self, conn, session_id: str) -> int:
         """
@@ -2646,7 +2649,7 @@ class GoalSettingDialogue:
         except ImportError:
             pass
         except Exception as e:
-            print(f"⚠️ 嗜好更新エラー（続行）: {e}")
+            logger.error("嗜好更新エラー（続行）: %s", e)
 
 
 def has_active_goal_session(pool, room_id: str, account_id: str) -> bool:
@@ -2787,7 +2790,7 @@ class GoalSettingUserPatternAnalyzer:
             self.conn.commit()
 
         except Exception as e:
-            print(f"⚠️ パターン更新エラー（続行）: {e}")
+            logger.error("パターン更新エラー（続行）: %s", e)
 
     def _update_existing_pattern(
         self,
@@ -2932,7 +2935,7 @@ class GoalSettingUserPatternAnalyzer:
             )
             self.conn.commit()
         except Exception as e:
-            print(f"⚠️ セッション統計更新エラー（続行）: {e}")
+            logger.error("セッション統計更新エラー（続行）: %s", e)
 
     def get_user_pattern_summary(self, user_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -2987,7 +2990,7 @@ class GoalSettingUserPatternAnalyzer:
             }
 
         except Exception as e:
-            print(f"⚠️ パターンサマリー取得エラー: {e}")
+            logger.error("パターンサマリー取得エラー: %s", e)
             return None
 
     def _generate_recommendations(self, result) -> Dict[str, Any]:
@@ -3143,7 +3146,7 @@ class GoalHistoryProvider:
             }
 
         except Exception as e:
-            print(f"⚠️ 過去目標取得エラー: {e}")
+            logger.error("過去目標取得エラー: %s", e)
             return {
                 "past_goals": [],
                 "success_patterns": [],

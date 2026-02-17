@@ -12,9 +12,12 @@ Phase 2E: 学習基盤 - 検出パターン定義
 - 文脈依存パターン（2種）
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Pattern
+
+logger = logging.getLogger(__name__)
 
 from .constants import LearningCategory
 
@@ -66,7 +69,7 @@ class DetectionPattern:
                     re.compile(pattern, re.IGNORECASE | re.UNICODE)
                 )
             except re.error as e:
-                print(f"Warning: Invalid regex pattern '{pattern}': {type(e).__name__}")
+                logger.warning("Invalid regex pattern '%s': %s", pattern, type(e).__name__)
 
     def match(self, text: str) -> Optional[Dict[str, Any]]:
         """テキストにパターンをマッチング

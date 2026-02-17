@@ -22,8 +22,11 @@ Soul-kun テキスト処理ユーティリティ
 - Phase 4: BPaaS（マルチテナント対応済み）
 """
 
+import logging
 import re
 from typing import Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 __version__ = "1.2.0"  # v10.17.1: 件名抽出・名前除去・行中挨拶除去を追加
 
@@ -432,7 +435,7 @@ def clean_chatwork_tags(body: str) -> str:
         return body
 
     except Exception as e:
-        print(f"⚠️ clean_chatwork_tags エラー: {e}")
+        logger.warning("clean_chatwork_tags エラー: %s", e)
         return body
 
 
@@ -730,7 +733,7 @@ def prepare_task_display_text(text: str, max_length: int = 40) -> str:
         return truncated[:max_length] if truncated else "（タスク内容なし）"
 
     except Exception as e:
-        print(f"⚠️ prepare_task_display_text エラー: {e}")
+        logger.warning("prepare_task_display_text エラー: %s", e)
         return text[:max_length] if len(text) > max_length else text
 
 

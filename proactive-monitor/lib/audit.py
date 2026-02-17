@@ -27,9 +27,12 @@ Soul-kun 監査ログモジュール
 """
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from enum import Enum
+
+logger = logging.getLogger(__name__)
 
 
 class AuditAction(str, Enum):
@@ -121,10 +124,10 @@ def log_audit(
         table_exists = cursor.fetchone()[0]
 
         if not table_exists:
-            # テーブルがない場合はprint出力のみ（Phase 3.5以前の互換性）
-            print(f"📝 Audit (no table): {action} {resource_type}/{resource_id} org={organization_id}")
+            # テーブルがない場合はログ出力のみ（Phase 3.5以前の互換性）
+            logger.info("Audit (no table): %s %s/%s org=%s", action, resource_type, resource_id, organization_id)
             if details:
-                print(f"   Details: {json.dumps(details, ensure_ascii=False)[:200]}")
+                logger.info("   Details: %s", json.dumps(details, ensure_ascii=False)[:200])
             return True
 
         # audit_logs テーブルに挿入
@@ -161,16 +164,16 @@ def log_audit(
         ))
         conn.commit()
 
-        print(f"📝 Audit logged: {action} {resource_type}/{resource_id} org={organization_id}")
+        logger.info("Audit logged: %s %s/%s org=%s", action, resource_type, resource_id, organization_id)
         return True
 
     except Exception as e:
         # 監査ログの記録失敗は本処理を止めない
-        print(f"⚠️ Audit log failed (non-blocking): {e}")
-        # ただしprint出力は行う（ログには残る）
-        print(f"📝 Audit (fallback): {action} {resource_type}/{resource_id} org={organization_id}")
+        logger.warning("Audit log failed (non-blocking): %s", e)
+        # ただしログ出力は行う（Cloud Loggingには残る）
+        logger.info("Audit (fallback): %s %s/%s org=%s", action, resource_type, resource_id, organization_id)
         if details:
-            print(f"   Details: {json.dumps(details, ensure_ascii=False)[:200]}")
+            logger.info("   Details: %s", json.dumps(details, ensure_ascii=False)[:200])
         return False
 
 
@@ -241,10 +244,6 @@ def log_audit_batch(
 # =====================================================
 # 非同期版（Google Drive権限管理等で使用）
 # =====================================================
-
-import logging
-
-logger = logging.getLogger(__name__)
 
 
 async def log_audit_async(

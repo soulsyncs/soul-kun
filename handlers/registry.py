@@ -1450,6 +1450,53 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             "priority": 5,
         },
     },
+
+    "drive_search": {
+        "name": "Googleドライブ ファイル検索",
+        "description": "Googleドライブ上のファイルを名前で検索する。「〇〇のファイルを探して」「最近のファイルを見せて」などに対応。ファイルの中身検索はquery_knowledgeを使う。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "〇〇のファイルを探して",
+            "〇〇という資料はある？",
+            "ドライブから〇〇を見つけて",
+            "最近更新されたファイルを見せて",
+            "ドライブの中身を教えて",
+        ],
+        "params_schema": {
+            "query": {
+                "type": "string",
+                "description": "検索クエリ（ファイル名の部分一致）",
+                "required": False,
+                "note": "省略時は最近更新されたファイル一覧を返す",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "最大結果件数（1-20）",
+                "required": False,
+                "default": 10,
+            },
+        },
+        "handler": "drive_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["ファイル検索", "ファイルを探して", "ドライブ", "ドライブから"],
+                "secondary": ["ファイル", "資料", "文書", "ドキュメント"],
+                "negative": ["タスク", "目標", "ナレッジ", "就業規則", "マニュアル"],
+            },
+            "intent_keywords": {
+                "primary": ["ファイル検索", "ファイルを探して", "ドライブ検索"],
+                "secondary": ["ファイル", "資料", "ドキュメント", "ドライブ"],
+                "modifiers": ["探して", "検索", "見つけて", "教えて", "見せて"],
+                "negative": ["就業規則", "ルール", "手続き"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
 }
 
 

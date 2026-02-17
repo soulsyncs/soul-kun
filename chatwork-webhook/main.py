@@ -2998,7 +2998,7 @@ def telegram_webhook():
         # --- Step B-2: 社長専用権限チェック ---
         is_ceo = channel_msg.metadata.get("is_ceo", False)
         if not is_ceo:
-            print(f"⛔ Telegram: 社長以外からのメッセージを拒否 chat_id={channel_msg.metadata.get('chat_id')}")
+            print("⛔ Telegram: 社長以外からのメッセージを拒否")
             # 権限がない旨のメッセージを返す
             adapter.send_message(
                 room_id=channel_msg.metadata.get("chat_id", channel_msg.room_id),
@@ -3011,7 +3011,7 @@ def telegram_webhook():
             print(f"⏭️ Telegram: スキップ reason={channel_msg.skip_reason}")
             return jsonify({"status": "ok", "skip": channel_msg.skip_reason})
 
-        print(f"📱 Telegram受信: body={channel_msg.body[:50]}...")
+        print(f"📱 Telegram受信: len={len(channel_msg.body)}chars")
 
         # --- Brain処理 ---
         integration = _get_brain_integration()

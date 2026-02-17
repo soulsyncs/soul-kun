@@ -113,12 +113,85 @@ def clean_telegram_message(text: str) -> str:
     return cleaned
 
 
+def _extract_media_info(msg: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Telegramメッセージからメディア情報（写真・動画・ドキュメント・ボイス）を抽出する。
+
+    Args:
+        msg: Telegram message object
+
+    Returns:
+        dict: {media_type, file_id, file_size, ...} or empty dict
+    """
+    # 写真: photo配列の最大サイズを取得
+    photos = msg.get("photo")
+    if photos and isinstance(photos, list) and len(photos) > 0:
+        # Telegramは複数サイズを送るので最大のものを使う
+        largest = photos[-1]
+        return {
+            "media_type": "photo",
+            "file_id": largest.get("file_id", ""),
+            "file_unique_id": largest.get("file_unique_id", ""),
+            "file_size": largest.get("file_size", 0),
+            "width": largest.get("width", 0),
+            "height": largest.get("height", 0),
+        }
+
+    # 動画
+    video = msg.get("video")
+    if video:
+        return {
+            "media_type": "video",
+            "file_id": video.get("file_id", ""),
+            "file_unique_id": video.get("file_unique_id", ""),
+            "file_size": video.get("file_size", 0),
+            "duration": video.get("duration", 0),
+            "width": video.get("width", 0),
+            "height": video.get("height", 0),
+            "mime_type": video.get("mime_type", ""),
+        }
+
+    # ドキュメント（PDF等）
+    document = msg.get("document")
+    if document:
+        return {
+            "media_type": "document",
+            "file_id": document.get("file_id", ""),
+            "file_unique_id": document.get("file_unique_id", ""),
+            "file_size": document.get("file_size", 0),
+            "file_name": document.get("file_name", ""),
+            "mime_type": document.get("mime_type", ""),
+        }
+
+    # ボイスメッセージ
+    voice = msg.get("voice")
+    if voice:
+        return {
+            "media_type": "voice",
+            "file_id": voice.get("file_id", ""),
+            "file_unique_id": voice.get("file_unique_id", ""),
+            "file_size": voice.get("file_size", 0),
+            "duration": voice.get("duration", 0),
+            "mime_type": voice.get("mime_type", ""),
+        }
+
+    return {}
+
+
+_MEDIA_TYPE_LABELS = {
+    "photo": "写真",
+    "video": "動画",
+    "document": "ファイル",
+    "voice": "音声メッセージ",
+}
+
+
 def extract_telegram_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """
     Telegram Updateオブジェクトからメッセージ情報を抽出する。
 
     対応するUpdate型:
-    - message: 通常のメッセージ
+    - message: 通常のメッセージ（テキスト、写真、動画、ドキュメント、音声）
     - edited_message: 編集されたメッセージ（無視）
     - channel_post: チャンネル投稿（無視）
 
@@ -126,7 +199,7 @@ def extract_telegram_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         update: Telegram Bot API Update object
 
     Returns:
-        dict: {chat_id, user_id, username, first_name, text, message_id, is_topic, topic_id}
+        dict: {chat_id, user_id, username, first_name, text, message_id, is_topic, topic_id, media}
         None: 処理不要なUpdate
     """
     # 通常のメッセージのみ処理
@@ -134,10 +207,25 @@ def extract_telegram_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if not msg:
         return None
 
-    # テキストメッセージのみ対応（写真・動画等は将来対応）
-    text = msg.get("text", "")
-    if not text:
+    # テキスト: 通常テキストまたはメディアのキャプション
+    original_text = msg.get("text", "") or msg.get("caption", "")
+
+    # メディア情報の抽出
+    media = _extract_media_info(msg)
+
+    # テキストもメディアもない場合はスキップ
+    if not original_text and not media:
         return None
+
+    # メディアがある場合、テキストにメディア種別のプレースホルダーを追加
+    # → Brainがメディアの存在を認識できる
+    text = original_text
+    if media:
+        label = _MEDIA_TYPE_LABELS.get(media["media_type"], "メディア")
+        if text:
+            text = f"[{label}を送信] {text}"
+        else:
+            text = f"[{label}を送信]"
 
     chat = msg.get("chat", {})
     sender = msg.get("from", {})
@@ -154,9 +242,11 @@ def extract_telegram_update(update: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         "first_name": sender.get("first_name", "ゲスト"),
         "last_name": sender.get("last_name", ""),
         "text": text,
+        "original_text": original_text,
         "message_id": str(msg.get("message_id", "")),
         "is_topic": is_topic,
         "topic_id": str(topic_id) if topic_id else "",
+        "media": media,
     }
 
 
@@ -203,22 +293,23 @@ class TelegramChannelAdapter(ChannelAdapter):
 
         chat_id = extracted["chat_id"]
         user_id = extracted["user_id"]
-        raw_text = extracted["text"]
+        display_text = extracted["text"]  # プレースホルダー付き（Brain用）
+        original_text = extracted.get("original_text", "")  # 元のテキスト/キャプション
         first_name = extracted["first_name"]
         last_name = extracted.get("last_name", "")
         sender_name = f"{first_name} {last_name}".strip() if last_name else first_name
 
         # メッセージのクリーニング
-        cleaned_text = clean_telegram_message(raw_text)
+        cleaned_text = clean_telegram_message(display_text)
         if not cleaned_text:
             return None
 
         # プライベートチャットは常にボット宛
         is_private = extracted["chat_type"] == "private"
 
-        # グループ内メッセージの判定
+        # グループ内メッセージの判定（元テキストでコマンド/メンション判定）
         # /command でボットに話しかけた場合 or @botname でメンションした場合
-        is_addressed = is_private or self.is_addressed_to_bot(raw_text)
+        is_addressed = is_private or self.is_addressed_to_bot(original_text or display_text)
 
         # CEO権限チェック（メタデータに含めて後段で判定）
         is_ceo = is_telegram_ceo(chat_id)
@@ -236,7 +327,7 @@ class TelegramChannelAdapter(ChannelAdapter):
             sender_id=user_id,
             sender_name=sender_name,
             body=cleaned_text,
-            raw_body=raw_text,
+            raw_body=original_text or display_text,
             message_id=extracted["message_id"],
             is_bot_addressed=is_addressed,
             is_broadcast=False,  # Telegramにbroadcastの概念はない
@@ -250,6 +341,7 @@ class TelegramChannelAdapter(ChannelAdapter):
                 "topic_id": extracted["topic_id"],
                 "is_ceo": is_ceo,
                 "username": extracted["username"],
+                "media": extracted.get("media", {}),
             },
         )
 

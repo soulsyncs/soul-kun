@@ -139,7 +139,7 @@ gcloud run deploy "$SERVICE" \
     --allow-unauthenticated \
     --min-instances=1 \
     --max-instances=10 \
-    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings,TELEGRAM_CEO_CHAT_ID=8304510694,TELEGRAM_BOT_USERNAME=soulsyncs_bot" \
+    --update-env-vars="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true,ENABLE_MEETING_TRANSCRIPTION=true,ENABLE_MEETING_MINUTES=true,ENABLE_IMAGE_ANALYSIS=true,MEETING_GCS_BUCKET=soulkun-meeting-recordings,TELEGRAM_CEO_CHAT_ID=8304510694,TELEGRAM_BOT_USERNAME=soulsyncs_bot" \
     --update-secrets="TAVILY_API_KEY=TAVILY_API_KEY:latest,TELEGRAM_BOT_TOKEN=TELEGRAM_BOT_TOKEN:latest,TELEGRAM_WEBHOOK_SECRET=TELEGRAM_WEBHOOK_SECRET:latest"
 
 echo ""

@@ -323,6 +323,16 @@ MEETING_GCS_BUCKET=soulkun-meeting-recordings
 | デフォルト | `false` |
 | 管理場所 | `lib/brain/capability_bridge.py` の `DEFAULT_FEATURE_FLAGS` |
 
+### ENABLE_IMAGE_ANALYSIS
+
+| 項目 | 値 |
+|------|-----|
+| 説明 | ChatWork/Telegram画像ファイルの自動認識AI処理を有効化 |
+| デフォルト | `false` |
+| 本番値 | `true` |
+| 管理場所 | `chatwork-webhook/main.py` の画像検出ロジック |
+| Vision Model | `google/gemini-2.0-flash-001`（OpenRouter経由） |
+
 ### OPENAI_API_KEY
 
 | 項目 | 値 |

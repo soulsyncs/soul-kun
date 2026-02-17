@@ -358,8 +358,10 @@ async def handle_file_create(
 def _safe_filename(name: str) -> str:
     """ファイル名から危険な文字を除去する"""
     import re
+    # パストラバーサル除去（.. を削除）
+    safe = name.replace("..", "")
     # 英数字、日本語、ハイフン、アンダースコア、ドットのみ許可
-    safe = re.sub(r'[^\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF.\-]', '_', name)
+    safe = re.sub(r'[^\w\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF.\-]', '_', safe)
     # 連続アンダースコアを1つにまとめる
     safe = re.sub(r'_+', '_', safe).strip('_')
     # 最大50文字

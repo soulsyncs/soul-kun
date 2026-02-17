@@ -146,7 +146,7 @@ _LAZY_IMPORTS = {
     "BypassType": ("lib.brain.integration", "BypassType"),
     "BypassDetectionResult": ("lib.brain.integration", "BypassDetectionResult"),
     "create_integration": ("lib.brain.integration", "create_integration"),
-    "is_brain_enabled": ("lib.brain.integration", "is_brain_enabled"),
+    "is_brain_enabled": ("lib.brain.env_config", "is_brain_enabled"),
     "FEATURE_FLAG_NAME": ("lib.brain.integration", "FEATURE_FLAG_NAME"),
 
     # ----------------------------------------------------------------

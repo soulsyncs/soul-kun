@@ -58,6 +58,19 @@ assert "Audit (no table)" in caplog.text
 - **kwargs in abstract ChannelAdapter.send_message: ChatworkChannelAdapter does NOT declare **kwargs; calling it with extra kwargs (e.g., message_thread_id=55) would raise TypeError. Currently safe because Telegram webhook always uses TelegramChannelAdapter, never ChatworkChannelAdapter. But is a type-safety gap.
 - lib/ 3-copy sync verified: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical after this PR
 
+## ChatWork file attachment detection patterns (confirmed in PR adding extract_chatwork_files)
+
+- `extract_chatwork_files(body)` in `lib/channels/chatwork_adapter.py`: pure function, regex `r'\[download:(\d+)\]'`, returns `[{"file_id": "..."}]` list, no filename stored (PII-safe)
+- `_FILE_LABEL = "ファイル"` constant defined at module level
+- In `parse_webhook()`: files extracted from `raw_body` BEFORE `clean_message()` is called. Order matters because `clean_chatwork_message` removes `[download:XXX]` via the catch-all `\[.*?\]` regex at line 72
+- Placeholder format: `"[ファイルを送信]"` (1 file) or `"[ファイル2件を送信]"` (N files)
+- Placeholder is prepended to clean_body if text exists, or set as sole body if text-only-file message
+- This prevents `should_process` returning False for file-only messages (body would be empty without placeholder)
+- `ChatworkChannelAdapter` is NOT yet wired into main.py ChatWork route (only Telegram route uses adapter pattern). The new code is ready but not yet activated for ChatWork main flow.
+- main.py already has its own `re.findall(r'\[download:(\d+)\]', body)` at line 1100 for audio file detection (separate, pre-existing logic). No conflict.
+- 3-copy sync verified: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical after this PR
+- 18/18 tests pass
+
 ## Telegram media support patterns (confirmed in PR adding photo/video/document/voice)
 
 - `_extract_media_info(msg)` in `lib/channels/telegram_adapter.py`: pure function, priority order is photo > video > document > voice, returns {} for no media

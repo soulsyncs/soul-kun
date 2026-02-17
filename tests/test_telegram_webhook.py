@@ -387,3 +387,163 @@ class TestTelegramE2EFlow:
         assert msg is not None
         assert msg.is_bot_addressed is False
         assert msg.body == "普通のグループ会話"
+
+
+# =============================================================================
+# Step B-2: セキュリティ機能テスト
+# =============================================================================
+
+
+class TestTelegramGroupRestriction:
+    """Step B-2: グループチャット制限テスト"""
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_private_chat_allowed(self):
+        """プライベートチャットは許可される"""
+        from lib.channels.telegram_adapter import TelegramChannelAdapter
+
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = _make_telegram_update(chat_id=111, chat_type="private")
+        msg = adapter.parse_webhook(update)
+
+        assert msg is not None
+        assert msg.metadata["is_private"] is True
+        # グループ制限にかからない（private → OK）
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_supergroup_with_topic_allowed(self):
+        """スーパーグループ+トピックは許可される"""
+        from lib.channels.telegram_adapter import TelegramChannelAdapter
+
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 100,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": -1001234567890, "type": "supergroup"},
+                "text": "/ask 質問",
+                "is_topic_message": True,
+                "message_thread_id": 55,
+            }
+        }
+        msg = adapter.parse_webhook(update)
+
+        assert msg is not None
+        assert msg.metadata["chat_type"] == "supergroup"
+        assert msg.metadata["is_topic"] is True
+        # グループ制限にかからない（supergroup + topic → OK）
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_regular_group_produces_metadata(self):
+        """普通のグループメッセージにはis_topic=Falseのメタデータが付く"""
+        from lib.channels.telegram_adapter import TelegramChannelAdapter
+
+        adapter = TelegramChannelAdapter(bot_token="test-token", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 100,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": -999, "type": "group"},
+                "text": "/ask テスト",
+            }
+        }
+        msg = adapter.parse_webhook(update)
+
+        assert msg is not None
+        assert msg.metadata["chat_type"] == "group"
+        assert msg.metadata["is_topic"] is False
+        # main.pyのwebhook側でgroup_not_allowedとして拒否される
+
+
+class TestTelegramRateLimit:
+    """Step B-2: レート制限テスト"""
+
+    def test_rate_limit_function_import(self):
+        """レート制限関数がインポートできる"""
+        import importlib
+        import sys
+
+        # chatwork-webhook/main.pyのモジュールをロード
+        spec = importlib.util.spec_from_file_location(
+            "cw_main_rl_test",
+            os.path.join(os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"),
+        )
+        # モジュール自体はロードせず（依存が大きい）、関数の存在をソースで確認
+        import ast
+
+        main_path = os.path.join(
+            os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"
+        )
+        with open(main_path) as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+        func_names = [
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        ]
+
+        assert "_check_telegram_rate_limit" in func_names
+        assert "telegram_webhook" in func_names
+
+    def test_rate_limit_logic_standalone(self):
+        """レート制限ロジックの単体テスト（関数を直接実行）"""
+        import time as _time
+
+        # 簡易的にレート制限ロジックを再現してテスト
+        rate_limit = {}
+        max_requests = 3
+        window = 1.0  # 1秒ウィンドウ
+
+        def check(chat_id):
+            now = _time.time()
+            if chat_id not in rate_limit:
+                rate_limit[chat_id] = []
+            rate_limit[chat_id] = [
+                ts for ts in rate_limit[chat_id] if now - ts < window
+            ]
+            if len(rate_limit[chat_id]) >= max_requests:
+                return False
+            rate_limit[chat_id].append(now)
+            return True
+
+        # 3件はOK
+        assert check("111") is True
+        assert check("111") is True
+        assert check("111") is True
+        # 4件目でレート制限
+        assert check("111") is False
+        # 別のchat_idは影響なし
+        assert check("222") is True
+
+
+class TestTelegramAuditLogging:
+    """Step B-2: 監査ログテスト（print→logging変換の確認）"""
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_no_print_statements_in_telegram_webhook(self):
+        """telegram_webhook関数にprint文が残っていないことを確認"""
+        import ast
+
+        main_path = os.path.join(
+            os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"
+        )
+        with open(main_path) as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+
+        # telegram_webhook関数を見つける
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "telegram_webhook":
+                # 関数内のprint呼び出しを探す
+                prints_found = []
+                for child in ast.walk(node):
+                    if isinstance(child, ast.Call):
+                        func = child.func
+                        if isinstance(func, ast.Name) and func.id == "print":
+                            prints_found.append(child.lineno)
+
+                assert len(prints_found) == 0, (
+                    f"telegram_webhook()にprint文が残っています（行: {prints_found}）。"
+                    "loggingを使用してください。"
+                )

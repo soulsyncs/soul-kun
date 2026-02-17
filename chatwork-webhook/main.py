@@ -2955,8 +2955,45 @@ def zoom_webhook():
 #
 # CLAUDE.md §1: 全入力は脳を通る → Telegram入力もBrain経由で処理
 # CLAUDE.md §8: 権限レベル6（社長/CFO）のみ → CEO chat_id検証
-# execution_plan: Step B-2 社長専用設定
+# execution_plan: Step B-2 社長専用設定 + セキュリティ強化
 # =============================================================================
+
+# --- Step B-2: Telegramレート制限（インメモリ） ---
+import collections as _collections
+
+_telegram_rate_limit: Dict[str, list] = {}
+_TELEGRAM_RATE_LIMIT_MAX = 20    # 1分あたりの上限メッセージ数
+_TELEGRAM_RATE_LIMIT_WINDOW = 60  # ウィンドウ（秒）
+
+
+def _check_telegram_rate_limit(chat_id: str) -> bool:
+    """
+    Telegramメッセージのレート制限を確認する。
+
+    スライディングウィンドウ方式: 直近60秒以内のリクエストが20件以下ならTrue。
+    CLAUDE.md §9-3: 監査ログにIDのみ（個人情報なし）。
+
+    Args:
+        chat_id: Telegramのchat_id
+
+    Returns:
+        True: 許可（レート制限内）、False: 拒否（レート超過）
+    """
+    now = time.time()
+    if chat_id not in _telegram_rate_limit:
+        _telegram_rate_limit[chat_id] = []
+
+    # 期限切れのタイムスタンプを除去
+    _telegram_rate_limit[chat_id] = [
+        ts for ts in _telegram_rate_limit[chat_id]
+        if now - ts < _TELEGRAM_RATE_LIMIT_WINDOW
+    ]
+
+    if len(_telegram_rate_limit[chat_id]) >= _TELEGRAM_RATE_LIMIT_MAX:
+        return False
+
+    _telegram_rate_limit[chat_id].append(now)
+    return True
 
 
 @app.route("/telegram", methods=["POST"])
@@ -2966,6 +3003,13 @@ def telegram_webhook():
 
     社長専用窓口。TELEGRAM_CEO_CHAT_IDに一致するユーザーからの
     メッセージのみ処理する。
+
+    セキュリティ層（Step B-2）:
+    1. 署名検証（X-Telegram-Bot-Api-Secret-Token）
+    2. グループチャット制限（privateまたはsupergroup+topicのみ許可）
+    3. CEO権限チェック
+    4. レート制限（1分20メッセージ）
+    5. 監査ログ（IDのみ、個人情報なし）
 
     Telegram Bot API Webhook format:
       https://core.telegram.org/bots/api#update
@@ -2980,10 +3024,10 @@ def telegram_webhook():
         if secret_token:
             from lib.channels.telegram_adapter import verify_telegram_webhook
             if not verify_telegram_webhook(request.get_data(), secret_token, received_token):
-                print("❌ Telegram署名検証失敗")
+                logger.warning("Telegram: signature verification failed")
                 return jsonify({"status": "error"}), 403
         else:
-            print("⚠️ TELEGRAM_WEBHOOK_SECRETが未設定。署名検証スキップ。")
+            logger.warning("TELEGRAM_WEBHOOK_SECRET not set — signature verification skipped")
 
         # --- メッセージ解析 ---
         from lib.channels.telegram_adapter import TelegramChannelAdapter
@@ -2995,32 +3039,53 @@ def telegram_webhook():
 
         channel_msg = adapter.parse_webhook(data)
         if not channel_msg:
-            # テキストメッセージでない場合（写真等）はスルー
             return jsonify({"status": "ok", "skip": "no_text"})
+
+        chat_id = channel_msg.metadata.get("chat_id", channel_msg.room_id)
+        chat_type = channel_msg.metadata.get("chat_type", "unknown")
+        is_topic = channel_msg.metadata.get("is_topic", False)
+
+        # --- Step B-2: グループチャット制限 ---
+        # private → OK、supergroup + topic → OK、それ以外 → 拒否
+        is_private = channel_msg.metadata.get("is_private", False)
+        if not is_private and not (chat_type == "supergroup" and is_topic):
+            logger.info(
+                "Telegram: group chat rejected chat_id=%s type=%s",
+                chat_id, chat_type,
+            )
+            return jsonify({"status": "ok", "skip": "group_not_allowed"})
 
         # --- Step B-2: 社長専用権限チェック ---
         is_ceo = channel_msg.metadata.get("is_ceo", False)
         if not is_ceo:
-            print("⛔ Telegram: 社長以外からのメッセージを拒否")
-            # 権限がない旨のメッセージを返す
+            logger.info("Telegram: non-CEO access denied chat_id=%s", chat_id)
             adapter.send_message(
-                room_id=channel_msg.metadata.get("chat_id", channel_msg.room_id),
+                room_id=chat_id,
                 message="🐺 この窓口は社長専用です。ChatWorkからお話しかけてくださいウル！",
             )
             return jsonify({"status": "ok", "skip": "not_ceo"})
 
+        # --- Step B-2: レート制限 ---
+        if not _check_telegram_rate_limit(chat_id):
+            logger.warning("Telegram: rate limit exceeded chat_id=%s", chat_id)
+            adapter.send_message(
+                room_id=chat_id,
+                message="🐺 メッセージが多すぎるウル！少し待ってからもう一度送ってほしいウル🐺",
+            )
+            return jsonify({"status": "ok", "skip": "rate_limited"}), 429
+
         # --- 処理不要な判定 ---
         if not channel_msg.should_process:
-            print(f"⏭️ Telegram: スキップ reason={channel_msg.skip_reason}")
+            logger.debug("Telegram: skip reason=%s", channel_msg.skip_reason)
             return jsonify({"status": "ok", "skip": channel_msg.skip_reason})
 
-        print(f"📱 Telegram受信: len={len(channel_msg.body)}chars")
+        logger.info("Telegram: message received len=%d", len(channel_msg.body))
 
         # --- Brain処理 ---
         integration = _get_brain_integration()
         if not integration or not integration.is_brain_enabled():
             adapter.send_message(
-                room_id=channel_msg.metadata.get("chat_id", channel_msg.room_id),
+                room_id=chat_id,
                 message="🤔 ソウルくんの脳が準備できていないウル...しばらく待ってほしいウル🐺",
             )
             return jsonify({"status": "error", "message": "Brain not ready"}), 503
@@ -3029,7 +3094,6 @@ def telegram_webhook():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         try:
-            # account_idとしてCEOのChatWork IDを使用（org内で一意に特定するため）
             ceo_account_id = os.environ.get("CEO_CHATWORK_ACCOUNT_ID", "")
             result = loop.run_until_complete(
                 integration.process_message(
@@ -3044,10 +3108,12 @@ def telegram_webhook():
             loop.close()
 
         # --- 応答送信（Telegram経由） ---
-        chat_id = channel_msg.metadata.get("chat_id", channel_msg.room_id)
         if result and result.message and not result.error:
             adapter.send_message(room_id=chat_id, message=result.message)
-            print(f"🧠 Telegram応答: brain={result.used_brain}, time={result.processing_time_ms}ms")
+            logger.info(
+                "Telegram: response sent brain=%s time=%sms",
+                result.used_brain, result.processing_time_ms,
+            )
             return jsonify({"status": "ok", "brain": result.used_brain, "platform": "telegram"})
         else:
             adapter.send_message(
@@ -3057,7 +3123,5 @@ def telegram_webhook():
             return jsonify({"status": "ok", "brain": True, "error": "no_response"})
 
     except Exception as e:
-        print(f"❌ Telegram webhook処理エラー: {type(e).__name__}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error("Telegram webhook error: %s: %s", type(e).__name__, e, exc_info=True)
         return jsonify({"status": "error", "message": "Internal server error"}), 500

@@ -162,6 +162,57 @@
       value: "カレンダーへの書き込み（予定追加）機能はまだ未対応のため、対応できないことを伝えるか、または確認を取ること。calendar_readを呼ぶべきではない"
       threshold: 0.7
 
+# --- Step A-5/A-6: Googleドライブ検索 ---
+
+- description: "ドライブ検索: ファイルを探す依頼"
+  vars:
+    message: "営業報告書のファイルを探して"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('drive_search')"
+
+- description: "ドライブ検索: ドライブから探す依頼"
+  vars:
+    message: "ドライブから先週の会議資料を見つけて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('drive_search')"
+
+- description: "ドライブ検索: 最近のファイル一覧"
+  vars:
+    message: "最近更新されたファイルを見せて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('drive_search')"
+
+- description: "ドライブ vs ナレッジ: 就業規則の内容はknowledge_search"
+  vars:
+    message: "就業規則の内容を教えて"
+    sender_name: "佐藤さん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: |
+        const s = JSON.stringify(output);
+        s.includes('knowledge_search') && !s.includes('drive_search')
+
+- description: "ドライブ vs Web: ネット検索とファイル検索の切り分け"
+  vars:
+    message: "最新のAIニュースを調べて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: |
+        const s = JSON.stringify(output);
+        s.includes('web_search') && !s.includes('drive_search')
+
 # =====================================================================
 # 2. レスポンス品質
 # =====================================================================

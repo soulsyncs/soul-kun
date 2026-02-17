@@ -62,6 +62,106 @@
     - type: javascript
       value: "JSON.stringify(output).includes('person_info')"
 
+# --- Step A-1/A-2: Web検索 ---
+
+- description: "Web検索: 基本的な検索依頼"
+  vars:
+    message: "最新のAI規制法案について調べて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: |
+        const s = JSON.stringify(output);
+        s.includes('web_search') && s.includes('query')
+
+- description: "Web検索: ネットで検索してとの依頼"
+  vars:
+    message: "React 19の新機能をネットで検索して"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('web_search')"
+
+- description: "Web検索: ググってとの依頼"
+  vars:
+    message: "Cloud Runの料金体系をググって"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('web_search')"
+
+- description: "Web検索 vs ナレッジ: 社内情報はknowledge_searchを使う"
+  vars:
+    message: "社内の就業規則について教えて"
+    sender_name: "佐藤さん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: |
+        const s = JSON.stringify(output);
+        s.includes('knowledge_search') && !s.includes('web_search')
+
+- description: "Web検索: 最新ニュースの依頼"
+  vars:
+    message: "日本の最新ニュースを教えて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('web_search')"
+
+# --- Step A-3/A-4: Googleカレンダー ---
+
+- description: "カレンダー: 今日の予定確認"
+  vars:
+    message: "今日の予定は？"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('calendar_read')"
+
+- description: "カレンダー: 明日のスケジュール"
+  vars:
+    message: "明日のスケジュールを教えて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('calendar_read')"
+
+- description: "カレンダー: 特定日の予定"
+  vars:
+    message: "来週月曜の予定を見せて"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: "JSON.stringify(output).includes('calendar_read')"
+
+- description: "カレンダー vs タスク: 予定確認はcalendar_read"
+  vars:
+    message: "今日は何が入ってる？"
+    sender_name: "カズさん"
+  assert:
+    - type: is-valid-openai-tools-call
+    - type: javascript
+      value: |
+        const s = JSON.stringify(output);
+        s.includes('calendar_read') && !s.includes('chatwork_task')
+
+- description: "カレンダー: 予定追加の要望はcalendar_readではない"
+  vars:
+    message: "明日10時に会議を入れて"
+    sender_name: "カズさん"
+  assert:
+    - type: llm-rubric
+      value: "カレンダーへの書き込み（予定追加）機能はまだ未対応のため、対応できないことを伝えるか、または確認を取ること。calendar_readを呼ぶべきではない"
+      threshold: 0.7
+
 # =====================================================================
 # 2. レスポンス品質
 # =====================================================================

@@ -82,17 +82,36 @@ assert "Audit (no table)" in caplog.text
 - All 3 copies of integration.py are in sync for IMAGE_ANALYSIS changes (verified)
 - 17/17 new tests pass
 
-### CRITICAL architectural issues found in this PR (Vision AI)
+### Pre-existing architectural issues (from Telegram Vision AI PR #581, not fixed in ChatWork PR)
 
 1. **Recursive `process_message()` call**: `_bypass_handle_image_analysis()` calls `integration.process_message()` from within a bypass handler that was itself called by `process_message()`. Avoids infinite loop only because `bypass_context=None` on second call. Violates Guardian/Authorization Gate layering. Pattern to follow: `meeting_audio` handler calls `bridge._handle_meeting_transcription()` directly instead.
-2. **Blocking HTTP in Flask route**: `download_telegram_file()` (synchronous httpx, 30s timeout) is called in the synchronous Flask route before the event loop starts. Blocks one of 8 gunicorn threads. Should move into the async bypass handler.
-3. **Raw Vision output bypasses Guardian Layer**: Fallback paths in the handler return `vision_content` directly without Brain/Guardian filtering.
+2. **Raw Vision output bypasses Guardian Layer**: Handler returns `vision_content` directly without Brain/Guardian filtering.
+3. **Blocking HTTP in pre-processing**: Both `_download_meeting_audio` and `_detect_chatwork_image` make synchronous httpx HTTP calls from the Flask request handler. Pattern is consistent (and pre-existing) in this codebase.
 
 ### `VisionAPIClient` import path in bypass handler
 
 - `chatwork-webhook/lib/brain/handler_wrappers/bypass_handlers.py` imports `from lib.capabilities.multimodal.base import VisionAPIClient`
 - At runtime in chatwork-webhook/ context, Python resolves to `chatwork-webhook/lib/capabilities/multimodal/base.py` — correct
-- NOT tested in test suite for this PR (no test exercises `_bypass_handle_image_analysis()`)
+- NOT tested in test suite for any PR (no test exercises `_bypass_handle_image_analysis()` directly)
+
+## ChatWork Vision AI patterns (confirmed feat/chatwork-vision-ai branch review)
+
+- `_IMAGE_EXTENSIONS` = set `{"jpg","jpeg","png","gif","webp","bmp","tiff","tif"}` in main.py (line 1138)
+- `_detect_chatwork_image(body, room_id, sender_account_id, bypass_context)`: sync function in Flask route
+  - Parses `[download:ID]` tags, calls Files API (GET /rooms/{room_id}/files/{file_id}) per file_id to get filename
+  - BUG: imports `from lib.secrets import get_secret` (non-cached!) at line 1172 inside loop, instead of using module-level `get_secret` (which is `infra.db.get_secret` -> `lib.secrets.get_secret_cached`). Hits Secret Manager on each image detection.
+  - DEAD IMPORT at line 1164: `from infra.chatwork_api import download_chatwork_file` (imported but never used)
+  - `sender_account_id` parameter is accepted but never used inside the function body
+  - Guard: only runs if `not audio_data` AND `ENABLE_IMAGE_ANALYSIS == "true"`
+  - Sets: `bypass_context["has_image"] = True`, `["image_file_id"]`, `["image_room_id"]`, `["image_source"] = "chatwork"`
+- bypass_handler: `result[0] if result else None` — `(None, None)` is truthy! `if result else None` returns `(None, None)`, then `result[0]` is `None`. Safe: `if not image_data:` downstream catches it.
+- `download_chatwork_file` in infra/chatwork_api.py returns `(bytes, filename)` or `(None, None)`. SUCCESS = status_code < 400.
+- Telegram path got `image_source = "telegram"` added explicitly (was previously missing, handler defaulted correctly)
+- Tests: 19/19 pass. Source-level tests only (regex on .py file contents). No functional integration test for actual download/Vision path.
+- Test dead code: `TestDetectChatworkImage._call_detect()` method (line 50) never called; `@patch("chatwork-webhook.main._detect_chatwork_image")` has invalid hyphen in module name. Harmless.
+- Comment typo at line 2051: `bypas_context` (missing 's' in 'bypass')
+- infra.db.get_secret = lib.secrets.get_secret_cached (cached, lru_cache(maxsize=32))
+- lib.secrets.get_secret = non-cached version (hits Secret Manager or env var every call)
 
 ## Telegram media support patterns (confirmed in PR adding photo/video/document/voice)
 

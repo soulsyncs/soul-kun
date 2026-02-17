@@ -1132,6 +1132,73 @@ def _download_meeting_audio(body, room_id, sender_account_id=None):
 
 
 # =====================================================
+# 画像ファイル検出（Vision AI前処理）
+# =====================================================
+
+_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"}
+
+
+def _detect_chatwork_image(body, room_id, bypass_context):
+    """
+    ChatWorkメッセージから画像ファイルを検出し、bypass_contextにfile_idを設定する。
+
+    ダウンロードはバイパスハンドラー内で非同期実行する（CLAUDE.md §1準拠）。
+    Telegram版と同じパターン: file_idのみ記録 → ハンドラーでダウンロード＋Vision API。
+
+    Args:
+        body: ChatWorkメッセージ本文（raw）
+        room_id: ルームID
+        bypass_context: バイパスコンテキスト（has_image等を設定する）
+    """
+    import re
+    import logging
+    logger = logging.getLogger(__name__)
+
+    # [download:FILE_ID] タグから画像ファイルを検出
+    file_ids = re.findall(r'\[download:(\d+)\]', body)
+    if not file_ids:
+        return
+
+    # ファイル情報を取得して画像か判定（ダウンロードせずファイル名だけ確認）
+    from infra.chatwork_api import call_chatwork_api_with_retry
+    api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
+    if not api_token:
+        return
+
+    for file_id in file_ids:
+        try:
+            response, success = call_chatwork_api_with_retry(
+                method="GET",
+                url=f"https://api.chatwork.com/v2/rooms/{room_id}/files/{file_id}",
+                headers={"X-ChatWorkToken": api_token},
+                params={},
+                timeout=10.0,
+            )
+
+            if not success or not response or response.status_code != 200:
+                continue
+
+            file_info = response.json()
+            filename = file_info.get("filename", "")
+            ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+
+            if ext in _IMAGE_EXTENSIONS:
+                bypass_context["has_image"] = True
+                bypass_context["image_file_id"] = file_id
+                bypass_context["image_room_id"] = str(room_id)
+                bypass_context["image_source"] = "chatwork"
+                logger.info(
+                    "ChatWork: image file detected file_id=%s ext=%s",
+                    file_id, ext,
+                )
+                return  # 最初の画像ファイルを使用
+
+        except Exception as e:
+            logger.warning("ChatWork image detection error: %s", type(e).__name__)
+            continue
+
+
+# =====================================================
 # v10.29.0: バイパスコンテキスト構築
 # =====================================================
 def _build_bypass_context(room_id: str, account_id: str) -> dict:
@@ -1972,6 +2039,14 @@ def chatwork_webhook():
                     bypass_context["has_meeting_audio"] = True
                     bypass_context["meeting_audio_data"] = audio_data
                     bypass_context["meeting_audio_filename"] = audio_filename
+
+                # 画像ファイル検出（Vision AI前処理）
+                # file_idのみbypass_contextに記録し、ダウンロードはバイパスハンドラー内で非同期実行
+                if (
+                    not audio_data
+                    and os.environ.get("ENABLE_IMAGE_ANALYSIS", "false").lower() == "true"
+                ):
+                    _detect_chatwork_image(body, room_id, bypass_context)
 
                 # BrainIntegration経由で処理（フォールバックなし）
                 import asyncio
@@ -3103,6 +3178,7 @@ def telegram_webhook():
                 if file_id:
                     telegram_bypass_context["has_image"] = True
                     telegram_bypass_context["image_file_id"] = file_id
+                    telegram_bypass_context["image_source"] = "telegram"
                     logger.info("Telegram: image detected for vision AI, file_id=%s", file_id[:20])
 
         # --- Brain処理 ---

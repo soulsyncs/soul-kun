@@ -80,8 +80,8 @@ class TestTelegramWebhookFlow:
         assert msg.metadata["is_ceo"] is False
         # エンドポイントではis_ceo=Falseの場合に拒否メッセージを送信
 
-    def test_photo_message_skipped(self):
-        """写真メッセージ（テキストなし）はNoneが返る"""
+    def test_photo_message_parsed(self):
+        """写真メッセージはメディアプレースホルダー付きで解析される"""
         from lib.channels.telegram_adapter import TelegramChannelAdapter
 
         adapter = TelegramChannelAdapter(bot_token="test-token")
@@ -95,7 +95,9 @@ class TestTelegramWebhookFlow:
         }
 
         msg = adapter.parse_webhook(update)
-        assert msg is None
+        assert msg is not None
+        assert msg.body == "[写真を送信]"
+        assert msg.metadata["media"]["media_type"] == "photo"
 
     def test_empty_body_returns_none(self):
         """空のリクエストボディはNone"""

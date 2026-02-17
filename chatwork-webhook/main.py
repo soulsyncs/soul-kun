@@ -3082,7 +3082,14 @@ def telegram_webhook():
             logger.debug("Telegram: skip reason=%s", channel_msg.skip_reason)
             return jsonify({"status": "ok", "skip": channel_msg.skip_reason})
 
-        logger.info("Telegram: message received len=%d", len(channel_msg.body))
+        media_info = channel_msg.metadata.get("media", {})
+        if media_info:
+            logger.info(
+                "Telegram: message received len=%d media_type=%s",
+                len(channel_msg.body), media_info.get("media_type", "unknown"),
+            )
+        else:
+            logger.info("Telegram: message received len=%d", len(channel_msg.body))
 
         # --- Brain処理 ---
         integration = _get_brain_integration()

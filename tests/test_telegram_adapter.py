@@ -19,6 +19,7 @@ from lib.channels.telegram_adapter import (
     is_telegram_ceo,
     clean_telegram_message,
     extract_telegram_update,
+    _extract_media_info,
 )
 
 
@@ -166,14 +167,29 @@ class TestExtractTelegramUpdate:
         result = extract_telegram_update(update)
         assert result is None
 
-    def test_no_text(self):
-        """テキストなし（写真メッセージ等）"""
+    def test_photo_without_caption(self):
+        """写真のみ（キャプションなし）→ メディアプレースホルダーで認識"""
         update = {
             "message": {
                 "message_id": 50,
                 "from": {"id": 111, "first_name": "カズ"},
                 "chat": {"id": 111, "type": "private"},
-                "photo": [{"file_id": "xxx"}],
+                "photo": [{"file_id": "small", "file_size": 100}, {"file_id": "large", "file_size": 5000}],
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["text"] == "[写真を送信]"
+        assert result["media"]["media_type"] == "photo"
+        assert result["media"]["file_id"] == "large"  # 最大サイズを取得
+
+    def test_no_text_no_media(self):
+        """テキストもメディアもない場合はNone"""
+        update = {
+            "message": {
+                "message_id": 50,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
             }
         }
         result = extract_telegram_update(update)
@@ -457,3 +473,216 @@ class TestTelegramChannelAdapterIsAddressed:
         """空文字列はボット宛ではない"""
         adapter = TelegramChannelAdapter(bot_token="test")
         assert adapter.is_addressed_to_bot("") is False
+
+
+# =============================================================================
+# メディア抽出テスト
+# =============================================================================
+
+
+class TestExtractMediaInfo:
+    """_extract_media_info のテスト"""
+
+    def test_photo(self):
+        """写真メッセージから最大サイズの写真情報を抽出"""
+        msg = {
+            "photo": [
+                {"file_id": "small", "file_unique_id": "u1", "file_size": 100, "width": 90, "height": 90},
+                {"file_id": "medium", "file_unique_id": "u2", "file_size": 1000, "width": 320, "height": 320},
+                {"file_id": "large", "file_unique_id": "u3", "file_size": 5000, "width": 800, "height": 800},
+            ]
+        }
+        result = _extract_media_info(msg)
+        assert result["media_type"] == "photo"
+        assert result["file_id"] == "large"
+        assert result["width"] == 800
+
+    def test_video(self):
+        """動画メッセージ"""
+        msg = {
+            "video": {
+                "file_id": "vid1",
+                "file_unique_id": "uv1",
+                "file_size": 50000,
+                "duration": 30,
+                "width": 1920,
+                "height": 1080,
+                "mime_type": "video/mp4",
+            }
+        }
+        result = _extract_media_info(msg)
+        assert result["media_type"] == "video"
+        assert result["file_id"] == "vid1"
+        assert result["duration"] == 30
+
+    def test_document(self):
+        """ドキュメント（PDF等）"""
+        msg = {
+            "document": {
+                "file_id": "doc1",
+                "file_unique_id": "ud1",
+                "file_size": 20000,
+                "file_name": "report.pdf",
+                "mime_type": "application/pdf",
+            }
+        }
+        result = _extract_media_info(msg)
+        assert result["media_type"] == "document"
+        assert result["file_name"] == "report.pdf"
+
+    def test_voice(self):
+        """ボイスメッセージ"""
+        msg = {
+            "voice": {
+                "file_id": "voice1",
+                "file_unique_id": "uvo1",
+                "file_size": 8000,
+                "duration": 5,
+                "mime_type": "audio/ogg",
+            }
+        }
+        result = _extract_media_info(msg)
+        assert result["media_type"] == "voice"
+        assert result["duration"] == 5
+
+    def test_no_media(self):
+        """メディアなし"""
+        msg = {"text": "こんにちは"}
+        result = _extract_media_info(msg)
+        assert result == {}
+
+    def test_photo_priority_over_document(self):
+        """写真とドキュメント両方ある場合、写真が優先"""
+        msg = {
+            "photo": [{"file_id": "photo1", "file_unique_id": "u1", "file_size": 100}],
+            "document": {"file_id": "doc1", "file_unique_id": "ud1"},
+        }
+        result = _extract_media_info(msg)
+        assert result["media_type"] == "photo"
+
+
+class TestExtractTelegramUpdateMedia:
+    """メディアメッセージのextract_telegram_updateテスト"""
+
+    def test_photo_with_caption(self):
+        """写真+キャプション → テキストにプレースホルダー付与"""
+        update = {
+            "message": {
+                "message_id": 60,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "photo": [{"file_id": "p1", "file_unique_id": "u1", "file_size": 5000}],
+                "caption": "この書類を確認して",
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["text"] == "[写真を送信] この書類を確認して"
+        assert result["media"]["media_type"] == "photo"
+
+    def test_video_without_caption(self):
+        """動画のみ（キャプションなし）"""
+        update = {
+            "message": {
+                "message_id": 61,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "video": {"file_id": "v1", "file_unique_id": "uv1", "duration": 10},
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["text"] == "[動画を送信]"
+        assert result["media"]["media_type"] == "video"
+
+    def test_document_with_caption(self):
+        """ファイル+キャプション"""
+        update = {
+            "message": {
+                "message_id": 62,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "document": {
+                    "file_id": "d1",
+                    "file_unique_id": "ud1",
+                    "file_name": "budget.xlsx",
+                    "mime_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                },
+                "caption": "来月の予算",
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["text"] == "[ファイルを送信] 来月の予算"
+        assert result["media"]["file_name"] == "budget.xlsx"
+
+    def test_voice_message(self):
+        """音声メッセージ"""
+        update = {
+            "message": {
+                "message_id": 63,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "voice": {"file_id": "vo1", "file_unique_id": "uvo1", "duration": 3},
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["text"] == "[音声メッセージを送信]"
+        assert result["media"]["media_type"] == "voice"
+
+    def test_text_only_has_no_media(self):
+        """テキストのみのメッセージにはmediaが空"""
+        update = {
+            "message": {
+                "message_id": 64,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "text": "普通のメッセージ",
+            }
+        }
+        result = extract_telegram_update(update)
+        assert result is not None
+        assert result["media"] == {}
+        assert result["text"] == "普通のメッセージ"
+
+
+class TestTelegramAdapterParseWebhookMedia:
+    """parse_webhookのメディアメッセージテスト"""
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_photo_parsed_to_channel_message(self):
+        """写真メッセージがChannelMessageに変換される"""
+        adapter = TelegramChannelAdapter(bot_token="test", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 70,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "photo": [{"file_id": "p1", "file_unique_id": "u1", "file_size": 5000}],
+                "caption": "この画像について教えて",
+            }
+        }
+        msg = adapter.parse_webhook(update)
+        assert msg is not None
+        assert "[写真を送信]" in msg.body
+        assert "この画像について教えて" in msg.body
+        assert msg.metadata["media"]["media_type"] == "photo"
+        assert msg.metadata["media"]["file_id"] == "p1"
+
+    @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
+    def test_photo_only_parsed(self):
+        """キャプションなし写真がChannelMessageに変換される"""
+        adapter = TelegramChannelAdapter(bot_token="test", ceo_chat_id="111")
+        update = {
+            "message": {
+                "message_id": 71,
+                "from": {"id": 111, "first_name": "カズ"},
+                "chat": {"id": 111, "type": "private"},
+                "photo": [{"file_id": "p2", "file_unique_id": "u2", "file_size": 3000}],
+            }
+        }
+        msg = adapter.parse_webhook(update)
+        assert msg is not None
+        assert msg.body == "[写真を送信]"
+        assert msg.is_bot_addressed is True

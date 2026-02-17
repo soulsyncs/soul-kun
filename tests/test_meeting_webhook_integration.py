@@ -291,13 +291,13 @@ class TestBypassHandlerMeetingAudio:
     @pytest.mark.asyncio
     async def test_no_audio_data_returns_none(self):
         """audio_dataがcontextにない → None（通常処理へフォールスルー）"""
-        # handler_wrappers.py をロード
+        # handler_wrappers パッケージをロード
         chatwork_dir = os.path.join(
             os.path.dirname(__file__), "..", "chatwork-webhook"
         )
         spec = importlib.util.spec_from_file_location(
             "lib.brain.handler_wrappers_test",
-            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers.py"),
+            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers", "__init__.py"),
         )
         module = importlib.util.module_from_spec(spec)
 
@@ -321,7 +321,7 @@ class TestBypassHandlerMeetingAudio:
         )
         spec = importlib.util.spec_from_file_location(
             "lib.brain.handler_wrappers_test2",
-            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers.py"),
+            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers", "__init__.py"),
         )
         module = importlib.util.module_from_spec(spec)
         sys.modules["lib.brain.integration"] = MagicMock()
@@ -361,7 +361,7 @@ class TestBypassHandlerMeetingAudio:
         )
         spec = importlib.util.spec_from_file_location(
             "lib.brain.handler_wrappers_test3",
-            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers.py"),
+            os.path.join(chatwork_dir, "lib", "brain", "handler_wrappers", "__init__.py"),
         )
         module = importlib.util.module_from_spec(spec)
         sys.modules["lib.brain.integration"] = MagicMock()

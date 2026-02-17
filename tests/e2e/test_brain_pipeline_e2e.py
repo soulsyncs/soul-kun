@@ -120,8 +120,8 @@ class TestBrainPipelineE2E:
             brain.observability = MagicMock()
             brain._elapsed_ms = MagicMock(return_value=10)
 
-            with patch("lib.brain.core.is_llm_brain_enabled", return_value=False), \
-                 patch("lib.brain.core.SAVE_DECISION_LOGS", False):
+            with patch("lib.brain.core.message_processing.is_llm_brain_enabled", return_value=False), \
+                 patch("lib.brain.core.message_processing.SAVE_DECISION_LOGS", False):
                 response = await brain.process_message(
                     message="おはようございます",
                     room_id="room_123",
@@ -183,8 +183,8 @@ class TestBrainPipelineE2E:
             brain.observability = MagicMock()
             brain._elapsed_ms = MagicMock(return_value=10)
 
-            with patch("lib.brain.core.is_llm_brain_enabled", return_value=False), \
-                 patch("lib.brain.core.SAVE_DECISION_LOGS", False):
+            with patch("lib.brain.core.message_processing.is_llm_brain_enabled", return_value=False), \
+                 patch("lib.brain.core.message_processing.SAVE_DECISION_LOGS", False):
                 response = await brain.process_message(
                     message="麻美さんに連絡して",
                     room_id="room_123",

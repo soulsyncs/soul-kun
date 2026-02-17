@@ -46,12 +46,6 @@ class TestImageExtensions:
 class TestDetectChatworkImage:
     """ChatWorkメッセージからの画像ファイル検出"""
 
-    @patch("chatwork-webhook.main._detect_chatwork_image")
-    def _call_detect(self, body, room_id, bypass_context):
-        """テストヘルパー: main.pyから_detect_chatwork_imageを呼ぶ"""
-        # main.pyは直接importできないのでsource-levelテスト
-        pass
-
     def test_detect_image_sets_bypass_context(self):
         """画像ファイルが検出されるとbypass_contextにhas_image等が設定される"""
         import sys

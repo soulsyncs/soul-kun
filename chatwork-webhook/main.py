@@ -1138,7 +1138,7 @@ def _download_meeting_audio(body, room_id, sender_account_id=None):
 _IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"}
 
 
-def _detect_chatwork_image(body, room_id, sender_account_id, bypass_context):
+def _detect_chatwork_image(body, room_id, bypass_context):
     """
     ChatWorkメッセージから画像ファイルを検出し、bypass_contextにfile_idを設定する。
 
@@ -1148,7 +1148,6 @@ def _detect_chatwork_image(body, room_id, sender_account_id, bypass_context):
     Args:
         body: ChatWorkメッセージ本文（raw）
         room_id: ルームID
-        sender_account_id: 送信者アカウントID
         bypass_context: バイパスコンテキスト（has_image等を設定する）
     """
     import re
@@ -1162,14 +1161,12 @@ def _detect_chatwork_image(body, room_id, sender_account_id, bypass_context):
 
     # ファイル情報を取得して画像か判定（ダウンロードせずファイル名だけ確認）
     from infra.chatwork_api import call_chatwork_api_with_retry
-    from lib.secrets import get_secret
     api_token = get_secret("SOULKUN_CHATWORK_TOKEN")
     if not api_token:
         return
 
     for file_id in file_ids:
         try:
-
             response, success = call_chatwork_api_with_retry(
                 method="GET",
                 url=f"https://api.chatwork.com/v2/rooms/{room_id}/files/{file_id}",
@@ -1178,7 +1175,7 @@ def _detect_chatwork_image(body, room_id, sender_account_id, bypass_context):
                 timeout=10.0,
             )
 
-            if not success or not response:
+            if not success or not response or response.status_code != 200:
                 continue
 
             file_info = response.json()
@@ -2049,7 +2046,7 @@ def chatwork_webhook():
                     not audio_data
                     and os.environ.get("ENABLE_IMAGE_ANALYSIS", "false").lower() == "true"
                 ):
-                    _detect_chatwork_image(body, room_id, sender_account_id, bypass_context)
+                    _detect_chatwork_image(body, room_id, bypass_context)
 
                 # BrainIntegration経由で処理（フォールバックなし）
                 import asyncio

@@ -27,13 +27,13 @@ from lib.brain.integration import (
     BypassType,
     BypassDetectionResult,
     create_integration,
-    is_brain_enabled,
     FEATURE_FLAG_NAME,
     DEFAULT_FEATURE_FLAG,
     BYPASS_ROUTE_PATTERNS,
     INTEGRATION_MAX_RETRIES,
     INTEGRATION_TIMEOUT_SECONDS,
 )
+from lib.brain.env_config import is_brain_enabled
 from lib.brain.models import BrainResponse
 
 

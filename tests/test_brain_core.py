@@ -1287,7 +1287,7 @@ class TestStateManagementExtended:
         brain._get_user_organization_id = AsyncMock(return_value="org_user")
 
         # モック用のBrainStateManagerを設定
-        with patch('lib.brain.core.BrainStateManager') as MockStateManager:
+        with patch('lib.brain.state_manager.BrainStateManager') as MockStateManager:
             mock_manager = MagicMock()
             mock_manager.get_current_state = AsyncMock(return_value=None)
             MockStateManager.return_value = mock_manager
@@ -1427,7 +1427,7 @@ class TestInitialization:
 
     def test_init_execution_excellence_disabled(self, mock_pool):
         """ExecutionExcellenceが無効の場合"""
-        with patch('lib.brain.core.ff_execution_excellence_enabled', return_value=False):
+        with patch('lib.brain.core.initialization.ff_execution_excellence_enabled', return_value=False):
             brain = SoulkunBrain(
                 pool=mock_pool,
                 org_id="org_test",
@@ -1438,7 +1438,7 @@ class TestInitialization:
 
     def test_init_llm_brain_disabled(self, mock_pool):
         """LLM Brainが無効の場合"""
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.initialization.is_llm_brain_enabled', return_value=False):
             brain = SoulkunBrain(
                 pool=mock_pool,
                 org_id="org_test",
@@ -1515,7 +1515,7 @@ class TestProcessMessageExtended:
         brain.memory_manager.update_memory_safely = AsyncMock()
         brain.memory_manager.log_decision_safely = AsyncMock()
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="テスト",
                 room_id="room123",
@@ -1546,7 +1546,7 @@ class TestProcessMessageExtended:
             success=True,
         ))
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="成長したいから",
                 room_id="room123",
@@ -1583,7 +1583,7 @@ class TestProcessMessageExtended:
         brain.memory_manager.is_ceo_user = MagicMock(return_value=False)
         brain.memory_manager.get_ceo_teachings_context = AsyncMock(return_value=None)
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="削除して",
                 room_id="room123",
@@ -1630,7 +1630,7 @@ class TestProcessMessageExtended:
         brain.memory_manager.log_decision_safely = AsyncMock()
         brain.use_chain_of_thought = True
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="タスク教えて",
                 room_id="room123",
@@ -1690,7 +1690,7 @@ class TestProcessMessageExtended:
         brain.use_self_critique = True
         brain.use_chain_of_thought = True
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="テスト",
                 room_id="room123",
@@ -1842,11 +1842,11 @@ class TestLLMBrainInitialization:
 
     def test_init_llm_brain_enabled(self, mock_pool):
         """LLM Brainが有効な場合の初期化"""
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=True):
-            with patch('lib.brain.core.LLMBrain') as MockLLMBrain:
-                with patch('lib.brain.core.GuardianLayer') as MockGuardian:
-                    with patch('lib.brain.core.LLMStateManager') as MockStateManager:
-                        with patch('lib.brain.core.ContextBuilder') as MockContextBuilder:
+        with patch('lib.brain.core.initialization.is_llm_brain_enabled', return_value=True):
+            with patch('lib.brain.core.initialization.LLMBrain') as MockLLMBrain:
+                with patch('lib.brain.core.initialization.GuardianLayer') as MockGuardian:
+                    with patch('lib.brain.core.initialization.LLMStateManager') as MockStateManager:
+                        with patch('lib.brain.core.initialization.ContextBuilder') as MockContextBuilder:
                             MockLLMBrain.return_value = MagicMock()
                             MockGuardian.return_value = MagicMock()
                             MockStateManager.return_value = MagicMock()
@@ -1862,8 +1862,8 @@ class TestLLMBrainInitialization:
 
     def test_init_llm_brain_error(self, mock_pool):
         """LLM Brain初期化でエラーが発生した場合"""
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=True):
-            with patch('lib.brain.core.LLMBrain', side_effect=Exception("Init Error")):
+        with patch('lib.brain.core.initialization.is_llm_brain_enabled', return_value=True):
+            with patch('lib.brain.core.initialization.LLMBrain', side_effect=Exception("Init Error")):
                 brain = SoulkunBrain(
                     pool=mock_pool,
                     org_id="org_test",
@@ -1877,8 +1877,8 @@ class TestExecutionExcellenceInitialization:
 
     def test_init_execution_excellence_enabled(self, mock_pool, test_capabilities):
         """ExecutionExcellenceが有効な場合の初期化"""
-        with patch('lib.brain.core.ff_execution_excellence_enabled', return_value=True):
-            with patch('lib.brain.core.create_execution_excellence') as MockCreate:
+        with patch('lib.brain.core.initialization.ff_execution_excellence_enabled', return_value=True):
+            with patch('lib.brain.core.initialization.create_execution_excellence') as MockCreate:
                 mock_ee = MagicMock()
                 MockCreate.return_value = mock_ee
 
@@ -1892,8 +1892,8 @@ class TestExecutionExcellenceInitialization:
 
     def test_init_execution_excellence_error(self, mock_pool, test_capabilities):
         """ExecutionExcellence初期化でエラーが発生した場合"""
-        with patch('lib.brain.core.ff_execution_excellence_enabled', return_value=True):
-            with patch('lib.brain.core.create_execution_excellence', side_effect=Exception("EE Init Error")):
+        with patch('lib.brain.core.initialization.ff_execution_excellence_enabled', return_value=True):
+            with patch('lib.brain.core.initialization.create_execution_excellence', side_effect=Exception("EE Init Error")):
                 brain = SoulkunBrain(
                     pool=mock_pool,
                     org_id="org_test",
@@ -2063,7 +2063,7 @@ class TestProcessMessageCEOTeachings:
         brain.memory_manager.update_memory_safely = AsyncMock()
         brain.memory_manager.log_decision_safely = AsyncMock()
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="テスト",
                 room_id="room123",
@@ -2351,7 +2351,7 @@ class TestLLMBrainContextSkip:
             success=True,
         ))
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=True):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=True):
             response = await brain.process_message(
                 message="テスト",
                 room_id="room123",
@@ -2396,7 +2396,7 @@ class TestLLMBrainContextSkip:
             success=True, message="テスト応答ウル",
         ))
 
-        with patch('lib.brain.core.is_llm_brain_enabled', return_value=False):
+        with patch('lib.brain.core.message_processing.is_llm_brain_enabled', return_value=False):
             response = await brain.process_message(
                 message="テスト",
                 room_id="room123",

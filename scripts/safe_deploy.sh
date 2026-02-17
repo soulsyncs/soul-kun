@@ -42,6 +42,7 @@ ENV_VARS_CHATWORK="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUT
 # Secret Manager からマウントするシークレット
 SECRETS_CHATWORK="TAVILY_API_KEY=TAVILY_API_KEY:latest"
 ENV_VARS_PROACTIVE="USE_BRAIN_ARCHITECTURE=true,ENVIRONMENT=production,LOG_EXECUTION_ID=true"
+SECRETS_PROACTIVE="TAVILY_API_KEY=TAVILY_API_KEY:latest"
 
 # サービス別設定
 # bash 3.x互換: 連想配列の代わりに個別変数を使用
@@ -235,7 +236,7 @@ for func in "${TARGET_FUNCTIONS[@]}"; do
     secrets="$SECRETS_CHATWORK"
   else
     env_vars="$ENV_VARS_PROACTIVE"
-    secrets=""
+    secrets="$SECRETS_PROACTIVE"
   fi
 
   echo "  $func をデプロイ中..."

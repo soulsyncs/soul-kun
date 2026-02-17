@@ -1287,7 +1287,7 @@ class TestStateManagementExtended:
         brain._get_user_organization_id = AsyncMock(return_value="org_user")
 
         # モック用のBrainStateManagerを設定
-        with patch('lib.brain.core.state_layer.BrainStateManager') as MockStateManager:
+        with patch('lib.brain.state_manager.BrainStateManager') as MockStateManager:
             mock_manager = MagicMock()
             mock_manager.get_current_state = AsyncMock(return_value=None)
             MockStateManager.return_value = mock_manager

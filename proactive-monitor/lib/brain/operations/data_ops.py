@@ -73,13 +73,13 @@ def _build_task_filter(filters: str) -> tuple:
 
     filters_lower = filters.lower()
 
-    # ステータスフィルタ
-    if "完了" in filters_lower or "done" in filters_lower:
-        where_parts.append("status = :status")
-        params["status"] = "done"
-    elif "未完了" in filters_lower or "open" in filters_lower or "未着手" in filters_lower:
+    # ステータスフィルタ（「未完了」を先にチェック。「完了」は「未完了」に含まれるため順序が重要）
+    if "未完了" in filters_lower or "open" in filters_lower or "未着手" in filters_lower:
         where_parts.append("status = :status")
         params["status"] = "open"
+    elif "完了" in filters_lower or "done" in filters_lower:
+        where_parts.append("status = :status")
+        params["status"] = "done"
 
     # 時期フィルタ
     now = datetime.utcnow()
@@ -418,7 +418,7 @@ def _extract_keywords(query_text: str) -> str:
     """
     # フィルタ語を除去
     filter_words = [
-        "完了", "未完了", "done", "open", "未着手",
+        "未完了", "完了", "done", "open", "未着手",
         "今月", "先月", "今日", "今週", "来週",
         "タスク", "目標", "tasks", "goals",
         "の", "を", "で", "に", "が", "は",

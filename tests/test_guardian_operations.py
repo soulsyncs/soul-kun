@@ -45,8 +45,8 @@ def _make_llm_result_with_tool(
         reasoning="テスト用推論",
         confidence=ConfidenceScores(
             overall=confidence,
-            intent_match=confidence,
-            data_completeness=confidence,
+            intent=confidence,
+            parameters=confidence,
         ),
     )
 

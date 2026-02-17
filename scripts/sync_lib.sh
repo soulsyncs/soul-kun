@@ -155,12 +155,12 @@ echo ""
 
 if [ "$BRAIN_ONLY" = true ]; then
     echo "  → brain/ のみ"
-    sync_mirror "lib/brain" "chatwork-webhook/lib/brain" "handler_wrappers.py"
+    sync_mirror "lib/brain" "chatwork-webhook/lib/brain" "handler_wrappers" "handler_wrappers.py"
 else
     # chatwork-webhook独自ファイルを保護（lib/に存在しないもの）
-    # - brain/handler_wrappers.py: chatwork-webhook専用のハンドラーラッパー
+    # - brain/handler_wrappers/: chatwork-webhook専用のハンドラーラッパー（パッケージ）
     # - persona/: chatwork-webhook専用のペルソナモジュール
-    sync_mirror "lib" "chatwork-webhook/lib" "brain/handler_wrappers.py" "persona"
+    sync_mirror "lib" "chatwork-webhook/lib" "brain/handler_wrappers" "brain/handler_wrappers.py" "persona"
 fi
 
 echo ""

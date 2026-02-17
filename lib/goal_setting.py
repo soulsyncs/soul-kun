@@ -1754,7 +1754,7 @@ class GoalSettingDialogue:
         # v10.31.5: 確認ステップの処理（LLM抽出後）
         # =====================================================
         if current_step == "confirm":
-            logger.debug("確認ステップ: ユーザー応答「%s...」", user_message[:30])
+            logger.debug("確認ステップ: ユーザー応答受信（%d文字）", len(user_message))
 
             # OKパターンをチェック（v10.40.1: 純粋な確認のみ受け付ける）
             # 「合ってるけど、フィードバックして」のような否定接続やFB要求は確認とみなさない
@@ -1926,7 +1926,7 @@ class GoalSettingDialogue:
         # v10.31.5: 不満検出（「答えたじゃん」等）
         # =====================================================
         if self._detect_frustration(user_message):
-            logger.info("不満を検出: %s...", user_message[:30])
+            logger.info("不満を検出（%d文字）", len(user_message))
             # 今までの回答を要約して確認
             extracted = {
                 "why": session.get("why_answer", ""),

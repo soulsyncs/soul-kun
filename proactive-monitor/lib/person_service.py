@@ -179,7 +179,7 @@ class PersonService:
                     "starts_with": f"{escape_ilike(partial_name)}%"
                 }
             ).fetchall()
-            logger.debug("search_person_by_partial_name: '%s' (normalized: '%s') → %d件", partial_name, normalized, len(result))
+            logger.debug("search_person_by_partial_name: %d件ヒット", len(result))
             return [r[0] for r in result]
 
 

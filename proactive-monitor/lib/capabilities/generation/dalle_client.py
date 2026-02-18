@@ -82,8 +82,10 @@ class DALLEClient:
             try:
                 from lib.secrets import get_secret_cached
                 self._api_key = get_secret_cached("OPENAI_API_KEY")
-            except (ImportError, Exception):
-                pass
+            except ImportError:
+                logger.warning("lib.secrets module not available")
+            except Exception as e:
+                logger.warning("Failed to get OpenAI API key from Secret Manager: %s", type(e).__name__)
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
         self._api_url = DALLE_API_URL

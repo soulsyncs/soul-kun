@@ -250,10 +250,10 @@ def _fetch_csv_data(table: str, filters: str, organization_id: str) -> list:
             """)
         elif table == "staff_goals":
             query = text(f"""
-                SELECT id, goal_month, sessions_target
+                SELECT id, name, department, status, approval_status
                 FROM staff_goals
                 WHERE {where_clause}
-                ORDER BY goal_month DESC
+                ORDER BY id DESC
                 LIMIT 1000
             """)
         else:
@@ -280,9 +280,9 @@ def _build_csv(table: str, rows: list) -> str:
                     pass
             writer.writerow([row[0], (row[1] or "")[:100], status_ja, deadline, row[4] or ""])
     elif table == "staff_goals":
-        writer.writerow(["目標ID", "月", "目標セッション数"])
+        writer.writerow(["目標ID", "氏名", "部署", "ステータス", "承認状況"])
         for row in rows:
-            writer.writerow([row[0], row[1] or "", row[2] or ""])
+            writer.writerow([row[0], row[1] or "", row[2] or "", row[3] or "", row[4] or ""])
 
     return output.getvalue()
 

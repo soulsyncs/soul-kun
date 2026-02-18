@@ -167,7 +167,7 @@ class TestIntegrationConstants:
 
     def test_integration_timeout(self):
         """統合タイムアウト"""
-        assert INTEGRATION_TIMEOUT_SECONDS == 90.0
+        assert INTEGRATION_TIMEOUT_SECONDS == 240.0  # Cloud Run 300秒制限に対する余裕
         assert INTEGRATION_TIMEOUT_SECONDS > 0
 
 

@@ -363,7 +363,6 @@ class BaseAgent(ABC):
 
     def _fire_and_forget(self, coro) -> None:
         """create_taskの安全ラッパー: 参照保持+エラーログ（CLAUDE.md §3-2 #19）"""
-        import asyncio
         task = asyncio.create_task(coro)
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
@@ -373,9 +372,10 @@ class BaseAgent(ABC):
     def _log_background_error(task) -> None:
         """バックグラウンドタスクのエラーをログ出力"""
         if not task.cancelled() and task.exception() is not None:
+            exc = task.exception()
             logger.error(
                 "Background task error in BaseAgent: %s",
-                task.exception(),
+                type(exc).__name__,
             )
 
     @property

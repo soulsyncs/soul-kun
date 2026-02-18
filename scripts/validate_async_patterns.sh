@@ -112,7 +112,12 @@ check "AP-06" "Debug markers in production code" \
 
 # AP-07: --set-env-vars 禁止（#22）
 echo "--- #22: デプロイスクリプト安全性 ---"
-set_env_matches=$(grep -rn "\-\-set-env-vars" . --include="*.sh" --include="*.yaml" --include="*.yml" 2>/dev/null | grep -v "update-env-vars\|validate_async\|#.*AP-07\|# " || true)
+# grep -v 行頭コメント（YAML/shell の "#" で始まる行）のみ除外
+# "# " パターンは除外しない（インラインコメント付きの実際の違反を見逃すため）
+set_env_matches=$(grep -rn "\-\-set-env-vars" . --include="*.sh" --include="*.yaml" --include="*.yml" 2>/dev/null \
+    | grep -v "update-env-vars\|validate_async" \
+    | grep -v "^[^:]*:[0-9]*:[[:space:]]*#" \
+    || true)
 if [ -n "$set_env_matches" ]; then
     echo -e "${RED}FAIL${NC} [AP-07] --set-env-vars found (use --update-env-vars instead)"
     echo "$set_env_matches"

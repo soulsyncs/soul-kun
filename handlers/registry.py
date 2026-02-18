@@ -76,9 +76,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             },
             "limit_date": {
                 "type": "date",
-                "description": "期限日（YYYY-MM-DD形式）",
-                "required": True,
-                "note": "「明日」→翌日、「明後日」→2日後、「来週金曜」→該当日に変換。期限の指定がない場合は必ずユーザーに確認"
+                "description": "期限日（YYYY-MM-DD形式）。【重要】ユーザーが明示的に期限を指定していない場合は、このパラメータを空にしてToolを呼び出すこと。デフォルト値を推測してはいけない。",
+                "required": False,
+                "note": "「明日」→翌日、「明後日」→2日後、「来週金曜」→該当日に変換。期限の指定がない場合はシステムがユーザーに確認する"
             },
             "limit_time": {
                 "type": "time",
@@ -1359,14 +1359,14 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     # =========================================================================
     "web_search": {
         "name": "ウェブ検索",
-        "description": "インターネット上の最新情報を検索する。社内ナレッジにない情報、最新ニュース、技術情報、一般知識などの検索に対応。",
+        "description": "インターネット上の最新情報を検索する。天気・気温・天気予報、最新ニュース、社内ナレッジにない一般知識・技術情報などの検索に対応。",
         "category": "external",
         "enabled": True,
         "trigger_examples": [
+            "今日の天気を教えて",
             "〇〇について調べて",
             "最新の〇〇情報を教えて",
             "〇〇をネットで検索して",
-            "〇〇って何？調べて",
             "〇〇の最新ニュースを教えて",
         ],
         "params_schema": {
@@ -1389,12 +1389,12 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "brain_metadata": {
             "decision_keywords": {
                 "primary": ["検索して", "調べて", "ネットで", "ウェブで", "ググって"],
-                "secondary": ["最新", "ニュース", "情報", "教えて"],
+                "secondary": ["最新", "ニュース", "情報", "教えて", "天気", "天気予報", "気温"],
                 "negative": ["タスク", "目標", "ナレッジ", "社内"],
             },
             "intent_keywords": {
                 "primary": ["ウェブ検索", "ネット検索", "インターネット検索", "調べて"],
-                "secondary": ["検索", "調査", "情報収集"],
+                "secondary": ["検索", "調査", "情報収集", "天気", "気温", "天気予報"],
                 "modifiers": ["調べて", "検索", "教えて", "ググって"],
                 "negative": ["社内", "ナレッジ", "マニュアル"],
                 "confidence_boost": 0.80,
@@ -1515,9 +1515,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "params_schema": {
             "data_source": {
                 "type": "string",
-                "description": "集計対象のデータ名またはファイル名",
+                "description": "集計対象のデータ種別",
                 "required": True,
-                "note": "DBテーブル名、CSVファイル名、GCSパスのいずれか",
+                "note": "対応値: tasks（タスク）、goals（目標）のみ",
             },
             "operation": {
                 "type": "string",
@@ -1565,8 +1565,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "params_schema": {
             "data_source": {
                 "type": "string",
-                "description": "検索対象のデータ名またはテーブル名",
+                "description": "検索対象のデータ種別",
                 "required": True,
+                "note": "対応値: tasks（タスク）、goals（目標）のみ",
             },
             "query": {
                 "type": "string",

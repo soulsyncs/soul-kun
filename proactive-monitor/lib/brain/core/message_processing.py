@@ -579,17 +579,30 @@ class MessageProcessingMixin:
         confidence = search_data.get("confidence", 0)
         source_note = search_data.get("source_note", "")
 
-        system_prompt = f"""あなたは「ソウルくん」です。会社の知識ベースから情報を参照して回答します。
+        # ソースに応じてプロンプトを分岐
+        if source == "web_search":
+            source_desc = "インターネット検索（Tavily Search API）"
+            source_instruction = "検索結果に基づいて回答してください。情報源のURLがある場合は言及してください。"
+        elif source == "calendar_read":
+            source_desc = "Googleカレンダー"
+            source_instruction = "カレンダーの予定情報に基づいて回答してください。"
+        elif source == "drive_search":
+            source_desc = "Googleドライブ"
+            source_instruction = "ドライブのファイル情報に基づいて回答してください。"
+        else:
+            source_desc = f"{source}（{'旧システム' if source == 'legacy' else 'Phase 3 Pinecone検索'}）"
+            source_instruction = "提供された参考情報に基づいて回答してください。情報源を明示してください。"
+
+        system_prompt = f"""あなたは「ソウルくん」です。参考情報を基に質問に回答します。
 
 【重要なルール】
-1. 提供された参考情報に基づいて回答してください
-2. 情報源を明示してください（例：「就業規則によると...」「社内マニュアルでは...」）
-3. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
-4. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
-5. 簡潔に、わかりやすく回答してください
+1. {source_instruction}
+2. 参考情報にない内容は推測せず、「その点は確認できませんでした」と伝えてください
+3. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
+4. 簡潔に、わかりやすく回答してください
 
 【参考情報の出典】
-検索方法: {source}（{"旧システム" if source == "legacy" else "Phase 3 Pinecone検索"}）
+検索方法: {source_desc}
 信頼度: {confidence:.2f}
 
 【参考情報】

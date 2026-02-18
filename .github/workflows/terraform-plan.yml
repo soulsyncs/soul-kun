@@ -28,7 +28,7 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: terraform-plan-${{ github.event.pull_request.number }}
+  group: terraform-plan-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
       # 将来的には Workload Identity Federation（長期鍵不要の方式）への移行を推奨
       # -------------------------------------------------------------------------
       - name: GCP認証
-        if: ${{ secrets.GCP_CREDENTIALS_JSON != '' }}
+        if: secrets.GCP_CREDENTIALS_JSON != ''
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}

@@ -225,7 +225,7 @@ async def handle_csv_export(
 def _fetch_csv_data(table: str, filters: str, organization_id: str) -> list:
     """DBからCSV用データを取得する（同期関数）"""
     from lib.brain.operations.data_ops import _build_task_filter
-    from lib.brain.db import get_db_pool
+    from lib.db import get_db_pool
     from sqlalchemy import text
 
     pool = get_db_pool()

@@ -78,6 +78,14 @@ class DALLEClient:
             max_retries: 最大リトライ回数
         """
         self._api_key = api_key or os.environ.get("OPENAI_API_KEY")
+        if not self._api_key:
+            try:
+                from lib.secrets import get_secret_cached
+                self._api_key = get_secret_cached("OPENAI_API_KEY")
+            except ImportError:
+                logger.warning("lib.secrets module not available")
+            except Exception as e:
+                logger.warning("Failed to get OpenAI API key from Secret Manager: %s", type(e).__name__)
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
         self._api_url = DALLE_API_URL

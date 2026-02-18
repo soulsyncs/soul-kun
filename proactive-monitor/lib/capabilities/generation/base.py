@@ -72,6 +72,14 @@ class LLMClient:
             timeout_seconds: タイムアウト秒数
         """
         self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY")
+        if not self._api_key:
+            try:
+                from lib.secrets import get_secret_cached
+                self._api_key = get_secret_cached("openrouter-api-key")
+            except ImportError:
+                logger.warning("lib.secrets module not available")
+            except Exception as e:
+                logger.warning("Failed to get API key from Secret Manager: %s", type(e).__name__)
         self._base_url = base_url
         self._default_model = default_model
         self._timeout_seconds = timeout_seconds

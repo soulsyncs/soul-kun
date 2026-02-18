@@ -17,34 +17,34 @@
 locals {
   # 全ファンクション共通の環境変数（ドキュメント目的。実際の値は deploy scripts が管理）
   common_env_vars = {
-    CORS_ORIGINS               = var.cors_origins
-    INSTANCE_CONNECTION_NAME   = "${var.project_id}:${var.region}:${var.db_instance_name}"
-    DB_NAME                    = var.db_name
-    DB_USER                    = var.db_user
-    PROJECT_ID                 = var.project_id
-    ENVIRONMENT                = "production"
-    DEBUG                      = "false"
-    USE_BRAIN_ARCHITECTURE     = "true"
-    LOG_EXECUTION_ID           = "true"
-    ENABLE_SYSTEM_PROMPT_V2    = "true"
+    CORS_ORIGINS             = var.cors_origins
+    INSTANCE_CONNECTION_NAME = "${var.project_id}:${var.region}:${var.db_instance_name}"
+    DB_NAME                  = var.db_name
+    DB_USER                  = var.db_user
+    PROJECT_ID               = var.project_id
+    ENVIRONMENT              = "production"
+    DEBUG                    = "false"
+    USE_BRAIN_ARCHITECTURE   = "true"
+    LOG_EXECUTION_ID         = "true"
+    ENABLE_SYSTEM_PROMPT_V2  = "true"
   }
 
   # ファンクション定義マップ（chatwork-webhook, proactive-monitor は除外）
   functions = {
     watch_google_drive = {
-      description          = "Google Drive monitoring and knowledge indexing"
-      entry_point          = "watch_google_drive"
-      source_dir           = "watch-google-drive"
-      memory               = "1Gi"
-      timeout              = 540
-      max_instances        = 3
-      min_instances        = 0
+      description           = "Google Drive monitoring and knowledge indexing"
+      entry_point           = "watch_google_drive"
+      source_dir            = "watch-google-drive"
+      memory                = "1Gi"
+      timeout               = 540
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
       extra_env = {
-        ORGANIZATION_ID    = var.cloudsql_org_id
-        ROOT_FOLDER_ID     = var.root_folder_id
-        CHUNK_SIZE         = "1000"
-        CHUNK_OVERLAP      = "200"
+        ORGANIZATION_ID     = var.cloudsql_org_id
+        ROOT_FOLDER_ID      = var.root_folder_id
+        CHUNK_SIZE          = "1000"
+        CHUNK_OVERLAP       = "200"
         PINECONE_INDEX_NAME = var.pinecone_index_name
       }
       secrets = {
@@ -55,17 +55,17 @@ locals {
     }
 
     supabase_sync = {
-      description          = "Supabase to Cloud SQL data sync"
-      entry_point          = "supabase_sync"
-      source_dir           = "supabase-sync"
-      memory               = "256Mi"
-      timeout              = 120
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Supabase to Cloud SQL data sync"
+      entry_point           = "supabase_sync"
+      source_dir            = "supabase-sync"
+      memory                = "256Mi"
+      timeout               = 120
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
       extra_env = {
-        SUPABASE_URL   = var.supabase_url
-        SOULKUN_ORG_ID = var.supabase_org_id
+        SUPABASE_URL    = var.supabase_url
+        SOULKUN_ORG_ID  = var.supabase_org_id
         CLOUDSQL_ORG_ID = var.cloudsql_org_id
       }
       secrets = {
@@ -75,13 +75,13 @@ locals {
     }
 
     pattern-detection = {
-      description          = "LangGraph pattern detection analysis"
-      entry_point          = "pattern_detection"
-      source_dir           = "pattern-detection"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 3
-      min_instances        = 0
+      description           = "LangGraph pattern detection analysis"
+      entry_point           = "pattern_detection"
+      source_dir            = "pattern-detection"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
       extra_env = {
         DRY_RUN   = "false"
@@ -95,13 +95,13 @@ locals {
     }
 
     personalization-detection = {
-      description          = "Personalization pattern detection"
-      entry_point          = "personalization_detection"
-      source_dir           = "pattern-detection"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 3
-      min_instances        = 0
+      description           = "Personalization pattern detection"
+      entry_point           = "personalization_detection"
+      source_dir            = "pattern-detection"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
       extra_env = {
         DRY_RUN   = "false"
@@ -114,13 +114,13 @@ locals {
     }
 
     weekly-report = {
-      description          = "Weekly report generation and delivery"
-      entry_point          = "weekly_report"
-      source_dir           = "pattern-detection"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Weekly report generation and delivery"
+      entry_point           = "weekly_report"
+      source_dir            = "pattern-detection"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
       extra_env = {
         DRY_RUN   = "false"
@@ -133,15 +133,15 @@ locals {
     }
 
     sync_drive_permissions = {
-      description          = "Google Drive permissions sync"
-      entry_point          = "sync_drive_permissions"
-      source_dir           = "sync-drive-permissions"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Google Drive permissions sync"
+      entry_point           = "sync_drive_permissions"
+      source_dir            = "sync-drive-permissions"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         GOOGLE_SERVICE_ACCOUNT_JSON = "GOOGLE_SERVICE_ACCOUNT_JSON"
         DB_PASSWORD                 = "cloudsql-password"
@@ -149,15 +149,15 @@ locals {
     }
 
     sync-chatwork-tasks = {
-      description          = "ChatWork task sync to Cloud SQL"
-      entry_point          = "sync_chatwork_tasks"
-      source_dir           = "sync-chatwork-tasks"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "ChatWork task sync to Cloud SQL"
+      entry_point           = "sync_chatwork_tasks"
+      source_dir            = "sync-chatwork-tasks"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
         ANTHROPIC_API_KEY      = "ANTHROPIC_API_KEY"
@@ -166,15 +166,15 @@ locals {
     }
 
     goal-daily-check = {
-      description          = "Daily goal progress check"
-      entry_point          = "goal_daily_check"
-      source_dir           = "remind-tasks"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Daily goal progress check"
+      entry_point           = "goal_daily_check"
+      source_dir            = "remind-tasks"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         CHATWORK_API_TOKEN     = "chatwork-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -184,15 +184,15 @@ locals {
     }
 
     goal-daily-reminder = {
-      description          = "Daily goal reminder notification"
-      entry_point          = "goal_daily_reminder"
-      source_dir           = "remind-tasks"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Daily goal reminder notification"
+      entry_point           = "goal_daily_reminder"
+      source_dir            = "remind-tasks"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         CHATWORK_API_TOKEN     = "chatwork-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -202,15 +202,15 @@ locals {
     }
 
     goal-morning-feedback = {
-      description          = "Morning goal feedback"
-      entry_point          = "goal_morning_feedback"
-      source_dir           = "remind-tasks"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Morning goal feedback"
+      entry_point           = "goal_morning_feedback"
+      source_dir            = "remind-tasks"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         CHATWORK_API_TOKEN     = "chatwork-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -220,15 +220,15 @@ locals {
     }
 
     goal-consecutive-unanswered = {
-      description          = "Consecutive unanswered goal alerts"
-      entry_point          = "goal_consecutive_unanswered_check"
-      source_dir           = "remind-tasks"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Consecutive unanswered goal alerts"
+      entry_point           = "goal_consecutive_unanswered_check"
+      source_dir            = "remind-tasks"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         CHATWORK_API_TOKEN     = "chatwork-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -240,15 +240,15 @@ locals {
     # --- 以下は 2026-02-14 Cloud Run移行時に追加（既存CF Gen2をTF管理下に） ---
 
     bottleneck-detection = {
-      description          = "Daily bottleneck detection analysis"
-      entry_point          = "bottleneck_detection"
-      source_dir           = "bottleneck-detection"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 3
-      min_instances        = 0
+      description           = "Daily bottleneck detection analysis"
+      entry_point           = "bottleneck_detection"
+      source_dir            = "bottleneck-detection"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         GOOGLE_AI_API_KEY = "GOOGLE_AI_API_KEY"
         DB_PASSWORD       = "cloudsql-password"
@@ -256,15 +256,15 @@ locals {
     }
 
     brain-daily-aggregation = {
-      description          = "Daily brain knowledge aggregation"
-      entry_point          = "brain_daily_aggregation"
-      source_dir           = "brain-daily-aggregation"
-      memory               = "512Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Daily brain knowledge aggregation"
+      entry_point           = "brain_daily_aggregation"
+      source_dir            = "brain-daily-aggregation"
+      memory                = "512Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         OPENROUTER_API_KEY = "openrouter-api-key"
         DB_PASSWORD        = "cloudsql-password"
@@ -272,15 +272,15 @@ locals {
     }
 
     check-reply-messages = {
-      description          = "Check and process reply messages"
-      entry_point          = "check_reply_messages"
-      source_dir           = "check-reply-messages"
-      memory               = "1024Mi"
-      timeout              = 120
-      max_instances        = 6
-      min_instances        = 0
+      description           = "Check and process reply messages"
+      entry_point           = "check_reply_messages"
+      source_dir            = "check-reply-messages"
+      memory                = "1024Mi"
+      timeout               = 120
+      max_instances         = 6
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
         DB_PASSWORD            = "cloudsql-password"
@@ -288,45 +288,45 @@ locals {
     }
 
     cleanup-old-data = {
-      description          = "Cleanup old data from database"
-      entry_point          = "cleanup_old_data"
-      source_dir           = "cleanup-old-data"
-      memory               = "256Mi"
-      timeout              = 300
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Cleanup old data from database"
+      entry_point           = "cleanup_old_data"
+      source_dir            = "cleanup-old-data"
+      memory                = "256Mi"
+      timeout               = 300
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         DB_PASSWORD = "cloudsql-password"
       }
     }
 
     db-backup-export = {
-      description          = "Database backup and export"
-      entry_point          = "db_backup_export"
-      source_dir           = "db-backup-export"
-      memory               = "256Mi"
-      timeout              = 540
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Database backup and export"
+      entry_point           = "db_backup_export"
+      source_dir            = "db-backup-export"
+      memory                = "256Mi"
+      timeout               = 540
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         DB_PASSWORD = "cloudsql-password"
       }
     }
 
     remind-tasks = {
-      description          = "Task reminder notifications"
-      entry_point          = "remind_tasks"
-      source_dir           = "remind-tasks"
-      memory               = "256Mi"
-      timeout              = 300
-      max_instances        = 1
-      min_instances        = 0
+      description           = "Task reminder notifications"
+      entry_point           = "remind_tasks"
+      source_dir            = "remind-tasks"
+      memory                = "256Mi"
+      timeout               = 300
+      max_instances         = 1
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         CHATWORK_API_TOKEN     = "chatwork-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -336,15 +336,15 @@ locals {
     }
 
     report-generator = {
-      description          = "Weekly and daily report generation"
-      entry_point          = "report_generator"
-      source_dir           = "report-generator"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 3
-      min_instances        = 0
+      description           = "Weekly and daily report generation"
+      entry_point           = "report_generator"
+      source_dir            = "report-generator"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         OPENROUTER_API_KEY     = "openrouter-api-key"
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
@@ -353,15 +353,15 @@ locals {
     }
 
     sync-room-members = {
-      description          = "Sync ChatWork room members"
-      entry_point          = "sync_room_members_handler"
-      source_dir           = "sync-room-members"
-      memory               = "512Mi"
-      timeout              = 300
-      max_instances        = 3
-      min_instances        = 0
+      description           = "Sync ChatWork room members"
+      entry_point           = "sync_room_members_handler"
+      source_dir            = "sync-room-members"
+      memory                = "512Mi"
+      timeout               = 300
+      max_instances         = 3
+      min_instances         = 0
       allow_unauthenticated = false
-      extra_env = {}
+      extra_env             = {}
       secrets = {
         SOULKUN_CHATWORK_TOKEN = "SOULKUN_CHATWORK_TOKEN"
         DB_PASSWORD            = "cloudsql-password"

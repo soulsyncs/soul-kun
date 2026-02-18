@@ -34,3 +34,19 @@ output "scheduler_invoker_sa_email" {
   description = "Scheduler invoker service account email"
   value       = google_service_account.scheduler_invoker.email
 }
+
+# P18追加: Cloud Runサービスの情報
+output "chatwork_webhook_url" {
+  description = "chatwork-webhook Cloud Run URL"
+  value       = google_cloud_run_v2_service.chatwork_webhook.uri
+}
+
+output "proactive_monitor_url" {
+  description = "proactive-monitor Cloud Run URL"
+  value       = google_cloud_run_v2_service.proactive_monitor.uri
+}
+
+output "cloud_run_sa_email" {
+  description = "Cloud Run service account email"
+  value       = google_service_account.cloud_run_sa.email
+}

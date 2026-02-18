@@ -571,29 +571,47 @@ class MessageProcessingMixin:
             return None
 
         formatted_context = search_data.get("formatted_context", "")
-        # トークン制限を考慮してコンテキストを切り詰め（約1000トークン相当）
-        MAX_CONTEXT_CHARS = 4000
-        if len(formatted_context) > MAX_CONTEXT_CHARS:
-            formatted_context = formatted_context[:MAX_CONTEXT_CHARS] + "\n...(以下省略)"
         source = search_data.get("source", "unknown")
         confidence = search_data.get("confidence", 0)
         source_note = search_data.get("source_note", "")
 
-        # ソースに応じてプロンプトを分岐
-        if source == "web_search":
-            source_desc = "インターネット検索（Tavily Search API）"
-            source_instruction = "検索結果に基づいて回答してください。情報源のURLがある場合は言及してください。"
-        elif source == "calendar_read":
-            source_desc = "Googleカレンダー"
-            source_instruction = "カレンダーの予定情報に基づいて回答してください。"
-        elif source == "drive_search":
-            source_desc = "Googleドライブ"
-            source_instruction = "ドライブのファイル情報に基づいて回答してください。"
-        else:
-            source_desc = f"{source}（{'旧システム' if source == 'legacy' else 'Phase 3 Pinecone検索'}）"
-            source_instruction = "提供された参考情報に基づいて回答してください。情報源を明示してください。"
+        # トークン制限を考慮してコンテキストを切り詰め
+        # タスク一覧はタスク数が多いため上限を大きくする（欠落防止）
+        MAX_CONTEXT_CHARS = 8000 if source == "chatwork_task_search" else 4000
+        if len(formatted_context) > MAX_CONTEXT_CHARS:
+            formatted_context = formatted_context[:MAX_CONTEXT_CHARS] + "\n...(以下省略)"
 
-        system_prompt = f"""あなたは「ソウルくん」です。参考情報を基に質問に回答します。
+        # ソースに応じてプロンプトを分岐
+        if source == "chatwork_task_search":
+            # タスク一覧専用の合成プロンプト
+            system_prompt = f"""あなたは「ソウルくん」です。タスク一覧を見やすく整理して回答します。
+
+【重要なルール】
+1. 各タスクの本文を読み取って、「何のタスクか」が一言でわかる要約に書き換えてください
+2. 「（タスク内容を確認してください）」のような不明瞭な表記は、前後の文脈やルーム名から推測して具体的に書き直してください
+3. 長い文章はそのまま載せず、要点だけを1行にまとめてください
+4. ルーム別のグループ分け・番号・期限はそのまま維持してください
+5. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
+6. 冒頭と末尾の挨拶文はそのまま維持してください
+
+【タスク一覧データ】
+{formatted_context}
+"""
+        else:
+            if source == "web_search":
+                source_desc = "インターネット検索（Tavily Search API）"
+                source_instruction = "検索結果に基づいて回答してください。情報源のURLがある場合は言及してください。"
+            elif source == "calendar_read":
+                source_desc = "Googleカレンダー"
+                source_instruction = "カレンダーの予定情報に基づいて回答してください。"
+            elif source == "drive_search":
+                source_desc = "Googleドライブ"
+                source_instruction = "ドライブのファイル情報に基づいて回答してください。"
+            else:
+                source_desc = f"{source}（{'旧システム' if source == 'legacy' else 'Phase 3 Pinecone検索'}）"
+                source_instruction = "提供された参考情報に基づいて回答してください。情報源を明示してください。"
+
+            system_prompt = f"""あなたは「ソウルくん」です。参考情報を基に質問に回答します。
 
 【重要なルール】
 1. {source_instruction}

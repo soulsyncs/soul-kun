@@ -180,6 +180,20 @@ class CapabilityBridge:
             import uuid as uuid_mod
             return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(self.org_id))
 
+    def _get_google_docs_credentials(self) -> Optional[Dict[str, Any]]:
+        """Google Docs専用SAの認証情報をSecret Managerから取得"""
+        try:
+            from google.cloud import secretmanager
+            import json as _json
+
+            client = secretmanager.SecretManagerServiceClient()
+            name = "projects/soulkun-production/secrets/google-docs-sa-key/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            return _json.loads(response.payload.data.decode("utf-8"))
+        except Exception as e:
+            logger.warning("Google Docs SA key not available, using ADC: %s", str(e)[:100])
+            return None
+
     # =========================================================================
     # Multimodal 前処理
     # =========================================================================
@@ -454,10 +468,14 @@ class CapabilityBridge:
             }
             out_format = format_map.get(output_format_str, OutputFormat.GOOGLE_DOCS)
 
+            # Google Docs専用SAの認証情報を取得
+            google_creds_json = self._get_google_docs_credentials()
+
             # 文書生成器を初期化
             generator = DocumentGenerator(
                 pool=self.pool,
                 organization_id=org_uuid,
+                google_credentials_json=google_creds_json,
             )
 
             # リクエスト作成

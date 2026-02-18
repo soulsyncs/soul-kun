@@ -156,6 +156,21 @@ class GoogleDocsClient:
 
             logger.info(f"Created Google Doc: {document_id}")
 
+            # リンクを知っている人は誰でも閲覧可能にする
+            try:
+                drive_service = self._get_drive_service()
+                drive_service.permissions().create(
+                    fileId=document_id,
+                    body={
+                        "type": "anyone",
+                        "role": "reader",
+                    },
+                    fields="id",
+                ).execute()
+                logger.info("Set document %s to link-shareable", document_id)
+            except Exception as share_err:
+                logger.warning("Failed to set link sharing: %s", str(share_err)[:200])
+
             # フォルダに移動（指定がある場合）
             if folder_id:
                 await self._move_to_folder(document_id, folder_id)

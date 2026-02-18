@@ -138,12 +138,11 @@ steps:
         echo ""
         echo "📋 lib/brain/ の型チェック..."
         python -m mypy lib/brain/models.py \
-                       lib/brain/core.py \
-                       lib/brain/handler_wrappers.py \
+                       lib/brain/core/ \
                        --ignore-missing-imports \
-                       --no-error-summary 2>&1 | head -50
+                       --no-error-summary 2>&1 | head -50 || true
 
-        # mypyはエラーがあっても警告レベルなので、今はデプロイを止めない
+        # mypyはエラーがあっても警告レベルなので、デプロイを止めない
         echo ""
         echo "✅ 型チェック完了（警告は記録のみ）"
     waitFor: ['run-tests']
@@ -206,20 +205,20 @@ steps:
         set -eo pipefail
         echo "🔍 トラフィックルーティング確認..."
 
-        LATEST_REV=$(gcloud run revisions list --service="${_SERVICE}" --region="${_REGION}" \
+        LATEST_REV=$$(gcloud run revisions list --service="${_SERVICE}" --region="${_REGION}" \
             --sort-by='~creationTimestamp' --limit=1 --format='value(name)' 2>/dev/null || true)
-        TRAFFIC_REV=$(gcloud run services describe "${_SERVICE}" --region="${_REGION}" \
+        TRAFFIC_REV=$$(gcloud run services describe "${_SERVICE}" --region="${_REGION}" \
             --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)
 
-        if [ -n "$LATEST_REV" ] && [ -n "$TRAFFIC_REV" ]; then
-          if [ "$LATEST_REV" = "$TRAFFIC_REV" ]; then
-            echo "✅ トラフィック: ${LATEST_REV} (100%)"
+        if [ -n "$$LATEST_REV" ] && [ -n "$$TRAFFIC_REV" ]; then
+          if [ "$$LATEST_REV" = "$$TRAFFIC_REV" ]; then
+            echo "✅ トラフィック: $${LATEST_REV} (100%)"
           else
-            echo "⚠️ トラフィックが旧リビジョン: ${TRAFFIC_REV}"
-            echo "→ 最新リビジョン ${LATEST_REV} に切り替え中..."
+            echo "⚠️ トラフィックが旧リビジョン: $${TRAFFIC_REV}"
+            echo "→ 最新リビジョン $${LATEST_REV} に切り替え中..."
             gcloud run services update-traffic "${_SERVICE}" --region="${_REGION}" \
-                --to-revisions="${LATEST_REV}=100" 2>&1
-            echo "✅ トラフィック切り替え完了: ${LATEST_REV} (100%)"
+                --to-revisions="$${LATEST_REV}=100" 2>&1
+            echo "✅ トラフィック切り替え完了: $${LATEST_REV} (100%)"
           fi
         else
           echo "⚠️ リビジョン情報の取得に失敗。手動で確認してください"

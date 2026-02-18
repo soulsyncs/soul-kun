@@ -143,3 +143,24 @@ assert "Audit (no table)" in caplog.text
 - Brain bypass check: media still goes through Brain via `integration.process_message()` at line 3108. No bypass.
 - Thread safety: `_extract_media_info` and `_MEDIA_TYPE_LABELS` are pure/immutable. No shared mutable state added. Safe for 8-thread gunicorn.
 - 77 tests pass (all new + pre-existing) after this PR.
+
+## Confirmation loop fix patterns (confirmed in state_check.py node PR)
+
+- `handle_confirmation_response` node in `lib/brain/graph/nodes/state_check.py`:
+  - Calls `brain.llm_state_manager.handle_confirmation_response(user_id, room_id, response)` → `tuple[bool, Optional[LLMPendingAction]]`
+  - `LLMPendingAction` fields: `action_id`, `tool_name`, `parameters`, `confirmation_question`, `confirmation_type`, `original_message`, `confidence: float`, `created_at`
+  - `LLMPendingAction.confidence` is a plain `float` (not an object), so `pending_action.confidence or 0.9` is correct (`or` works on 0.0 float)
+  - However `DecisionResult.confidence` is also a plain `float` — NOT an object; `.overall` accessor does NOT apply here
+  - `brain._execute()` in `core/pipeline.py` DOES call `authorization_gate.evaluate()` internally (NOT a full Guardian skip)
+  - The Authorization Gate re-runs guardian (value, memory checks) even after user confirms. This is architecturally correct — Guardian bypass would require skipping `_execute()` entirely
+  - `context` IS set in initial_state before graph runs (from `message_processing.py` line 517), so `state["context"]` is always available in CONFIRMATION path
+  - `debug_info={"confirmed_params": pending_action.parameters}` — parameters can contain PII (names, IDs, messages); this is a WARNING-level concern for external exposure
+  - `HandlerResult` is imported at line 101 but never used in `handle_confirmation_response` — dead import
+  - 3-copy sync: chatwork-webhook/lib/ and proactive-monitor/lib/ confirmed identical for all 3 changed files
+  - Existing test `test_active_non_list_context_falls_through` checks `has_active_session is False` but does NOT assert `has_pending_confirmation is True` — stale test (passes but incomplete)
+  - No new tests for `make_handle_confirmation_response` node itself (the new node has zero direct unit tests)
+  - `_is_approval_response`: APPROVAL_KEYWORDS = ["はい","yes","ok","いいよ","お願い","実行","1","うん"] — "お願い" substring match risk: "お願いだからやめて" → True (false positive)
+  - `f"Confirmation response: approved={approved}, tool={pending.tool_name}"` uses f-string in state_manager.py (pre-existing style inconsistency, not introduced by this PR)
+  - `logger.info(f"Confirmation response: ...")` in state_manager.py logs tool_name — safe (tool names are not PII)
+  - State is cleared (clear_pending_action) BEFORE execution — if execution fails, state is already cleared (no retry possible). This is a known tradeoff.
+  - `audit` logging for confirmed execution: goes through `brain._execute()` → `execution.py` → sets `audit_action` on result, but `execute_tool` graph node (which does fire-and-forget audit) is BYPASSED. Result: confirmed operations are NOT audit-logged via the normal path.

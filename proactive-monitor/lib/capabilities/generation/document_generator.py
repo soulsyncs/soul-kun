@@ -596,36 +596,40 @@ class DocumentGenerator(BaseGenerator):
         sections: list,
     ) -> tuple:
         """Google Docs失敗時にGCSにMarkdownとして保存する"""
-        import os
-        from datetime import datetime, timezone, timedelta
-        from google.cloud import storage
+        try:
+            import os
+            import asyncio
+            from datetime import datetime, timezone, timedelta
+            from google.cloud import storage
 
-        bucket_name = os.getenv("OPERATIONS_GCS_BUCKET", "")
-        if not bucket_name:
-            # GCSも使えない場合はIDなし、URLなしで返す
-            logger.warning("OPERATIONS_GCS_BUCKET not set, skipping GCS fallback")
+            bucket_name = os.getenv("OPERATIONS_GCS_BUCKET", "")
+            if not bucket_name:
+                logger.warning("OPERATIONS_GCS_BUCKET not set, skipping GCS fallback")
+                return "local", ""
+
+            full_content = "\n\n".join([s.to_markdown() for s in sections])
+            md_content = f"# {title}\n\n{full_content}"
+
+            jst = timezone(timedelta(hours=9))
+            now = datetime.now(jst)
+            timestamp = now.strftime("%Y%m%d_%H%M%S")
+            safe_title = "".join(c for c in title if c.isalnum() or c in "_ -")[:50]
+            blob_path = f"{self._organization_id}/documents/{timestamp}_{safe_title}.md"
+
+            def _upload():
+                client = storage.Client()
+                bucket = client.bucket(bucket_name)
+                blob = bucket.blob(blob_path)
+                blob.upload_from_string(md_content, content_type="text/markdown; charset=utf-8")
+                return f"gs://{bucket_name}/{blob_path}"
+
+            gcs_path = await asyncio.to_thread(_upload)
+            logger.info("Document saved to GCS fallback: %s", gcs_path)
+            return f"gcs:{blob_path}", gcs_path
+
+        except Exception as e:
+            logger.error("GCS fallback also failed: %s: %s", type(e).__name__, str(e)[:200])
             return "local", ""
-
-        full_content = "\n\n".join([s.to_markdown() for s in sections])
-        md_content = f"# {title}\n\n{full_content}"
-
-        jst = timezone(timedelta(hours=9))
-        now = datetime.now(jst)
-        timestamp = now.strftime("%Y%m%d_%H%M%S")
-        safe_title = "".join(c for c in title if c.isalnum() or c in "_ -")[:50]
-        blob_path = f"{self._organization_id}/documents/{timestamp}_{safe_title}.md"
-
-        import asyncio
-        def _upload():
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_path)
-            blob.upload_from_string(md_content, content_type="text/markdown; charset=utf-8")
-            return f"gs://{bucket_name}/{blob_path}"
-
-        gcs_path = await asyncio.to_thread(_upload)
-        logger.info("Document saved to GCS fallback: %s", gcs_path)
-        return f"gcs:{blob_path}", gcs_path
 
     def detect_document_type(self, instruction: str) -> DocumentType:
         """

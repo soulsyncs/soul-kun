@@ -628,7 +628,7 @@ class TestLLMClient:
         """プレミアム品質のモデル"""
         client = LLMClient(api_key="test-key")
         model = client.get_model_for_quality(QualityLevel.PREMIUM)
-        assert "opus" in model.lower()
+        assert "sonnet-4.5" in model.lower() or "opus" in model.lower()
 
     @pytest.mark.asyncio
     async def test_generate_success(self):

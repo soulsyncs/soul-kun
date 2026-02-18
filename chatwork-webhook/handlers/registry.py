@@ -1515,9 +1515,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "params_schema": {
             "data_source": {
                 "type": "string",
-                "description": "集計対象のデータ名またはファイル名",
+                "description": "集計対象のデータ種別",
                 "required": True,
-                "note": "DBテーブル名、CSVファイル名、GCSパスのいずれか",
+                "note": "対応値: tasks（タスク）、goals（目標）のみ",
             },
             "operation": {
                 "type": "string",
@@ -1565,8 +1565,9 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         "params_schema": {
             "data_source": {
                 "type": "string",
-                "description": "検索対象のデータ名またはテーブル名",
+                "description": "検索対象のデータ種別",
                 "required": True,
+                "note": "対応値: tasks（タスク）、goals（目標）のみ",
             },
             "query": {
                 "type": "string",

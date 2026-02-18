@@ -612,6 +612,12 @@ class MessageProcessingMixin:
 【目標一覧データ】
 {formatted_context}
 """
+        elif source == "goal_consult":
+            # 目標相談専用の合成プロンプト
+            system_prompt = f"""あなたは「ソウルくん」です。目標の設定や優先順位について相談に乗ります。
+
+{formatted_context}
+"""
         else:
             if source == "web_search":
                 source_desc = "インターネット検索（Tavily Search API）"

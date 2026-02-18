@@ -49,6 +49,16 @@ logger = logging.getLogger(__name__)
 # 個別ハンドラーのタイムアウト（秒）
 HANDLER_TIMEOUT_SECONDS: int = 30
 
+# 長時間かかるアクションのタイムアウト上書き
+LONG_RUNNING_TIMEOUTS: dict = {
+    "generate_document": 180,
+    "generate_report": 180,
+    "create_document": 180,
+    "deep_research": 120,
+    "generate_image": 90,
+    "create_image": 90,
+}
+
 # リトライ可能なエラータイプ
 RETRYABLE_ERRORS: set = {
     "ConnectionError",
@@ -623,7 +633,11 @@ class BrainExecution:
         last_error: Optional[Exception] = None
         retry_count = 0
 
-        max_retries = MAX_RETRY_COUNT if self.enable_retry else 1
+        timeout = LONG_RUNNING_TIMEOUTS.get(action, HANDLER_TIMEOUT_SECONDS)
+        # 長時間アクションはリトライしない（タイムアウト×3は長すぎる）
+        max_retries = 1 if action in LONG_RUNNING_TIMEOUTS else (
+            MAX_RETRY_COUNT if self.enable_retry else 1
+        )
 
         for attempt in range(max_retries):
             try:
@@ -637,7 +651,7 @@ class BrainExecution:
                         sender_name=sender_name,
                         context=context,
                     ),
-                    timeout=HANDLER_TIMEOUT_SECONDS,
+                    timeout=timeout,
                 )
 
                 # 成功
@@ -657,7 +671,7 @@ class BrainExecution:
                     f"Handler timeout (attempt {attempt + 1}/{max_retries}): {action}"
                 )
                 last_error = asyncio.TimeoutError(
-                    f"Handler {action} timed out after {HANDLER_TIMEOUT_SECONDS}s"
+                    f"Handler {action} timed out after {timeout}s"
                 )
                 retry_count = attempt + 1
 
@@ -686,7 +700,7 @@ class BrainExecution:
             raise HandlerTimeoutError(
                 message=str(last_error),
                 action=action,
-                timeout_seconds=HANDLER_TIMEOUT_SECONDS,
+                timeout_seconds=timeout,
             )
 
         # その他のエラー

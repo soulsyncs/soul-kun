@@ -413,8 +413,23 @@ async def _brain_handle_goal_status_check(params, room_id, account_id, sender_na
         handle_goal_status_check = getattr(main, 'handle_goal_status_check')
         result = handle_goal_status_check(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
         # v10.54.5: 辞書型の戻り値を正しく処理
-        return _extract_handler_result(result, "目標状況を確認したウル🐺")
+        handler_result = _extract_handler_result(result, "目標状況を確認したウル🐺")
+
+        # CLAUDE.md §1準拠: 目標一覧をBrain（LLM）で要約合成する
+        if handler_result.success and handler_result.message:
+            return HandlerResult(
+                success=True,
+                message=handler_result.message,
+                data={
+                    "needs_answer_synthesis": True,
+                    "formatted_context": handler_result.message,
+                    "source": "chatwork_goal_status",
+                    "confidence": 1.0,
+                },
+            )
+        return handler_result
     except Exception as e:
+        logger.error("goal_status_check error: %s", e, exc_info=True)
         return HandlerResult(success=False, message=f"目標状況確認でエラーが発生したウル🐺")
 
 

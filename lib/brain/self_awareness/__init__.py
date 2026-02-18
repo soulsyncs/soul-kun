@@ -110,7 +110,8 @@ class BrainSelfAwareness:
         self._ability_scores_cache: Dict[str, AbilityScore] = {}
         self._limitations_cache: Dict[str, Limitation] = {}
 
-        logger.info(f"BrainSelfAwareness initialized for org: {organization_id}")
+        # v11.2.0 P15: org_idは生値でなく先頭8文字のみログ出力（CLAUDE.md §9-3 PII保護）
+        logger.info(f"BrainSelfAwareness initialized for org: {(organization_id or '')[:8]}...")
 
     # ========================================================================
     # 確信度評価

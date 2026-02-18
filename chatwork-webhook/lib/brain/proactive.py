@@ -923,13 +923,25 @@ class ProactiveMonitor:
                 # フォールバック: テンプレートを使用
                 message = None
 
-        # フォールバック: 脳が利用不可または失敗した場合
+        # v11.2.0: P8修正 — 脳が利用不可または失敗した場合は「送らない」（Silent Fail）
+        # CLAUDE.md §1「全出力は脳を通る。バイパス禁止」に準拠。
+        # 脳なしでテンプレートを送ることはBrainバイパスに該当するため禁止。
         if not message:
             logger.warning(
-                "[Proactive] Using fallback template (brain not available or failed). "
-                "This is a CLAUDE.md violation - brain should generate messages."
+                "[Proactive] Brain unavailable or failed — skipping send (Silent Fail). "
+                "CLAUDE.md §1: テンプレート直送はBrainバイパスのため禁止。"
             )
-            message = self._generate_message(trigger)
+            return ProactiveAction(
+                message=ProactiveMessage(
+                    trigger=trigger,
+                    message_type=self._get_message_type(trigger.trigger_type),
+                    message="",
+                    room_id=user_ctx.dm_room_id,
+                    account_id=user_ctx.chatwork_account_id,
+                ),
+                success=True,
+                error_message="Brain unavailable: send skipped (CLAUDE.md §1 compliance)",
+            )
 
         proactive_msg = ProactiveMessage(
             trigger=trigger,
@@ -1171,9 +1183,10 @@ def create_proactive_monitor(
         使用され、警告ログが出力される。本番運用時は必ずbrainを渡すこと。
     """
     if not brain:
-        logger.warning(
-            "[Proactive] brain not provided. Will use fallback templates. "
-            "This violates CLAUDE.md rule 1b. Consider providing a brain instance."
+        logger.error(
+            "[Proactive] brain not provided — proactive messages will NOT be sent. "
+            "v11.2.0 P8: テンプレート直送はCLAUDE.md §1違反のため禁止。"
+            "本番運用時は必ずbrainインスタンスを渡すこと。"
         )
 
     return ProactiveMonitor(

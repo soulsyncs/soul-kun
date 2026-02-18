@@ -105,7 +105,8 @@ class BrainStateManager:
         # org_idがUUID形式でない場合（テキスト識別子など）はクエリをスキップ
         self._org_id_is_uuid = self._check_uuid_format(org_id)
 
-        logger.debug(f"BrainStateManager initialized for org_id={org_id}, async_pool={self._is_async_pool}, uuid_org={self._org_id_is_uuid}")
+        # v11.2.0 P15: org_idは先頭8文字のみログ出力（CLAUDE.md §9-3 PII保護）
+        logger.debug(f"BrainStateManager initialized for org_id={org_id[:8] if org_id else ''}..., async_pool={self._is_async_pool}, uuid_org={self._org_id_is_uuid}")
 
     def _check_uuid_format(self, org_id: str) -> bool:
         """org_idがUUID形式かどうかをチェック（クエリスキップ判定用）"""

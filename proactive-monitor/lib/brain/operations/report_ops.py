@@ -138,6 +138,7 @@ async def handle_report_generate(
         )
 
     except ValueError as e:
+        logger.warning("report_generate ValueError: %s", str(e)[:500])
         return OperationResult(success=False, message=str(e))
     except Exception as e:
         logger.error("report_generate error: %s", type(e).__name__, exc_info=True)
@@ -213,9 +214,10 @@ async def handle_csv_export(
         )
 
     except ValueError as e:
+        logger.warning("csv_export ValueError: %s", str(e)[:500])
         return OperationResult(success=False, message=str(e))
     except Exception as e:
-        logger.error("csv_export error: %s", type(e).__name__, exc_info=True)
+        logger.error("csv_export error: %s: %s", type(e).__name__, str(e)[:500], exc_info=True)
         return OperationResult(
             success=False,
             message="CSVの出力でエラーが発生しました。",
@@ -229,6 +231,7 @@ def _fetch_csv_data(table: str, filters: str, organization_id: str) -> list:
     from sqlalchemy import text
 
     pool = get_db_pool()
+    logger.info("[DIAG] _fetch_csv_data called: table=%s, org_id=%s", table, organization_id[:8] if organization_id else "NONE")
     with pool.connect() as conn:
         base_where = "organization_id = :org_id"
         base_params: Dict[str, Any] = {"org_id": organization_id}
@@ -341,6 +344,7 @@ async def handle_file_create(
         )
 
     except ValueError as e:
+        logger.warning("file_create ValueError: %s", str(e)[:500])
         return OperationResult(success=False, message=str(e))
     except Exception as e:
         logger.error("file_create error: %s", type(e).__name__, exc_info=True)

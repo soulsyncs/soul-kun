@@ -55,6 +55,22 @@ import_resource "google_service_account.cloud_functions" \
 import_resource "google_service_account.scheduler_invoker" \
   "projects/${PROJECT}/serviceAccounts/scheduler-invoker@${PROJECT}.iam.gserviceaccount.com"
 
+# Cloud Run サービス（P18 2026-02-19追加）
+# chatwork-webhook と proactive-monitor は Cloud Run v2 (Docker) で稼働中
+import_resource "google_cloud_run_v2_service.chatwork_webhook" \
+  "projects/${PROJECT}/locations/${REGION}/services/chatwork-webhook"
+
+import_resource "google_cloud_run_v2_service.proactive_monitor" \
+  "projects/${PROJECT}/locations/${REGION}/services/proactive-monitor"
+
+# Artifact Registry（Dockerイメージ保存場所）
+import_resource "google_artifact_registry_repository.cloud_run" \
+  "projects/${PROJECT}/locations/${REGION}/repositories/cloud-run"
+
+# Cloud Run サービスアカウント（既存SA）
+import_resource "google_service_account.cloud_run_sa" \
+  "projects/${PROJECT}/serviceAccounts/cloud-run-sa@${PROJECT}.iam.gserviceaccount.com"
+
 # Cloud Functions (Gen2)
 # NOTE: chatwork-webhook と proactive-monitor は Cloud Run v2 (Docker) に移行済み。
 #       TF state には Cloud Functions として存在しない。再インポート禁止。

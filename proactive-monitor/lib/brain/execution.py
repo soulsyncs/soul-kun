@@ -51,9 +51,9 @@ HANDLER_TIMEOUT_SECONDS: int = 30
 
 # 長時間かかるアクションのタイムアウト上書き
 LONG_RUNNING_TIMEOUTS: dict = {
-    "generate_document": 180,
-    "generate_report": 180,
-    "create_document": 180,
+    "generate_document": 300,
+    "generate_report": 300,
+    "create_document": 300,
     "deep_research": 120,
     "generate_image": 90,
     "create_image": 90,

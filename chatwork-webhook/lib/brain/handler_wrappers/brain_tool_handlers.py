@@ -505,10 +505,24 @@ async def _brain_handle_goal_consult(params, room_id, account_id, sender_name, c
 
         handle_goal_consult = getattr(main, 'handle_goal_consult')
         result = handle_goal_consult(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        # v10.54.5: 辞書型の戻り値を正しく処理
+
+        # goal_consultはfallback_to_general=Trueでadditional_contextを返す
+        # LLMの合成パイプラインで目標相談に回答させる
+        if isinstance(result, dict) and result.get("fallback_to_general"):
+            additional_context = result.get("additional_context", "")
+            return HandlerResult(
+                success=True,
+                message=additional_context or "目標について相談を受けたウル🐺",
+                data={
+                    "needs_answer_synthesis": True,
+                    "formatted_context": additional_context,
+                    "source": "goal_consult",
+                    "confidence": 0.9,
+                },
+            )
         return _extract_handler_result(result, "目標について相談を受けたウル🐺")
     except Exception as e:
-        print(f"goal_consult error: {e}")
+        logger.error("goal_consult error: %s", e, exc_info=True)
         return HandlerResult(success=False, message=f"目標相談でエラーが発生したウル🐺")
 
 

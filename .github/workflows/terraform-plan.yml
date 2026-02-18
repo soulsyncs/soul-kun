@@ -1,0 +1,176 @@
+name: Terraform Plan
+
+# =============================================================================
+# P18 Phase D: Terraform変更差分の自動表示
+#
+# 目的:
+#   PRでterraform/配下が変更されたとき、「何が変わるか」を自動でPRコメントに表示する。
+#   インフラ変更の内容を全員がレビューできるようにする。
+#
+# 動作:
+#   1. terraform/配下のファイルが変更されたPRを検知
+#   2. terraform fmt（フォーマット確認）
+#   3. terraform validate（設定の文法チェック）
+#   4. terraform plan（変更差分を計算）
+#   5. PRのコメントとして差分を投稿
+#
+# v11.2.3: 初版作成（P18 Phase D）
+# =============================================================================
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'terraform/**'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: terraform-plan-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  terraform-plan:
+    name: Terraform Plan（変更差分確認）
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: コードをチェックアウト
+        uses: actions/checkout@v4
+
+      - name: Terraform セットアップ
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.5.7"
+
+      # -------------------------------------------------------------------------
+      # GCP認証（サービスアカウントキー方式）
+      # ※ GCPプロジェクトへの読み取りアクセスが必要
+      # ※ GitHub Secrets に GCP_CREDENTIALS_JSON を登録してください
+      # 将来的には Workload Identity Federation（長期鍵不要の方式）への移行を推奨
+      # -------------------------------------------------------------------------
+      - name: GCP認証
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
+
+      # -------------------------------------------------------------------------
+      # terraform fmt: フォーマットチェック
+      # （インデントやスペースが正しいか確認）
+      # -------------------------------------------------------------------------
+      - name: terraform fmt（フォーマット確認）
+        id: fmt
+        run: terraform fmt -check -recursive
+        working-directory: terraform
+        continue-on-error: true
+
+      # -------------------------------------------------------------------------
+      # terraform init: 初期化
+      # -------------------------------------------------------------------------
+      - name: terraform init
+        id: init
+        run: terraform init -backend=false
+        working-directory: terraform
+
+      # -------------------------------------------------------------------------
+      # terraform validate: 文法チェック
+      # （設定ファイルに間違いがないか確認）
+      # -------------------------------------------------------------------------
+      - name: terraform validate
+        id: validate
+        run: terraform validate
+        working-directory: terraform
+
+      # -------------------------------------------------------------------------
+      # terraform plan: 変更差分計算
+      # （実際には変更せず、「何が変わるか」だけを表示）
+      # ※ -backend=false のため既存 state 未参照。差分は参考値として扱ってください
+      # -------------------------------------------------------------------------
+      - name: terraform plan（変更差分計算）
+        id: plan
+        run: |
+          terraform plan -no-color -lock=false 2>&1 | head -500
+        working-directory: terraform
+        continue-on-error: true
+
+      # -------------------------------------------------------------------------
+      # PRコメントに結果を投稿
+      # -------------------------------------------------------------------------
+      - name: PRにTerraform結果を投稿
+        uses: actions/github-script@v7
+        if: github.event_name == 'pull_request'
+        env:
+          PLAN_OUTPUT: ${{ steps.plan.outputs.stdout }}
+          FMT_RESULT: ${{ steps.fmt.outcome }}
+          VALIDATE_RESULT: ${{ steps.validate.outcome }}
+          PLAN_RESULT: ${{ steps.plan.outcome }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fmt = process.env.FMT_RESULT === 'success' ? '✅' : '❌';
+            const validate = process.env.VALIDATE_RESULT === 'success' ? '✅' : '❌';
+            const plan = process.env.PLAN_RESULT === 'success' ? '✅' : '⚠️';
+
+            const output = `## 🏗️ Terraform変更差分レポート
+
+            | チェック項目 | 結果 |
+            |------------|------|
+            | フォーマット確認 | ${fmt} |
+            | 文法チェック | ${validate} |
+            | 変更差分計算 | ${plan} |
+
+            <details>
+            <summary>📋 変更差分の詳細（クリックで展開）</summary>
+
+            \`\`\`hcl
+            ${process.env.PLAN_OUTPUT || '（差分なし）'}
+            \`\`\`
+
+            </details>
+
+            > **注意**: このPlanは読み取り専用です。実際のインフラ変更は本番デプロイ時のみ行われます。
+            > 変更を本番に適用するには、マージ後に手動で \`terraform apply\` を実行してください。
+            > ⚠️ このPlanは既存state未参照（-backend=false）のため、実際の差分と異なる場合があります。
+
+            *最終更新: ${new Date().toLocaleString('ja-JP', {timeZone: 'Asia/Tokyo'})}*`;
+
+            // 既存のコメントを探して更新（同じPRに複数コメントしない）
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('Terraform変更差分レポート')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: output
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: output
+              });
+            }
+
+      # -------------------------------------------------------------------------
+      # フォーマットエラーがあれば失敗にする
+      # -------------------------------------------------------------------------
+      - name: フォーマットエラー確認
+        if: steps.fmt.outcome == 'failure'
+        run: |
+          echo "❌ Terraformのフォーマットが崩れています"
+          echo "以下のコマンドで修正してください："
+          echo "  cd terraform && terraform fmt"
+          exit 1

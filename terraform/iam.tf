@@ -9,6 +9,42 @@ resource "google_service_account" "cloud_functions" {
   description  = "Service account for all Cloud Functions"
 }
 
+# Cloud Run 実行用サービスアカウント（P18 2026-02-19追加）
+# chatwork-webhook と proactive-monitor の Cloud Run サービスが使用
+resource "google_service_account" "cloud_run_sa" {
+  account_id   = "cloud-run-sa"
+  display_name = "Cloud Run Service Account"
+  description  = "Service account for Cloud Run services (chatwork-webhook, proactive-monitor)"
+}
+
+# Cloud Run SA → Cloud SQL クライアント権限
+resource "google_project_iam_member" "cloud_run_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
+# Cloud Run SA → ログ書き込み権限
+resource "google_project_iam_member" "cloud_run_log_writer" {
+  project = var.project_id
+  role    = "roles/logging.logWriter"
+  member  = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
+# Cloud Run SA → Secret Manager アクセス権限（APIキー等の読み取り）
+resource "google_project_iam_member" "cloud_run_secret_accessor" {
+  project = var.project_id
+  role    = "roles/secretmanager.secretAccessor"
+  member  = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
+# Cloud Run SA → GCS オブジェクト管理（会議録音読み書き）
+resource "google_storage_bucket_iam_member" "cloud_run_recordings_admin" {
+  bucket = google_storage_bucket.meeting_recordings.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
 # Cloud Scheduler 呼び出し用サービスアカウント
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "scheduler-invoker"

@@ -113,6 +113,24 @@ assert "Audit (no table)" in caplog.text
 - infra.db.get_secret = lib.secrets.get_secret_cached (cached, lru_cache(maxsize=32))
 - lib.secrets.get_secret = non-cached version (hits Secret Manager or env var every call)
 
+## Diagnostic log patterns (confirmed in branch diag/llm-brain-routing-check)
+
+- Brain feature flag env var: `USE_BRAIN_ARCHITECTURE` (NOT `ENABLE_LLM_BRAIN` — deprecated)
+  - `is_llm_brain_enabled()` defined in `lib/feature_flags.py` line 638
+  - `ENV_BRAIN_ENABLED = "USE_BRAIN_ARCHITECTURE"` in `lib/brain/env_config.py`
+  - Docstring in `initialization.py._init_llm_brain()` still says `ENABLE_LLM_BRAIN` (stale doc, not code bug)
+- `LLMBrain` attributes: `self.model` (str), `self.api_provider` (APIProvider enum) — always set in constructor
+  - `api_provider.value` is safe to call (enum, never None after __init__)
+- `get_tools_for_llm()` returns list of dicts from `SYSTEM_CAPABILITIES` via `ToolConverter.convert_all()`
+  - Each dict has `"name"` key (capability_key string), NOT PII
+  - `t.get("name", "?")` access pattern is correct
+  - SYSTEM_CAPABILITIES has ~254 entries in registry.py — tools list log line could be very long
+- `ToolCall.tool_name`: str attribute, tool system name (e.g. "chatwork_task_create") — NOT PII, safe to log
+- `_extract_confidence_value()` helper properly handles `.overall` pattern for confidence — used correctly in llm_inference.py
+- `print()` vs `logger`: main.py fallback path uses `print()` (consistent with surrounding code; Flask context, no structured logger setup)
+- Diagnostic log in `message_processing.py` uses `"SET"/"NONE"` instead of actual object reference — PII-safe
+- 3-copy sync (lib/, chatwork-webhook/lib/, proactive-monitor/lib/) confirmed identical for all 4 lib files in this PR
+
 ## Telegram media support patterns (confirmed in PR adding photo/video/document/voice)
 
 - `_extract_media_info(msg)` in `lib/channels/telegram_adapter.py`: pure function, priority order is photo > video > document > voice, returns {} for no media

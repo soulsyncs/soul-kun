@@ -451,7 +451,7 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             }
         },
         "handler": "delete_memory",
-        "requires_confirmation": False,
+        "requires_confirmation": True,  # v11.2.0 Step 0-1: 削除操作は確認必須
         "required_data": [],
         "brain_metadata": {
             "decision_keywords": {
@@ -546,7 +546,7 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             }
         },
         "handler": "forget_knowledge",
-        "requires_confirmation": False,
+        "requires_confirmation": True,  # v11.2.0 Step 0-1: 削除操作は確認必須
         "required_data": ["sender_account_id"],
         "brain_metadata": {
             "decision_keywords": {
@@ -1351,6 +1351,373 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             },
             "risk_level": "low",
             "priority": 4,
+        },
+    },
+
+    # =========================================================================
+    # 外部検索（Step A: 手足を与える）
+    # =========================================================================
+    "web_search": {
+        "name": "ウェブ検索",
+        "description": "インターネット上の最新情報を検索する。天気・気温・天気予報、最新ニュース、社内ナレッジにない一般知識・技術情報などの検索に対応。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "今日の天気を教えて",
+            "〇〇について調べて",
+            "最新の〇〇情報を教えて",
+            "〇〇をネットで検索して",
+            "〇〇の最新ニュースを教えて",
+        ],
+        "params_schema": {
+            "query": {
+                "type": "string",
+                "description": "検索クエリ（日本語または英語）",
+                "required": True,
+                "note": "ユーザーの意図を反映した具体的な検索クエリを生成すること"
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "最大結果件数（1-10）",
+                "required": False,
+                "default": 5,
+            },
+        },
+        "handler": "web_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["検索して", "調べて", "ネットで", "ウェブで", "ググって"],
+                "secondary": ["最新", "ニュース", "情報", "教えて", "天気", "天気予報", "気温"],
+                "negative": ["タスク", "目標", "ナレッジ", "社内"],
+            },
+            "intent_keywords": {
+                "primary": ["ウェブ検索", "ネット検索", "インターネット検索", "調べて"],
+                "secondary": ["検索", "調査", "情報収集", "天気", "気温", "天気予報"],
+                "modifiers": ["調べて", "検索", "教えて", "ググって"],
+                "negative": ["社内", "ナレッジ", "マニュアル"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    "calendar_read": {
+        "name": "Googleカレンダー予定確認",
+        "description": "Googleカレンダーの予定を確認する。今日の予定、明日の予定、特定日の予定の表示に対応。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "今日の予定は？",
+            "明日のスケジュールを教えて",
+            "来週月曜の予定は？",
+            "今日は何が入ってる？",
+            "明後日のカレンダーを見せて",
+        ],
+        "params_schema": {
+            "date_from": {
+                "type": "date",
+                "description": "予定を表示する開始日（YYYY-MM-DD形式）",
+                "required": False,
+                "note": "省略時は今日。「明日」→翌日、「来週月曜」→該当日に変換",
+            },
+            "date_to": {
+                "type": "date",
+                "description": "予定を表示する終了日（YYYY-MM-DD形式）",
+                "required": False,
+                "note": "省略時はdate_fromと同じ日",
+            },
+        },
+        "handler": "calendar_read",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["予定", "スケジュール", "カレンダー", "何が入ってる"],
+                "secondary": ["今日の", "明日の", "来週の", "予定確認"],
+                "negative": ["タスク", "目標", "作成", "追加"],
+            },
+            "intent_keywords": {
+                "primary": ["予定確認", "スケジュール確認", "カレンダー確認"],
+                "secondary": ["予定", "スケジュール", "カレンダー"],
+                "modifiers": ["教えて", "見せて", "確認", "何がある"],
+                "negative": ["タスク作成", "目標設定"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    "drive_search": {
+        "name": "Googleドライブ ファイル検索",
+        "description": "Googleドライブ上のファイルを名前で検索する。「〇〇のファイルを探して」「最近のファイルを見せて」などに対応。ファイルの中身検索はquery_knowledgeを使う。",
+        "category": "external",
+        "enabled": True,
+        "trigger_examples": [
+            "〇〇のファイルを探して",
+            "〇〇という資料はある？",
+            "ドライブから〇〇を見つけて",
+            "最近更新されたファイルを見せて",
+            "ドライブの中身を教えて",
+        ],
+        "params_schema": {
+            "query": {
+                "type": "string",
+                "description": "検索クエリ（ファイル名の部分一致）",
+                "required": False,
+                "note": "省略時は最近更新されたファイル一覧を返す",
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "最大結果件数（1-20）",
+                "required": False,
+                "default": 10,
+            },
+        },
+        "handler": "drive_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["ファイル検索", "ファイルを探して", "ドライブ", "ドライブから"],
+                "secondary": ["ファイル", "資料", "文書", "ドキュメント"],
+                "negative": ["タスク", "目標", "ナレッジ", "就業規則", "マニュアル"],
+            },
+            "intent_keywords": {
+                "primary": ["ファイル検索", "ファイルを探して", "ドライブ検索"],
+                "secondary": ["ファイル", "資料", "ドキュメント", "ドライブ"],
+                "modifiers": ["探して", "検索", "見つけて", "教えて", "見せて"],
+                "negative": ["就業規則", "ルール", "手続き"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    # =========================================================================
+    # 操作系（Step C: 手足を与える）
+    # =========================================================================
+    "data_aggregate": {
+        "name": "データ集計",
+        "description": "CSVやデータの集計・合計・平均・件数カウントなどを計算する。「売上データを合計して」「先月の件数を教えて」などに対応。",
+        "category": "operations",
+        "enabled": True,
+        "trigger_examples": [
+            "売上データを合計して",
+            "先月の件数を教えて",
+            "平均単価を計算して",
+            "部署ごとの集計を出して",
+        ],
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "description": "集計対象のデータ名またはファイル名",
+                "required": True,
+                "note": "DBテーブル名、CSVファイル名、GCSパスのいずれか",
+            },
+            "operation": {
+                "type": "string",
+                "description": "集計方法（sum, avg, count, min, max, group_by）",
+                "required": True,
+            },
+            "filters": {
+                "type": "string",
+                "description": "フィルタ条件（例: 「先月」「営業部」「100万以上」）",
+                "required": False,
+            },
+        },
+        "handler": "data_aggregate",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["集計", "合計", "平均", "カウント", "件数"],
+                "secondary": ["データ", "売上", "数字", "統計"],
+                "negative": ["検索", "ファイル探して", "予定"],
+            },
+            "intent_keywords": {
+                "primary": ["データ集計", "集計して", "合計して", "平均を"],
+                "secondary": ["計算", "数えて", "統計"],
+                "modifiers": ["教えて", "出して", "見せて"],
+                "negative": ["ファイル", "ドライブ", "カレンダー"],
+                "confidence_boost": 0.80,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    "data_search": {
+        "name": "データ検索",
+        "description": "データベースやCSVから条件に合うデータを検索・一覧表示する。「先月の案件一覧」「売上トップ10」などに対応。",
+        "category": "operations",
+        "enabled": True,
+        "trigger_examples": [
+            "先月の案件を一覧にして",
+            "売上トップ10を見せて",
+            "未完了のタスクを一覧にして",
+            "今月の新規案件は？",
+        ],
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "description": "検索対象のデータ名またはテーブル名",
+                "required": True,
+            },
+            "query": {
+                "type": "string",
+                "description": "検索条件（自然言語）",
+                "required": True,
+                "note": "ユーザーの意図を反映した検索条件を生成すること",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "最大件数（デフォルト: 20）",
+                "required": False,
+                "default": 20,
+            },
+        },
+        "handler": "data_search",
+        "requires_confirmation": False,
+        "required_data": [],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["一覧", "リスト", "トップ", "ランキング"],
+                "secondary": ["データ", "案件", "見せて", "表示"],
+                "negative": ["集計", "合計", "平均"],
+            },
+            "intent_keywords": {
+                "primary": ["データ検索", "一覧にして", "リストを"],
+                "secondary": ["探して", "見せて", "表示して"],
+                "modifiers": ["教えて", "出して"],
+                "negative": ["集計", "カレンダー"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "low",
+            "priority": 5,
+        },
+    },
+
+    # Step C-5: 書き込み系操作（手足を与える — Phase 2）
+    "report_generate": {
+        "name": "レポート生成",
+        "description": "集計データや分析結果をレポートにまとめて保存する。タイトルと本文を指定してレポートを作成する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "title": {
+                "type": "string",
+                "required": True,
+                "description": "レポートのタイトル",
+            },
+            "content": {
+                "type": "string",
+                "required": True,
+                "description": "レポートの本文",
+            },
+            "format": {
+                "type": "string",
+                "required": False,
+                "default": "text",
+                "description": "出力形式（text or markdown）",
+            },
+        },
+        "handler": "report_generate",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "レポートを作成して",
+            "報告書をまとめて",
+            "このデータをレポートにして",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["レポート", "報告書", "まとめ"],
+                "secondary": ["作成", "生成", "書いて"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "見せて"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
+
+    "csv_export": {
+        "name": "CSVエクスポート",
+        "description": "タスクや目標などのデータをCSVファイルとしてエクスポートする。表計算ソフトで開けるファイルを作成する。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "data_source": {
+                "type": "string",
+                "required": True,
+                "description": "エクスポート対象のデータ（tasks/タスク/goals/目標）",
+            },
+            "filters": {
+                "type": "string",
+                "required": False,
+                "default": "",
+                "description": "フィルタ条件（例: 今月の完了タスク）",
+            },
+        },
+        "handler": "csv_export",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "タスクをCSVに出力して",
+            "目標データをエクスポートして",
+            "CSVで書き出して",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["CSV", "エクスポート", "書き出し"],
+                "secondary": ["出力", "ダウンロード"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "集計"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
+        },
+    },
+
+    "file_create": {
+        "name": "ファイル作成",
+        "description": "テキストファイルやメモを作成して保存する。議事録の下書きやメモの作成に使う。",
+        "category": "operations",
+        "enabled": True,
+        "params_schema": {
+            "filename": {
+                "type": "string",
+                "required": True,
+                "description": "ファイル名",
+            },
+            "content": {
+                "type": "string",
+                "required": True,
+                "description": "ファイルの内容",
+            },
+        },
+        "handler": "file_create",
+        "requires_confirmation": True,
+        "trigger_examples": [
+            "ファイルを作成して",
+            "メモを作って",
+            "テキストファイルを保存して",
+        ],
+        "brain_metadata": {
+            "intent_keywords": {
+                "primary": ["ファイル", "テキスト", "メモ"],
+                "secondary": ["作成", "保存", "作って"],
+                "modifiers": ["して", "お願い"],
+                "negative": ["検索", "読んで"],
+                "confidence_boost": 0.75,
+            },
+            "risk_level": "medium",
+            "priority": 5,
         },
     },
 }

@@ -18,6 +18,8 @@ import hmac  # v6.8.9: Webhook署名検証用
 import hashlib  # v6.8.9: Webhook署名検証用
 import base64  # v6.8.9: Webhook署名検証用
 
+# Cloud Run: INFOレベル以上のログを標準出力に表示（診断ログ用）
+logging.basicConfig(level=logging.INFO, format="%(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 # Cloud Run用 Flask アプリケーション

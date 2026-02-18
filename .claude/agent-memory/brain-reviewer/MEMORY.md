@@ -176,3 +176,18 @@ assert "Audit (no table)" in caplog.text
 - 3-copy sync verified: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical for message_processing.py
 - handler_wrappers/ directory ONLY in chatwork-webhook/lib/ (not in root lib/ or proactive-monitor/lib/) — correct, chatwork-specific feature
 - MINOR: error handler at line 432 does NOT log exception like task_search does (line 51 logs). Should add: `logger.error("goal_status_check error: %s", e, exc_info=True)` for consistency. Not critical since handler framework catches outer errors anyway.
+
+## document_generator.py GCS fallback patterns (confirmed in PR fix/gcs-fallback-wrap)
+
+- `_save_to_gcs_fallback(title, sections)`: async method, returns `tuple[str, str]`
+  - Before this PR: any exception (ImportError for google.cloud, GCS auth failure, etc.) propagated to caller
+  - After this PR: entire method wrapped in try/except; on any exception logs error and returns `("local", "")`
+  - On success: returns `(f"gcs:{blob_path}", gcs_path)` — `document_id` becomes e.g. `"gcs:org_id/documents/..."`, `document_url` becomes full gs:// path
+  - On GCS failure: `document_id="local"`, `document_url=""` — generation still reports `success=True` with no URL
+  - POTENTIAL ISSUE: when both Google Docs AND GCS fail, `_generate_full_document` continues and returns `GenerationOutput(success=True, ...)` with `document_id="local"` and `document_url=""`. User gets "文書を作成しました" but no URL. Not a crash, but misleading success signal.
+  - `asyncio` is now imported inside the try block (was previously imported at module level inside the method body, now moved inside try). Safe.
+  - Caller at line 411: `document_id, document_url = await self._save_to_gcs_fallback(...)` — guaranteed to unpack because method always returns a 2-tuple
+- `HIGH_QUALITY_MODEL = "anthropic/claude-sonnet-4.5"` in `lib/capabilities/generation/constants.py` (confirmed)
+- Test assertion for PREMIUM quality: `assert "sonnet-4.5" in model.lower() or "opus" in model.lower()` — both `anthropic/claude-sonnet-4.5` and `anthropic/claude-opus-*` satisfy this
+- 7 async test failures in test_generation.py are pre-existing (same count before and after this PR); NOT a regression
+- 3-copy sync (lib/, chatwork-webhook/lib/, proactive-monitor/lib/) verified identical after this PR

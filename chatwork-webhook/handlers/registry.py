@@ -1057,7 +1057,7 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
             },
         },
         "handler": "generate_document",  # CapabilityBridge経由
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "required_data": [],
         "brain_metadata": {
             "decision_keywords": {

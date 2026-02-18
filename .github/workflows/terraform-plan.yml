@@ -47,11 +47,12 @@ jobs:
 
       # -------------------------------------------------------------------------
       # GCP認証（サービスアカウントキー方式）
-      # ※ GCPプロジェクトへの読み取りアクセスが必要
-      # ※ GitHub Secrets に GCP_CREDENTIALS_JSON を登録してください
+      # ※ GitHub Secrets に GCP_CREDENTIALS_JSON を登録すると有効になります
+      # ※ 未登録の場合はスキップ（terraform planはbackend=falseで実行）
       # 将来的には Workload Identity Federation（長期鍵不要の方式）への移行を推奨
       # -------------------------------------------------------------------------
       - name: GCP認証
+        if: ${{ secrets.GCP_CREDENTIALS_JSON != '' }}
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_CREDENTIALS_JSON }}
@@ -68,10 +69,17 @@ jobs:
 
       # -------------------------------------------------------------------------
       # terraform init: 初期化
+      # GCP_CREDENTIALS_JSON が登録されている場合はGCSバックエンドで、
+      # 未登録の場合は -backend=false でローカル初期化
       # -------------------------------------------------------------------------
       - name: terraform init
         id: init
-        run: terraform init -backend=false
+        run: |
+          if [ -n "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+            terraform init
+          else
+            terraform init -backend=false
+          fi
         working-directory: terraform
 
       # -------------------------------------------------------------------------

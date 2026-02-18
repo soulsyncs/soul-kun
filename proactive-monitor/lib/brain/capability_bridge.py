@@ -1443,7 +1443,7 @@ GENERATION_CAPABILITIES = {
             "outline": "アウトライン（オプション）",
             "output_format": "出力形式 (google_docs/markdown)",
         },
-        "requires_confirmation": True,
+        "requires_confirmation": False,
         "confirmation_template": "「{topic}」について{document_type}を作成するウル？🐺",
     },
     "generate_image": {

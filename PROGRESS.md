@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-19 JST（v11.2.2）**
+**最終更新: 2026-02-19 JST（v11.2.3）**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -72,18 +72,46 @@
 
 ## 🚨 次回やること
 
-### 優先順位（2026-02-14更新 — 3AI戦略的改善合意に基づく）
+### 優先順位（2026-02-19更新 — 3AI設計品質改善プラン完了状況）
 
 > **詳細**: `docs/30_strategic_improvement_plan_3ai.md`
 
-| # | タスク | 種別 | 概要 | 備考 |
+| # | タスク | 種別 | 状態 | 備考 |
 |---|--------|------|------|------|
-| 1 | **supabase-sync デプロイ** | デプロイ | PR #486マージ → `bash supabase-sync/deploy.sh` | Cloud Function |
-| 2 | **Langfuse導入** | 戦略改善 | LLMトレーシング。デバッグ30分→3分。3AI優先度1 | 1-2日で可視化 |
-| 3 | **Cloud Run移行** | 戦略改善 | lib/3コピー問題の根本解消。3AI優先度2 | Dockerfile作成済み（計画のみ） |
-| 4 | **Google Meet連携** | 新機能 | Zoom Case Cと同アーキテクチャで横展開 | Meet API |
-| 5 | **LangGraph導入** | 戦略改善 | Brain判断フローの可視化・分割。3AI優先度3 | Cloud Run移行後 |
-| 6 | **Phase 4B: 外部連携API** | 新機能 | 公開API | 未着手 |
+| 1 | **P18 terraform import** | IaC | 次フェーズ | 既存Cloud Runサービスをterraform管理に取り込む |
+| 2 | **GitHub Secrets設定** | 設定 | 次フェーズ | GCP_CREDENTIALS_JSONをGitHub Secretsに登録 |
+| 3 | **P7（DB型統一）** | 見送り | ⏸ LOW urgency / HIGH risk | 将来のメジャーアップデート時に対応 |
+| 4 | **Google Meet連携** | 新機能 | 未着手 | Zoom Case Cと同アーキテクチャで横展開 |
+| 5 | **LangGraph導入** | 戦略改善 | 未着手 | Brain判断フローの可視化・分割 |
+| 6 | **Phase 4B: 外部連携API** | 新機能 | 未着手 | 公開API |
+
+### ✅ 2026-02-19 3AI設計品質改善プラン P18完了（v11.2.3）
+
+**PR #618**: feat(terraform): P18 — Cloud RunサービスのTerraform化とCI/CD統合 マージ済み
+
+**3AI設計品質改善プランの最終状況:**
+
+| 項目 | 状態 | PR |
+|------|------|-----|
+| P1〜P11, P8/P15（計15項目） | ✅ 完了 | #612, #614, #616 |
+| P10（capability_bridge分割） | ✅ 完了 | #616 |
+| P17（Langfuse本番稼働確認） | ✅ 完了（コード実装済み、本番動作確認済み） | — |
+| P18 Phase A/B/D（Cloud Run TF化 + CI/CD統合） | ✅ 完了 | #618 |
+| P7（DB型統一 TEXT→UUID） | ⏸ 見送り（HIGH risk / LOW urgency） | — |
+| P18 残り（terraform import, GitHub Secrets） | 次フェーズ | — |
+
+**P18 今回の成果:**
+- `terraform/cloud_run.tf`（新規）: chatwork-webhook / proactive-monitor を Terraform リソースとして定義
+- `terraform/iam.tf`（修正）: Cloud Run 専用サービスアカウント（cloud_run_sa）追加
+- `.github/workflows/terraform-plan.yml`（新規）: terraform/ 変更 PR で自動 plan + PR コメント投稿
+
+**インフラコード化率:** 50% → 70%（+20%）
+
+### ✅ 2026-02-19 3AI設計品質改善プラン P10完了（v11.2.2）
+
+**PR #616**: refactor(brain): P10 — capability_bridge.pyをcapabilities/サブパッケージに分割 マージ済み
+
+**成果:** capability_bridge.py を 1,609行 → 852行に削減（47%削減）。各機能を capabilities/ サブパッケージに分割。
 
 ### ✅ 2026-02-14 3AI戦略レビュー + ドキュメント整備完了
 

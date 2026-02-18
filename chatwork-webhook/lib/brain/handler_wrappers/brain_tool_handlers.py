@@ -31,12 +31,25 @@ async def _brain_handle_task_search(params, room_id, account_id, sender_name, co
 
         handle_chatwork_task_search = getattr(main, 'handle_chatwork_task_search')
         result = handle_chatwork_task_search(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
-        return HandlerResult(success=True, message=result if result else "タスクが見つからなかったウル🐺")
+        if not result:
+            return HandlerResult(success=True, message="タスクが見つからなかったウル🐺")
+
+        # CLAUDE.md §1準拠: タスク一覧をBrain（LLM）で要約合成する
+        # ハンドラーはデータ取得のみ、表示テキスト生成はBrainが担当
+        # message=resultはsynthesis失敗時のフォールバック表示として使用
+        return HandlerResult(
+            success=True,
+            message=result,
+            data={
+                "needs_answer_synthesis": True,
+                "formatted_context": result,
+                "source": "chatwork_task_search",
+                "confidence": 1.0,
+            },
+        )
     except Exception as e:
-        print(f"task_search error: {e}")
-        import traceback
-        traceback.print_exc()
-        return HandlerResult(success=False, message=f"タスク検索でエラーが発生したウル🐺")
+        logger.error("task_search error: %s", e, exc_info=True)
+        return HandlerResult(success=False, message="タスク検索でエラーが発生したウル🐺")
 
 
 async def _brain_handle_task_create(params, room_id, account_id, sender_name, context):
@@ -648,6 +661,9 @@ async def _brain_handle_daily_reflection(params, room_id, account_id, sender_nam
 
         handle_daily_reflection = getattr(main, 'handle_daily_reflection')
         result = handle_daily_reflection(params=params, room_id=room_id, account_id=account_id, sender_name=sender_name, context=context.to_dict() if context else None)
+        if isinstance(result, dict):
+            msg = result.get("message", "振り返りを記録したウル🐺")
+            return HandlerResult(success=result.get("success", True), message=msg)
         return HandlerResult(success=True, message=result if result else "振り返りを記録したウル🐺")
     except Exception as e:
         return HandlerResult(success=False, message=f"振り返りでエラーが発生したウル🐺")

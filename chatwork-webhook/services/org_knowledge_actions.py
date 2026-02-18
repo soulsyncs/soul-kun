@@ -179,22 +179,21 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
     try:
         reflection_text = params.get("reflection_text", "")
         if not reflection_text:
-            return {"success": False, "message": "..."}
-        
-        from datetime import datetime
+            return {"success": False, "message": "振り返り内容を教えてほしいウル🐺"}
+
         from sqlalchemy import text
-        
-        conn = get_db_connection()
-        if not conn:
-            return {"success": False, "message": "..."}
-        
-        try:
+
+        pool = get_pool()
+        if not pool:
+            return {"success": False, "message": "データベースに接続できないウル🐺"}
+
+        with pool.connect() as conn:
             insert_query = text("""
-                INSERT INTO daily_reflection_logs 
+                INSERT INTO daily_reflection_logs
                 (account_id, recorded_at, reflection_text, room_id, message_id, created_at)
                 VALUES (:account_id, :recorded_at, :reflection_text, :room_id, :message_id, NOW())
             """)
-            
+
             conn.execute(insert_query, {
                 "account_id": str(account_id),
                 "recorded_at": datetime.now().date(),
@@ -203,15 +202,12 @@ def handle_daily_reflection(params, room_id, account_id, sender_name, context=No
                 "message_id": context.get("message_id", "") if context else ""
             })
             conn.commit()
-            
-            print(f": account_id={account_id}")
-            return {"success": True, "message": "\n"}
-            
-        finally:
-            conn.close()
-            
+
+        print(f"handle_daily_reflection: saved for account_id={account_id}")
+        return {"success": True, "message": "今日の振り返りを記録したウル🐺"}
+
     except Exception as e:
-        print(f"handle_daily_reflection : {e}")
+        print(f"handle_daily_reflection error: {e}")
         import traceback
         traceback.print_exc()
-        return {"success": False, "message": "..."}
+        return {"success": False, "message": "振り返りの記録でエラーが出たウル🐺 もう一度試してほしいウル！"}

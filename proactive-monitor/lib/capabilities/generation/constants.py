@@ -174,9 +174,9 @@ INFO_GATHERING_TIMEOUT: int = 120            # 情報収集
 
 
 # デフォルトモデル
-DEFAULT_GENERATION_MODEL: str = "anthropic/claude-sonnet-4-20250514"
-HIGH_QUALITY_MODEL: str = "anthropic/claude-opus-4-5-20251101"
-FAST_MODEL: str = "anthropic/claude-3-5-haiku-20241022"
+DEFAULT_GENERATION_MODEL: str = "anthropic/claude-sonnet-4"
+HIGH_QUALITY_MODEL: str = "anthropic/claude-sonnet-4.5"
+FAST_MODEL: str = "anthropic/claude-haiku-4.5"
 
 # 温度設定（タスクタイプ別）
 TEMPERATURE_SETTINGS: Dict[str, float] = {

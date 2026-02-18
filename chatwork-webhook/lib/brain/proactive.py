@@ -513,7 +513,7 @@ class ProactiveMonitor:
 
         # goals.organization_idはUUID型。有効なUUIDかチェック
         if not self._is_valid_uuid(user_ctx.organization_id):
-            logger.debug(f"[Proactive] Skipping goal abandoned check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            logger.debug(f"[Proactive] Skipping goal abandoned check - invalid UUID for user {user_ctx.user_id}: {(user_ctx.organization_id or '')[:8]}...")
             return None
 
         try:
@@ -624,7 +624,7 @@ class ProactiveMonitor:
 
         # emotion_scores.organization_idはUUID型。有効なUUIDかチェック
         if not self._is_valid_uuid(user_ctx.organization_id):
-            logger.debug(f"[Proactive] Skipping emotion decline check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            logger.debug(f"[Proactive] Skipping emotion decline check - invalid UUID for user {user_ctx.user_id}: {(user_ctx.organization_id or '')[:8]}...")
             return None
 
         try:
@@ -684,7 +684,7 @@ class ProactiveMonitor:
 
         # goals.organization_idはUUID型。有効なUUIDかチェック
         if not self._is_valid_uuid(user_ctx.organization_id):
-            logger.debug(f"[Proactive] Skipping goal achieved check - invalid UUID for user {user_ctx.user_id}: {user_ctx.organization_id}")
+            logger.debug(f"[Proactive] Skipping goal achieved check - invalid UUID for user {user_ctx.user_id}: {(user_ctx.organization_id or '')[:8]}...")
             return None
 
         try:
@@ -931,6 +931,9 @@ class ProactiveMonitor:
                 "[Proactive] Brain unavailable or failed — skipping send (Silent Fail). "
                 "CLAUDE.md §1: テンプレート直送はBrainバイパスのため禁止。"
             )
+            # success=True + error_message非None = 「意図的スキップ」の契約
+            # （送信処理自体が成功したが、送信は行わなかった）
+            # cf. Brain should_send=False 時（line ~905）も同じパターン
             return ProactiveAction(
                 message=ProactiveMessage(
                     trigger=trigger,
@@ -953,11 +956,10 @@ class ProactiveMonitor:
 
         # dry_runモードの場合はログのみ
         if self._dry_run:
-            brain_info = "(brain-generated)" if brain_result and brain_result.should_send else "(fallback)"
-            # v11.2.0: CLAUDE.md §9-3「本文をログに記録しない」準拠
-            # messageの本文は出力せず、文字数のみ記録（PII漏洩防止）
+            # v11.2.1 P8: この時点でmessageが存在 = Brain成功確定。"(fallback)"は到達不能
+            # v11.2.0: CLAUDE.md §9-3「本文をログに記録しない」準拠 — 文字数のみ記録
             logger.info(
-                f"[Proactive][DRY_RUN] Would send {brain_info}: "
+                f"[Proactive][DRY_RUN] Would send (brain-generated): "
                 f"(len={len(message)} chars)"
             )
             return ProactiveAction(message=proactive_msg, success=True)
@@ -989,7 +991,15 @@ class ProactiveMonitor:
         )
 
     def _generate_message(self, trigger: Trigger) -> str:
-        """メッセージを生成"""
+        """
+        テンプレートメッセージを生成
+
+        NOTE (v11.2.1 P8): このメソッドは現在 dead code です。
+        フォールバック送信の廃止（CLAUDE.md §1「Brain bypass禁止」）により
+        呼び出し箇所がなくなりました。
+        将来のテスト・管理ツール用途のため残していますが、
+        本番の送信パスでは使用しないこと。
+        """
         import random
 
         templates = MESSAGE_TEMPLATES.get(trigger.trigger_type, [])
@@ -1179,8 +1189,9 @@ def create_proactive_monitor(
         ProactiveMonitorインスタンス
 
     Note:
-        CLAUDE.md鉄則1b準拠: brainを渡さないとフォールバック（テンプレート）が
-        使用され、警告ログが出力される。本番運用時は必ずbrainを渡すこと。
+        CLAUDE.md §1準拠: brainを渡さない場合、能動的メッセージは一切送信されない
+        (Silent Fail)。テンプレート直送はBrainバイパスのため禁止 (v11.2.1 P8)。
+        本番運用時は必ずbrainインスタンスを渡すこと。
     """
     if not brain:
         logger.error(

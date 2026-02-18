@@ -599,11 +599,13 @@ class GuardianLayer:
     # =========================================================================
 
     def _is_operation_tool(self, tool_name: str) -> bool:
-        """操作系ツール（category="operations"）かどうかを判定"""
+        """操作系ツール（category="operations" かつ enabled）かどうかを判定"""
         try:
             from handlers.registry import SYSTEM_CAPABILITIES
             cap = SYSTEM_CAPABILITIES.get(tool_name)
-            return cap is not None and cap.get("category") == "operations"
+            return (cap is not None
+                    and cap.get("category") == "operations"
+                    and cap.get("enabled", True))
         except ImportError:
             return False
 
@@ -658,27 +660,40 @@ class GuardianLayer:
         return GuardianResult(action=GuardianAction.ALLOW)
 
     def _check_operation_registry(self, tool_name: str) -> GuardianResult:
-        """8-1: 操作がレジストリに登録されているか"""
+        """8-1: 操作がレジストリに登録されているか
+
+        operations/registry の _registry と、handlers/registry の
+        SYSTEM_CAPABILITIES の両方をチェックする。
+        どちらかに登録されていれば許可。
+        """
         try:
             from lib.brain.operations.registry import is_registered
-            if not is_registered(tool_name):
-                logger.warning(
-                    "Guardian: unregistered operation blocked: %s", tool_name
-                )
-                return GuardianResult(
-                    action=GuardianAction.BLOCK,
-                    blocked_reason=f"操作「{tool_name}」はレジストリに登録されていません。",
-                    priority_level=8,
-                    risk_level="critical",
-                )
+            if is_registered(tool_name):
+                return GuardianResult(action=GuardianAction.ALLOW)
         except ImportError:
-            # レジストリモジュールがない場合は安全側に倒す
-            return GuardianResult(
-                action=GuardianAction.BLOCK,
-                blocked_reason="操作レジストリが利用できません。",
-                priority_level=8,
-            )
-        return GuardianResult(action=GuardianAction.ALLOW)
+            pass
+
+        # _registry が空でも、SYSTEM_CAPABILITIES に category=operations として
+        # 登録・有効化されているツールは正規ツールとして許可する
+        try:
+            from handlers.registry import SYSTEM_CAPABILITIES
+            cap = SYSTEM_CAPABILITIES.get(tool_name)
+            if (cap is not None
+                    and cap.get("category") == "operations"
+                    and cap.get("enabled", True)):
+                return GuardianResult(action=GuardianAction.ALLOW)
+        except ImportError:
+            pass
+
+        logger.warning(
+            "Guardian: unregistered operation blocked: %s", tool_name
+        )
+        return GuardianResult(
+            action=GuardianAction.BLOCK,
+            blocked_reason=f"操作「{tool_name}」はレジストリに登録されていません。",
+            priority_level=8,
+            risk_level="critical",
+        )
 
     def _check_operation_param_length(self, tool_call: ToolCall) -> GuardianResult:
         """8-2: パラメータが異常に長くないか（200文字超）"""

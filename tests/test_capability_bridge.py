@@ -126,79 +126,82 @@ class TestInit:
         )
         assert bridge.llm_caller is caller
 
-    def test_lazy_initialized_attributes_are_none(self, bridge):
-        """遅延初期化用の属性は全てNone"""
-        assert bridge._multimodal_coordinator is None
-        assert bridge._document_generator is None
-        assert bridge._image_generator is None
-        assert bridge._video_generator is None
-        assert bridge._feedback_engine is None
+    def test_llm_caller_is_none_by_default(self, bridge):
+        """llm_callerのデフォルトはNone"""
+        assert bridge.llm_caller is None
 
 
 # =============================================================================
-# UUID変換ヘルパー テスト
+# UUID変換ヘルパー テスト（capabilities.generation モジュール関数）
 # =============================================================================
 
 
 class TestSafeParseUuid:
-    """_safe_parse_uuid 静的メソッドのテスト"""
+    """_safe_parse_uuid ヘルパー関数のテスト（capabilities/generation.py）"""
 
     def test_none_returns_none(self):
         """Noneを渡すとNoneが返る"""
-        assert CapabilityBridge._safe_parse_uuid(None) is None
+        from lib.brain.capabilities.generation import _safe_parse_uuid
+        assert _safe_parse_uuid(None) is None
 
     def test_empty_string_returns_none(self):
         """空文字列はNoneが返る"""
-        assert CapabilityBridge._safe_parse_uuid("") is None
+        from lib.brain.capabilities.generation import _safe_parse_uuid
+        assert _safe_parse_uuid("") is None
 
     def test_valid_uuid_string(self):
         """有効なUUID文字列は正しく変換される"""
+        from lib.brain.capabilities.generation import _safe_parse_uuid
         uuid_str = "12345678-1234-5678-1234-567812345678"
-        result = CapabilityBridge._safe_parse_uuid(uuid_str)
+        result = _safe_parse_uuid(uuid_str)
         assert isinstance(result, UUID)
         assert str(result) == uuid_str
 
     def test_non_uuid_string_returns_uuid5(self):
         """UUID形式でない文字列はuuid5で変換される"""
-        result = CapabilityBridge._safe_parse_uuid("chatwork_12345")
+        from lib.brain.capabilities.generation import _safe_parse_uuid
+        result = _safe_parse_uuid("chatwork_12345")
         assert isinstance(result, UUID)
         # 決定論的：同じ入力なら同じ結果
-        result2 = CapabilityBridge._safe_parse_uuid("chatwork_12345")
+        result2 = _safe_parse_uuid("chatwork_12345")
         assert result == result2
 
     def test_numeric_string_returns_uuid5(self):
         """数値文字列（ChatWorkアカウントIDなど）もUUID5で変換される"""
-        result = CapabilityBridge._safe_parse_uuid("10909425")
+        from lib.brain.capabilities.generation import _safe_parse_uuid
+        result = _safe_parse_uuid("10909425")
         assert isinstance(result, UUID)
 
 
 class TestParseOrgUuid:
-    """_parse_org_uuid メソッドのテスト"""
+    """_parse_org_uuid ヘルパー関数のテスト（capabilities/generation.py）"""
 
-    def test_valid_uuid_org_id(self, mock_pool):
+    def test_valid_uuid_org_id(self):
         """UUID形式のorg_idはそのまま変換される"""
+        from lib.brain.capabilities.generation import _parse_org_uuid
         uuid_str = "5f98365f-e7c5-4f48-9918-7fe9aabae5df"
-        bridge = CapabilityBridge(pool=mock_pool, org_id=uuid_str)
-        result = bridge._parse_org_uuid()
+        result = _parse_org_uuid(uuid_str)
         assert isinstance(result, UUID)
         assert str(result) == uuid_str
 
-    def test_non_uuid_org_id(self, bridge):
+    def test_non_uuid_org_id(self):
         """UUID形式でないorg_idはuuid5で変換される"""
-        result = bridge._parse_org_uuid()
+        from lib.brain.capabilities.generation import _parse_org_uuid
+        result = _parse_org_uuid("non-uuid-org")
         assert isinstance(result, UUID)
 
-    def test_uuid_object_org_id(self, mock_pool):
+    def test_uuid_object_org_id(self):
         """UUID型のorg_idがそのまま返される"""
+        from lib.brain.capabilities.generation import _parse_org_uuid
         uuid_obj = UUID("5f98365f-e7c5-4f48-9918-7fe9aabae5df")
-        bridge = CapabilityBridge(pool=mock_pool, org_id=uuid_obj)
-        result = bridge._parse_org_uuid()
+        result = _parse_org_uuid(uuid_obj)
         assert result == uuid_obj
 
-    def test_deterministic_conversion(self, bridge):
+    def test_deterministic_conversion(self):
         """同じorg_idは常に同じUUIDに変換される"""
-        result1 = bridge._parse_org_uuid()
-        result2 = bridge._parse_org_uuid()
+        from lib.brain.capabilities.generation import _parse_org_uuid
+        result1 = _parse_org_uuid("test-org-id")
+        result2 = _parse_org_uuid("test-org-id")
         assert result1 == result2
 
 

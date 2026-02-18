@@ -38,12 +38,24 @@ Created: 2026-01-28
 """
 
 import logging
-from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Tuple
-from uuid import UUID
 
 from lib.brain.models import HandlerResult
+from lib.brain.capabilities import (
+    handle_connection_query,
+    handle_create_presentation,
+    handle_create_spreadsheet,
+    handle_deep_research,
+    handle_document_generation,
+    handle_feedback_generation,
+    handle_image_generation,
+    handle_meeting_transcription,
+    handle_read_presentation,
+    handle_read_spreadsheet,
+    handle_video_generation,
+    handle_write_spreadsheet,
+    handle_zoom_meeting_minutes,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,58 +153,10 @@ class CapabilityBridge:
         self.feature_flags = {**DEFAULT_FEATURE_FLAGS, **(feature_flags or {})}
         self.llm_caller = llm_caller
 
-        # 遅延初期化用のインスタンス変数
-        self._multimodal_coordinator = None
-        self._document_generator = None
-        self._image_generator = None
-        self._video_generator = None
-        self._feedback_engine = None
-
         logger.info(
             f"CapabilityBridge initialized for org_id={org_id}, "
             f"flags={self.feature_flags}"
         )
-
-    @staticmethod
-    def _safe_parse_uuid(value: Optional[str]) -> Optional[UUID]:
-        """文字列をUUIDに安全に変換するヘルパー
-
-        ChatworkのアカウントIDなど、UUID形式でない場合はuuid5で変換する。
-        """
-        if not value:
-            return None
-        try:
-            return UUID(str(value))
-        except (ValueError, TypeError, AttributeError):
-            import uuid as uuid_mod
-            return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(value))
-
-    def _parse_org_uuid(self) -> UUID:
-        """org_id文字列をUUIDに変換するヘルパー
-
-        UUID形式でない場合（例: "5f98365f-e7c5-4f48-9918-7fe9aabae5df"）はuuid5で決定論的に変換する。
-        """
-        if isinstance(self.org_id, UUID):
-            return self.org_id
-        try:
-            return UUID(self.org_id)
-        except (ValueError, TypeError, AttributeError):
-            import uuid as uuid_mod
-            return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(self.org_id))
-
-    def _get_google_docs_credentials(self) -> Optional[Dict[str, Any]]:
-        """Google Docs専用SAの認証情報をSecret Managerから取得"""
-        try:
-            from google.cloud import secretmanager
-            import json as _json
-
-            client = secretmanager.SecretManagerServiceClient()
-            name = "projects/soulkun-production/secrets/google-docs-sa-key/versions/latest"
-            response = client.access_secret_version(request={"name": name})
-            return _json.loads(response.payload.data.decode("utf-8"))
-        except Exception as e:
-            logger.warning("Google Docs SA key not available, using ADC: %s", str(e)[:100])
-            return None
 
     # =========================================================================
     # Multimodal 前処理
@@ -410,123 +374,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        文書生成ハンドラー
-
-        Args:
-            room_id: ChatWorkルームID
-            account_id: ユーザーアカウントID
-            sender_name: 送信者名
-            params: パラメータ
-                - document_type: 文書タイプ（report/summary/proposal）
-                - topic: トピック
-                - outline: アウトライン（オプション）
-                - output_format: 出力形式（google_docs/markdown）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import DocumentGenerator
-            from lib.capabilities.generation.models import (
-                DocumentRequest,
-                GenerationInput,
-            )
-            from lib.capabilities.generation.constants import (
-                DocumentType,
-                GenerationType,
-                OutputFormat,
-            )
-
-            document_type_str = params.get("document_type", "report")
-            topic = params.get("topic", "")
-            outline = params.get("outline")
-            output_format_str = params.get("output_format", "google_docs")
-
-            if not topic:
-                return HandlerResult(
-                    success=False,
-                    message="何について文書を作成すればいいか教えてほしいウル🐺",
-                )
-
-            org_uuid = self._parse_org_uuid()
-
-            # 文書タイプのマッピング
-            doc_type_map: Dict[str, DocumentType] = {
-                "report": DocumentType.REPORT,
-                "summary": DocumentType.SUMMARY,
-                "proposal": DocumentType.PROPOSAL,
-                "minutes": DocumentType.MINUTES,
-                "manual": DocumentType.MANUAL,
-            }
-            doc_type = doc_type_map.get(document_type_str, DocumentType.REPORT)
-
-            # 出力形式のマッピング
-            format_map: Dict[str, OutputFormat] = {
-                "google_docs": OutputFormat.GOOGLE_DOCS,
-                "markdown": OutputFormat.MARKDOWN,
-            }
-            out_format = format_map.get(output_format_str, OutputFormat.GOOGLE_DOCS)
-
-            # Google Docs専用SAの認証情報を取得
-            google_creds_json = self._get_google_docs_credentials()
-
-            # 文書生成器を初期化
-            generator = DocumentGenerator(
-                pool=self.pool,
-                organization_id=org_uuid,
-                google_credentials_json=google_creds_json,
-            )
-
-            # リクエスト作成
-            instruction = topic
-            if outline:
-                instruction = f"{topic}\n\nアウトライン:\n{outline}"
-            doc_request = DocumentRequest(
-                title=topic,
-                organization_id=org_uuid,
-                document_type=doc_type,
-                output_format=out_format,
-                instruction=instruction,
-                require_confirmation=False,
-            )
-
-            # 文書を生成
-            result = await generator.generate(GenerationInput(
-                generation_type=GenerationType.DOCUMENT,
-                organization_id=org_uuid,
-                document_request=doc_request,
-            ))
-
-            if result.success:
-                message = f"文書を作成したウル！🐺\n\n"
-                doc_result = result.document_result
-                doc_url = doc_result.document_url if doc_result else None
-                doc_id = doc_result.document_id if doc_result else None
-                if doc_url:
-                    message += f"📄 {doc_url}"
-                return HandlerResult(
-                    success=True,
-                    message=message,
-                    data={"document_url": doc_url, "document_id": doc_id},
-                )
-            else:
-                return HandlerResult(
-                    success=False,
-                    message=f"文書の作成に失敗したウル🐺 {result.error_message}",
-                )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="文書生成機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Document generation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="文書の作成中にエラーが発生したウル🐺",
-            )
+        """文書生成ハンドラー — capabilities/generation.py に委譲"""
+        return await handle_document_generation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_image_generation(
         self,
@@ -536,8 +393,7 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        画像生成ハンドラー
+        """画像生成ハンドラー — capabilities/generation.py に委譲
 
         Args:
             room_id: ChatWorkルームID
@@ -551,96 +407,15 @@ class CapabilityBridge:
         Returns:
             HandlerResult
         """
-        try:
-            from lib.capabilities.generation import ImageGenerator
-            from lib.capabilities.generation.models import (
-                ImageRequest,
-                GenerationInput,
-            )
-            from lib.capabilities.generation.constants import GenerationType
-
-            prompt = params.get("prompt", "")
-            style = params.get("style")
-            size = params.get("size", "1024x1024")
-
-            if not prompt:
-                return HandlerResult(
-                    success=False,
-                    message="どんな画像を作ればいいか教えてほしいウル🐺",
-                )
-
-            org_uuid = self._parse_org_uuid()
-
-            # 画像生成器を初期化
-            generator = ImageGenerator(
-                pool=self.pool,
-                organization_id=org_uuid,
-            )
-
-            # スタイル・サイズのマッピング
-            from lib.capabilities.generation.constants import ImageStyle, ImageSize
-
-            style_map: Dict[str, ImageStyle] = {
-                "vivid": ImageStyle.VIVID,
-                "natural": ImageStyle.NATURAL,
-                "anime": ImageStyle.ANIME,
-                "realistic": ImageStyle.PHOTOREALISTIC,
-                "photorealistic": ImageStyle.PHOTOREALISTIC,
-                "illustration": ImageStyle.ILLUSTRATION,
-                "minimalist": ImageStyle.MINIMALIST,
-                "corporate": ImageStyle.CORPORATE,
-            }
-            size_map: Dict[str, ImageSize] = {
-                "1024x1024": ImageSize.SQUARE_1024,
-                "1792x1024": ImageSize.LANDSCAPE_1792,
-                "1024x1792": ImageSize.PORTRAIT_1024,
-            }
-
-            # リクエスト作成
-            image_request = ImageRequest(
-                organization_id=org_uuid,
-                prompt=prompt,
-                style=style_map.get(style, ImageStyle.VIVID) if style else ImageStyle.VIVID,
-                size=size_map.get(size, ImageSize.SQUARE_1024),
-                send_to_chatwork=True,
-                chatwork_room_id=room_id,
-            )
-
-            # 画像を生成
-            result = await generator.generate(GenerationInput(
-                generation_type=GenerationType.IMAGE,
-                organization_id=org_uuid,
-                image_request=image_request,
-            ))
-
-            if result.success:
-                message = f"画像を作成したウル！🐺\n\n"
-                img_result = result.image_result
-                img_url = img_result.image_url if img_result else None
-                if img_url:
-                    message += f"🖼️ {img_url}"
-                return HandlerResult(
-                    success=True,
-                    message=message,
-                    data={"image_url": img_url},
-                )
-            else:
-                return HandlerResult(
-                    success=False,
-                    message=f"画像の作成に失敗したウル🐺 {result.error_message}",
-                )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="画像生成機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Image generation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="画像の作成中にエラーが発生したウル🐺",
-            )
+        return await handle_image_generation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_video_generation(
         self,
@@ -650,96 +425,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        動画生成ハンドラー
-
-        Args:
-            room_id: ChatWorkルームID
-            account_id: ユーザーアカウントID
-            sender_name: 送信者名
-            params: パラメータ
-                - prompt: 動画の説明
-                - duration: 長さ（秒）
-                - style: スタイル
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import VideoGenerator
-            from lib.capabilities.generation.models import (
-                VideoRequest,
-                GenerationInput,
-            )
-            from lib.capabilities.generation.constants import GenerationType
-
-            prompt = params.get("prompt", "")
-            duration = params.get("duration", 5)
-
-            if not prompt:
-                return HandlerResult(
-                    success=False,
-                    message="どんな動画を作ればいいか教えてほしいウル🐺",
-                )
-
-            org_uuid = self._parse_org_uuid()
-
-            # 動画生成器を初期化
-            generator = VideoGenerator(
-                pool=self.pool,
-                organization_id=org_uuid,
-            )
-
-            # Duration マッピング
-            from lib.capabilities.generation.constants import VideoDuration
-
-            duration_map: Dict[int, VideoDuration] = {
-                5: VideoDuration.SHORT_5S,
-                10: VideoDuration.STANDARD_10S,
-            }
-
-            # リクエスト作成
-            video_request = VideoRequest(
-                organization_id=org_uuid,
-                prompt=prompt,
-                duration=duration_map.get(int(duration), VideoDuration.SHORT_5S),
-            )
-
-            # 動画を生成
-            result = await generator.generate(GenerationInput(
-                generation_type=GenerationType.VIDEO,
-                organization_id=org_uuid,
-                video_request=video_request,
-            ))
-
-            if result.success:
-                message = f"動画を作成したウル！🐺\n\n"
-                vid_result = result.video_result
-                vid_url = vid_result.video_url if vid_result else None
-                if vid_url:
-                    message += f"🎬 {vid_url}"
-                return HandlerResult(
-                    success=True,
-                    message=message,
-                    data={"video_url": vid_url},
-                )
-            else:
-                return HandlerResult(
-                    success=False,
-                    message=f"動画の作成に失敗したウル🐺 {result.error_message}",
-                )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="動画生成機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Video generation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="動画の作成中にエラーが発生したウル🐺",
-            )
+        """動画生成ハンドラー — capabilities/generation.py に委譲"""
+        return await handle_video_generation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_feedback_generation(
         self,
@@ -749,80 +444,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        CEOフィードバック生成ハンドラー
-
-        Args:
-            room_id: ChatWorkルームID
-            account_id: ユーザーアカウントID
-            sender_name: 送信者名
-            params: パラメータ
-                - target_user_id: 対象ユーザーID（オプション）
-                - period: 期間（week/month/quarter）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.feedback import CEOFeedbackEngine
-            from lib.capabilities.feedback.ceo_feedback_engine import CEOFeedbackSettings
-
-            target_user_id = params.get("target_user_id")
-            period = params.get("period", "week")
-
-            org_uuid = self._parse_org_uuid()
-
-            # account_idはChatwork数値IDの場合があるため、安全にUUID変換
-            recipient_id = self._safe_parse_uuid(target_user_id or account_id)
-            if recipient_id is None:
-                return HandlerResult(
-                    success=False,
-                    message="対象ユーザーを特定できなかったウル🐺",
-                )
-
-            # フィードバック設定を作成
-            settings = CEOFeedbackSettings(
-                recipient_user_id=recipient_id,
-                recipient_name=sender_name,
-            )
-
-            # フィードバックエンジンを初期化（Poolからconnectionを取得）
-            # asyncio.to_thread()でコネクション取得、async操作はイベントループで実行
-            import asyncio
-            conn = await asyncio.to_thread(self.pool.connect)
-            try:
-                engine = CEOFeedbackEngine(
-                    conn=conn,
-                    organization_id=org_uuid,
-                    settings=settings,
-                )
-
-                # フィードバックを生成（オンデマンド分析を使用）
-                query = f"{period}のフィードバック"
-                feedback, _delivery_result = await engine.analyze_on_demand(
-                    query=query,
-                    deliver=False,
-                )
-            finally:
-                await asyncio.to_thread(conn.close)
-
-            return HandlerResult(
-                success=True,
-                message=feedback.summary or "フィードバックを生成したウル🐺",
-                data={"feedback_id": feedback.feedback_id},
-            )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="フィードバック機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Feedback generation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="フィードバックの生成中にエラーが発生したウル🐺",
-            )
+        """CEOフィードバック生成ハンドラー — capabilities/feedback.py に委譲"""
+        return await handle_feedback_generation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     # =========================================================================
     # G3: Deep Research ハンドラー
@@ -836,127 +467,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        ディープリサーチハンドラー
-
-        Args:
-            room_id: ChatWorkルームID
-            account_id: ユーザーアカウントID
-            sender_name: 送信者名
-            params: パラメータ
-                - query: 調査クエリ
-                - depth: 調査深度 (quick/standard/deep/comprehensive)
-                - research_type: 調査タイプ (general/competitor/market/technology)
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import (
-                ResearchEngine,
-                ResearchRequest,
-                ResearchDepth,
-                ResearchType,
-                GenerationInput,
-                GenerationType,
-            )
-
-            query = params.get("query", "")
-            depth_str = params.get("depth", "standard")
-            research_type_str = params.get("research_type", "general")
-
-            if not query:
-                return HandlerResult(
-                    success=False,
-                    message="何について調べればいいか教えてほしいウル🐺",
-                )
-
-            # 深度のマッピング
-            depth_map = {
-                "quick": ResearchDepth.QUICK,
-                "standard": ResearchDepth.STANDARD,
-                "deep": ResearchDepth.DEEP,
-                "comprehensive": ResearchDepth.COMPREHENSIVE,
-            }
-            depth = depth_map.get(depth_str, ResearchDepth.STANDARD)
-
-            # タイプのマッピング
-            type_map = {
-                "general": ResearchType.TOPIC,
-                "competitor": ResearchType.COMPETITOR,
-                "market": ResearchType.MARKET,
-                "technology": ResearchType.TECHNOLOGY,
-            }
-            research_type = type_map.get(research_type_str, ResearchType.TOPIC)
-
-            org_uuid = self._parse_org_uuid()
-
-            # リサーチエンジンを初期化
-            engine = ResearchEngine(
-                pool=self.pool,
-                organization_id=org_uuid,
-            )
-
-            # リクエスト作成
-            request = ResearchRequest(
-                organization_id=org_uuid,
-                query=query,
-                depth=depth,
-                research_type=research_type,
-                user_id=self._safe_parse_uuid(account_id),
-                chatwork_room_id=room_id,
-                save_to_drive=True,
-            )
-
-            # リサーチ実行
-            result = await engine.generate(GenerationInput(
-                generation_type=GenerationType.RESEARCH,
-                organization_id=org_uuid,
-                research_request=request,
-            ))
-
-            if result.success and result.research_result:
-                res = result.research_result
-                message = f"調査が完了したウル！🐺\n\n"
-                message += f"📊 **調査結果: {query[:30]}...**\n\n"
-                if res.executive_summary:
-                    message += f"**要約:**\n{res.executive_summary}\n\n"
-                if res.key_findings:
-                    message += f"**主な発見:**\n"
-                    for i, finding in enumerate(res.key_findings[:5], 1):
-                        message += f"{i}. {finding}\n"
-                    message += "\n"
-                if res.document_url:
-                    message += f"📄 詳細レポート: {res.document_url}\n"
-                if res.actual_cost_jpy:
-                    message += f"\n💰 調査コスト: ¥{res.actual_cost_jpy:.0f}"
-
-                return HandlerResult(
-                    success=True,
-                    message=message,
-                    data={
-                        "document_url": res.document_url,
-                        "sources_count": res.sources_count,
-                        "cost_jpy": res.actual_cost_jpy,
-                    },
-                )
-            else:
-                return HandlerResult(
-                    success=False,
-                    message="調査に失敗したウル🐺",
-                )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="ディープリサーチ機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Deep research failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="調査中にエラーが発生したウル🐺",
-            )
+        """ディープリサーチハンドラー — capabilities/generation.py に委譲"""
+        return await handle_deep_research(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     # =========================================================================
     # G4: Google Sheets ハンドラー
@@ -970,62 +490,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        スプレッドシート読み込みハンドラー
-
-        Args:
-            params: パラメータ
-                - spreadsheet_id: スプレッドシートID
-                - range: 読み込み範囲（例: "Sheet1!A1:D10"）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import GoogleSheetsClient
-
-            spreadsheet_id = params.get("spreadsheet_id", "")
-            range_name = params.get("range", "")
-
-            if not spreadsheet_id:
-                return HandlerResult(
-                    success=False,
-                    message="スプレッドシートのIDを教えてほしいウル🐺",
-                )
-
-            client = GoogleSheetsClient()
-            data = await client.read_sheet(
-                spreadsheet_id=spreadsheet_id,
-                range_notation=range_name or "Sheet1",
-            )
-
-            if data:
-                # Markdownテーブルに変換
-                markdown = client.to_markdown_table(data)
-                message = f"スプレッドシートの内容ウル！🐺\n\n{markdown}"
-                return HandlerResult(
-                    success=True,
-                    message=message,
-                    data={"rows": len(data), "data": data},
-                )
-            else:
-                return HandlerResult(
-                    success=True,
-                    message="スプレッドシートにデータがなかったウル🐺",
-                    data={"rows": 0, "data": []},
-                )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="スプレッドシート機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Read spreadsheet failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="スプレッドシートの読み込みに失敗したウル🐺",
-            )
+        """スプレッドシート読み込みハンドラー — capabilities/google_workspace.py に委譲"""
+        return await handle_read_spreadsheet(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_write_spreadsheet(
         self,
@@ -1035,61 +509,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        スプレッドシート書き込みハンドラー
-
-        Args:
-            params: パラメータ
-                - spreadsheet_id: スプレッドシートID
-                - range: 書き込み範囲
-                - data: 書き込みデータ（2次元配列）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import GoogleSheetsClient
-
-            spreadsheet_id = params.get("spreadsheet_id", "")
-            range_name = params.get("range", "Sheet1!A1")
-            data = params.get("data", [])
-
-            if not spreadsheet_id:
-                return HandlerResult(
-                    success=False,
-                    message="スプレッドシートのIDを教えてほしいウル🐺",
-                )
-
-            if not data:
-                return HandlerResult(
-                    success=False,
-                    message="書き込むデータを教えてほしいウル🐺",
-                )
-
-            client = GoogleSheetsClient()
-            result = await client.write_sheet(
-                spreadsheet_id=spreadsheet_id,
-                range_notation=range_name,
-                values=data,
-            )
-
-            return HandlerResult(
-                success=True,
-                message=f"スプレッドシートに書き込んだウル！🐺\n更新セル数: {result.get('updatedCells', 0)}",
-                data=result,
-            )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="スプレッドシート機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Write spreadsheet failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="スプレッドシートへの書き込みに失敗したウル🐺",
-            )
+        """スプレッドシート書き込みハンドラー — capabilities/google_workspace.py に委譲"""
+        return await handle_write_spreadsheet(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_create_spreadsheet(
         self,
@@ -1099,50 +528,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        スプレッドシート作成ハンドラー
-
-        Args:
-            params: パラメータ
-                - title: スプレッドシート名
-                - sheets: シート名のリスト（オプション）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import GoogleSheetsClient
-
-            title = params.get("title", "新規スプレッドシート")
-            sheets = params.get("sheets", ["Sheet1"])
-
-            client = GoogleSheetsClient()
-            result = await client.create_spreadsheet(
-                title=title,
-                sheet_names=sheets,
-            )
-
-            spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{result['spreadsheet_id']}"
-            return HandlerResult(
-                success=True,
-                message=f"スプレッドシートを作成したウル！🐺\n\n📊 {spreadsheet_url}",
-                data={
-                    "spreadsheet_id": result["spreadsheet_id"],
-                    "url": spreadsheet_url,
-                },
-            )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="スプレッドシート機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Create spreadsheet failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="スプレッドシートの作成に失敗したウル🐺",
-            )
+        """スプレッドシート作成ハンドラー — capabilities/google_workspace.py に委譲"""
+        return await handle_create_spreadsheet(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     # =========================================================================
     # G4: Google Slides ハンドラー
@@ -1156,58 +551,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        プレゼンテーション読み込みハンドラー
-
-        Args:
-            params: パラメータ
-                - presentation_id: プレゼンテーションID
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import GoogleSlidesClient
-
-            presentation_id = params.get("presentation_id", "")
-
-            if not presentation_id:
-                return HandlerResult(
-                    success=False,
-                    message="プレゼンテーションのIDを教えてほしいウル🐺",
-                )
-
-            client = GoogleSlidesClient()
-            info = await client.get_presentation_info(presentation_id)
-            content = await client.get_presentation_content(presentation_id)
-
-            # Markdown形式で内容を表示
-            markdown = client.to_markdown(content)
-            message = f"📽️ **{info.get('title', 'プレゼンテーション')}**\n\n"
-            message += f"スライド数: {info.get('slides_count', 0)}\n\n"
-            message += f"{markdown}"
-
-            return HandlerResult(
-                success=True,
-                message=message,
-                data={
-                    "title": info.get("title"),
-                    "slides_count": info.get("slides_count"),
-                    "content": content,
-                },
-            )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="プレゼンテーション機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Read presentation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="プレゼンテーションの読み込みに失敗したウル🐺",
-            )
+        """プレゼンテーション読み込みハンドラー — capabilities/google_workspace.py に委譲"""
+        return await handle_read_presentation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     async def _handle_create_presentation(
         self,
@@ -1217,62 +570,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        プレゼンテーション作成ハンドラー
-
-        Args:
-            params: パラメータ
-                - title: プレゼンテーション名
-                - slides: スライド内容のリスト
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.capabilities.generation import GoogleSlidesClient
-
-            title = params.get("title", "新規プレゼンテーション")
-            slides = params.get("slides", [])
-
-            client = GoogleSlidesClient()
-
-            # プレゼンテーション作成
-            result = await client.create_presentation(title=title)
-            presentation_id = result["presentationId"]
-
-            # スライドを追加
-            for slide_data in slides:
-                slide_title = slide_data.get("title", "")
-                slide_body = slide_data.get("body", "")
-                if slide_title or slide_body:
-                    await client.add_slide(
-                        presentation_id=presentation_id,
-                        layout="TITLE_AND_BODY",
-                        title=slide_title,
-                        body=slide_body,
-                    )
-
-            presentation_url = f"https://docs.google.com/presentation/d/{presentation_id}"
-            return HandlerResult(
-                success=True,
-                message=f"プレゼンテーションを作成したウル！🐺\n\n📽️ {presentation_url}",
-                data={
-                    "presentation_id": presentation_id,
-                    "url": presentation_url,
-                },
-            )
-
-        except ImportError:
-            return HandlerResult(
-                success=False,
-                message="プレゼンテーション機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Create presentation failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="プレゼンテーションの作成に失敗したウル🐺",
-            )
+        """プレゼンテーション作成ハンドラー — capabilities/google_workspace.py に委譲"""
+        return await handle_create_presentation(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
     # =========================================================================
     # Meeting Transcription（Phase C MVP0）
@@ -1285,24 +592,17 @@ class CapabilityBridge:
         sender_name: str,
         params: Dict[str, Any],
         **kwargs,
-    ) -> "HandlerResult":
-        """会議文字起こしハンドラー — MeetingBrainInterfaceに委譲"""
-        from handlers.meeting_handler import handle_meeting_upload
-
-        # Phase C MVP1: 議事録自動生成が有効な場合、LLM関数とフラグを注入
-        extra_kwargs = {}
-        if self.feature_flags.get("ENABLE_MEETING_MINUTES", False) and self.llm_caller:
-            extra_kwargs["get_ai_response_func"] = self.llm_caller
-            extra_kwargs["enable_minutes"] = True
-
-        return await handle_meeting_upload(
+    ) -> HandlerResult:
+        """会議文字起こしハンドラー — capabilities/meeting.py に委譲"""
+        return await handle_meeting_transcription(
+            pool=self.pool,
+            org_id=self.org_id,
             room_id=room_id,
             account_id=account_id,
             sender_name=sender_name,
             params=params,
-            pool=self.pool,
-            organization_id=self.org_id,
-            **extra_kwargs,
+            feature_flags=self.feature_flags,
+            llm_caller=self.llm_caller,
             **kwargs,
         )
 
@@ -1317,17 +617,15 @@ class CapabilityBridge:
         sender_name: str,
         params: Dict[str, Any],
         **kwargs,
-    ) -> "HandlerResult":
-        """Zoom議事録ハンドラー — ZoomBrainInterfaceに委譲"""
-        from handlers.zoom_meeting_handler import handle_zoom_meeting_minutes
-
+    ) -> HandlerResult:
+        """Zoom議事録ハンドラー — capabilities/meeting.py に委譲"""
         return await handle_zoom_meeting_minutes(
+            pool=self.pool,
+            org_id=self.org_id,
             room_id=room_id,
             account_id=account_id,
             sender_name=sender_name,
             params=params,
-            pool=self.pool,
-            organization_id=self.org_id,
             **kwargs,
         )
 
@@ -1343,71 +641,16 @@ class CapabilityBridge:
         params: Dict[str, Any],
         **kwargs,
     ) -> HandlerResult:
-        """
-        接続クエリハンドラー（DM可能な相手一覧）
-
-        セキュリティ:
-        - OWNER（CEO/Admin）のみ全リストを開示
-        - 非OWNERには拒否メッセージ
-
-        Args:
-            room_id: ChatWorkルームID
-            account_id: リクエスト者のアカウントID
-            sender_name: 送信者名
-            params: パラメータ（未使用）
-
-        Returns:
-            HandlerResult
-        """
-        try:
-            from lib.connection_service import ConnectionService
-            from lib.connection_logger import get_connection_logger
-            from lib.chatwork import ChatworkClient
-
-            # ChatWorkクライアント取得
-            client = ChatworkClient()
-
-            # サービス実行
-            service = ConnectionService(
-                chatwork_client=client,
-                org_id=self.org_id,
-            )
-            result = service.query_connections(account_id)
-
-            # 構造化ログ出力
-            conn_logger = get_connection_logger()
-            conn_logger.log_query(
-                requester_user_id=account_id,
-                allowed=result.allowed,
-                result_count=result.total_count,
-                organization_id=self.org_id,
-                room_id=room_id,
-            )
-
-            data: Dict[str, Any] = {
-                    "allowed": result.allowed,
-                    "total_count": result.total_count,
-                    "truncated": result.truncated,
-                } if result.allowed else {}
-
-            return HandlerResult(
-                success=True,
-                message=result.message,
-                data=data,
-            )
-
-        except ImportError as e:
-            logger.error(f"[CapabilityBridge] Connection query import error: {type(e).__name__}")
-            return HandlerResult(
-                success=False,
-                message="接続クエリ機能が利用できないウル🐺",
-            )
-        except Exception as e:
-            logger.error(f"[CapabilityBridge] Connection query failed: {type(e).__name__}", exc_info=True)
-            return HandlerResult(
-                success=False,
-                message="接続情報の取得に失敗したウル🐺",
-            )
+        """接続クエリハンドラー — capabilities/connection.py に委譲"""
+        return await handle_connection_query(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            **kwargs,
+        )
 
 
 # =============================================================================

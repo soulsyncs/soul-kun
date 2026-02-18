@@ -43,8 +43,8 @@ resource "google_cloud_run_v2_service" "chatwork_webhook" {
     service_account = google_service_account.cloud_run_sa.email
 
     scaling {
-      min_instance_count = 1   # 常時1台以上起動（応答速度確保）
-      max_instance_count = 10  # 最大10台まで自動拡張
+      min_instance_count = 1  # 常時1台以上起動（応答速度確保）
+      max_instance_count = 10 # 最大10台まで自動拡張
     }
 
     containers {
@@ -53,8 +53,8 @@ resource "google_cloud_run_v2_service" "chatwork_webhook" {
 
       resources {
         limits = {
-          memory = "1024Mi"  # メモリ上限 1GB
-          cpu    = "1000m"   # CPU上限 1コア
+          memory = "1024Mi" # メモリ上限 1GB
+          cpu    = "1000m"  # CPU上限 1コア
         }
       }
 
@@ -74,13 +74,13 @@ resource "google_cloud_run_v2_service" "chatwork_webhook" {
     # Cloud Buildが管理する設定はTerraformで変更しない
     # （Terraform=「存在」の管理、Cloud Build=デプロイ詳細の管理）
     ignore_changes = [
-      template[0].containers[0].image,           # イメージはCloud Buildが更新
-      template[0].containers[0].env,             # 環境変数はCloud Buildの--update-env-varsで管理
-      template[0].containers[0].volume_mounts,   # ボリューム設定
-      template[0].volumes,                       # ボリューム定義
-      template[0].containers[0].resources,       # CPU/メモリはCloud Buildの--memory/--cpuで管理
-      template[0].scaling,                       # スケーリングはCloud Buildの--min/--max-instancesで管理
-      template[0].timeout,                       # タイムアウトはCloud Buildの--timeoutで管理
+      template[0].containers[0].image,         # イメージはCloud Buildが更新
+      template[0].containers[0].env,           # 環境変数はCloud Buildの--update-env-varsで管理
+      template[0].containers[0].volume_mounts, # ボリューム設定
+      template[0].volumes,                     # ボリューム定義
+      template[0].containers[0].resources,     # CPU/メモリはCloud Buildの--memory/--cpuで管理
+      template[0].scaling,                     # スケーリングはCloud Buildの--min/--max-instancesで管理
+      template[0].timeout,                     # タイムアウトはCloud Buildの--timeoutで管理
     ]
     prevent_destroy = true
   }
@@ -91,7 +91,7 @@ resource "google_cloud_run_v2_service_iam_member" "chatwork_webhook_public" {
   location = google_cloud_run_v2_service.chatwork_webhook.location
   name     = google_cloud_run_v2_service.chatwork_webhook.name
   role     = "roles/run.invoker"
-  member   = "allUsers"  # チャットワークからの呼び出しを許可（HMAC検証済み）
+  member   = "allUsers" # チャットワークからの呼び出しを許可（HMAC検証済み）
 }
 
 # ============================================================
@@ -106,8 +106,8 @@ resource "google_cloud_run_v2_service" "proactive_monitor" {
     service_account = google_service_account.cloud_run_sa.email
 
     scaling {
-      min_instance_count = 0  # 使わないときはゼロ台（コスト節約）
-      max_instance_count = 5  # 最大5台まで拡張
+      min_instance_count = 0 # 使わないときはゼロ台（コスト節約）
+      max_instance_count = 5 # 最大5台まで拡張
     }
 
     containers {
@@ -115,8 +115,8 @@ resource "google_cloud_run_v2_service" "proactive_monitor" {
 
       resources {
         limits = {
-          memory = "512Mi"  # メモリ上限 512MB
-          cpu    = "1000m"  # CPU上限 1コア
+          memory = "512Mi" # メモリ上限 512MB
+          cpu    = "1000m" # CPU上限 1コア
         }
       }
     }

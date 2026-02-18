@@ -32,6 +32,7 @@ class BrainGraphState(TypedDict, total=False):
     # === 状態チェック ===
     current_state: Any  # Optional[ConversationState]
     has_active_session: bool
+    has_pending_confirmation: bool
 
     # === LLM Brain結果 ===
     llm_result: Any  # LLMBrainResult

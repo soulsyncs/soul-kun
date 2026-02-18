@@ -6,31 +6,11 @@ CEOフィードバック生成のハンドラー。
 
 import logging
 from typing import Any, Dict
-from uuid import UUID
 
+from lib.brain.capabilities._utils import parse_org_uuid as _parse_org_uuid, safe_parse_uuid as _safe_parse_uuid
 from lib.brain.models import HandlerResult
 
 logger = logging.getLogger(__name__)
-
-
-def _parse_org_uuid(org_id: str) -> UUID:
-    if isinstance(org_id, UUID):
-        return org_id
-    try:
-        return UUID(org_id)
-    except (ValueError, TypeError, AttributeError):
-        import uuid as uuid_mod
-        return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(org_id))
-
-
-def _safe_parse_uuid(value) -> "UUID | None":
-    if not value:
-        return None
-    try:
-        return UUID(str(value))
-    except (ValueError, TypeError, AttributeError):
-        import uuid as uuid_mod
-        return uuid_mod.uuid5(uuid_mod.NAMESPACE_OID, str(value))
 
 
 async def handle_feedback_generation(

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -71,14 +71,18 @@ class AlertSender:
         """
         Args:
             chatwork_client: ChatworkClient インスタンス（Noneなら自動生成）
-            alert_room_id: 送信先ルームID（デフォルト: ALERT_ROOM_ID 環境変数 or 菊池DM）
+            alert_room_id: 送信先ルームID（デフォルト: ALERT_ROOM_ID 環境変数）
         """
         self._client = chatwork_client
-        self._room_id = alert_room_id or os.environ.get(
-            "ALERT_ROOM_ID", "417892193"
-        )
+        # v11.2.0: CLAUDE.md §3-2 チェック項目16「ハードコード禁止」準拠
+        # ルームIDは環境変数 ALERT_ROOM_ID から取得必須。デフォルト値（直書き）を廃止。
+        # 未設定時は send() でスキップされる（下記 send() 内でチェック）。
+        self._room_id = alert_room_id or os.environ.get("ALERT_ROOM_ID", "")
 
-        # レート制限: AlertType → 最終送信時刻
+        # v11.2.0: P5 — レートリミットはメモリ管理（in-process）
+        # Note: feedback_alert_cooldowns は organization_id NOT NULL のため
+        # インフラアラート（org非依存）には使用不可。Cloud Run 最小インスタンス数=1
+        # で運用することでマルチインスタンス問題を回避する。
         self._last_sent: Dict[AlertType, float] = {}
 
     def _get_client(self):
@@ -105,7 +109,16 @@ class AlertSender:
         Returns:
             送信成功したか（レート制限で抑制された場合はFalse）
         """
-        # レート制限チェック
+        # v11.2.0: ルームID未設定チェック（ALERT_ROOM_ID環境変数が必須）
+        if not self._room_id:
+            logger.error(
+                "Alert %s cannot be sent: ALERT_ROOM_ID environment variable is not set. "
+                "Please set ALERT_ROOM_ID to the destination ChatWork room ID.",
+                alert_type.value,
+            )
+            return False
+
+        # レートリミットチェック（in-memory）
         now = time.time()
         last = self._last_sent.get(alert_type, 0)
         if (now - last) < _RATE_LIMIT_SECONDS:
@@ -118,7 +131,6 @@ class AlertSender:
 
         # メッセージ生成
         template = _ALERT_TEMPLATES.get(alert_type, "[alert] {alert_type}")
-        from datetime import datetime, timezone, timedelta
         jst = timezone(timedelta(hours=9))
         time_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
 

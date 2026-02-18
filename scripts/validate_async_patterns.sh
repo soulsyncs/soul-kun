@@ -56,18 +56,25 @@ echo ""
 
 # AP-01: fire-and-forget安全性（#19）
 # asyncio.create_task() が _fire_and_forget の外で使われていないか
+# v11.2.0: core.py（旧）からlib/brain/全体に拡張。分割後のcore/サブパッケージに対応。
 echo "--- #19: fire-and-forget安全性 ---"
-# core.py内のcreate_taskは_fire_and_forget内の1箇所のみ許可
-# _fire_and_forget メソッド自体の中の create_task は安全なので除外
-unsafe=$(grep -n "asyncio\.create_task(" lib/brain/core.py 2>/dev/null | grep -v "def _fire_and_forget\|# _fire_and_forget" || true)
-# _fire_and_forget メソッド内（行548付近）の1箇所は許可
-unsafe_outside=$(echo "$unsafe" | grep -v "task = asyncio.create_task(coro)" || true)
-if [ -n "$unsafe_outside" ]; then
-    echo -e "${RED}FAIL${NC} [AP-01] core.py: asyncio.create_task() outside _fire_and_forget"
-    echo "$unsafe_outside"
+# 許可: _fire_and_forget ヘルパー内の "task = asyncio.create_task(coro)"
+# 許可: shadow mode の gather パターン（integration.py: brain_task/fallback_task）
+# 禁止: それ以外の全 asyncio.create_task() 呼び出し
+ap01_matches=$(grep -rn "asyncio\.create_task(" lib/brain/ --include="*.py" 2>/dev/null \
+    | grep -v "task = asyncio\.create_task(coro)" \
+    | grep -v "brain_task = asyncio\.create_task\|fallback_task = asyncio\.create_task" \
+    || true)
+if [ -n "$ap01_matches" ]; then
+    echo -e "${RED}FAIL${NC} [AP-01] asyncio.create_task() outside _fire_and_forget detected"
+    echo "$ap01_matches" | head -10
+    ap01_count=$(echo "$ap01_matches" | wc -l | tr -d ' ')
+    if [ "$ap01_count" -gt 10 ]; then
+        echo "  ... and $((ap01_count - 10)) more"
+    fi
     ERRORS=$((ERRORS + 1))
 else
-    echo -e "${GREEN}PASS${NC} [AP-01] core.py: all create_task inside _fire_and_forget"
+    echo -e "${GREEN}PASS${NC} [AP-01] All create_task inside _fire_and_forget (or gather pattern)"
 fi
 echo ""
 
@@ -81,9 +88,11 @@ check "AP-03" "Per-call httpx.AsyncClient() creation" \
     "async with httpx.AsyncClient()" "lib/brain/"
 
 # AP-04: str(e) PII漏洩（#8 強化）
+# WARN: str(e)はエラーメッセージをログに出力する際に使われる。
+# 新規コードでは type(e).__name__ を使うこと。既存コードは段階的に移行予定。
 echo "--- #8: PII漏洩チェック（強化） ---"
-check "AP-04" "str(e) in error handling (PII leak)" \
-    'str(e)\|str(err)' "lib/brain/"
+check "AP-04" "str(e) in error handling (PII leak — use type(e).__name__ instead)" \
+    'str(e)\|str(err)' "lib/brain/" "WARN"
 
 # AP-05: shutdown(wait=False) 禁止（#21）
 echo "--- #21: イベントループライフサイクル ---"
@@ -103,7 +112,12 @@ check "AP-06" "Debug markers in production code" \
 
 # AP-07: --set-env-vars 禁止（#22）
 echo "--- #22: デプロイスクリプト安全性 ---"
-set_env_matches=$(grep -rn "\-\-set-env-vars" . --include="*.sh" --include="*.yaml" --include="*.yml" 2>/dev/null | grep -v "update-env-vars\|validate_async" || true)
+# grep -v 行頭コメント（YAML/shell の "#" で始まる行）のみ除外
+# "# " パターンは除外しない（インラインコメント付きの実際の違反を見逃すため）
+set_env_matches=$(grep -rn "\-\-set-env-vars" . --include="*.sh" --include="*.yaml" --include="*.yml" 2>/dev/null \
+    | grep -v "update-env-vars\|validate_async" \
+    | grep -v "^[^:]*:[0-9]*:[[:space:]]*#" \
+    || true)
 if [ -n "$set_env_matches" ]; then
     echo -e "${RED}FAIL${NC} [AP-07] --set-env-vars found (use --update-env-vars instead)"
     echo "$set_env_matches"

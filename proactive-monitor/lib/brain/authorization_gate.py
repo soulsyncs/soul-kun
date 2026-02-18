@@ -94,6 +94,25 @@ class AuthorizationGate:
         self.guardian = guardian
         self.execution_excellence = execution_excellence
         self.organization_id = organization_id
+        # v11.2.0: P6修正 — _fire_and_forget 用タスク参照保持
+        self._background_tasks: set = set()
+
+    def _fire_and_forget(self, coro) -> None:
+        """create_taskの安全ラッパー: 参照保持+エラーログ（CLAUDE.md §3-2 #19）"""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._log_background_error)
+
+    @staticmethod
+    def _log_background_error(task) -> None:
+        """バックグラウンドタスクのエラーをログ出力"""
+        if not task.cancelled() and task.exception() is not None:
+            exc = task.exception()
+            logger.error(
+                "Background task error in AuthorizationGate: %s",
+                type(exc).__name__,
+            )
 
     async def evaluate(
         self,
@@ -374,8 +393,8 @@ class AuthorizationGate:
                 f"reasons={ma_result.reasons}"
             )
 
-            # SOFT_CONFLICTを非同期でログ保存
-            asyncio.create_task(
+            # SOFT_CONFLICTを非同期でログ保存（v11.2.0: P6修正 — _fire_and_forget使用）
+            self._fire_and_forget(
                 self._log_soft_conflict(
                     action=decision.action,
                     ma_result=ma_result,

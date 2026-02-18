@@ -212,8 +212,27 @@ class BrainMemoryAccess:
         self._flush_last_run: Dict[str, datetime] = {}
         # org_idがUUID形式かどうかをチェック（soulkun_insights等はUUID型を要求）
         self._org_id_is_uuid = self._check_is_uuid(org_id)
+        # v11.2.0: P6修正 — _fire_and_forget 用タスク参照保持
+        self._background_tasks: set = set()
 
         logger.debug(f"BrainMemoryAccess initialized: is_uuid={self._org_id_is_uuid}")
+
+    def _fire_and_forget(self, coro) -> None:
+        """create_taskの安全ラッパー: 参照保持+エラーログ（CLAUDE.md §3-2 #19）"""
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._log_background_error)
+
+    @staticmethod
+    def _log_background_error(task) -> None:
+        """バックグラウンドタスクのエラーをログ出力"""
+        if not task.cancelled() and task.exception() is not None:
+            exc = task.exception()
+            logger.error(
+                "Background task error in BrainMemoryAccess: %s",
+                type(exc).__name__,
+            )
 
     @staticmethod
     def _check_is_uuid(value: str) -> bool:
@@ -345,9 +364,9 @@ class BrainMemoryAccess:
                 if hasattr(msg, "role") and hasattr(msg, "content")
             ]
             # fire-and-forget: フラッシュをバックグラウンドタスクとして起動
-            asyncio.create_task(
-                self._run_flush_background(history, user_id, room_id),
-                name=f"memory_flush:{user_id}:{room_id}",
+            # v11.2.0: P6修正 — asyncio.create_task → _fire_and_forget（参照保持）
+            self._fire_and_forget(
+                self._run_flush_background(history, user_id, room_id)
             )
         except Exception as e:
             logger.warning(f"Auto memory flush scheduling failed: {type(e).__name__}")

@@ -191,3 +191,72 @@ assert "Audit (no table)" in caplog.text
 - Test assertion for PREMIUM quality: `assert "sonnet-4.5" in model.lower() or "opus" in model.lower()` — both `anthropic/claude-sonnet-4.5` and `anthropic/claude-opus-*` satisfy this
 - 7 async test failures in test_generation.py are pre-existing (same count before and after this PR); NOT a regression
 - 3-copy sync (lib/, chatwork-webhook/lib/, proactive-monitor/lib/) verified identical after this PR
+
+## Codex/Gemini cross-validation findings (proactive.py / episodic_memory.py / alert_sender.py review)
+
+### CONFIRMED issues (evidence found in code)
+
+1. **Brain bypass via fallback template — PARTIALLY CONFIRMED**
+   - `lib/brain/proactive.py` line 932: `_generate_message(trigger)` IS called as fallback when `self._brain is None` or Brain fails
+   - BUT this is NOT the main path: Brain is always tried first (lines 889-918). Fallback ONLY fires if `brain=None` or exception
+   - `create_proactive_monitor()` at line 1168 warns if brain is not provided
+   - Design intent is correct (brain-first), but the fallback path IS a CLAUDE.md violation that can activate in production
+   - Verdict: WARNING-level, not CRITICAL — the bypass is intentional degraded-mode behavior, well-documented, with warnings
+
+2. **PII leak in episodic_memory.py — CONFIRMED**
+   - `lib/brain/episodic_memory.py` line 251: `logger.info(f"... keywords={keywords[:5]}")` logs keywords extracted from user messages
+   - `_extract_keywords()` uses regex matching on `summary` which can contain names, amounts etc.
+   - The noun regex `r"[ぁ-んァ-ン一-龥]+(?:さん|くん|様|氏)?"` will match names like "田中さん"
+   - This violates CLAUDE.md §9-3: "名前、メール、本文を記録しない"
+   - Verdict: CONFIRMED WARNING-level PII leak
+
+3. **PII leak in proactive.py dry_run — CONFIRMED**
+   - `lib/brain/proactive.py` line 945: `logger.info(f"[Proactive][DRY_RUN] Would send {brain_info}: {message}")` logs full message content
+   - In dry_run mode the message IS logged verbatim
+   - Verdict: CONFIRMED WARNING-level (dry_run mode only, but still a violation)
+
+4. **Hardcoded room ID in alert_sender.py — CONFIRMED**
+   - `lib/brain/alert_sender.py` line 78: `"ALERT_ROOM_ID", "417892193"` — hardcoded ChatWork DM room ID as default
+   - Falls back to environment variable correctly, but hardcode is present
+   - Verdict: CONFIRMED. CLAUDE.md §3-2 チェック項目16違反. WARNING-level.
+
+5. **asyncio.create_task without _fire_and_forget in integration.py — CONFIRMED**
+   - `lib/brain/integration.py` lines 624, 630: bare `asyncio.create_task()` in `_process_shadow()`
+   - CLAUDE.md §3-2 チェック項目19 requires `_fire_and_forget()` for reference retention + error callback
+   - Tasks are immediately gathered with `asyncio.gather()` so they don't escape, but the pattern is technically non-compliant
+   - The `_fire_and_forget()` pattern is defined in `lib/brain/core/initialization.py` line 259
+   - Verdict: WARNING-level. Tasks are awaited via gather(), so no actual leak, but violates pattern rule.
+
+6. **asyncio.create_task in authorization_gate.py and memory_access.py — CONFIRMED separate locations**
+   - `lib/brain/authorization_gate.py` line 378: bare `asyncio.create_task()` for SOFT_CONFLICT logging
+   - `lib/brain/memory_access.py` line 348: bare `asyncio.create_task()` with name= kwarg for flush
+   - `lib/brain/agents/base.py` line 669: bare `asyncio.create_task()` for notification
+   - These are NOT guarded by `_fire_and_forget()`. Pattern inconsistency within lib/brain/ itself.
+   - CLAUDE.md §3-2 チェック項目19 violation.
+
+7. **Proactive messages bypass Guardian Layer / Authorization Gate — CONFIRMED**
+   - `ProactiveMonitor._take_action()` calls `self._brain.generate_proactive_message()` (ProactiveMixin method)
+   - This does NOT go through `brain.process_message()` → `guardian_layer.evaluate()` → `authorization_gate.evaluate()`
+   - Proactive messages are AI-generated but skip the 3-layer decision architecture
+   - Verdict: CRITICAL Brain architecture violation per CLAUDE.md §1
+
+8. **AlertSender in-memory rate limit — CONFIRMED not cloud-safe**
+   - `AlertSender._last_sent` is an instance-level dict (line 82)
+   - Cloud Run multiple instances don't share this state → rate limiting is per-instance only
+   - Same pre-existing issue pattern as chatwork-webhook in-memory rate limit (PR #575)
+
+9. **organization_id type mismatch helpers scattered — CONFIRMED**
+   - `proactive.py` has `ORGANIZATION_UUID_TO_SLUG` dict + `_get_chatwork_tasks_org_id()` helper at lines 73-76, 338-351
+   - This is a hardcoded mapping that must be manually maintained
+   - TODO comment at line 72: "Phase 4B: organizations テーブルから動的に取得"
+   - Verdict: Known tech debt, WARNING-level
+
+### NOT CONFIRMED (Codex findings that were inaccurate or mischaracterized)
+
+- "動的SQL文字列" — proactive.py uses `text("""...""")` with `{"param": value}` binding (parameterized, NOT f-string interpolation). All SQL in proactive.py is correctly parameterized. Codex finding #5 is INACCURATE for this file.
+- "async/sync混在" — proactive.py correctly uses `asyncio.to_thread(_sync)` pattern for sync DB ops inside async methods. This is the correct pattern (CLAUDE.md §3-2 #6 compliant). Codex finding #3 is INACCURATE.
+
+### Gemini findings validated
+
+- Core.py monolit: not checked in this review (not in scope)
+- lib/ rsync 3-copy: Cloud Run migration complete per CLAUDE.md §13-4. Not a production issue.

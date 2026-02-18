@@ -138,6 +138,35 @@ if [[ "$ROLLBACK_ISSUES" -eq 0 ]]; then
   pass "All migrations have rollback info"
 fi
 
+# 1b-2. Required environment variables check (v11.2.0: ALERT_ROOM_ID)
+# These env vars must be set in production Cloud Run; absence causes silent monitoring failure
+echo "  Checking required environment variables (gcloud)..."
+REQUIRED_ENV_VARS=("ALERT_ROOM_ID")
+ENV_VAR_ISSUES=0
+if command -v gcloud &>/dev/null; then
+  for service in chatwork-webhook proactive-monitor; do
+    deployed_env=$(gcloud run services describe "$service" \
+      --project="${PROJECT_ID}" \
+      --region=asia-northeast1 \
+      --format="value(spec.template.spec.containers[0].env[].name)" 2>/dev/null || echo "")
+    for var in "${REQUIRED_ENV_VARS[@]}"; do
+      if [[ -z "$deployed_env" ]]; then
+        warn "Could not retrieve env vars for $service (gcloud auth required)"
+        ENV_VAR_ISSUES=$((ENV_VAR_ISSUES + 1))
+      elif ! echo "$deployed_env" | grep -q "^${var}$"; then
+        fail "Required env var $var is NOT set in Cloud Run service: $service"
+        ENV_VAR_ISSUES=$((ENV_VAR_ISSUES + 1))
+      fi
+    done
+  done
+else
+  warn "gcloud not available — skipping required env var check (ALERT_ROOM_ID etc.)"
+  ENV_VAR_ISSUES=1
+fi
+if [[ "$ENV_VAR_ISSUES" -eq 0 ]]; then
+  pass "All required env vars present in Cloud Run"
+fi
+
 # 1c. Hardcoded secrets check
 echo "  Checking for hardcoded secrets..."
 SECRET_ISSUES=0

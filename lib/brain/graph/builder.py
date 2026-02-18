@@ -9,6 +9,7 @@ _process_with_llm_brain() のフローを StateGraph に変換。
     state_check
         │
         ├── LIST_CONTEXT → route_session → END
+        ├── CONFIRMATION → handle_confirmation_response → END
         │
         └── otherwise → build_context → llm_inference → guardian_check
                                                               │
@@ -37,7 +38,11 @@ from typing import TYPE_CHECKING
 from langgraph.graph import StateGraph, END
 
 from lib.brain.graph.state import BrainGraphState
-from lib.brain.graph.nodes.state_check import make_state_check, make_route_session
+from lib.brain.graph.nodes.state_check import (
+    make_state_check,
+    make_route_session,
+    make_handle_confirmation_response,
+)
 from lib.brain.graph.nodes.build_context import make_build_context
 from lib.brain.graph.nodes.llm_inference import make_llm_inference
 from lib.brain.graph.nodes.guardian_check import make_guardian_check
@@ -62,9 +67,11 @@ logger = logging.getLogger(__name__)
 
 
 def route_after_state_check(state: BrainGraphState) -> str:
-    """state_check後のルーティング: セッション中 or 通常処理"""
+    """state_check後のルーティング: セッション中 / 確認応答 / 通常処理"""
     if state.get("has_active_session"):
         return "route_session"
+    if state.get("has_pending_confirmation"):
+        return "handle_confirmation_response"
     return "build_context"
 
 
@@ -108,6 +115,7 @@ def create_brain_graph(brain: "SoulkunBrain"):
     # --- ノード登録 ---
     graph.add_node("state_check", make_state_check(brain))
     graph.add_node("route_session", make_route_session(brain))
+    graph.add_node("handle_confirmation_response", make_handle_confirmation_response(brain))
     graph.add_node("build_context", make_build_context(brain))
     graph.add_node("llm_inference", make_llm_inference(brain))
     graph.add_node("guardian_check", make_guardian_check(brain))
@@ -129,12 +137,16 @@ def create_brain_graph(brain: "SoulkunBrain"):
         route_after_state_check,
         {
             "route_session": "route_session",
+            "handle_confirmation_response": "handle_confirmation_response",
             "build_context": "build_context",
         },
     )
 
     # route_session → END（SessionOrchestratorが応答を生成）
     graph.add_edge("route_session", END)
+
+    # handle_confirmation_response → END（確認応答処理）
+    graph.add_edge("handle_confirmation_response", END)
 
     # build_context → llm_inference → guardian_check
     graph.add_edge("build_context", "llm_inference")
@@ -171,5 +183,5 @@ def create_brain_graph(brain: "SoulkunBrain"):
     graph.add_edge("synthesize_knowledge", "build_response")
     graph.add_edge("build_response", END)
 
-    logger.info("🧠 LLM Brain graph compiled (11 nodes)")
+    logger.info("🧠 LLM Brain graph compiled (12 nodes)")
     return graph.compile()

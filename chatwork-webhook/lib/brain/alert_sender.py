@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from enum import Enum
 from typing import Any, Dict, Optional
 
@@ -67,18 +67,35 @@ class AlertSender:
         self,
         chatwork_client=None,
         alert_room_id: Optional[str] = None,
+        db_pool=None,
     ):
         """
         Args:
             chatwork_client: ChatworkClient インスタンス（Noneなら自動生成）
-            alert_room_id: 送信先ルームID（デフォルト: ALERT_ROOM_ID 環境変数 or 菊池DM）
+            alert_room_id: 送信先ルームID（デフォルト: ALERT_ROOM_ID 環境変数）
+            db_pool: SQLAlchemy接続プール（Noneなら in-memory フォールバック）
+                     Cloud Run マルチインスタンス環境では必ず指定すること。
+                     指定時は soulkun.feedback_alert_cooldowns テーブルで永続化。
         """
         self._client = chatwork_client
-        self._room_id = alert_room_id or os.environ.get(
-            "ALERT_ROOM_ID", "417892193"
-        )
+        # v11.2.0: CLAUDE.md §3-2 チェック項目16「ハードコード禁止」準拠
+        # ルームIDは環境変数 ALERT_ROOM_ID から取得必須。デフォルト値（直書き）を廃止。
+        # 未設定時は send() でスキップされる（下記 send() 内でチェック）。
+        self._room_id = alert_room_id or os.environ.get("ALERT_ROOM_ID", "")
 
-        # レート制限: AlertType → 最終送信時刻
+        # v11.2.0: P5修正 — Cloud Run マルチインスタンス対応
+        # db_pool が提供された場合はDBで永続化（インスタンス間共有可能）
+        # 未提供の場合はメモリフォールバック（単一インスタンスのみ有効）
+        self._db_pool = db_pool
+        if db_pool is None:
+            logger.warning(
+                "AlertSender initialized without db_pool. "
+                "Rate limiting is in-memory only and will NOT work correctly "
+                "in multi-instance Cloud Run deployments. "
+                "Pass db_pool= to enable cross-instance rate limiting."
+            )
+
+        # レート制限フォールバック用（db_pool未提供時のみ使用）
         self._last_sent: Dict[AlertType, float] = {}
 
     def _get_client(self):
@@ -87,6 +104,99 @@ class AlertSender:
             from lib.chatwork import ChatworkClient
             self._client = ChatworkClient()
         return self._client
+
+    def _check_rate_limit_db(self, alert_type: AlertType) -> bool:
+        """
+        DB永続化レートリミットチェック（Cloud Run マルチインスタンス対応）
+
+        soulkun.feedback_alert_cooldowns テーブルで最終送信時刻を確認。
+        Returns:
+            True: 送信可（レートリミット未達）
+            False: 送信不可（レートリミット中）
+        """
+        try:
+            from sqlalchemy import text
+            cooldown_threshold = datetime.now(timezone.utc) - timedelta(seconds=_RATE_LIMIT_SECONDS)
+            org_placeholder = "_infra_"
+            with self._db_pool.connect() as conn:
+                result = conn.execute(
+                    text("""
+                        SELECT last_alerted_at
+                        FROM soulkun.feedback_alert_cooldowns
+                        WHERE alert_type = :alert_type
+                          AND alert_subject = :alert_subject
+                        LIMIT 1
+                    """),
+                    {"alert_type": alert_type.value, "alert_subject": org_placeholder},
+                )
+                row = result.fetchone()
+                if row and row[0] and row[0] > cooldown_threshold:
+                    elapsed = int((datetime.now(timezone.utc) - row[0]).total_seconds())
+                    logger.debug(
+                        "Alert %s suppressed by DB rate limit (last sent %ds ago)",
+                        alert_type.value,
+                        elapsed,
+                    )
+                    return False
+            return True
+        except Exception as e:
+            # DBエラー時はメモリフォールバック
+            logger.warning(
+                "DB rate limit check failed for %s (%s), falling back to in-memory",
+                alert_type.value,
+                type(e).__name__,
+            )
+            now = time.time()
+            last = self._last_sent.get(alert_type, 0)
+            return (now - last) >= _RATE_LIMIT_SECONDS
+
+    def _update_rate_limit_db(self, alert_type: AlertType) -> None:
+        """
+        DB永続化レートリミット更新（送信成功後に呼び出す）
+
+        soulkun.feedback_alert_cooldowns テーブルを DELETE + INSERT で更新。
+        organization_id は infrastructure アラート用に空文字を使用。
+        """
+        try:
+            from sqlalchemy import text
+            now_utc = datetime.now(timezone.utc)
+            next_allowed = now_utc + timedelta(seconds=_RATE_LIMIT_SECONDS)
+            # infrastructure alert は org 非依存のため organization_id = '' で管理
+            org_placeholder = "_infra_"
+            with self._db_pool.connect() as conn:
+                conn.execute(
+                    text("""
+                        DELETE FROM soulkun.feedback_alert_cooldowns
+                        WHERE alert_type = :alert_type
+                          AND alert_subject = :alert_subject
+                    """),
+                    {"alert_type": alert_type.value, "alert_subject": org_placeholder},
+                )
+                conn.execute(
+                    text("""
+                        INSERT INTO soulkun.feedback_alert_cooldowns
+                            (id, alert_type, alert_subject, last_alerted_at,
+                             next_alert_allowed_at, created_at, updated_at)
+                        VALUES
+                            (gen_random_uuid(), :alert_type, :alert_subject,
+                             :last_alerted_at, :next_alert_allowed_at, NOW(), NOW())
+                    """),
+                    {
+                        "alert_type": alert_type.value,
+                        "alert_subject": org_placeholder,
+                        "last_alerted_at": now_utc,
+                        "next_alert_allowed_at": next_allowed,
+                    },
+                )
+                conn.commit()
+        except Exception as e:
+            # DBエラー時はメモリにフォールバック記録
+            logger.warning(
+                "DB rate limit update failed for %s (%s), using in-memory fallback",
+                alert_type.value,
+                type(e).__name__,
+            )
+            self._last_sent[alert_type] = time.time()
 
     def send(
         self,
@@ -105,20 +215,32 @@ class AlertSender:
         Returns:
             送信成功したか（レート制限で抑制された場合はFalse）
         """
-        # レート制限チェック
-        now = time.time()
-        last = self._last_sent.get(alert_type, 0)
-        if (now - last) < _RATE_LIMIT_SECONDS:
-            logger.debug(
-                "Alert %s suppressed by rate limit (last sent %ds ago)",
+        # v11.2.0: ルームID未設定チェック（ALERT_ROOM_ID環境変数が必須）
+        if not self._room_id:
+            logger.error(
+                "Alert %s cannot be sent: ALERT_ROOM_ID environment variable is not set. "
+                "Please set ALERT_ROOM_ID to the destination ChatWork room ID.",
                 alert_type.value,
-                int(now - last),
             )
             return False
 
+        # レート制限チェック（DB永続化 or メモリフォールバック）
+        now = time.time()
+        if self._db_pool is not None:
+            if not self._check_rate_limit_db(alert_type):
+                return False
+        else:
+            last = self._last_sent.get(alert_type, 0)
+            if (now - last) < _RATE_LIMIT_SECONDS:
+                logger.debug(
+                    "Alert %s suppressed by rate limit (last sent %ds ago)",
+                    alert_type.value,
+                    int(now - last),
+                )
+                return False
+
         # メッセージ生成
         template = _ALERT_TEMPLATES.get(alert_type, "[alert] {alert_type}")
-        from datetime import datetime, timezone, timedelta
         jst = timezone(timedelta(hours=9))
         time_str = datetime.now(jst).strftime("%Y-%m-%d %H:%M JST")
 
@@ -136,7 +258,11 @@ class AlertSender:
                 room_id=int(self._room_id),
                 message=message,
             )
-            self._last_sent[alert_type] = now
+            # レートリミット更新（DB or メモリ）
+            if self._db_pool is not None:
+                self._update_rate_limit_db(alert_type)
+            else:
+                self._last_sent[alert_type] = now
             logger.info("Alert sent: %s to room %s", alert_type.value, self._room_id)
             return True
         except Exception as e:

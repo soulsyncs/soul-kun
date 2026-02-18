@@ -942,7 +942,12 @@ class ProactiveMonitor:
         # dry_runモードの場合はログのみ
         if self._dry_run:
             brain_info = "(brain-generated)" if brain_result and brain_result.should_send else "(fallback)"
-            logger.info(f"[Proactive][DRY_RUN] Would send {brain_info}: {message}")
+            # v11.2.0: CLAUDE.md §9-3「本文をログに記録しない」準拠
+            # messageの本文は出力せず、文字数のみ記録（PII漏洩防止）
+            logger.info(
+                f"[Proactive][DRY_RUN] Would send {brain_info}: "
+                f"(len={len(message)} chars)"
+            )
             return ProactiveAction(message=proactive_msg, success=True)
 
         # メッセージ送信

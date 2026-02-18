@@ -346,6 +346,9 @@ class BaseAgent(ABC):
         # 他エージェントへの参照（オーケストレーターが設定）
         self._agent_registry: Dict[AgentType, "BaseAgent"] = {}
 
+        # v11.2.0: P6修正 — _fire_and_forget 用タスク参照保持
+        self._background_tasks: set = set()
+
         # 初期化
         self._initialize_capabilities()
         self._register_handlers()
@@ -357,6 +360,23 @@ class BaseAgent(ABC):
                 "organization_id": organization_id,
             }
         )
+
+    def _fire_and_forget(self, coro) -> None:
+        """create_taskの安全ラッパー: 参照保持+エラーログ（CLAUDE.md §3-2 #19）"""
+        import asyncio
+        task = asyncio.create_task(coro)
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        task.add_done_callback(self._log_background_error)
+
+    @staticmethod
+    def _log_background_error(task) -> None:
+        """バックグラウンドタスクのエラーをログ出力"""
+        if not task.cancelled() and task.exception() is not None:
+            logger.error(
+                "Background task error in BaseAgent: %s",
+                task.exception(),
+            )
 
     @property
     def agent_type(self) -> AgentType:
@@ -666,7 +686,8 @@ class BaseAgent(ABC):
         )
 
         # 非同期で通知（Fire-and-forget）
-        asyncio.create_task(self._send_notification(target_agent, message))
+        # v11.2.0: P6修正 — asyncio.create_task → _fire_and_forget（参照保持）
+        self._fire_and_forget(self._send_notification(target_agent, message))
 
     async def _send_notification(
         self,

@@ -4,12 +4,36 @@ SoulkunBrain 能動的メッセージ生成
 
 CLAUDE.md鉄則1b準拠: 能動的出力も脳が生成。
 generate_proactive_message と関連する判断・生成メソッドを含む。
+
+v11.2.0: Guardian安全チェックを追加（P1修正）
+能動的メッセージ生成後、送信前にセキュリティNGパターンと
+機密情報漏洩チェックを実施してCLAUDE.md §1「全出力は脳を通る」を実現。
 """
 
 import logging
+import re
 from typing import Optional, Dict, Any, List
 
+from lib.brain.guardian_layer import SECURITY_NG_PATTERNS
+
 logger = logging.getLogger(__name__)
+
+
+def _check_proactive_message_safety(message: str) -> Optional[str]:
+    """
+    能動的メッセージの安全チェック（Guardian Layerに準拠）
+
+    Guardian Layerのセキュリティチェック（優先度2）をProactiveメッセージに適用。
+    通常の会話は `guardian_layer.check()` を通るが、Proactiveメッセージは
+    従来それを経由していなかった（P1問題）。このチェックで補完する。
+
+    Returns:
+        str: ブロック理由（Noneなら安全）
+    """
+    for pattern in SECURITY_NG_PATTERNS:
+        if re.search(pattern, message):
+            return f"セキュリティNGパターンが検出されました（パターン: {pattern[:30]}...）"
+    return None
 
 
 class ProactiveMixin:
@@ -140,7 +164,20 @@ class ProactiveMixin:
                 recent_conversations=recent_conversations,
             )
 
-            logger.info(f"🧠 Brain generated proactive message: {message[:50]}...")
+            # 5. Guardian安全チェック（P1修正: v11.2.0）
+            # CLAUDE.md §1「全出力は脳を通る」— 能動的メッセージも送信前にセキュリティ検証
+            block_reason = _check_proactive_message_safety(message)
+            if block_reason:
+                logger.warning(
+                    f"[Proactive][Guardian] Message blocked by safety check: {block_reason}"
+                )
+                return ProactiveMessageResult(
+                    should_send=False,
+                    reason=f"Guardian安全チェックによりブロック: {block_reason}",
+                    confidence=0.0,
+                )
+
+            logger.info(f"🧠 Brain generated proactive message (Guardian: PASS)")
 
             return ProactiveMessageResult(
                 should_send=True,

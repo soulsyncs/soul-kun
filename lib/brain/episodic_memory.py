@@ -246,9 +246,11 @@ class EpisodicMemory:
         # キャッシュに保存
         self._memory_cache[episode_id] = episode
 
+        # v11.2.0: CLAUDE.md §9-3「名前・メール・本文をログに記録しない」準拠
+        # keywordsには人名（田中さん等）が含まれうるため出力を禁止し件数のみ記録
         logger.info(
             f"Episode created: type={episode_type.value}, "
-            f"importance={importance:.2f}, keywords={keywords[:5]}"
+            f"importance={importance:.2f}, keyword_count={len(keywords)}"
         )
 
         return episode

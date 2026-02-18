@@ -349,15 +349,6 @@ class DocumentGenerator(BaseGenerator):
         Returns:
             生成結果
         """
-        # Google Docsを作成
-        doc_info = await self._google_client.create_document(
-            title=request.title,
-            folder_id=request.target_folder_id,
-        )
-
-        document_id = doc_info["document_id"]
-        document_url = doc_info["document_url"]
-
         # 各セクションを生成
         sections = []
         total_tokens = outline.tokens_used
@@ -394,18 +385,32 @@ class DocumentGenerator(BaseGenerator):
                     original_error=e,
                 )
 
-        # Google Docsに書き込み
-        await self._google_client.update_document(
-            document_id=document_id,
-            sections=sections,
-        )
+        # Google Docsに保存を試行、失敗時はGCSフォールバック
+        document_id = None
+        document_url = None
+        try:
+            doc_info = await self._google_client.create_document(
+                title=request.title,
+                folder_id=request.target_folder_id,
+            )
+            document_id = doc_info["document_id"]
+            document_url = doc_info["document_url"]
 
-        # 共有設定
-        if request.share_with:
-            await self._google_client.share_document(
+            await self._google_client.update_document(
                 document_id=document_id,
-                email_addresses=request.share_with,
-                role="writer",
+                sections=sections,
+            )
+
+            if request.share_with:
+                await self._google_client.share_document(
+                    document_id=document_id,
+                    email_addresses=request.share_with,
+                    role="writer",
+                )
+        except Exception as e:
+            logger.warning("Google Docs unavailable, falling back to GCS: %s", str(e)[:200])
+            document_id, document_url = await self._save_to_gcs_fallback(
+                request.title, sections,
             )
 
         # 全文を結合
@@ -584,6 +589,43 @@ class DocumentGenerator(BaseGenerator):
         except Exception:
             pass
         return 500  # デフォルト
+
+    async def _save_to_gcs_fallback(
+        self,
+        title: str,
+        sections: list,
+    ) -> tuple:
+        """Google Docs失敗時にGCSにMarkdownとして保存する"""
+        import os
+        from datetime import datetime, timezone, timedelta
+        from google.cloud import storage
+
+        bucket_name = os.getenv("OPERATIONS_GCS_BUCKET", "")
+        if not bucket_name:
+            # GCSも使えない場合はIDなし、URLなしで返す
+            logger.warning("OPERATIONS_GCS_BUCKET not set, skipping GCS fallback")
+            return "local", ""
+
+        full_content = "\n\n".join([s.to_markdown() for s in sections])
+        md_content = f"# {title}\n\n{full_content}"
+
+        jst = timezone(timedelta(hours=9))
+        now = datetime.now(jst)
+        timestamp = now.strftime("%Y%m%d_%H%M%S")
+        safe_title = "".join(c for c in title if c.isalnum() or c in "_ -")[:50]
+        blob_path = f"{self._organization_id}/documents/{timestamp}_{safe_title}.md"
+
+        import asyncio
+        def _upload():
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_path)
+            blob.upload_from_string(md_content, content_type="text/markdown; charset=utf-8")
+            return f"gs://{bucket_name}/{blob_path}"
+
+        gcs_path = await asyncio.to_thread(_upload)
+        logger.info("Document saved to GCS fallback: %s", gcs_path)
+        return f"gcs:{blob_path}", gcs_path
 
     def detect_document_type(self, instruction: str) -> DocumentType:
         """

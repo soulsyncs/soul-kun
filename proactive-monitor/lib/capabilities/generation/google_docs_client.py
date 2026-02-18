@@ -166,13 +166,13 @@ class GoogleDocsClient:
             }
 
         except HttpError as e:
-            logger.error("Google Docs create failed: %s", type(e).__name__)
+            logger.error("Google Docs create failed: %s: %s", type(e).__name__, str(e)[:500])
             raise GoogleDocsCreateError(
                 document_title=title,
                 original_error=e,
             )
         except Exception as e:
-            logger.error("Unexpected error creating document: %s", type(e).__name__)
+            logger.error("Unexpected error creating document: %s: %s", type(e).__name__, str(e)[:500])
             raise GoogleDocsCreateError(
                 document_title=title,
                 original_error=e,

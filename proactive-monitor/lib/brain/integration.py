@@ -66,7 +66,7 @@ BYPASS_ROUTE_PATTERNS: List[str] = [
 INTEGRATION_MAX_RETRIES: int = 2
 
 # 統合タイムアウト（秒）
-INTEGRATION_TIMEOUT_SECONDS: float = 90.0  # Cloud Functions 540秒制限に対して余裕を持たせる
+INTEGRATION_TIMEOUT_SECONDS: float = 240.0  # Cloud Run 300秒制限に対して余裕を持たせる
 
 # フォールバックが必要なエラータイプ
 FALLBACK_ERROR_TYPES: Tuple[Type[BaseException], ...] = (

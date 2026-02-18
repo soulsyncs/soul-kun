@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-17 JST**
+**最終更新: 2026-02-18 JST**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -2191,6 +2191,17 @@ else:
 ---
 
 ## 直近の主な成果
+
+### 2026-02-18
+
+- **CIテスト5件の失敗を修正** ✅ **PR #609 マージ完了**
+  - **概要**: mainブランチのTest Coverage CIが5テスト失敗していた問題を修正
+  - **変更**: テストファイル3件（test_operation_registry.py, test_report_ops.py, test_brain_integration.py）
+  - **修正内容**:
+    - `test_data_aggregate/search_with_mock_db`, `test_data_search_limit_capped`: `get_db_pool()`のモック不足。`asyncio.to_thread()`で`_execute_aggregate`/`_execute_search`をモックしていたが、その前段で`get_db_pool()`がDB接続に失敗しexceptに落ちていた
+    - `test_build_csv_goals`: テストデータが3カラムだったが`_build_csv`は`_fetch_csv_data`の出力形式（5カラム）を期待
+    - `test_integration_timeout`: `INTEGRATION_TIMEOUT_SECONDS`が90→240に変更済みだがテスト未更新
+  - **CI結果**: 全11チェック SUCCESS
 
 ### 2026-02-09
 

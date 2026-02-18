@@ -164,3 +164,15 @@ assert "Audit (no table)" in caplog.text
   - `logger.info(f"Confirmation response: ...")` in state_manager.py logs tool_name — safe (tool names are not PII)
   - State is cleared (clear_pending_action) BEFORE execution — if execution fails, state is already cleared (no retry possible). This is a known tradeoff.
   - `audit` logging for confirmed execution: goes through `brain._execute()` → `execution.py` → sets `audit_action` on result, but `execute_tool` graph node (which does fire-and-forget audit) is BYPASSED. Result: confirmed operations are NOT audit-logged via the normal path.
+
+## T12 goal_status_check synthesis patterns (T12 fix, confirmed)
+
+- Handler wrapper pattern: `_brain_handle_goal_status_check()` in `chatwork-webhook/lib/brain/handler_wrappers/brain_tool_handlers.py` returns HandlerResult with `data={"needs_answer_synthesis": True, "source": "chatwork_goal_status", ...}`
+- Synthesis code in `lib/brain/core/message_processing.py` line 600+ adds goal-specific prompt with rules:
+  - Summarize truncated titles (rule 1-2)
+  - Preserve progress bars/achievement rates (rule 3)
+  - Group duplicates (rule 4)
+- MAX_CONTEXT_CHARS: 8000 chars for goal_status (same as task_search) to avoid truncation of many goals
+- 3-copy sync verified: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical for message_processing.py
+- handler_wrappers/ directory ONLY in chatwork-webhook/lib/ (not in root lib/ or proactive-monitor/lib/) — correct, chatwork-specific feature
+- MINOR: error handler at line 432 does NOT log exception like task_search does (line 51 logs). Should add: `logger.error("goal_status_check error: %s", e, exc_info=True)` for consistency. Not critical since handler framework catches outer errors anyway.

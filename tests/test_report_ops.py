@@ -190,10 +190,14 @@ class TestCsvExport:
 
     def test_build_csv_goals(self):
         """目標CSVの構造確認"""
-        rows = [(1, "2026-02", 10), (2, "2026-03", 15)]
+        # _fetch_csv_dataの出力形式: id, name, department, status, approval_status
+        rows = [
+            (1, "田中太郎", "営業部", "進行中", "未承認"),
+            (2, "山田花子", "企画部", "達成", "承認済"),
+        ]
         csv_content = _build_csv("staff_goals", rows)
         assert "目標ID" in csv_content
-        assert "2026-02" in csv_content
+        assert "営業部" in csv_content
 
     def test_build_csv_pii_excluded(self):
         """CSVにPII（ユーザー名等）が含まれない"""

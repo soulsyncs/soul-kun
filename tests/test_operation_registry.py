@@ -516,7 +516,8 @@ class TestDataOpsHandlers:
         mock_pool.connect.return_value.__enter__ = lambda self: mock_conn
         mock_pool.connect.return_value.__exit__ = MagicMock(return_value=False)
 
-        with patch.object(data_ops_mod, "_execute_aggregate") as mock_exec:
+        with patch.object(data_ops_mod, "_execute_aggregate") as mock_exec, \
+             patch("lib.db.get_db_pool", return_value=mock_pool):
             mock_exec.return_value = {
                 "message": "タスク集計:\n合計: 8件\n  - 未完了: 5件\n  - 完了: 3件",
                 "total": 8,
@@ -536,11 +537,12 @@ class TestDataOpsHandlers:
     @pytest.mark.asyncio
     async def test_data_search_with_mock_db(self):
         """DBモックでの検索テスト"""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
 
-        with patch.object(data_ops_mod, "_execute_search") as mock_exec:
+        with patch.object(data_ops_mod, "_execute_search") as mock_exec, \
+             patch("lib.db.get_db_pool", return_value=MagicMock()):
             mock_exec.return_value = {
                 "message": "タスク検索結果: 2件\n  1. [未完了] 報告書作成\n  2. [完了] 会議準備",
                 "results": [
@@ -563,11 +565,12 @@ class TestDataOpsHandlers:
     @pytest.mark.asyncio
     async def test_data_search_limit_capped(self):
         """検索のlimitは最大50件に制限される"""
-        from unittest.mock import patch
+        from unittest.mock import MagicMock, patch
 
         data_ops_mod = importlib.import_module("lib.brain.operations.data_ops")
 
-        with patch.object(data_ops_mod, "_execute_search") as mock_exec:
+        with patch.object(data_ops_mod, "_execute_search") as mock_exec, \
+             patch("lib.db.get_db_pool", return_value=MagicMock()):
             mock_exec.return_value = {"message": "OK", "results": [], "total": 0}
 
             await data_ops_mod.handle_data_search(

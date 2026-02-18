@@ -576,8 +576,8 @@ class MessageProcessingMixin:
         source_note = search_data.get("source_note", "")
 
         # トークン制限を考慮してコンテキストを切り詰め
-        # タスク一覧はタスク数が多いため上限を大きくする（欠落防止）
-        MAX_CONTEXT_CHARS = 8000 if source == "chatwork_task_search" else 4000
+        # タスク/目標一覧は件数が多いため上限を大きくする（欠落防止）
+        MAX_CONTEXT_CHARS = 8000 if source in ("chatwork_task_search", "chatwork_goal_status") else 4000
         if len(formatted_context) > MAX_CONTEXT_CHARS:
             formatted_context = formatted_context[:MAX_CONTEXT_CHARS] + "\n...(以下省略)"
 
@@ -595,6 +595,21 @@ class MessageProcessingMixin:
 6. 冒頭と末尾の挨拶文はそのまま維持してください
 
 【タスク一覧データ】
+{formatted_context}
+"""
+        elif source == "chatwork_goal_status":
+            # 目標一覧専用の合成プロンプト
+            system_prompt = f"""あなたは「ソウルくん」です。目標一覧を見やすく整理して回答します。
+
+【重要なルール】
+1. 各目標のタイトルが途中で切れている場合、元の意味が伝わるように短く要約してください
+2. 長いタイトルは「何の目標か」が一言でわかるように書き換えてください（例：「個人で100万円を受注する。ソウルシンクスの...」→「個人受注100万円＆HP刷新」）
+3. 進捗バー（█░）・達成率・期間情報はそのまま維持してください
+4. 重複している目標（同一内容が複数ある場合）は「※同内容の目標がN件あります」とまとめてください
+5. ソウルくんのキャラクターを保ってください（語尾：〜ウル、時々🐺を使う）
+6. 冒頭と末尾の挨拶文はそのまま維持してください
+
+【目標一覧データ】
 {formatted_context}
 """
         else:

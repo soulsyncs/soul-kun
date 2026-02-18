@@ -32,9 +32,16 @@ def make_synthesize_knowledge(brain: "SoulkunBrain"):
 
             tool_call = tool_calls[0]
 
+            # original_query: ツールのqueryパラメータがあればそれを使い、
+            # なければユーザーの元メッセージを使う（calendar_read等はqueryパラメータがない）
+            original_query = (
+                tool_call.parameters.get("query")
+                or state.get("message", "")
+            )
+
             synthesized = await brain._synthesize_knowledge_answer(
                 search_data=result.data,
-                original_query=tool_call.parameters.get("query", ""),
+                original_query=original_query,
             )
 
             if synthesized:

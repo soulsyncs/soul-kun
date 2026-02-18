@@ -2202,6 +2202,10 @@ else:
     - `test_build_csv_goals`: テストデータが3カラムだったが`_build_csv`は`_fetch_csv_data`の出力形式（5カラム）を期待
     - `test_integration_timeout`: `INTEGRATION_TIMEOUT_SECONDS`が90→240に変更済みだがテスト未更新
   - **CI結果**: 全11チェック SUCCESS
+- **滞留PR 3件を整理** ✅
+  - **PR #586**（cloudbuild.yamlシェル変数エスケープ修正）: リベースで確認したところ変更が既にmainに含まれていたためクローズ
+  - **PR #584**（進化計画書をStep 0〜D完了の実態に合わせて更新）: mainにリベース → CI全パス → マージ完了
+  - **結果**: オープンPR 0件、mainのCI全パス状態に復旧
 
 ### 2026-02-09
 

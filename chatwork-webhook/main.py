@@ -2956,10 +2956,15 @@ def zoom_webhook():
         if event_type != "recording.completed":
             return jsonify({"status": "ok", "message": f"Event '{event_type}' acknowledged"}), 200
 
-        # 非同期で議事録生成（Webhookは即座に200を返す）
+        # Risk 4: 即座に200を返してZoomのタイムアウトを防ぐ（非同期分離）
+        # Zoomは応答が5秒を超えるとリトライを繰り返す。
+        # 議事録生成（VTT取得+LLM）は2〜5分かかるためバックグラウンドで実行する。
+        # Risk 1（指数バックオフ3回: 30s+60s+120s）でVTT未準備も自己解決するため
+        # 503リトライ誘発は不要。
         payload = data.get("payload", {})
 
         from handlers.zoom_webhook_handler import handle_zoom_webhook_event
+        import threading as _bg_threading
 
         pool = get_pool()
 
@@ -2973,52 +2978,51 @@ def zoom_webhook():
         _rf = payload.get("object", {}).get("recording_files", [])
         logger.debug("recording_files types: %s", [f.get("file_type") for f in _rf])
 
-        # asyncio実行（既存パターンに合わせてset_event_loop必須）
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                handle_zoom_webhook_event(
-                    event_type=event_type,
-                    payload=payload,
-                    pool=pool,
-                    organization_id=_ORGANIZATION_ID,
-                    get_ai_response_func=get_ai_func,
+        def _run_zoom_processing():
+            """バックグラウンドで議事録生成を実行するスレッドターゲット"""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(
+                    handle_zoom_webhook_event(
+                        event_type=event_type,
+                        payload=payload,
+                        pool=pool,
+                        organization_id=_ORGANIZATION_ID,
+                        get_ai_response_func=get_ai_func,
+                    )
                 )
-            )
-        finally:
-            loop.close()
-
-        # transcript未準備の場合は503を返しZoom側リトライを誘発
-        # Zoomは5分、30分、120分後にリトライする
-        if result.data and result.data.get("retry"):
-            print("⏳ Transcript未準備 → 503でZoomリトライを誘発", flush=True)
-            return jsonify({"status": "retry", "message": "Transcript not ready yet"}), 503
-
-        if result.success and result.message:
-            # 冪等性ガード: already_processedの場合は送信済みなのでスキップ
-            already_sent = (result.data or {}).get("already_processed", False)
-            if already_sent:
-                print(f"✅ Zoom議事録は既に処理済み（二重送信防止）: {result.data.get('meeting_id', 'unknown')}")
-            else:
-                room_id = (result.data or {}).get("room_id") or DEFAULT_ADMIN_DM_ROOM_ID
-                print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
-                try:
-                    sent = send_chatwork_message(room_id, result.message)
-                    if sent:
-                        print(f"✅ ChatWork送信完了: room={room_id}")
+                if result.success and result.message:
+                    # 冪等性ガード: already_processedの場合は送信済みなのでスキップ
+                    already_sent = (result.data or {}).get("already_processed", False)
+                    if already_sent:
+                        print(f"✅ Zoom議事録は既に処理済み（二重送信防止）: {result.data.get('meeting_id', 'unknown')}")
                     else:
-                        print(f"⚠️ ChatWork送信失敗（API拒否 room={room_id}）。議事録はDB保存済み")
-                except Exception as send_err:
-                    # ChatWork送信失敗は致命的ではない（議事録生成はDB保存済み）
-                    print(f"⚠️ ChatWork送信失敗（議事録はDB保存済み）: {type(send_err).__name__}")
-        else:
-            print(f"⚠️ Zoom議事録生成失敗: {result.message}")
+                        room_id = (result.data or {}).get("room_id") or DEFAULT_ADMIN_DM_ROOM_ID
+                        print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
+                        try:
+                            sent = send_chatwork_message(room_id, result.message)
+                            if sent:
+                                print(f"✅ ChatWork送信完了: room={room_id}")
+                            else:
+                                print(f"⚠️ ChatWork送信失敗（API拒否 room={room_id}）。議事録はDB保存済み")
+                        except Exception as send_err:
+                            # ChatWork送信失敗は致命的ではない（議事録生成はDB保存済み）
+                            print(f"⚠️ ChatWork送信失敗（議事録はDB保存済み）: {type(send_err).__name__}")
+                else:
+                    print(f"⚠️ Zoom議事録生成失敗: {result.message}")
+            except Exception as bg_err:
+                print(f"❌ Zoom議事録バックグラウンド処理エラー: {type(bg_err).__name__}: {bg_err}")
+                import traceback as _tb
+                _tb.print_exc()
+            finally:
+                loop.close()
 
-        return jsonify({
-            "status": "ok" if result.success else "error",
-            "message": result.message[:200] if result.message else "",
-        }), 200
+        bg_thread = _bg_threading.Thread(target=_run_zoom_processing, daemon=True)
+        bg_thread.start()
+        print(f"✅ Zoom議事録処理をバックグラウンド開始: event={event_type}", flush=True)
+
+        return jsonify({"status": "accepted", "message": "Processing started"}), 200
 
     except Exception as e:
         print(f"❌ Zoom webhook処理エラー: {type(e).__name__}: {e}")

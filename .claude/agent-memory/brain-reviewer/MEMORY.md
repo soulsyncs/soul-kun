@@ -205,6 +205,21 @@
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
 
+## Phase A-2 document_generator.py タイムアウト有効化 (fix/currency-display-jpy, reviewed 2026-02-19)
+
+- 対象: `lib/capabilities/generation/document_generator.py`
+- `_call_llm` / `_call_llm_json` は pure async (httpx.AsyncClient を直接 await) — asyncio.to_thread は使っていない
+- `asyncio.wait_for + asyncio.to_thread` の禁止パターン (#20) に該当しない
+- タイムアウト定数は constants.py で正しく定義 (OUTLINE=60, SECTION=120)
+- **WARNING: `asyncio.TimeoutError` が `OutlineGenerationError` に変換されるが `OutlineTimeoutError` にならない**
+  - `_generate_outline` の `except Exception as e` が `asyncio.TimeoutError` を `OutlineGenerationError` にラップ
+  - `_generate_section` の `asyncio.TimeoutError` は呼び出し元 `_generate_full_document` の `except Exception` で `SectionGenerationError` にラップ
+  - 専用クラス `OutlineTimeoutError`/`SectionTimeoutError` が存在するが使われない
+- **WARNING: `import time` が関数本体内にある (line 506)** — 通常は module-level に置くべき
+- **WARNING: `str(e)` をユーザー向けエラー応答に含める箇所あり (lines 164, 175, 186)** — 既存の pre-existing 問題
+- **SUGGESTION: タイムアウトテストなし** — `test_generation.py` にタイムアウト時の `_generate_outline`/`_generate_section` 動作テストがない (例外クラスのユニットテストのみ)
+- 3-copy sync: lib/ = chatwork-webhook/lib/ = proactive-monitor/lib/ 全一致（確認済み）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

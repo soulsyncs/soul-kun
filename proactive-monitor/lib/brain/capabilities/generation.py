@@ -261,12 +261,25 @@ async def handle_image_generation(
         return HandlerResult(
             success=False,
             message="画像生成機能が利用できないウル🐺",
+            error_code="IMAGE_GENERATION_UNAVAILABLE",  # fix: リトライさせない
         )
     except Exception as e:
-        logger.error("[Generation] Image generation failed: %s", type(e).__name__, exc_info=True)
+        error_type = type(e).__name__
+        # エラー種別に応じた分かりやすいメッセージ
+        if "quota" in str(e).lower() or "402" in str(e):
+            user_msg = "画像生成の利用制限に達したウル🐺 しばらく待ってから試してほしいウル"
+        elif "auth" in str(e).lower() or "401" in str(e):
+            user_msg = "画像生成の認証エラーが起きたウル🐺 管理者に確認してほしいウル"
+        elif "content_policy" in str(e).lower() or "safety" in str(e).lower():
+            user_msg = "その内容の画像は作れなかったウル🐺 別の表現で試してほしいウル"
+        else:
+            user_msg = f"画像の作成中にエラーが発生したウル🐺 ({error_type})"
+        logger.error("[Generation] Image generation failed: %s", error_type, exc_info=True)
         return HandlerResult(
             success=False,
-            message="画像の作成中にエラーが発生したウル🐺",
+            message=user_msg,
+            error_code="IMAGE_GENERATION_FAILED",  # fix: リトライさせない
+            error_details=error_type,  # fix: str(e)はDB記録時に内部情報を含む可能性 → 型名のみ保存
         )
 
 

@@ -277,6 +277,11 @@ class GuardianLayer:
                 if dangerous_check.action != GuardianAction.ALLOW:
                     return dangerous_check
 
+                # API制約チェック（ChatWork APIが対応していない機能をブロック）
+                api_limit_check = self._check_api_limitation(tool_call)
+                if api_limit_check.action != GuardianAction.ALLOW:
+                    return api_limit_check
+
                 # 優先度4: CEO教えチェック
                 ceo_check = self._check_ceo_teachings(tool_call, context)
                 if ceo_check.action != GuardianAction.ALLOW:
@@ -402,6 +407,32 @@ class GuardianLayer:
                 risk_level=risk,
             )
 
+        return GuardianResult(action=GuardianAction.ALLOW)
+
+    def _check_api_limitation(
+        self,
+        tool_call: ToolCall,
+    ) -> GuardianResult:
+        """
+        ChatWork API制約チェック
+
+        api_limitationフラグが立っているCapabilityは
+        ChatWork APIが対応していないためBLOCKする。
+        """
+        tool_name = tool_call.tool_name
+        try:
+            from handlers.registry import SYSTEM_CAPABILITIES
+            cap = SYSTEM_CAPABILITIES.get(tool_name, {})
+            if cap.get("api_limitation"):
+                limitation_msg = cap.get("limitation_message", "この機能")
+                return GuardianResult(
+                    action=GuardianAction.BLOCK,
+                    blocked_reason=f"{limitation_msg}はChatWork APIに対応機能がないため、ソウルくんでは対応できないウル🐺",
+                    priority_level=3,
+                    risk_level="medium",
+                )
+        except ImportError:
+            pass
         return GuardianResult(action=GuardianAction.ALLOW)
 
     def _check_ceo_teachings(

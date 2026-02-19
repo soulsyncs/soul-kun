@@ -53,6 +53,9 @@ const IntegrationsPage = lazy(() =>
 const SystemPage = lazy(() =>
   import('@/pages/system').then((m) => ({ default: m.SystemPage }))
 );
+const MorningBriefingPage = lazy(() =>
+  import('@/pages/morning-briefing').then((m) => ({ default: m.MorningBriefingPage }))
+);
 
 // Loading fallback
 function PageLoader() {
@@ -185,6 +188,12 @@ const systemRoute = new Route({
   component: () => <ProtectedRoute component={SystemPage} />,
 });
 
+const morningRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/morning',
+  component: () => <ProtectedRoute component={MorningBriefingPage} />,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
@@ -201,6 +210,7 @@ const routeTree = rootRoute.addChildren([
   integrationsRoute,
   systemRoute,
   membersRoute,
+  morningRoute,
 ]);
 
 const router = new Router({ routeTree });

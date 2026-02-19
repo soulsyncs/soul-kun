@@ -19,7 +19,7 @@ import {
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { api } from '@/lib/api';
-import type { DashboardSummaryResponse, BrainMetricsResponse, GoalStatsResponse } from '@/types/api';
+import type { DashboardSummaryResponse, BrainMetricsResponse, GoalStatsResponse, TaskOverviewStats } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -36,6 +36,7 @@ import {
   TrendingUp,
   Target,
   Flame,
+  AlertOctagon,
 } from 'lucide-react';
 
 type Period = 'today' | '7d' | '30d';
@@ -65,6 +66,11 @@ export function DashboardPage() {
   const { data: goalStats } = useQuery<GoalStatsResponse>({
     queryKey: ['goal-stats'],
     queryFn: () => api.goals.getStats(),
+  });
+
+  const { data: taskStats } = useQuery<TaskOverviewStats>({
+    queryKey: ['task-overview'],
+    queryFn: () => api.tasks.getOverview(),
   });
 
   if (summaryLoading) {
@@ -255,6 +261,52 @@ export function DashboardPage() {
             tooltip="現在対応が必要な警告の数です。0が理想です"
           />
         </div>
+
+        {/* ⑤ 決断の詰まりアラート */}
+        {taskStats && taskStats.chatwork_tasks.overdue > 0 && (
+          <Card className="border-orange-400 border-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <AlertOctagon className="h-5 w-5 text-orange-500" />
+                決断が止まっているタスク
+                <InfoTooltip text="締め切りを過ぎているのに未完了のタスクです。誰かの判断待ちや担当者不明になっている可能性があります（AIによる検知）" />
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center gap-6">
+                <div className="text-center">
+                  <div className="text-3xl font-bold text-orange-500">{taskStats.chatwork_tasks.overdue}</div>
+                  <div className="text-xs text-muted-foreground">期限超過</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-muted-foreground">{taskStats.chatwork_tasks.open}</div>
+                  <div className="text-xs text-muted-foreground">未完了合計</div>
+                </div>
+                <div className="flex-1 text-sm text-muted-foreground">
+                  <p>期限が過ぎているタスクがあります。</p>
+                  <p className="mt-1">
+                    <a href="/tasks" className="text-primary underline">タスク一覧</a>で確認して、担当者に声をかけてください。
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        {taskStats && taskStats.chatwork_tasks.overdue === 0 && taskStats.chatwork_tasks.open > 0 && (
+          <Card className="border-green-400 border">
+            <CardContent className="py-4">
+              <div className="flex items-center gap-3">
+                <span className="text-xl">✅</span>
+                <div>
+                  <p className="text-sm font-medium text-green-700">期限切れタスクはありません</p>
+                  <p className="text-xs text-muted-foreground">
+                    未完了 {taskStats.chatwork_tasks.open}件 — すべて期限内です
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Trend Charts */}
         <Tabs defaultValue="conversations">

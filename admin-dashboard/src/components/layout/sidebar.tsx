@@ -20,6 +20,7 @@ import {
   Settings,
   Link2,
   LogOut,
+  Sunrise,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -27,6 +28,7 @@ import { useAuth } from '@/hooks/use-auth';
 
 const navigation = [
   // 概要
+  { name: '🌅 朝のまとめ', href: '/morning', icon: Sunrise },
   { name: 'ダッシュボード', href: '/', icon: LayoutDashboard },
   // 組織
   { name: '組織図', href: '/org-chart', icon: Network },

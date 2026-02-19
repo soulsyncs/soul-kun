@@ -461,13 +461,14 @@ class TestTelegramRateLimit:
     """Step B-2: レート制限テスト"""
 
     def test_rate_limit_function_exists(self):
-        """レート制限関数がソースコードに存在する"""
+        """レート制限関数がソースコードに存在する（routes/telegram.py に分割済み）"""
         import ast
 
-        main_path = os.path.join(
-            os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"
+        # Phase 4: Telegramルートは routes/telegram.py に分割済み
+        telegram_path = os.path.join(
+            os.path.dirname(__file__), "..", "chatwork-webhook", "routes", "telegram.py"
         )
-        with open(main_path) as f:
+        with open(telegram_path) as f:
             source = f.read()
 
         tree = ast.parse(source)
@@ -514,13 +515,14 @@ class TestTelegramAuditLogging:
 
     @patch.dict(os.environ, {"TELEGRAM_CEO_CHAT_ID": "111"})
     def test_no_print_statements_in_telegram_webhook(self):
-        """telegram_webhook関数にprint文が残っていないことを確認"""
+        """telegram_webhook関数にprint文が残っていないことを確認（routes/telegram.py に分割済み）"""
         import ast
 
-        main_path = os.path.join(
-            os.path.dirname(__file__), "..", "chatwork-webhook", "main.py"
+        # Phase 4: Telegramルートは routes/telegram.py に分割済み
+        telegram_path = os.path.join(
+            os.path.dirname(__file__), "..", "chatwork-webhook", "routes", "telegram.py"
         )
-        with open(main_path) as f:
+        with open(telegram_path) as f:
             source = f.read()
 
         tree = ast.parse(source)

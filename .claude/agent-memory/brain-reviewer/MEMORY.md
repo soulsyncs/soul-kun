@@ -90,6 +90,83 @@
 - 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical (verified).
 - audit logging: NO audit calls in any capabilities/ handler. Pre-existing gap (old bridge same).
 
+## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
+
+- `--all` flag only scans `lib/`, `chatwork-webhook/lib/`, `proactive-monitor/lib/` — NOT `api/` or `cost-report/`
+- Bugs in `api/app/api/v1/admin/brain_routes.py` and `cost-report/main.py` pass `--all` silently
+- To detect API layer SQL bugs, must manually grep `api/` and `cost-report/` for old column names
+
+## Phase 3 (AI cost visibility) — FIXED in feat/phase3-ai-cost-visibility (reviewed 2026-02-19)
+
+### All previously flagged issues now RESOLVED:
+- C-1: `brain_routes.py` `SUM(cost_usd)` → `0 as cost` (brain_decision_logs has no cost column)
+- C-2: `cost-report/main.py` `model_name` → `model_id`, `GROUP BY model_name` → `GROUP BY model_id`
+- W-1: `dashboard_routes.py` `AVG(response_time_ms)` → `AVG(latency_ms)`
+- W-2: `dashboard_routes.py` `is_error = TRUE` → `success = FALSE`
+- W-3: `dashboard_routes.py` `FROM brain_insights / summary` → `FROM brain_strategic_insights / description`
+- costs_routes.py: `cost_usd`→`cost_jpy`, `budget_usd`→`budget_jpy`, `model_name`→`model_id`, `usage_tier`→`tier`
+
+### Remaining open items (SUGGESTION level, not blocking):
+- `api/app/schemas/admin.py`: All cost `Field(description=...)` still say "（USD）" but actual values are JPY
+  - Lines 102,103,134,186,188,205,223,232: `description="コスト（USD）"` should be `（円）`
+  - Non-breaking (description is documentation only), SUGGESTION to fix for clarity
+- `bottleneck_alerts` queries in `dashboard_routes.py`: `organization_id::text` cast is inconsistent
+  with other tables (no cast). Pre-existing, correct behavior, minor inconsistency only.
+- `cost-report/main.py` line 27: `ALERT_ROOM_ID` default `"417892193"` hardcoded — same as alert_sender.py pre-existing
+
+## Phase 3 admin API patterns (confirmed 2026-02-19)
+
+- `api/app/api/v1/admin/deps.py`: `require_admin` = Level 5+, `require_editor` = Level 6+
+- Auth: `get_current_user` (JWT) + `get_user_role_level_sync` DB check — fully authenticated
+- All 4 routes have `organization_id` filter on every SELECT — org isolation OK
+- Audit logging via `log_audit_event()` present on all endpoints
+- `async def` + synchronous `pool.connect()` pattern — pre-existing, admin dashboard is §1-1 exception
+- `brain_strategic_insights` is in `soulkun_tasks` DB (NOT soulkun DB)
+- `bottleneck_alerts.organization_id` is UUID type (both soulkun and soulkun_tasks DBs)
+- `ai_usage_logs.organization_id` is UUID type — no cast needed (PostgreSQL auto-casts text literals)
+
+## Phase 4 main.py split (feat/phase4-main-split, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/telegram.py`: Blueprint-based split of Telegram webhook from main.py
+- `from main import _get_brain_integration` at line 172 is INSIDE the function body (deferred/lazy import) — NOT at module level. No circular import at load time. `sys.modules['main']` is already populated when gunicorn starts.
+- `app.register_blueprint(telegram_bp)` is at module-level in main.py (line 3042-3044) — no `url_prefix`, so `/telegram` route is unchanged.
+- Rate limit state (`_telegram_rate_limit` dict) moved from main.py to routes/telegram.py module scope. Gunicorn `--workers 1` means single process, so per-module dict is equivalent to original. Behavior unchanged.
+- **CRITICAL test failure**: `tests/test_telegram_webhook.py::TestTelegramRateLimit::test_rate_limit_function_exists` fails because it AST-parses `main.py` and asserts `_check_telegram_rate_limit` and `telegram_webhook` exist there. Both are now in `routes/telegram.py`. Test must be updated to scan `routes/telegram.py` instead (or both files).
+- `test_no_print_statements_in_telegram_webhook` PASSES (it checks main.py, which no longer has the function — no prints = vacuous pass). This is a false-positive — the test now tests nothing.
+
+## Phase 5 main.py split (feat/phase4-main-split, Zoom, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/zoom.py`: Blueprint split of Zoom webhook (176 lines)
+- `from main import get_ai_response_raw, _ORGANIZATION_ID` at line 111 is INSIDE the function body (deferred/lazy import). No circular import at load time.
+- `from routes.zoom import zoom_bp` is at module-level in main.py (line 2900). Safe because zoom.py has NO module-level `from main import`.
+- Blueprint registered with `app.register_blueprint(zoom_bp)` — no `url_prefix`, so `/zoom-webhook` route is unchanged.
+- `GET` method on `/zoom-webhook` is PRE-EXISTING (original main.py line 2889 also had `methods=["POST", "GET"]`).
+- `threading.Thread(daemon=True)` + `asyncio.new_event_loop()` + `loop.close()` in finally — PRE-EXISTING pattern. `loop.close()` is in finally block (line 164). Correct.
+- `traceback.print_exc()` and `{bg_err}` in print — PRE-EXISTING pattern (main.py has 9 instances). Not a regression.
+- `result.message` at line 158 (`print(f"Zoom議事録生成失敗: {result.message}")`) — only reached when `result.success=False` or `result.message=None`. Meeting content NOT exposed here (success=True+message=body goes to ChatWork, not print).
+- `_ORGANIZATION_ID` default hardcoded value `"5f98365f..."` is PRE-EXISTING (from original main.py).
+- No AST-based tests exist for zoom_webhook (unlike Telegram). No test regressions introduced.
+- WARNING: `print(f"... {type(e).__name__}: {e}")` at line 173 (outer except) — `{e}` expansion could expose internal paths/connection strings. Same pattern as Telegram (pre-existing, WARNING level).
+
+## Phase 6 main.py split (feat/phase4-main-split, Scheduled routes, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/scheduled.py`: Blueprint split of 4 scheduled routes (710 lines)
+- **CRITICAL ARCHITECTURAL ISSUE**: Cloud Scheduler does NOT call chatwork-webhook Cloud Run for these routes.
+  - Scheduler targets standalone Cloud Functions in `check-reply-messages/`, `sync-chatwork-tasks/`, `remind-tasks/`, `cleanup-old-data/` directories.
+  - The 4 new Blueprint routes in scheduled.py are effectively unreachable in production (no caller).
+  - `chatwork-webhook` Cloud Run is publicly accessible (`allUsers`) — so these routes are publicly exposed but unauthenticated.
+- **ARCHITECTURE CLARIFICATION**: chatwork-webhook = Cloud Run (Docker), scheduled jobs = separate Cloud Functions (Gen2). These are completely separate deployments.
+- All `from main import` calls are inside function bodies (lazy) — no circular import at load time.
+- `from routes.scheduled import scheduled_bp` is at module level in main.py line 2238. Safe because scheduled.py has NO module-level `from main import`.
+- **PRE-EXISTING**: `httpx.post()` inside open transaction in `remind_tasks` (line 484). DB connection open while calling external API. Rule #10 violation, but pre-existing.
+- **PRE-EXISTING**: `str(e)` exposed in HTTP responses (lines 65, 141, 379, 514). Same in original main.py.
+- **PRE-EXISTING**: `cleanup_old_data` DELETE queries on `room_messages`, `processed_messages`, `conversation_timestamps` have NO `organization_id` filter, despite these tables having org_id columns. Pre-existing in original main.py.
+- **PRE-EXISTING**: `system_config`, `excluded_rooms` queries without org_id. These tables have no org_id column (intentional single-tenant design for chatwork-webhook).
+- **PRE-EXISTING**: `task_reminders` INSERT has no org_id (table has no org_id column).
+- `flask_request` is imported but not used (import is kept, `request = flask_request` dead code lines were removed in split).
+- `user_departments` query has no org_id filter — table has no org_id column (pre-existing).
+- No new tests added for scheduled.py routes (pre-existing gap, CFs have their own separate tests).
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

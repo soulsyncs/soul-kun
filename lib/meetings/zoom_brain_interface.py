@@ -138,31 +138,43 @@ class ZoomBrainInterface:
             raw_id = recording_data.get("id")
             source_mid = str(raw_id) if raw_id else None
 
-            # Step 2: Find VTT transcript URL (with retry)
+            # Step 2: Find VTT transcript URL (with exponential backoff retry)
             # Zoom generates transcripts asynchronously after recording.
             # recording.completed webhook fires before transcript is ready.
-            # Retry once after 30s, then return retry=True for Zoom webhook retry.
+            # 指数バックオフ: 30秒 → 60秒 → 120秒 の3回リトライ。
+            # 3回失敗したら retry=True を返し、呼び出し側（Zoom webhook）に通知する。
+            _RETRY_INTERVALS = [30, 60, 120]
             transcript_url = await asyncio.to_thread(
                 zoom_client.find_transcript_url,
                 recording_data,
             )
-            if transcript_url is None and zoom_meeting_id:
-                logger.debug("No transcript on first attempt, retrying in 30s...")
-                await asyncio.sleep(30)
+            for attempt, wait_sec in enumerate(_RETRY_INTERVALS, start=1):
+                if transcript_url is not None:
+                    break
+                if not zoom_meeting_id:
+                    break
+                logger.debug(
+                    "No transcript, retry %d/%d in %ds...",
+                    attempt, len(_RETRY_INTERVALS), wait_sec,
+                )
+                await asyncio.sleep(wait_sec)
                 recording_data = await self._find_recording(
                     zoom_client, zoom_meeting_id, None,
                 )
                 if recording_data:
-                    api_files2 = recording_data.get("recording_files", [])
-                    logger.debug("Retry: recording_files types: %s",
-                                [f.get("file_type") for f in api_files2])
+                    api_files_retry = recording_data.get("recording_files", [])
+                    logger.debug(
+                        "Retry %d: recording_files types: %s",
+                        attempt,
+                        [f.get("file_type") for f in api_files_retry],
+                    )
                     transcript_url = await asyncio.to_thread(
                         zoom_client.find_transcript_url,
                         recording_data,
                     )
 
             if transcript_url is None:
-                logger.debug("find_transcript_url returned None after retry")
+                logger.debug("find_transcript_url returned None after all retries")
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
@@ -204,29 +216,36 @@ class ZoomBrainInterface:
                 "topic", "Zoom\u30df\u30fc\u30c6\u30a3\u30f3\u30b0"
             )
 
-            # Step 6: Dedup check + DB save (source_mid=Noneの場合はスキップ)
-            if source_mid is not None:
-                existing = await asyncio.to_thread(
-                    self.db.find_meeting_by_source_id,
-                    source="zoom",
-                    source_meeting_id=source_mid,
+            # Step 6: Dedup check + DB save
+            # source_midがNoneの場合もdedup_hash（topic+start_timeのSHA256）でフォールバック。
+            # topicはSHA256でハッシュ化されるためPII文字列はDBに保存されない（§3-2 #8準拠）。
+            dedup_hash: Optional[str] = MeetingDB.build_dedup_hash(
+                "zoom",
+                recording_data.get("topic", ""),
+                recording_data.get("start_time", ""),
+            )
+            existing = await asyncio.to_thread(
+                self.db.find_meeting_by_source_id,
+                source="zoom",
+                source_meeting_id=source_mid,
+                dedup_hash=dedup_hash,
+            )
+            if existing:
+                logger.info(
+                    "Zoom meeting already processed: %s",
+                    existing.get("id"),
                 )
-                if existing:
-                    logger.info(
-                        "Zoom meeting already processed: %s",
-                        existing.get("id"),
-                    )
-                    return HandlerResult(
-                        success=True,
-                        message=(
-                            "このZoomミーティングの議事録は既に作成済みウル\U0001f43a"
-                        ),
-                        data={
-                            "meeting_id": existing["id"],
-                            "status": existing.get("status", ""),
-                            "already_processed": True,
-                        },
-                    )
+                return HandlerResult(
+                    success=True,
+                    message=(
+                        "このZoomミーティングの議事録は既に作成済みウル\U0001f43a"
+                    ),
+                    data={
+                        "meeting_id": existing["id"],
+                        "status": existing.get("status", ""),
+                        "already_processed": True,
+                    },
+                )
 
             meeting = await asyncio.to_thread(
                 self.db.create_meeting,
@@ -239,6 +258,7 @@ class ZoomBrainInterface:
                 meeting_date=_parse_zoom_datetime(
                     recording_data.get("start_time")
                 ),
+                dedup_hash=dedup_hash,
             )
             meeting_id = meeting["id"]
 
@@ -403,10 +423,14 @@ class ZoomBrainInterface:
                 )
                 return None
 
-        # Search recent recordings (last 7 days)
+        # Search recent recordings (last 2 days)
+        # 7日→2日に短縮: 直近の録画のみ対象にすることで誤爆を防ぐ。
+        # 2日にする理由: 深夜23時開始→翌日1時終了の会議でZoomが翌日2時に
+        # 録画処理するケースで、days=1だとfrom_dateが翌日になり録画が
+        # 見つからなくなるため2日を保持。
         user_id = zoom_user_email or "me"
         from_date = (
-            datetime.now(timezone.utc) - timedelta(days=7)
+            datetime.now(timezone.utc) - timedelta(days=2)
         ).strftime("%Y-%m-%d")
 
         try:

@@ -12627,7 +12627,8 @@
       "version": "integer",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone",
-      "deleted_at": "timestamp with time zone"
+      "deleted_at": "timestamp with time zone",
+      "dedup_hash": "character varying"
     },
     "multimodal_extracted_entities": {
       "id": "uuid",

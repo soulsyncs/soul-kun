@@ -10,6 +10,7 @@ Author: Claude Opus 4.6
 Created: 2026-02-10
 """
 
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -36,6 +37,17 @@ class MeetingDB:
     # meetings CRUD
     # =========================================================================
 
+    @staticmethod
+    def build_dedup_hash(source: str, topic: str, start_time: str) -> str:
+        """冪等キー生成: source + topic + start_time のSHA256ハッシュ（先頭64文字）。
+
+        source_meeting_idがNullのときに重複チェック用として使用する。
+        topicとstart_timeはZoom APIが返す値をそのまま渡す。
+        topicはSHA256でハッシュ化されるためPII文字列はDBに保存されない。
+        """
+        key = f"{source}|{topic}|{start_time}"
+        return hashlib.sha256(key.encode()).hexdigest()[:64]
+
     def create_meeting(
         self,
         title: Optional[str],
@@ -45,6 +57,7 @@ class MeetingDB:
         source: str = "manual_upload",
         source_meeting_id: Optional[str] = None,
         meeting_date: Optional[datetime] = None,
+        dedup_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """会議レコードを作成する"""
         meeting_id = str(uuid4())
@@ -56,11 +69,11 @@ class MeetingDB:
                     INSERT INTO meetings (
                         id, organization_id, title, meeting_type,
                         meeting_date, status, source, source_meeting_id,
-                        room_id, created_by, created_at, updated_at
+                        room_id, created_by, dedup_hash, created_at, updated_at
                     ) VALUES (
                         :id, :org_id, :title, :meeting_type,
                         :meeting_date, 'pending', :source, :source_meeting_id,
-                        :room_id, :created_by, :now, :now
+                        :room_id, :created_by, :dedup_hash, :now, :now
                     )
                 """),
                 {
@@ -73,6 +86,7 @@ class MeetingDB:
                     "source_meeting_id": source_meeting_id,
                     "room_id": room_id,
                     "created_by": created_by,
+                    "dedup_hash": dedup_hash,
                     "now": now,
                 },
             )
@@ -413,29 +427,56 @@ class MeetingDB:
     def find_meeting_by_source_id(
         self,
         source: str,
-        source_meeting_id: str,
+        source_meeting_id: Optional[str],
+        dedup_hash: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """source_meeting_idで既存会議を検索する（重複チェック用）"""
-        if not source_meeting_id:
-            return None
+        """source_meeting_idまたはdedup_hashで既存会議を検索する（重複チェック用）。
+
+        Args:
+            source: 会議ソース（例: "zoom"）
+            source_meeting_id: ZoomのミーティングID。Noneの場合はdedup_hashでフォールバック
+            dedup_hash: build_dedup_hash()で生成した冪等キー。
+                        source_meeting_idがNoneのときに使用。
+        """
         with self.pool.connect() as conn:
-            result = conn.execute(
-                text("""
-                    SELECT id, title, status, source, source_meeting_id,
-                           created_at
-                    FROM meetings
-                    WHERE organization_id = :org_id
-                      AND source = :source
-                      AND source_meeting_id = :source_mid
-                      AND deleted_at IS NULL
-                    LIMIT 1
-                """),
-                {
-                    "org_id": self.organization_id,
-                    "source": source,
-                    "source_mid": source_meeting_id,
-                },
-            )
+            if source_meeting_id:
+                result = conn.execute(
+                    text("""
+                        SELECT id, title, status, source, source_meeting_id,
+                               created_at
+                        FROM meetings
+                        WHERE organization_id = :org_id
+                          AND source = :source
+                          AND source_meeting_id = :source_mid
+                          AND deleted_at IS NULL
+                        LIMIT 1
+                    """),
+                    {
+                        "org_id": self.organization_id,
+                        "source": source,
+                        "source_mid": source_meeting_id,
+                    },
+                )
+            elif dedup_hash:
+                result = conn.execute(
+                    text("""
+                        SELECT id, title, status, source, source_meeting_id,
+                               created_at
+                        FROM meetings
+                        WHERE organization_id = :org_id
+                          AND source = :source
+                          AND dedup_hash = :dedup_hash
+                          AND deleted_at IS NULL
+                        LIMIT 1
+                    """),
+                    {
+                        "org_id": self.organization_id,
+                        "source": source,
+                        "dedup_hash": dedup_hash,
+                    },
+                )
+            else:
+                return None
             row = result.mappings().fetchone()
             return dict(row) if row else None
 

@@ -216,6 +216,24 @@
 - 22項目チェック全項目 PASS（コメント削除はロジックチェック対象外）
 - 残存 SUGGESTION (pre-existing, NOT introduced by D-1): stale `flush_dm_unavailable_notifications` unused import, `process_overdue_tasks` stale docstring
 
+## 7バグ修正レビュー (2026-02-19, 全機能テスト発見分)
+
+### 修正ファイル・評価結果
+- `lib/brain/execution.py`: REQUIRED_PARAMETERS/PARAMETER_TYPES/display_names を registry.py と整合（task_id→task_identifier, content→key/value）。PASS。後方互換エントリ（body, task_id, content）が display_names に残存 — SUGGESTION only
+- `lib/brain/agents/knowledge_expert.py`: `_handle_delete_memory` の返却形式を `query` フォーマットから `persons[]` フォーマットへ修正。正しい根本原因修正。
+- `lib/brain/llm_brain.py`: System Promptに `goal_progress_report` の説明を追加。問題なし。
+- `lib/brain/capabilities/generation.py`: `handle_image_generation` エラー時に `error_code` を追加してリトライ停止。WARNING: `error_details=str(e)` が `lib/brain/learning.py:424` 経由で DB（execution_error カラム）に記録される。ユーザーには公開されないが内部パス・APIメッセージが記録されうる。SUGGESTION: `type(e).__name__` のみにする。`str(e)` を分類して `user_msg` は適切。
+- `lib/capabilities/generation/dalle_client.py`: タイムアウト時の `continue` 追加。ロジック検証済み。`DALLETimeoutError` catch 順序は正しい（line175がhttpx.TimeoutException、line183がDALLETimeoutError == _handle_error_responseが投げる場合）。
+- `lib/brain/graph/nodes/responses.py`: `handle_confirm` にて `approval_result.confirmation_message` + `capability_bridge.CAPABILITIES` の `confirmation_template` フォールバック追加。NULL安全。`format_map` はキー不足時でも `（key未指定）` で埋めるため例外なし。
+- `lib/brain/guardian_layer.py`: `_check_api_limitation` 新チェック追加。`from handlers.registry import SYSTEM_CAPABILITIES` が ImportError 時は ALLOW にフォールバック（安全方向）。chatwork-webhook runtime では `handlers/` が PYTHONPATH にある。priority_level=3 はドキュメント（class docstring）に記載なし — SUGGESTION only。
+
+### 3コピー同期確認
+- 全6修正ファイルの3コピー（lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/）が同一 — PASS
+
+### 共通パターン確認
+- `handlers.registry.SYSTEM_CAPABILITIES` は `/Users/kikubookair/soul-kun/handlers/registry.py` に存在（line49）。root registry: 38エントリ、chatwork-webhook registry: 37エントリ。api_limitation エントリ: chatwork_task_edit, chatwork_task_delete の2種。
+- `confirmation_template` は `lib/brain/capability_bridge.py` の `CAPABILITIES` dict に格納。generate_document/generate_image/generate_video/deep_research等に存在。`responses.py` は `CAPABILITIES` を参照（`SYSTEM_CAPABILITIES` でなく）。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

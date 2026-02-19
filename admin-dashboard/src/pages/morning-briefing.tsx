@@ -174,7 +174,7 @@ export function MorningBriefingPage() {
           </Card>
 
           {/* 期限切れタスク */}
-          <Card className={taskStats && taskStats.chatwork_tasks.overdue > 0 ? 'border-orange-400 border-2' : ''}>
+          <Card className={(taskStats?.chatwork_tasks?.overdue ?? 0) > 0 ? 'border-orange-400 border-2' : ''}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">
                 期限切れタスク
@@ -183,15 +183,15 @@ export function MorningBriefingPage() {
               <CheckSquare className="h-5 w-5 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className={`text-3xl font-bold ${taskStats && taskStats.chatwork_tasks.overdue > 0 ? 'text-orange-500' : 'text-green-600'}`}>
-                {taskStats?.chatwork_tasks.overdue ?? '—'}
+              <div className={`text-3xl font-bold ${(taskStats?.chatwork_tasks?.overdue ?? 0) > 0 ? 'text-orange-500' : 'text-green-600'}`}>
+                {taskStats?.chatwork_tasks?.overdue ?? '—'}
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                {taskStats
+                {taskStats?.chatwork_tasks
                   ? `未完了 ${taskStats.chatwork_tasks.open}件 / 全体 ${taskStats.chatwork_tasks.total}件`
                   : 'データなし'}
               </p>
-              {taskStats && taskStats.chatwork_tasks.overdue === 0 && (
+              {taskStats?.chatwork_tasks?.overdue === 0 && (
                 <p className="text-xs text-green-600 mt-2 font-medium">すべて期限内 ✓</p>
               )}
               <Link to="/tasks" className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary mt-2">

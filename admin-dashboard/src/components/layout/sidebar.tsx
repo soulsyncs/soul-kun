@@ -1,5 +1,7 @@
 /**
  * Sidebar navigation component
+ * Desktop: always visible
+ * Mobile: slide-in overlay triggered by hamburger button
  */
 
 import { Link, useLocation } from '@tanstack/react-router';
@@ -21,6 +23,7 @@ import {
   Link2,
   LogOut,
   Sunrise,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -49,21 +52,36 @@ const navigation = [
   { name: 'システム', href: '/system', icon: Settings },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  onClose?: () => void;
+}
+
+export function Sidebar({ onClose }: SidebarProps) {
   const location = useLocation();
   const { user, logout } = useAuth();
 
   return (
     <div className="flex h-full w-64 flex-col border-r bg-card">
-      {/* Logo */}
-      <div className="flex h-16 items-center px-6">
+      {/* Logo + モバイル閉じるボタン */}
+      <div className="flex h-16 items-center justify-between px-6">
         <h1 className="text-xl font-bold">ソウルくん管理画面</h1>
+        {/* モバイルのみ表示 */}
+        {onClose && (
+          <button
+            type="button"
+            aria-label="メニューを閉じる"
+            className="rounded-md p-1 text-muted-foreground hover:bg-accent md:hidden"
+            onClick={onClose}
+          >
+            <X className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
       <Separator />
 
       {/* Navigation */}
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {navigation.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
@@ -72,6 +90,7 @@ export function Sidebar() {
             <Link
               key={item.name}
               to={item.href}
+              onClick={onClose} // モバイルでは項目タップ後にサイドバーを閉じる
               className={cn(
                 'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
@@ -79,7 +98,7 @@ export function Sidebar() {
                   : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
               )}
             >
-              <Icon className="h-5 w-5" />
+              <Icon className="h-5 w-5 shrink-0" />
               {item.name}
             </Link>
           );
@@ -91,8 +110,8 @@ export function Sidebar() {
       {/* User info and logout */}
       <div className="p-4">
         <div className="mb-3 text-sm">
-          <div className="font-medium">{user?.name ?? '管理者'}</div>
-          <div className="text-muted-foreground">
+          <div className="font-medium truncate">{user?.name ?? '管理者'}</div>
+          <div className="text-muted-foreground truncate">
             レベル {user?.role_level ?? '-'}
             {user?.role ? ` (${user.role})` : ''}
           </div>

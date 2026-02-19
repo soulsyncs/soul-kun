@@ -62,6 +62,11 @@ export function DashboardPage() {
       queryFn: () => api.brain.getMetrics(brainDays),
     });
 
+  const { data: goalStats } = useQuery<GoalStatsResponse>({
+    queryKey: ['goal-stats'],
+    queryFn: () => api.goals.getStats(),
+  });
+
   if (summaryLoading) {
     return (
       <AppLayout>
@@ -89,11 +94,6 @@ export function DashboardPage() {
   const kpis = summaryData?.kpis;
   const alerts = summaryData?.recent_alerts ?? [];
   const insights = summaryData?.recent_insights ?? [];
-
-  const { data: goalStats } = useQuery<GoalStatsResponse>({
-    queryKey: ['goal-stats'],
-    queryFn: () => api.goals.getStats(),
-  });
 
   const chartData = (metricsData?.metrics ?? []).map((m) => ({
     ...m,
@@ -167,7 +167,7 @@ export function DashboardPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {goalStats ? `${Math.round(goalStats.completion_rate * 100)}%` : '—'}
+                {goalStats ? `${Math.round(goalStats.completion_rate)}%` : '—'}
               </div>
               <p className="text-xs text-muted-foreground">
                 {goalStats

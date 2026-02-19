@@ -100,7 +100,7 @@ class PersonService:
             }
 
     def delete_person(self, person_name: str) -> bool:
-        """人物を削除"""
+        """人物を削除（person_attributes/person_events は ON DELETE CASCADE で自動削除）"""
         pool = self.get_pool()
         with pool.connect() as conn:
             trans = conn.begin()
@@ -113,14 +113,7 @@ class PersonService:
                     trans.rollback()
                     return False
                 person_id = person_result[0]
-                conn.execute(
-                    sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id AND organization_id = :org_id"),
-                    {"person_id": person_id, "org_id": self.organization_id}
-                )
-                conn.execute(
-                    sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id AND organization_id = :org_id"),
-                    {"person_id": person_id, "org_id": self.organization_id}
-                )
+                # ON DELETE CASCADE により person_attributes, person_events は自動削除
                 conn.execute(
                     sqlalchemy.text("DELETE FROM persons WHERE id = :person_id AND organization_id = :org_id"),
                     {"person_id": person_id, "org_id": self.organization_id}
@@ -129,7 +122,7 @@ class PersonService:
                 return True
             except Exception as e:
                 trans.rollback()
-                logger.error("削除エラー: %s", e)
+                logger.error("削除エラー: %s", e, exc_info=True)
                 return False
 
     def get_all_persons_summary(self) -> List[Dict[str, Any]]:

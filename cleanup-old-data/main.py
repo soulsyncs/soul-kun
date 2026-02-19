@@ -271,8 +271,7 @@ def delete_person(person_name):
             if not person_result:
                 return False
             person_id = person_result[0]
-            conn.execute(sqlalchemy.text("DELETE FROM person_attributes WHERE person_id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
-            conn.execute(sqlalchemy.text("DELETE FROM person_events WHERE person_id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
+            # ON DELETE CASCADE により person_attributes, person_events は自動削除
             conn.execute(sqlalchemy.text("DELETE FROM persons WHERE id = :person_id AND organization_id = :org_id"), {"person_id": person_id, "org_id": _ORGANIZATION_ID})
             return True
     except Exception:

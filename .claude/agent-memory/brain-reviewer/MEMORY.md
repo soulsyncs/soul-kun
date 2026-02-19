@@ -216,6 +216,55 @@
 - 22項目チェック全項目 PASS（コメント削除はロジックチェック対象外）
 - 残存 SUGGESTION (pre-existing, NOT introduced by D-1): stale `flush_dm_unavailable_notifications` unused import, `process_overdue_tasks` stale docstring
 
+## 7バグ修正レビュー (2026-02-19, 全機能テスト発見分)
+
+### 修正ファイル・評価結果
+- `lib/brain/execution.py`: REQUIRED_PARAMETERS/PARAMETER_TYPES/display_names を registry.py と整合（task_id→task_identifier, content→key/value）。PASS。後方互換エントリ（body, task_id, content）が display_names に残存 — SUGGESTION only
+- `lib/brain/agents/knowledge_expert.py`: `_handle_delete_memory` の返却形式を `query` フォーマットから `persons[]` フォーマットへ修正。正しい根本原因修正。
+- `lib/brain/llm_brain.py`: System Promptに `goal_progress_report` の説明を追加。問題なし。
+- `lib/brain/capabilities/generation.py`: `handle_image_generation` エラー時に `error_code` を追加してリトライ停止。WARNING: `error_details=str(e)` が `lib/brain/learning.py:424` 経由で DB（execution_error カラム）に記録される。ユーザーには公開されないが内部パス・APIメッセージが記録されうる。SUGGESTION: `type(e).__name__` のみにする。`str(e)` を分類して `user_msg` は適切。
+- `lib/capabilities/generation/dalle_client.py`: タイムアウト時の `continue` 追加。ロジック検証済み。`DALLETimeoutError` catch 順序は正しい（line175がhttpx.TimeoutException、line183がDALLETimeoutError == _handle_error_responseが投げる場合）。
+- `lib/brain/graph/nodes/responses.py`: `handle_confirm` にて `approval_result.confirmation_message` + `capability_bridge.CAPABILITIES` の `confirmation_template` フォールバック追加。NULL安全。`format_map` はキー不足時でも `（key未指定）` で埋めるため例外なし。
+- `lib/brain/guardian_layer.py`: `_check_api_limitation` 新チェック追加。`from handlers.registry import SYSTEM_CAPABILITIES` が ImportError 時は ALLOW にフォールバック（安全方向）。chatwork-webhook runtime では `handlers/` が PYTHONPATH にある。priority_level=3 はドキュメント（class docstring）に記載なし — SUGGESTION only。
+
+### 3コピー同期確認
+- 全6修正ファイルの3コピー（lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/）が同一 — PASS
+
+### 共通パターン確認
+- `handlers.registry.SYSTEM_CAPABILITIES` は `/Users/kikubookair/soul-kun/handlers/registry.py` に存在（line49）。root registry: 38エントリ、chatwork-webhook registry: 37エントリ。api_limitation エントリ: chatwork_task_edit, chatwork_task_delete の2種。
+- `confirmation_template` は `lib/brain/capability_bridge.py` の `CAPABILITIES` dict に格納。generate_document/generate_image/generate_video/deep_research等に存在。`responses.py` は `CAPABILITIES` を参照（`SYSTEM_CAPABILITIES` でなく）。
+
+## Bug③ person_events.organization_id missing (2026-02-19, fix/all-function-test-bugs)
+
+### 確定した事実
+- 本番DB `person_events` に `organization_id` 列が存在しない (Cloud Logging実証)
+- `db_schema.json` には `person_events.organization_id: uuid` と記録されているが**本番実態と乖離**
+  - `20260216_create_persons_tables.sql` の `CREATE TABLE IF NOT EXISTS` が既存テーブルをスキップした
+  - `db_schema.json` はマイグレーション後の「想定スキーマ」を記録しており、本番の実状とは異なる場合がある
+- 同じバグ `DELETE FROM person_events WHERE ... AND organization_id = :org_id` が**8箇所**に存在:
+  - `lib/person_service.py` L121
+  - `chatwork-webhook/lib/person_service.py` L121
+  - `proactive-monitor/lib/person_service.py` L121
+  - `main.py` L376
+  - `cleanup-old-data/main.py` L275
+  - `check-reply-messages/main.py` L620
+  - `remind-tasks/main.py` L1259
+  - `sync-chatwork-tasks/main.py` L2482
+
+### Option B (CASCADE依存) の評価（2回目レビュー 2026-02-19）
+- `person_events` の CASCADE: 本番DB確認済み（ユーザー提供）→ CRITICAL 解消
+- **残課題 W-1**: `person_attributes` の CASCADE が本番DBで有効か未確認（同様に `CREATE TABLE IF NOT EXISTS` でスキップされた可能性）
+  - 確認SQL: `SELECT conname, pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname IN ('person_attributes', 'person_events') AND c.contype = 'f';`
+- **残課題 W-2**: 修正が `chatwork-webhook/lib/person_service.py` の1ファイルのみで、残り7箇所が未修正
+  - 3コピー同期（鉄則#17）が壊れる: `lib/` と `proactive-monitor/lib/` が未修正
+  - `main.py` + 4CF main.py も同一バグが継続
+- マイグレーション `20260214_persons_org_id_uuid.sql` line 10: `-- person_events: organization_id column does NOT exist (skip)` → 本番でテーブルが既存だったと確定
+- `person_attributes` は同じ `CREATE TABLE IF NOT EXISTS` ブロックのため、同様にスキップされた可能性が高い
+
+### 修正完了条件
+1. `person_attributes` の CASCADE を本番DBで確認
+2. 全8箇所（lib/, chatwork-webhook/lib/, proactive-monitor/lib/, main.py, 4CF main.py）を同一PR で修正（横展開完了）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

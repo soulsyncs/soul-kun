@@ -134,6 +134,20 @@
 - **CRITICAL test failure**: `tests/test_telegram_webhook.py::TestTelegramRateLimit::test_rate_limit_function_exists` fails because it AST-parses `main.py` and asserts `_check_telegram_rate_limit` and `telegram_webhook` exist there. Both are now in `routes/telegram.py`. Test must be updated to scan `routes/telegram.py` instead (or both files).
 - `test_no_print_statements_in_telegram_webhook` PASSES (it checks main.py, which no longer has the function — no prints = vacuous pass). This is a false-positive — the test now tests nothing.
 
+## Phase 5 main.py split (feat/phase4-main-split, Zoom, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/zoom.py`: Blueprint split of Zoom webhook (176 lines)
+- `from main import get_ai_response_raw, _ORGANIZATION_ID` at line 111 is INSIDE the function body (deferred/lazy import). No circular import at load time.
+- `from routes.zoom import zoom_bp` is at module-level in main.py (line 2900). Safe because zoom.py has NO module-level `from main import`.
+- Blueprint registered with `app.register_blueprint(zoom_bp)` — no `url_prefix`, so `/zoom-webhook` route is unchanged.
+- `GET` method on `/zoom-webhook` is PRE-EXISTING (original main.py line 2889 also had `methods=["POST", "GET"]`).
+- `threading.Thread(daemon=True)` + `asyncio.new_event_loop()` + `loop.close()` in finally — PRE-EXISTING pattern. `loop.close()` is in finally block (line 164). Correct.
+- `traceback.print_exc()` and `{bg_err}` in print — PRE-EXISTING pattern (main.py has 9 instances). Not a regression.
+- `result.message` at line 158 (`print(f"Zoom議事録生成失敗: {result.message}")`) — only reached when `result.success=False` or `result.message=None`. Meeting content NOT exposed here (success=True+message=body goes to ChatWork, not print).
+- `_ORGANIZATION_ID` default hardcoded value `"5f98365f..."` is PRE-EXISTING (from original main.py).
+- No AST-based tests exist for zoom_webhook (unlike Telegram). No test regressions introduced.
+- WARNING: `print(f"... {type(e).__name__}: {e}")` at line 173 (outer except) — `{e}` expansion could expose internal paths/connection strings. Same pattern as Telegram (pre-existing, WARNING level).
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

@@ -1,6 +1,9 @@
 # MCP server config (contains API tokens)
 .mcp.json
 
+# Uploaded review files (3AI feedback docs, not source code)
+uploads/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

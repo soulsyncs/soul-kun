@@ -148,6 +148,25 @@
 - No AST-based tests exist for zoom_webhook (unlike Telegram). No test regressions introduced.
 - WARNING: `print(f"... {type(e).__name__}: {e}")` at line 173 (outer except) — `{e}` expansion could expose internal paths/connection strings. Same pattern as Telegram (pre-existing, WARNING level).
 
+## Phase 6 main.py split (feat/phase4-main-split, Scheduled routes, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/scheduled.py`: Blueprint split of 4 scheduled routes (710 lines)
+- **CRITICAL ARCHITECTURAL ISSUE**: Cloud Scheduler does NOT call chatwork-webhook Cloud Run for these routes.
+  - Scheduler targets standalone Cloud Functions in `check-reply-messages/`, `sync-chatwork-tasks/`, `remind-tasks/`, `cleanup-old-data/` directories.
+  - The 4 new Blueprint routes in scheduled.py are effectively unreachable in production (no caller).
+  - `chatwork-webhook` Cloud Run is publicly accessible (`allUsers`) — so these routes are publicly exposed but unauthenticated.
+- **ARCHITECTURE CLARIFICATION**: chatwork-webhook = Cloud Run (Docker), scheduled jobs = separate Cloud Functions (Gen2). These are completely separate deployments.
+- All `from main import` calls are inside function bodies (lazy) — no circular import at load time.
+- `from routes.scheduled import scheduled_bp` is at module level in main.py line 2238. Safe because scheduled.py has NO module-level `from main import`.
+- **PRE-EXISTING**: `httpx.post()` inside open transaction in `remind_tasks` (line 484). DB connection open while calling external API. Rule #10 violation, but pre-existing.
+- **PRE-EXISTING**: `str(e)` exposed in HTTP responses (lines 65, 141, 379, 514). Same in original main.py.
+- **PRE-EXISTING**: `cleanup_old_data` DELETE queries on `room_messages`, `processed_messages`, `conversation_timestamps` have NO `organization_id` filter, despite these tables having org_id columns. Pre-existing in original main.py.
+- **PRE-EXISTING**: `system_config`, `excluded_rooms` queries without org_id. These tables have no org_id column (intentional single-tenant design for chatwork-webhook).
+- **PRE-EXISTING**: `task_reminders` INSERT has no org_id (table has no org_id column).
+- `flask_request` is imported but not used (import is kept, `request = flask_request` dead code lines were removed in split).
+- `user_departments` query has no org_id filter — table has no org_id column (pre-existing).
+- No new tests added for scheduled.py routes (pre-existing gap, CFs have their own separate tests).
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

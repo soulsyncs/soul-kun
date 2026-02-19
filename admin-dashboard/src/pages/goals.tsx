@@ -152,7 +152,7 @@ export function GoalsPage() {
         </div>
 
         {/* Stats cards */}
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {statsLoading ? (
             Array.from({ length: 4 }).map((_, i) => (
               <Card key={i}>
@@ -257,7 +257,7 @@ export function GoalsPage() {
             </div>
 
             {/* Main content */}
-            <div className="flex gap-6">
+            <div className="flex flex-col md:flex-row gap-6">
               {/* Goal list */}
               <div className="flex-1 min-w-0">
                 <Card>
@@ -327,7 +327,7 @@ export function GoalsPage() {
 
               {/* Detail panel */}
               {selectedGoalId && (
-                <div className="w-80 shrink-0">
+                <div className="w-full md:w-80 md:shrink-0">
                   <Card>
                     <CardHeader className="pb-3">
                       <CardTitle className="text-base">目標詳細</CardTitle>
@@ -392,13 +392,13 @@ export function GoalsPage() {
           <div className="space-y-4">
             {/* サマリーカード */}
             {forecastLoading ? (
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {Array.from({ length: 4 }).map((_, i) => (
                   <Card key={i}><CardContent className="p-4"><Skeleton className="h-10 w-full" /></CardContent></Card>
                 ))}
               </div>
             ) : forecastData ? (
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="border-green-200">
                   <CardContent className="p-4">
                     <div className="text-xs text-muted-foreground">🟢 順調（前倒し）</div>

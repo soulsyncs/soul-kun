@@ -187,7 +187,7 @@ export function MembersPage() {
               </CardContent>
             </Card>
 
-            <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row gap-4">
               {/* Members Table */}
               <Card className={selectedUserId ? 'flex-1' : 'w-full'}>
                 <CardHeader>
@@ -314,7 +314,7 @@ export function MembersPage() {
 
               {/* Detail panel */}
               {selectedUserId && (
-                <Card className="w-[360px] shrink-0">
+                <Card className="w-full md:w-[360px] md:shrink-0">
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between mb-4">
                       <h3 className="font-bold text-sm">メンバー詳細</h3>
@@ -348,13 +348,13 @@ export function MembersPage() {
                         </div>
 
                         <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">メール</span>
-                            <span className="font-medium">{detailData.email ?? '-'}</span>
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="text-muted-foreground shrink-0">メール</span>
+                            <span className="font-medium text-right break-all">{detailData.email ?? '-'}</span>
                           </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">ChatWork ID</span>
-                            <span className="font-medium">{detailData.chatwork_account_id ?? '-'}</span>
+                          <div className="flex justify-between items-start gap-2">
+                            <span className="text-muted-foreground shrink-0">ChatWork ID</span>
+                            <span className="font-medium text-right break-all">{detailData.chatwork_account_id ?? '-'}</span>
                           </div>
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">権限レベル</span>
@@ -423,6 +423,7 @@ export function MembersPage() {
                 </div>
               ) : (
                 <>
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -444,6 +445,7 @@ export function MembersPage() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
 
                   <div className="mt-4 p-3 bg-muted/30 rounded-lg text-xs text-muted-foreground">
                     <strong>スコアの見方：</strong>

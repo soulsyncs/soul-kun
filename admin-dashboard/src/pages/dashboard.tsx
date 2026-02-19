@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   AreaChart,
@@ -119,9 +120,9 @@ export function DashboardPage() {
     <AppLayout>
       <div className="space-y-6">
         {/* Header with period selector */}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">ダッシュボード</h1>
+            <h1 className="text-2xl md:text-3xl font-bold">ダッシュボード</h1>
             <p className="text-muted-foreground">
               ソウルくんのパフォーマンス概要
             </p>
@@ -263,7 +264,7 @@ export function DashboardPage() {
         </div>
 
         {/* ⑤ 決断の詰まりアラート */}
-        {taskStats && taskStats.chatwork_tasks.overdue > 0 && (
+        {(taskStats?.chatwork_tasks?.overdue ?? 0) > 0 && (
           <Card className="border-orange-400 border-2">
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 text-base">
@@ -275,24 +276,24 @@ export function DashboardPage() {
             <CardContent>
               <div className="flex items-center gap-6">
                 <div className="text-center">
-                  <div className="text-3xl font-bold text-orange-500">{taskStats.chatwork_tasks.overdue}</div>
+                  <div className="text-3xl font-bold text-orange-500">{taskStats?.chatwork_tasks?.overdue ?? 0}</div>
                   <div className="text-xs text-muted-foreground">期限超過</div>
                 </div>
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-muted-foreground">{taskStats.chatwork_tasks.open}</div>
+                  <div className="text-2xl font-bold text-muted-foreground">{taskStats?.chatwork_tasks?.open ?? 0}</div>
                   <div className="text-xs text-muted-foreground">未完了合計</div>
                 </div>
                 <div className="flex-1 text-sm text-muted-foreground">
                   <p>期限が過ぎているタスクがあります。</p>
                   <p className="mt-1">
-                    <a href="/tasks" className="text-primary underline">タスク一覧</a>で確認して、担当者に声をかけてください。
+                    <Link to="/tasks" className="text-primary underline">タスク一覧</Link>で確認して、担当者に声をかけてください。
                   </p>
                 </div>
               </div>
             </CardContent>
           </Card>
         )}
-        {taskStats && taskStats.chatwork_tasks.overdue === 0 && taskStats.chatwork_tasks.open > 0 && (
+        {taskStats?.chatwork_tasks?.overdue === 0 && (taskStats.chatwork_tasks.open ?? 0) > 0 && (
           <Card className="border-green-400 border">
             <CardContent className="py-4">
               <div className="flex items-center gap-3">
@@ -300,7 +301,7 @@ export function DashboardPage() {
                 <div>
                   <p className="text-sm font-medium text-green-700">期限切れタスクはありません</p>
                   <p className="text-xs text-muted-foreground">
-                    未完了 {taskStats.chatwork_tasks.open}件 — すべて期限内です
+                    未完了 {taskStats?.chatwork_tasks?.open}件 — すべて期限内です
                   </p>
                 </div>
               </div>

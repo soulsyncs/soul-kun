@@ -415,7 +415,7 @@ export function CostsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-3 gap-6 mb-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-4">
                     <div className="text-center">
                       <div className="text-xs text-muted-foreground mb-1">AI費用（30日）</div>
                       <div className="text-2xl font-bold text-destructive">
@@ -431,15 +431,15 @@ export function CostsPage() {
                     <div className="text-center">
                       <div className="text-xs text-muted-foreground mb-1">ROI倍率</div>
                       <div className="text-3xl font-bold text-green-700 dark:text-green-300">
-                        {roiData.roi_multiplier.toFixed(1)}x
+                        {(roiData.roi_multiplier ?? 0).toFixed(1)}x
                       </div>
-                      <div className="text-xs text-muted-foreground">費用の{roiData.roi_multiplier.toFixed(1)}倍の価値</div>
+                      <div className="text-xs text-muted-foreground">費用の{(roiData.roi_multiplier ?? 0).toFixed(1)}倍の価値</div>
                     </div>
                   </div>
                   <div className="text-sm text-muted-foreground mb-3">
-                    削減工数: <strong>{roiData.time_saved_hours.toFixed(1)}時間</strong>（{roiData.total_requests.toLocaleString()}リクエスト × 平均処理時間）
+                    削減工数: <strong>{(roiData.time_saved_hours ?? 0).toFixed(1)}時間</strong>（{(roiData.total_requests ?? 0).toLocaleString()}リクエスト × 平均処理時間）
                   </div>
-                  {roiData.by_tier.length > 0 && (
+                  {(roiData.by_tier ?? []).length > 0 && (
                     <div className="space-y-2">
                       {roiData.by_tier.map((t) => (
                         <div key={t.tier} className="flex items-center gap-3 text-sm">

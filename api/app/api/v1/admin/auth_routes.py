@@ -7,8 +7,10 @@ Google認証、トークンログイン、ログアウト、ユーザー情報�
 import hashlib
 import os
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+
+from app.limiter import limiter
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import text
@@ -57,7 +59,8 @@ Google ID Tokenを検証し、ユーザーが存在しかつ権限レベル5以�
 4. JWTアクセストークンを発行
     """,
 )
-async def auth_google(request: GoogleAuthRequest):
+@limiter.limit("10/minute")
+async def auth_google(request: Request, body: GoogleAuthRequest):
     """Google ID Tokenを検証してJWTを発行"""
 
     # 0. GOOGLE_CLIENT_IDが未設定なら即エラー（3AIレビュー MEDIUM-5）
@@ -75,7 +78,7 @@ async def auth_google(request: GoogleAuthRequest):
     # 1. Google ID Tokenの検証（audience必須: 3AI合意 CRITICAL-1）
     try:
         idinfo = google_id_token.verify_oauth2_token(
-            request.id_token,
+            body.id_token,
             google_requests.Request(),
             audience=GOOGLE_CLIENT_ID if GOOGLE_CLIENT_ID else None,
         )
@@ -231,11 +234,12 @@ Google OAuth Client ID未設定時の暫定認証手段。
 - 権限レベル5以上を確認
     """,
 )
-async def auth_token_login(request: TokenLoginRequest):
+@limiter.limit("10/minute")
+async def auth_token_login(request: Request, body: TokenLoginRequest):
     """CLIで発行したJWTを検証してcookieにセット"""
 
     # 1. JWT検証（署名・有効期限・必須claims）
-    payload = decode_jwt(request.token)
+    payload = decode_jwt(body.token)
     user_id = payload.get("sub")
     org_id = payload.get("org_id")
 
@@ -308,7 +312,7 @@ async def auth_token_login(request: TokenLoginRequest):
     })
     response.set_cookie(
         key="access_token",
-        value=request.token,
+        value=body.token,
         httponly=True,
         secure=os.getenv("ENVIRONMENT") == "production",
         samesite="strict",

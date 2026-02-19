@@ -8,11 +8,13 @@ from fastapi import APIRouter
 from sqlalchemy import text
 
 from lib.db import get_db_pool
+from app.limiter import limiter
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
+@limiter.exempt
 async def health_check():
     """
     ヘルスチェック

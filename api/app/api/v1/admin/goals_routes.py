@@ -1,9 +1,10 @@
 """
 Admin Dashboard - Goals Endpoints
 
-目標一覧取得、目標達成率サマリー、目標詳細取得。
+目標一覧取得、目標達成率サマリー、目標詳細取得、未来予測。
 """
 
+from datetime import date, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
@@ -179,6 +180,202 @@ async def get_goals_stats(
         raise
     except Exception as e:
         logger.exception("Get goals stats error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+def _linear_regression(x_vals: list, y_vals: list):
+    """単純線形回帰 (slope, intercept) を返す。データ不足の場合は (None, None)"""
+    n = len(x_vals)
+    if n < 2:
+        return None, None
+    sum_x = sum(x_vals)
+    sum_y = sum(y_vals)
+    sum_xy = sum(x * y for x, y in zip(x_vals, y_vals))
+    sum_x2 = sum(x * x for x in x_vals)
+    denom = n * sum_x2 - sum_x * sum_x
+    if denom == 0:
+        return None, None
+    slope = (n * sum_xy - sum_x * sum_y) / denom
+    intercept = (sum_y - slope * sum_x) / n
+    return slope, intercept
+
+
+@router.get(
+    "/goals/forecast",
+    summary="目標の未来予測",
+    description="進捗履歴から線形回帰で各目標の達成予測日を算出（Level 5+）",
+)
+async def get_goals_forecast(
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id
+    today = date.today()
+
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            # 進行中の目標を取得
+            goals_result = conn.execute(
+                text("""
+                    SELECT g.id, g.title, u.name AS user_name,
+                           d.name AS department_name,
+                           g.target_value, g.current_value, g.unit,
+                           g.deadline, g.period_start
+                    FROM goals g
+                    LEFT JOIN users u ON g.user_id = u.id
+                    LEFT JOIN departments d ON g.department_id = d.id
+                    WHERE g.organization_id = :org_id
+                      AND g.status = 'active'
+                    ORDER BY g.deadline ASC NULLS LAST
+                """),
+                {"org_id": organization_id},
+            )
+            goals_rows = goals_result.fetchall()
+
+            # 進捗履歴を取得（直近60日分）
+            progress_result = conn.execute(
+                text("""
+                    SELECT goal_id, progress_date,
+                           COALESCE(cumulative_value, value) AS val
+                    FROM goal_progress
+                    WHERE organization_id = :org_id
+                      AND progress_date >= :since
+                      AND (cumulative_value IS NOT NULL OR value IS NOT NULL)
+                    ORDER BY goal_id, progress_date ASC
+                """),
+                {"org_id": organization_id, "since": today - timedelta(days=60)},
+            )
+            progress_map: dict = {}
+            for p in progress_result.fetchall():
+                gid = str(p[0])
+                if gid not in progress_map:
+                    progress_map[gid] = []
+                progress_map[gid].append((p[1], float(p[2]) if p[2] is not None else None))
+
+        from app.schemas.admin import GoalForecastItem, GoalForecastResponse
+
+        forecasts = []
+        ahead = on_track = at_risk = stalled_n = 0
+
+        for row in goals_rows:
+            gid = str(row[0])
+            title = str(row[1])
+            user_name = row[2]
+            dept_name = row[3]
+            target = float(row[4]) if row[4] is not None else None
+            current = float(row[5]) if row[5] is not None else None
+            unit = row[6]
+            deadline = row[7]  # date object or None
+            period_start = row[8]  # date object or None
+
+            # 進捗なし or 目標値なし
+            if target is None or target <= 0:
+                forecasts.append(GoalForecastItem(
+                    id=gid, title=title, user_name=user_name,
+                    department_name=dept_name, forecast_status="no_data",
+                    current_value=current, target_value=target, unit=unit,
+                    deadline=str(deadline) if deadline else None,
+                ))
+                continue
+
+            progress_pct = round(current / target * 100, 1) if current is not None else 0.0
+
+            # 線形回帰の基準点（period_start or 最初の進捗日から）
+            entries = [(e[0], e[1]) for e in (progress_map.get(gid) or []) if e[1] is not None]
+            if len(entries) < 2:
+                # 進捗データが不足 → 直近の値を使って推定
+                if current is not None and current >= target:
+                    forecast_status = "ahead"
+                    ahead += 1
+                else:
+                    forecast_status = "no_data"
+                forecasts.append(GoalForecastItem(
+                    id=gid, title=title, user_name=user_name,
+                    department_name=dept_name, forecast_status=forecast_status,
+                    progress_pct=progress_pct, current_value=current,
+                    target_value=target, unit=unit,
+                    deadline=str(deadline) if deadline else None,
+                ))
+                continue
+
+            # 線形回帰：x = days since first entry, y = cumulative_value
+            base_date = entries[0][0]
+            x_vals = [(e[0] - base_date).days for e in entries]
+            y_vals = [e[1] for e in entries]
+            slope, intercept = _linear_regression(x_vals, y_vals)
+
+            if slope is None or slope <= 0:
+                forecast_status = "stalled"
+                stalled_n += 1
+                forecasts.append(GoalForecastItem(
+                    id=gid, title=title, user_name=user_name,
+                    department_name=dept_name, forecast_status=forecast_status,
+                    progress_pct=progress_pct, current_value=current,
+                    target_value=target, unit=unit, slope_per_day=slope,
+                    deadline=str(deadline) if deadline else None,
+                ))
+                continue
+
+            # 予測達成日を計算
+            days_to_target = (target - intercept) / slope
+            projected_date = base_date + timedelta(days=int(days_to_target))
+
+            days_to_deadline = (deadline - today).days if deadline else None
+            days_ahead_or_behind = None
+            if deadline:
+                days_ahead_or_behind = (projected_date - deadline).days
+
+            # ステータス判定
+            if current is not None and current >= target:
+                forecast_status = "ahead"
+                ahead += 1
+            elif days_ahead_or_behind is None:
+                forecast_status = "on_track"
+                on_track += 1
+            elif days_ahead_or_behind <= -15:
+                forecast_status = "ahead"
+                ahead += 1
+            elif days_ahead_or_behind <= 0:
+                forecast_status = "on_track"
+                on_track += 1
+            else:
+                forecast_status = "at_risk"
+                at_risk += 1
+
+            forecasts.append(GoalForecastItem(
+                id=gid, title=title, user_name=user_name,
+                department_name=dept_name, forecast_status=forecast_status,
+                progress_pct=progress_pct, current_value=current,
+                target_value=target, unit=unit, slope_per_day=round(slope, 4),
+                deadline=str(deadline) if deadline else None,
+                projected_completion_date=str(projected_date),
+                days_to_deadline=days_to_deadline,
+                days_ahead_or_behind=days_ahead_or_behind,
+            ))
+
+        log_audit_event(
+            logger=logger, action="get_goals_forecast",
+            resource_type="goals", resource_id="forecast",
+            user_id=user.user_id,
+            details={"total": len(forecasts), "at_risk": at_risk},
+        )
+        return GoalForecastResponse(
+            status="success",
+            total_active=len(goals_rows),
+            ahead_count=ahead,
+            on_track_count=on_track,
+            at_risk_count=at_risk,
+            stalled_count=stalled_n,
+            forecasts=forecasts,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Get goals forecast error", organization_id=organization_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},

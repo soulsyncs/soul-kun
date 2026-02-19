@@ -30,3 +30,10 @@ export function useGoalStats() {
     queryFn: () => api.goals.getStats(),
   });
 }
+
+export function useGoalForecast() {
+  return useQuery({
+    queryKey: ['goals', 'forecast'],
+    queryFn: () => api.goals.getForecast(),
+  });
+}

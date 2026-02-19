@@ -942,3 +942,77 @@ class TeachingPenetrationResponse(BaseModel):
     unused_teachings: List[TeachingPenetrationItem] = Field(
         default_factory=list, description="未使用の教え（改善機会）"
     )
+
+
+# =============================================================================
+# Phase 3 新機能: Goal Forecast / Key Person Discovery
+# =============================================================================
+
+
+class GoalForecastItem(BaseModel):
+    """目標別の未来予測"""
+
+    id: str = Field(..., description="目標ID")
+    title: str = Field(..., description="目標タイトル")
+    user_name: Optional[str] = Field(None, description="担当者名")
+    department_name: Optional[str] = Field(None, description="部署名")
+    forecast_status: str = Field(
+        ...,
+        description="予測ステータス（ahead/on_track/at_risk/stalled/no_data）",
+    )
+    progress_pct: Optional[float] = Field(None, description="現在の進捗（%）")
+    deadline: Optional[str] = Field(None, description="締切日")
+    projected_completion_date: Optional[str] = Field(
+        None, description="予測達成日（このペースで進んだ場合）"
+    )
+    days_to_deadline: Optional[int] = Field(
+        None, description="締切まで残り日数（負値 = 超過）"
+    )
+    days_ahead_or_behind: Optional[int] = Field(
+        None,
+        description="締切と予測達成日の差（負値 = 余裕あり、正値 = 遅れ）",
+    )
+    current_value: Optional[float] = Field(None, description="現在値")
+    target_value: Optional[float] = Field(None, description="目標値")
+    unit: Optional[str] = Field(None, description="単位")
+    slope_per_day: Optional[float] = Field(None, description="1日あたりの進捗速度")
+
+
+class GoalForecastResponse(BaseModel):
+    """目標未来予測レスポンス"""
+
+    status: str = "success"
+    total_active: int = Field(0, description="進行中の目標数")
+    ahead_count: int = Field(0, description="順調に前倒しの目標数")
+    on_track_count: int = Field(0, description="予定通りの目標数")
+    at_risk_count: int = Field(0, description="達成が遅れそうな目標数")
+    stalled_count: int = Field(0, description="進捗が止まっている目標数")
+    forecasts: List[GoalForecastItem] = Field(
+        default_factory=list, description="目標別予測リスト"
+    )
+
+
+class KeyPersonScore(BaseModel):
+    """キーマンスコア"""
+
+    user_id: str = Field(..., description="ユーザーID")
+    name: Optional[str] = Field(None, description="名前")
+    department_name: Optional[str] = Field(None, description="部署名")
+    total_requests: int = Field(0, description="総AIリクエスト数（90日間）")
+    active_days: int = Field(0, description="AI活用日数（ユニーク日数）")
+    tiers_used: int = Field(0, description="使用AIティア数（多様性）")
+    score: float = Field(0.0, description="キーマンスコア（0-100）")
+    rank: int = Field(1, description="ランク（1位が最もキーマン）")
+    recent_trend: str = Field(
+        "stable", description="直近トレンド（rising/stable/declining）"
+    )
+
+
+class KeymenResponse(BaseModel):
+    """隠れたキーマン発見レスポンス"""
+
+    status: str = "success"
+    period_days: int = Field(90, description="集計期間（日）")
+    top_keymen: List[KeyPersonScore] = Field(
+        default_factory=list, description="キーマンランキング（上位10名）"
+    )

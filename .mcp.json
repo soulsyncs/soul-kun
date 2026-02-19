@@ -4,7 +4,7 @@
       "command": "npx",
       "args": ["@chatwork/mcp-server"],
       "env": {
-        "CHATWORK_API_TOKEN": "005eae68e43c3c07d728b8191769e4a9"
+        "CHATWORK_API_TOKEN": "1afc1f5eae1ce9d97457283e4b4edfea"
       }
     }
   }

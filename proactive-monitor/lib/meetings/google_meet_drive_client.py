@@ -435,8 +435,11 @@ def create_meet_drive_client_from_db(
                     f = Fernet(encryption_key.encode())
                     access_token = f.decrypt(access_token.encode()).decode()
                     refresh_token = f.decrypt(refresh_token.encode()).decode()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "Google OAuth token decryption failed, using raw token: %s",
+                        type(e).__name__,
+                    )
 
             return GoogleMeetDriveClient(
                 oauth_access_token=access_token,

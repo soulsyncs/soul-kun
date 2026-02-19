@@ -93,6 +93,8 @@ DEFAULT_FEATURE_FLAGS = {
 
     # Zoom Meeting Minutes (Phase C Case C)
     "ENABLE_ZOOM_MEETING_MINUTES": True,  # Phase C Case C: 有効化済み (2026-02-13)
+    # Google Meet Minutes (Phase C MVP0 Google Meet対応)
+    "ENABLE_GOOGLE_MEET_MINUTES": False,  # Phase C MVP0: 実装済み、OAuth Drive権限確認後に有効化
 }
 
 

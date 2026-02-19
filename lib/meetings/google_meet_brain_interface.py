@@ -168,19 +168,42 @@ class GoogleMeetBrainInterface:
             # Step 4: PII除去
             sanitized_text = self.sanitizer.sanitize(transcript_text)
 
-            # Step 5: DB保存
+            # Step 5: DB保存（MeetingDB の正しいAPI順序）
             source_recording_id = recording.file_id
             meeting_date = recording.created_time or datetime.now(timezone.utc)
             meeting_title = self._extract_title(recording.name)
 
-            transcript_id = await self.db.save_transcript(
+            # 5a: meetings テーブルにレコードを作成
+            meeting = await asyncio.to_thread(
+                self.db.create_meeting,
+                title=meeting_title,
+                meeting_type="google_meet",
+                created_by=account_id,
+                room_id=room_id,
                 source="google_meet",
                 source_meeting_id=source_recording_id,
-                transcript_text=sanitized_text,
                 meeting_date=meeting_date,
-                meeting_title=meeting_title,
-                room_id=room_id,
-                account_id=account_id,
+            )
+            meeting_id = meeting["id"]
+
+            # 5b: PII除去済みの文字起こしを保存（raw_transcript=None: PII保護）
+            transcript_result = await asyncio.to_thread(
+                self.db.save_transcript,
+                meeting_id=meeting_id,
+                raw_transcript=None,
+                sanitized_transcript=sanitized_text,
+                detected_language="ja",
+                word_count=len(sanitized_text),
+            )
+            transcript_id = transcript_result["id"]
+
+            # 5c: ステータスを "transcribed" に更新
+            await asyncio.to_thread(
+                self.db.update_meeting_status,
+                meeting_id,
+                "transcribed",
+                expected_version=1,
+                transcript_sanitized=True,
             )
 
             # Step 6: 議事録生成（LLMが注入されている場合）
@@ -189,6 +212,7 @@ class GoogleMeetBrainInterface:
                     sanitized_text,
                     meeting_title,
                     meeting_date,
+                    meeting_id,
                     transcript_id,
                     get_ai_response_func,
                     recording,
@@ -203,7 +227,8 @@ class GoogleMeetBrainInterface:
                     f"（{len(sanitized_text)}文字）"
                 ),
                 data={
-                    "transcript_id": str(transcript_id),
+                    "meeting_id": meeting_id,
+                    "transcript_id": transcript_id,
                     "meeting_title": meeting_title,
                     "transcript_length": len(sanitized_text),
                 },
@@ -322,7 +347,8 @@ class GoogleMeetBrainInterface:
         transcript_text: str,
         meeting_title: str,
         meeting_date: datetime,
-        transcript_id,
+        meeting_id: str,
+        transcript_id: str,
         get_ai_response_func: Callable,
         recording: MeetRecordingFile,
     ) -> HandlerResult:
@@ -344,14 +370,21 @@ class GoogleMeetBrainInterface:
 
             formatted = format_chatwork_minutes(raw_minutes, meeting_title, meeting_date)
 
-            # DB更新: brain_approved=TRUE
-            await self.db.approve_transcript(transcript_id)
+            # DB更新: status="completed", brain_approved=True（version=2に更新済みのため）
+            await asyncio.to_thread(
+                self.db.update_meeting_status,
+                meeting_id,
+                "completed",
+                expected_version=2,
+                brain_approved=True,
+            )
 
             return HandlerResult(
                 success=True,
                 message=formatted,
                 data={
-                    "transcript_id": str(transcript_id),
+                    "meeting_id": meeting_id,
+                    "transcript_id": transcript_id,
                     "meeting_title": meeting_title,
                     "recording_name": recording.name,
                     "source": "google_meet",
@@ -368,7 +401,7 @@ class GoogleMeetBrainInterface:
                     "議事録の生成中にエラーが発生したウル\U0001f43a"
                     "文字起こしは保存済みなので、もう一度試してほしいウル。"
                 ),
-                data={"transcript_id": str(transcript_id)},
+                data={"meeting_id": meeting_id, "transcript_id": transcript_id},
             )
 
     @staticmethod

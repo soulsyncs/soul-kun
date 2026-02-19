@@ -353,9 +353,9 @@ export function OrgChartPage() {
                       <div className={`text-sm font-medium ${wellnessColor}`}>{wellnessLabel}</div>
                       {/* Mini bar chart: last 7 days */}
                       <div className="flex items-end gap-0.5 mt-2 h-8">
-                        {wellnessTrends.slice(-7).map((entry, i) => (
+                        {wellnessTrends.slice(-7).map((entry) => (
                           <div
-                            key={i}
+                            key={entry.date}
                             className={`flex-1 rounded-sm ${
                               entry.avg_score >= 7 ? 'bg-green-400' :
                               entry.avg_score >= 5 ? 'bg-yellow-400' :

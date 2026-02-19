@@ -63,14 +63,14 @@ def _get_daily_report_data(conn, org_id: str) -> dict:
     model_rows = conn.execute(
         text("""
             SELECT
-                model_name,
+                model_id,
                 COUNT(*) AS requests,
                 COALESCE(SUM(cost_jpy), 0) AS cost
             FROM ai_usage_logs
             WHERE organization_id = :org_id::uuid
               AND created_at >= :today::date
               AND created_at < :today::date + INTERVAL '1 day'
-            GROUP BY model_name
+            GROUP BY model_id
             ORDER BY cost DESC
             LIMIT 5
         """),

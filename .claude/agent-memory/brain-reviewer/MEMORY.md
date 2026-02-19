@@ -125,6 +125,15 @@
 - `bottleneck_alerts.organization_id` is UUID type (both soulkun and soulkun_tasks DBs)
 - `ai_usage_logs.organization_id` is UUID type — no cast needed (PostgreSQL auto-casts text literals)
 
+## Phase 4 main.py split (feat/phase4-main-split, reviewed 2026-02-19)
+
+- `chatwork-webhook/routes/telegram.py`: Blueprint-based split of Telegram webhook from main.py
+- `from main import _get_brain_integration` at line 172 is INSIDE the function body (deferred/lazy import) — NOT at module level. No circular import at load time. `sys.modules['main']` is already populated when gunicorn starts.
+- `app.register_blueprint(telegram_bp)` is at module-level in main.py (line 3042-3044) — no `url_prefix`, so `/telegram` route is unchanged.
+- Rate limit state (`_telegram_rate_limit` dict) moved from main.py to routes/telegram.py module scope. Gunicorn `--workers 1` means single process, so per-module dict is equivalent to original. Behavior unchanged.
+- **CRITICAL test failure**: `tests/test_telegram_webhook.py::TestTelegramRateLimit::test_rate_limit_function_exists` fails because it AST-parses `main.py` and asserts `_check_telegram_rate_limit` and `telegram_webhook` exist there. Both are now in `routes/telegram.py`. Test must be updated to scan `routes/telegram.py` instead (or both files).
+- `test_no_print_statements_in_telegram_webhook` PASSES (it checks main.py, which no longer has the function — no prints = vacuous pass). This is a false-positive — the test now tests nothing.
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

@@ -205,6 +205,20 @@
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
 
+## Phase B-1 mask_email PIIマスキング (fix/currency-display-jpy, reviewed 2026-02-19)
+
+- `lib/logging.py` に `mask_email(email: str) -> str` を追加（行328-347）
+- `lib/drive_permission_manager.py` の10箇所を `{email}` → `{mask_email(email)}` に変更
+- **WARNING: 修正漏れ2箇所** — `update_permission()` の lines 542, 568 に `{email}` 生ログが残存
+  - line 542: `f"[DRY RUN] Would update permission: {email} {permission.role.value}..."` (masked なし)
+  - line 568: `f"Updated permission: {email} {permission.role.value}..."` (masked なし)
+  - 3コピー全てに同じ漏れあり（lib/, chatwork-webhook/lib/, proactive-monitor/lib/）
+- **SUGGESTION: `@nodomain` エッジケース** — `"@nodomain".split("@",1)` → `local=""`, `len("")<=1` → `*@nodomain` を返す。意図は不明だが実害なし（空localは無効メール）
+- **SUGGESTION: `mask_email()` 専用ユニットテストなし** — `test_memory_sanitizer.py:64` の `test_mask_email` は `mask_pii()` のテスト。`lib.logging.mask_email` 直接テストは存在しない
+- **SUGGESTION: `google_docs_client.py` line 360** — `logger.info(f"Shared document {document_id} with {len(email_addresses)} users")` はカウントのみで生メール非ログ。対象外（スコープ外として正しい）
+- `PermissionChange.email` フィールドへの生メール保存は設計上正当（ビジネスロジック構造体）
+- 3-copy sync: lib/ = chatwork-webhook/lib/ = proactive-monitor/lib/ 全一致（確認済み）— ただし漏れも3コピー全て同じ
+
 ## Phase A-2 document_generator.py タイムアウト有効化 (fix/currency-display-jpy, reviewed 2026-02-19)
 
 - 対象: `lib/capabilities/generation/document_generator.py`

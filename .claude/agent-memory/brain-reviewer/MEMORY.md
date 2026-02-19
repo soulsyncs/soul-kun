@@ -205,6 +205,17 @@
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
 
+## Phase D-1 dead-comment cleanup (feat/org-chart-drilldown, 2026-02-19)
+
+- `chatwork-webhook/main.py`: 3箇所のコメント削除のみ (-42行、2156→2114行)
+  1. GoalHandler/KnowledgeHandler 空ヘッダーコメント（行833付近）— 実装は handlers/ に移転済み
+  2. ハンドラーマッピング使い方コメントを1行に集約（行1371付近）
+  3. v10.40 ai_commander tombstone コメント（行1476付近）— 「(NEW)」ラベルも同時削除
+- **ロジック変更ゼロ** — コメント行のみ。SQLなし・API呼び出しなし・org_idなし
+- テスト影響なし（AST解析テストは telegram.py のみ存在、main.py コメント内容は非参照）
+- 22項目チェック全項目 PASS（コメント削除はロジックチェック対象外）
+- 残存 SUGGESTION (pre-existing, NOT introduced by D-1): stale `flush_dm_unavailable_notifications` unused import, `process_overdue_tasks` stale docstring
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

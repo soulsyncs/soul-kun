@@ -5,7 +5,6 @@
  */
 
 import { useState } from 'react';
-import { useSearchParams } from '@tanstack/react-router';
 import { Link2, Calendar, CheckCircle, XCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';

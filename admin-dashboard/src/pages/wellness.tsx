@@ -57,6 +57,19 @@ export function WellnessPage() {
   const totalNegative = trendsData?.trends.reduce((sum, t) => sum + t.negative_count, 0) ?? 0;
   const totalPositive = trendsData?.trends.reduce((sum, t) => sum + t.positive_count, 0) ?? 0;
 
+  // 直近の感情スコア（最新日）
+  const latestTrend = trendsData?.trends[trendsData.trends.length - 1];
+  const latestScore = latestTrend?.avg_score;
+
+  // 天気変換ロジック
+  const weather = (() => {
+    if (latestScore === undefined) return { emoji: '❓', label: 'データなし', color: 'text-muted-foreground', bg: 'bg-muted' };
+    if (latestScore >= 0.5) return { emoji: '☀️', label: '晴れ — 組織の雰囲気は良好です', color: 'text-yellow-600', bg: 'bg-yellow-50 dark:bg-yellow-950' };
+    if (latestScore >= 0.1) return { emoji: '⛅', label: '曇り — やや安定しています', color: 'text-blue-500', bg: 'bg-blue-50 dark:bg-blue-950' };
+    if (latestScore >= -0.1) return { emoji: '🌧️', label: '雨 — 注意が必要です', color: 'text-blue-700', bg: 'bg-blue-100 dark:bg-blue-900' };
+    return { emoji: '⛈️', label: '嵐 — 雰囲気が低下中。要対応。', color: 'text-red-600', bg: 'bg-red-50 dark:bg-red-950' };
+  })();
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -97,6 +110,23 @@ export function WellnessPage() {
             </Button>
           </div>
         </div>
+
+        {/* 天気予報カード（感情スコアの直感的表示）*/}
+        <Card className={weather.bg}>
+          <CardContent className="py-5">
+            <div className="flex items-center gap-4">
+              <span className="text-5xl">{weather.emoji}</span>
+              <div>
+                <div className={`text-xl font-bold ${weather.color}`}>{weather.label}</div>
+                <div className="text-sm text-muted-foreground mt-1">
+                  {latestScore !== undefined
+                    ? `最新感情スコア: ${latestScore.toFixed(2)}（AIによる推定値 / ${latestTrend?.date ?? '—'}）`
+                    : 'まだデータがありません'}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Summary cards */}
         <div className="grid grid-cols-4 gap-4">

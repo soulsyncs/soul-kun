@@ -656,3 +656,23 @@ export interface SelfDiagnosesResponse {
   diagnoses: SelfDiagnosisSummary[];
   total_count: number;
 }
+
+// =============================================================================
+// Emergency Stop
+// =============================================================================
+
+export interface EmergencyStopStatusResponse {
+  status: string;
+  is_active: boolean;
+  activated_by: string | null;
+  deactivated_by: string | null;
+  reason: string | null;
+  activated_at: string | null;
+  deactivated_at: string | null;
+}
+
+export interface EmergencyStopActionResponse {
+  status: string;
+  message: string;
+  is_active: boolean;
+}

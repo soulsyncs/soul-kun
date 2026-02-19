@@ -9,23 +9,55 @@ import {
   RefreshCw,
   Activity,
   Stethoscope,
+  AlertOctagon,
+  ShieldCheck,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useSystemHealth, useSystemMetrics, useSelfDiagnoses } from '@/hooks/use-system';
+import { Input } from '@/components/ui/input';
+import {
+  useSystemHealth,
+  useSystemMetrics,
+  useSelfDiagnoses,
+  useEmergencyStopStatus,
+  useActivateEmergencyStop,
+  useDeactivateEmergencyStop,
+} from '@/hooks/use-system';
 
 type TabView = 'health' | 'metrics' | 'diagnoses';
 
 export function SystemPage() {
   const [tab, setTab] = useState<TabView>('health');
   const [metricsDays, setMetricsDays] = useState(7);
+  // 緊急停止: 2段階確認用ステート
+  const [confirmStep, setConfirmStep] = useState<0 | 1 | 2>(0); // 0=通常, 1=1回目確認, 2=2回目最終確認
+  const [stopReason, setStopReason] = useState('');
 
   const { data: healthData, isLoading: healthLoading, refetch: refetchHealth } = useSystemHealth();
   const { data: metricsData, isLoading: metricsLoading, refetch: refetchMetrics } = useSystemMetrics(metricsDays);
   const { data: diagnosesData, isLoading: diagnosesLoading, refetch: refetchDiagnoses } = useSelfDiagnoses();
+  const { data: emergencyStatus, isLoading: emergencyLoading } = useEmergencyStopStatus();
+  const activateMutation = useActivateEmergencyStop();
+  const deactivateMutation = useDeactivateEmergencyStop();
+
+  const isActive = emergencyStatus?.is_active ?? false;
+
+  const handleActivate = async () => {
+    if (confirmStep < 2) {
+      setConfirmStep((s) => (s + 1) as 1 | 2);
+      return;
+    }
+    await activateMutation.mutateAsync(stopReason || '管理者による緊急停止');
+    setConfirmStep(0);
+    setStopReason('');
+  };
+
+  const handleDeactivate = async () => {
+    await deactivateMutation.mutateAsync();
+  };
 
   return (
     <AppLayout>
@@ -54,6 +86,118 @@ export function SystemPage() {
             更新
           </Button>
         </div>
+
+        {/* 緊急停止パネル */}
+        <Card className={isActive ? 'border-red-500 bg-red-50' : 'border-green-500 bg-green-50'}>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              {isActive ? (
+                <AlertOctagon className="h-5 w-5 text-red-600" />
+              ) : (
+                <ShieldCheck className="h-5 w-5 text-green-600" />
+              )}
+              緊急停止
+              {emergencyLoading ? (
+                <Skeleton className="h-5 w-16" />
+              ) : (
+                <Badge variant={isActive ? 'destructive' : 'outline'} className={isActive ? '' : 'border-green-600 text-green-700'}>
+                  {isActive ? '停止中' : '稼働中'}
+                </Badge>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {isActive ? (
+              <>
+                <p className="text-sm text-red-700">
+                  AIが停止中です。全てのAI処理がブロックされています。
+                </p>
+                {emergencyStatus?.reason && (
+                  <p className="text-xs text-muted-foreground">
+                    停止理由: {emergencyStatus.reason}
+                  </p>
+                )}
+                {emergencyStatus?.activated_at && (
+                  <p className="text-xs text-muted-foreground">
+                    停止日時: {new Date(emergencyStatus.activated_at).toLocaleString('ja-JP')}
+                  </p>
+                )}
+                <Button
+                  variant="outline"
+                  className="border-green-600 text-green-700 hover:bg-green-100"
+                  onClick={handleDeactivate}
+                  disabled={deactivateMutation.isPending}
+                >
+                  <ShieldCheck className="mr-2 h-4 w-4" />
+                  {deactivateMutation.isPending ? '解除中...' : 'AIを再起動する（停止を解除）'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  AIは正常に稼働しています。問題が発生した場合は緊急停止を実行してください。
+                </p>
+                {confirmStep === 0 && (
+                  <Button
+                    variant="destructive"
+                    onClick={handleActivate}
+                    disabled={activateMutation.isPending}
+                  >
+                    <AlertOctagon className="mr-2 h-4 w-4" />
+                    緊急停止する
+                  </Button>
+                )}
+                {confirmStep === 1 && (
+                  <div className="space-y-2 rounded-md border border-red-300 bg-red-100 p-3">
+                    <p className="text-sm font-semibold text-red-700">
+                      ⚠️ 本当に緊急停止しますか？（1回目の確認）
+                    </p>
+                    <p className="text-xs text-red-600">
+                      停止すると、全社員へのAI応答がブロックされます。
+                    </p>
+                    <Input
+                      placeholder="停止理由を入力（任意）"
+                      value={stopReason}
+                      onChange={(e) => setStopReason(e.target.value)}
+                      className="border-red-300"
+                    />
+                    <div className="flex gap-2">
+                      <Button variant="destructive" size="sm" onClick={handleActivate}>
+                        はい、停止に進む
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setConfirmStep(0)}>
+                        キャンセル
+                      </Button>
+                    </div>
+                  </div>
+                )}
+                {confirmStep === 2 && (
+                  <div className="space-y-2 rounded-md border-2 border-red-600 bg-red-100 p-3">
+                    <p className="text-sm font-bold text-red-800">
+                      🚨 最終確認（2回目）: この操作は即座に反映されます
+                    </p>
+                    <p className="text-xs text-red-700">
+                      「実行する」を押すと直ちに全AIが停止します。
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={handleActivate}
+                        disabled={activateMutation.isPending}
+                      >
+                        {activateMutation.isPending ? '停止実行中...' : '🛑 今すぐ停止を実行する'}
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => setConfirmStep(0)}>
+                        キャンセル
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Tab navigation */}
         <div className="flex gap-2">

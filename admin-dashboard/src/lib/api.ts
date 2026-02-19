@@ -440,6 +440,29 @@ export const api = {
     },
   },
 
+  // Emergency Stop
+  emergencyStop: {
+    getStatus: () =>
+      fetchWithAuth<import('@/types/api').EmergencyStopStatusResponse>(
+        '/admin/emergency-stop/status'
+      ),
+
+    activate: (reason: string) =>
+      fetchWithAuth<import('@/types/api').EmergencyStopActionResponse>(
+        '/admin/emergency-stop/activate',
+        {
+          method: 'POST',
+          body: JSON.stringify({ reason }),
+        }
+      ),
+
+    deactivate: () =>
+      fetchWithAuth<import('@/types/api').EmergencyStopActionResponse>(
+        '/admin/emergency-stop/deactivate',
+        { method: 'POST' }
+      ),
+  },
+
   // ===== 連携設定 =====
   integrations: {
     getGoogleCalendarStatus: () =>

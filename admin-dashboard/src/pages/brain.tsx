@@ -148,12 +148,12 @@ export function BrainPage() {
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
                     総コスト（{days}日間）
-                    <InfoTooltip text="AI利用にかかった費用の合計（USドル）です" />
+                    <InfoTooltip text="AI利用にかかった費用の合計（日本円）です" />
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${totalCost.toFixed(4)}
+                    ¥{totalCost.toFixed(0)}
                   </div>
                 </CardContent>
               </Card>

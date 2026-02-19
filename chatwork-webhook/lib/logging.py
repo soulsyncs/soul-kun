@@ -319,3 +319,29 @@ def log_audit_event(
         user_id=user_id,
         details=details or {},
     )
+
+
+# =============================================================================
+# PIIマスキングユーティリティ
+# =============================================================================
+
+def mask_email(email: str) -> str:
+    """
+    メールアドレスをマスクして安全にログ出力できる形式に変換
+
+    例: tanaka@example.com → t****@example.com
+
+    Args:
+        email: マスク対象のメールアドレス
+
+    Returns:
+        マスクされたメールアドレス。@が含まれない場合は "****" を返す
+    """
+    if not email or "@" not in email:
+        return "****"
+    local, domain = email.split("@", 1)
+    if len(local) <= 1:
+        masked_local = "*"
+    else:
+        masked_local = local[0] + "*" * (len(local) - 1)
+    return f"{masked_local}@{domain}"

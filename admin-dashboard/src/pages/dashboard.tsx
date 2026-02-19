@@ -146,14 +146,14 @@ export function DashboardPage() {
             value={kpis?.total_cost_today ?? 0}
             icon={DollarSign}
             format="currency"
-            tooltip="今日のAI利用にかかった費用（USドル）です"
+            tooltip="今日のAI利用にかかった費用（日本円）です"
           />
           <KpiCard
             title="予算残高"
             value={kpis?.monthly_budget_remaining ?? 0}
             icon={Activity}
             format="currency"
-            tooltip="今月の予算のうち、まだ使える残りの金額です"
+            tooltip="今月の予算のうち、まだ使える残りの金額です（日本円）"
           />
           <KpiCard
             title="アクティブアラート"
@@ -249,7 +249,7 @@ export function DashboardPage() {
                         <XAxis dataKey="dateLabel" className="text-xs fill-muted-foreground" />
                         <YAxis
                           className="text-xs fill-muted-foreground"
-                          tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                          tickFormatter={(v: number) => `¥${v.toFixed(0)}`}
                         />
                         <Tooltip
                           contentStyle={{
@@ -258,7 +258,7 @@ export function DashboardPage() {
                             borderRadius: '8px',
                           }}
                           formatter={(value: number | undefined) => [
-                            `$${(value ?? 0).toFixed(4)}`,
+                            `¥${(value ?? 0).toFixed(0)}`,
                             'コスト',
                           ]}
                         />

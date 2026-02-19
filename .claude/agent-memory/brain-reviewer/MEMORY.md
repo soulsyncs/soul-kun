@@ -208,3 +208,25 @@
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614
+- `topics/admin_dashboard_frontend.md`: admin-dashboard フロントエンドレビューパターン (Phase A-1 通貨表示バグ修正等)
+- `topics/phase_b2_audit_db_write.md`: Phase B-2 監査ログDB永続保存 詳細レビュー結果
+
+## fix/currency-display-jpy ブランチ フェーズ別サマリー
+
+### Phase A-1 admin-dashboard 通貨表示修正
+- CRITICAL: `kpi-card.test.tsx` line 22 `'$42.50'` → `'¥43'` 要修正
+- 変更4ファイル 13箇所 $ → ¥ 変更済み。WARNING: `予算残高` ツールチップに通貨単位なし
+
+### Phase A-2 document_generator.py タイムアウト有効化
+- WARNING: `asyncio.TimeoutError` が専用クラスでなく汎用 `*GenerationError` にラップされる
+- WARNING: `import time` が関数本体内にある (line 506)
+- 詳細: `lib/capabilities/generation/document_generator.py`
+
+### Phase B-1 mask_email PIIマスキング
+- WARNING: `lib/drive_permission_manager.py` lines 542, 568 に `{email}` 生ログ残存 (3コピー全て)
+- SUGGESTION: `mask_email()` 専用ユニットテストなし
+
+### Phase B-2 監査ログDB永続保存
+- WARNING: `lib/audit.py` line 367 `logger.warning("... %s", db_err)` — db_err に接続情報含む可能性 → `type(db_err).__name__` 推奨
+- WARNING: `batch_N_folders` / `batch_N_items` の resource_id が DB で NULL 化 (非UUID のため)
+- 詳細: `topics/phase_b2_audit_db_write.md`

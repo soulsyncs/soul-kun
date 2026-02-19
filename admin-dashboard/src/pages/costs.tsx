@@ -134,7 +134,7 @@ export function CostsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${totalCost30d.toFixed(2)}
+                    ¥{totalCost30d.toFixed(0)}
                   </div>
                 </CardContent>
               </Card>
@@ -147,7 +147,7 @@ export function CostsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${avgDailyCost.toFixed(2)}
+                    ¥{avgDailyCost.toFixed(0)}
                   </div>
                 </CardContent>
               </Card>
@@ -160,7 +160,7 @@ export function CostsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">
-                    ${(currentMonth?.total_cost ?? 0).toFixed(2)}
+                    ¥{(currentMonth?.total_cost ?? 0).toFixed(0)}
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {currentMonth?.year_month ?? '-'}
@@ -207,7 +207,7 @@ export function CostsPage() {
                         />
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        ${currentMonth.total_cost.toFixed(2)} / $
+                        ¥{currentMonth.total_cost.toFixed(0)} / ¥
                         {currentMonth.budget.toFixed(0)}
                       </p>
                     </>
@@ -240,7 +240,7 @@ export function CostsPage() {
                       <XAxis dataKey="dateLabel" className="text-xs fill-muted-foreground" />
                       <YAxis
                         className="text-xs fill-muted-foreground"
-                        tickFormatter={(v: number) => `$${v.toFixed(2)}`}
+                        tickFormatter={(v: number) => `¥${v.toFixed(0)}`}
                       />
                       <Tooltip
                         contentStyle={{
@@ -249,7 +249,7 @@ export function CostsPage() {
                           borderRadius: '8px',
                         }}
                         formatter={(value: number | undefined) => [
-                          `$${(value ?? 0).toFixed(4)}`,
+                          `¥${(value ?? 0).toFixed(0)}`,
                           'コスト',
                         ]}
                       />
@@ -310,7 +310,7 @@ export function CostsPage() {
                                 borderRadius: '8px',
                               }}
                               formatter={(value: number | undefined) => [
-                                `$${(value ?? 0).toFixed(4)}`,
+                                `¥${(value ?? 0).toFixed(0)}`,
                                 'コスト',
                               ]}
                             />
@@ -334,7 +334,7 @@ export function CostsPage() {
                                 {m.model}
                               </TableCell>
                               <TableCell className="text-right">
-                                ${m.cost.toFixed(4)}
+                                ¥{m.cost.toFixed(0)}
                               </TableCell>
                               <TableCell className="text-right">
                                 {m.requests.toLocaleString()}
@@ -367,7 +367,7 @@ export function CostsPage() {
                               {t.tier}
                             </TableCell>
                             <TableCell className="text-right">
-                              ${t.cost.toFixed(4)}
+                              ¥{t.cost.toFixed(0)}
                             </TableCell>
                             <TableCell className="text-right">
                               {t.requests.toLocaleString()}
@@ -422,13 +422,13 @@ export function CostsPage() {
                           {m.year_month}
                         </TableCell>
                         <TableCell className="text-right">
-                          ${m.total_cost.toFixed(2)}
+                          ¥{m.total_cost.toFixed(0)}
                         </TableCell>
                         <TableCell className="text-right">
                           {m.requests.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-right">
-                          {m.budget != null ? `$${m.budget.toFixed(0)}` : '-'}
+                          {m.budget != null ? `¥${m.budget.toFixed(0)}` : '-'}
                         </TableCell>
                         <TableCell className="text-right">
                           <Badge

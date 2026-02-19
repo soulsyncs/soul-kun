@@ -14,6 +14,7 @@ from uuid import UUID
 import logging
 import json
 import asyncio
+import time
 
 from .constants import (
     GenerationType,
@@ -30,6 +31,7 @@ from .constants import (
     SECTION_GENERATION_PROMPT,
     DOCUMENT_TYPE_DEFAULT_SECTIONS,
     DOCUMENT_TYPE_KEYWORDS,
+    OUTLINE_GENERATION_TIMEOUT,
     SECTION_GENERATION_TIMEOUT,
 )
 from .exceptions import (
@@ -40,7 +42,9 @@ from .exceptions import (
     TooManySectionsError,
     InsufficientContextError,
     OutlineGenerationError,
+    OutlineTimeoutError,
     SectionGenerationError,
+    SectionTimeoutError,
     DocumentGenerationError,
 )
 from .models import (
@@ -291,12 +295,15 @@ class DocumentGenerator(BaseGenerator):
         )
 
         try:
-            result = await self._call_llm_json(
-                prompt=prompt,
-                system_prompt="あなたは優秀な文書作成アシスタントです。日本語で文書の構成案を作成してください。",
-                temperature=0.5,
-                task_type="outline",
-                quality_level=request.quality_level,
+            result = await asyncio.wait_for(
+                self._call_llm_json(
+                    prompt=prompt,
+                    system_prompt="あなたは優秀な文書作成アシスタントです。日本語で文書の構成案を作成してください。",
+                    temperature=0.5,
+                    task_type="outline",
+                    quality_level=request.quality_level,
+                ),
+                timeout=OUTLINE_GENERATION_TIMEOUT,
             )
 
             parsed = result.get("parsed")
@@ -328,6 +335,9 @@ class DocumentGenerator(BaseGenerator):
                 tokens_used=result.get("total_tokens", 0),
             )
 
+        except asyncio.TimeoutError:
+            logger.error(f"Outline generation timed out after {OUTLINE_GENERATION_TIMEOUT}s")
+            raise OutlineTimeoutError(timeout_seconds=OUTLINE_GENERATION_TIMEOUT)
         except Exception as e:
             logger.error(f"Outline generation failed: {str(e)}")
             raise OutlineGenerationError(original_error=e)
@@ -499,16 +509,28 @@ class DocumentGenerator(BaseGenerator):
             tone=tone.value,
         )
 
-        import time
         start_time = time.time()
 
-        result = await self._call_llm(
-            prompt=prompt,
-            system_prompt="あなたは優秀な文書作成アシスタントです。指示に従って日本語でセクションの内容を作成してください。",
-            temperature=0.3,
-            task_type="content",
-            quality_level=quality_level,
-        )
+        try:
+            result = await asyncio.wait_for(
+                self._call_llm(
+                    prompt=prompt,
+                    system_prompt="あなたは優秀な文書作成アシスタントです。指示に従って日本語でセクションの内容を作成してください。",
+                    temperature=0.3,
+                    task_type="content",
+                    quality_level=quality_level,
+                ),
+                timeout=SECTION_GENERATION_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                f"Section generation timed out after {SECTION_GENERATION_TIMEOUT}s: "
+                f"{section_outline.title}"
+            )
+            raise SectionTimeoutError(
+                timeout_seconds=SECTION_GENERATION_TIMEOUT,
+                section_title=section_outline.title,
+            )
 
         generation_time_ms = int((time.time() - start_time) * 1000)
         content = result.get("text", "")

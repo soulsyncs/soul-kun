@@ -17,9 +17,9 @@ describe('KpiCard', () => {
 
   it('formats currency values', () => {
     render(
-      <KpiCard title="Cost" value={42.5} icon={Activity} format="currency" />
+      <KpiCard title="Cost" value={4250} icon={Activity} format="currency" />
     );
-    expect(screen.getByText('$42.50')).toBeInTheDocument();
+    expect(screen.getByText('¥4250')).toBeInTheDocument();
   });
 
   it('formats seconds values', () => {

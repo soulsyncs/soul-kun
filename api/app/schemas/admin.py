@@ -99,8 +99,8 @@ class DashboardKPIs(BaseModel):
     total_conversations: int = Field(0, description="会話総数")
     avg_response_time_ms: float = Field(0.0, description="平均応答時間（ミリ秒）")
     error_rate: float = Field(0.0, description="エラー率（0.0-1.0）")
-    total_cost_today: float = Field(0.0, description="本日のコスト（USD）")
-    monthly_budget_remaining: float = Field(0.0, description="月間予算残（USD）")
+    total_cost_today: float = Field(0.0, description="本日のコスト（円）")
+    monthly_budget_remaining: float = Field(0.0, description="月間予算残（円）")
     active_alerts_count: int = Field(0, description="アクティブアラート数")
 
 
@@ -131,7 +131,7 @@ class BrainDailyMetric(BaseModel):
     conversations: int = Field(0, description="会話数")
     avg_latency_ms: float = Field(0.0, description="平均レイテンシ（ミリ秒）")
     error_rate: float = Field(0.0, description="エラー率（0.0-1.0）")
-    cost: float = Field(0.0, description="コスト（USD）")
+    cost: float = Field(0.0, description="コスト（円）")
 
 
 class BrainMetricsResponse(BaseModel):
@@ -183,9 +183,9 @@ class CostMonthlyEntry(BaseModel):
     """月次コストエントリ"""
 
     year_month: str = Field(..., description="年月（YYYY-MM）")
-    total_cost: float = Field(0.0, description="合計コスト（USD）")
+    total_cost: float = Field(0.0, description="合計コスト（円）")
     requests: int = Field(0, description="リクエスト数")
-    budget: Optional[float] = Field(None, description="月間予算（USD）")
+    budget: Optional[float] = Field(None, description="月間予算（円）")
     status: str = Field("normal", description="ステータス（normal/warning/exceeded）")
 
 
@@ -202,7 +202,7 @@ class CostDailyEntry(BaseModel):
     """日次コストエントリ"""
 
     date: dt.date = Field(..., description="日付")
-    cost: float = Field(0.0, description="コスト（USD）")
+    cost: float = Field(0.0, description="コスト（円）")
     requests: int = Field(0, description="リクエスト数")
 
 
@@ -220,7 +220,7 @@ class CostModelBreakdown(BaseModel):
     """モデル別コスト内訳"""
 
     model: str = Field(..., description="モデル名")
-    cost: float = Field(0.0, description="コスト（USD）")
+    cost: float = Field(0.0, description="コスト（円）")
     requests: int = Field(0, description="リクエスト数")
     pct: float = Field(0.0, description="割合（0.0-100.0）")
 
@@ -229,7 +229,7 @@ class CostTierBreakdown(BaseModel):
     """ティア別コスト内訳"""
 
     tier: str = Field(..., description="ティア名")
-    cost: float = Field(0.0, description="コスト（USD）")
+    cost: float = Field(0.0, description="コスト（円）")
     requests: int = Field(0, description="リクエスト数")
     pct: float = Field(0.0, description="割合（0.0-100.0）")
 

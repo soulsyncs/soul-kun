@@ -68,13 +68,13 @@ async def get_costs_monthly(
                 text("""
                     SELECT
                         year_month,
-                        COALESCE(total_cost_usd, 0) as total_cost,
+                        COALESCE(total_cost_jpy, 0) as total_cost,
                         COALESCE(total_requests, 0) as requests,
-                        budget_usd,
+                        budget_jpy,
                         CASE
-                            WHEN budget_usd IS NOT NULL AND total_cost_usd > budget_usd
+                            WHEN budget_jpy IS NOT NULL AND total_cost_jpy > budget_jpy
                                 THEN 'exceeded'
-                            WHEN budget_usd IS NOT NULL AND total_cost_usd > budget_usd * 0.8
+                            WHEN budget_jpy IS NOT NULL AND total_cost_jpy > budget_jpy * 0.8
                                 THEN 'warning'
                             ELSE 'normal'
                         END as cost_status
@@ -178,7 +178,7 @@ async def get_costs_daily(
                 text("""
                     SELECT
                         DATE(created_at) as cost_date,
-                        COALESCE(SUM(cost_usd), 0) as cost,
+                        COALESCE(SUM(cost_jpy), 0) as cost,
                         COUNT(*) as requests
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
@@ -281,13 +281,13 @@ async def get_costs_breakdown(
             model_result = conn.execute(
                 text("""
                     SELECT
-                        COALESCE(model_name, 'unknown') as model,
-                        COALESCE(SUM(cost_usd), 0) as cost,
+                        COALESCE(model_id, 'unknown') as model,
+                        COALESCE(SUM(cost_jpy), 0) as cost,
                         COUNT(*) as requests
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :start_date
-                    GROUP BY model_name
+                    GROUP BY model_id
                     ORDER BY cost DESC
                 """),
                 {"org_id": organization_id, "start_date": start_date},
@@ -314,13 +314,13 @@ async def get_costs_breakdown(
             tier_result = conn.execute(
                 text("""
                     SELECT
-                        COALESCE(usage_tier, 'unknown') as tier,
-                        COALESCE(SUM(cost_usd), 0) as cost,
+                        COALESCE(tier, 'unknown') as tier,
+                        COALESCE(SUM(cost_jpy), 0) as cost,
                         COUNT(*) as requests
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :start_date
-                    GROUP BY usage_tier
+                    GROUP BY tier
                     ORDER BY cost DESC
                 """),
                 {"org_id": organization_id, "start_date": start_date},

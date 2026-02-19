@@ -88,7 +88,7 @@ async def get_brain_metrics(
                             )
                             ELSE 0
                         END as error_rate,
-                        COALESCE(SUM(cost_usd), 0) as cost
+                        0 as cost
                     FROM brain_decision_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :start_date

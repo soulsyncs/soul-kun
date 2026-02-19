@@ -55,7 +55,6 @@ from infra.chatwork_api import (
     get_sender_name,
     get_all_contacts,
     get_direct_room,
-    flush_dm_unavailable_notifications,
     get_all_chatwork_users,
     get_room_tasks,
     _get_room_tasks_safe,
@@ -68,7 +67,6 @@ from infra.message_store import (
     is_processed,
     save_room_message,
     get_room_context,
-    ensure_room_messages_table,
     ensure_processed_messages_table,
     mark_as_processed,
 )
@@ -2189,7 +2187,7 @@ def ensure_overdue_tables():
 def process_overdue_tasks():
     """
     遅延タスクを処理：督促送信 + エスカレーション
-    毎日8:30に実行（remind_tasksから呼び出し）
+    遅延タスクの督促・エスカレーション処理（remind-tasks Cloud Functionから呼び出し）
 
     v10.24.5: handlers/overdue_handler.py に移動済み
     """

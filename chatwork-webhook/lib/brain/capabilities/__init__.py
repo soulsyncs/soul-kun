@@ -8,7 +8,7 @@ capability_bridge.py はこれらに委譲することで責務を分散する�
     generation.py       — 文書・画像・動画・ディープリサーチ
     google_workspace.py — Google Sheets / Google Slides
     feedback.py         — CEOフィードバック
-    meeting.py          — 会議文字起こし / Zoom議事録
+    meeting.py          — 会議文字起こし / Zoom議事録 / Google Meet議事録
     connection.py       — DM可能な相手一覧（Connection Query）
 """
 
@@ -28,6 +28,7 @@ from lib.brain.capabilities.google_workspace import (
     handle_write_spreadsheet,
 )
 from lib.brain.capabilities.meeting import (
+    handle_google_meet_minutes,
     handle_meeting_transcription,
     handle_zoom_meeting_minutes,
 )
@@ -49,6 +50,7 @@ __all__ = [
     # meeting
     "handle_meeting_transcription",
     "handle_zoom_meeting_minutes",
+    "handle_google_meet_minutes",
     # connection
     "handle_connection_query",
 ]

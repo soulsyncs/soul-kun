@@ -1354,6 +1354,51 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
         },
     },
 
+    "google_meet_minutes": {
+        "name": "Google Meet議事録作成",
+        "description": "Google Meetの録画からGoogle Driveを通じて議事録を自動生成する。自動文字起こし（Google Workspace有料プラン）があればそれを利用し、なければWhisper APIで音声文字起こしを行い、LLMで構造化された議事録（概要、議題、決定事項、アクションアイテム）を作成する。",
+        "category": "meeting",
+        "enabled": True,
+        "trigger_examples": [
+            "今日のGoogle Meetの議事録まとめて",
+            "さっきのMeetの会議メモ作って",
+            "Google Meet会議の議事録を作成して",
+            "Meetの文字起こしから議事録にして",
+            "今日のオンライン会議の要約をお願い",
+        ],
+        "params_schema": {
+            "meeting_title": {
+                "type": "string",
+                "description": "会議タイトル（省略時はGoogle Driveのファイル名から自動取得）",
+                "required": False,
+            },
+            "days_back": {
+                "type": "integer",
+                "description": "何日前まで録画を検索するか（デフォルト: 1日）",
+                "required": False,
+            },
+        },
+        "handler": "google_meet_minutes",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "room_id"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["Google Meet議事録", "Meet議事録", "Meetの議事録", "Meet会議のまとめ"],
+                "secondary": ["Google Meet", "ミート", "Meet", "Googleミーティング"],
+                "negative": ["Zoom", "タスク", "目標", "ナレッジ", "録音", "音声ファイル"],
+            },
+            "intent_keywords": {
+                "primary": ["Google Meet議事録", "Meet会議まとめ", "Google Meetミーティング議事録"],
+                "secondary": ["Google Meet", "ミート", "Googleビデオ会議"],
+                "modifiers": ["まとめて", "作成", "作って", "お願い", "生成"],
+                "negative": ["Zoom", "音声ファイル", "録音アップロード"],
+                "confidence_boost": 0.85,
+            },
+            "risk_level": "low",
+            "priority": 4,
+        },
+    },
+
     # =========================================================================
     # 外部検索（Step A: 手足を与える）
     # =========================================================================

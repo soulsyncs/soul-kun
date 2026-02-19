@@ -48,6 +48,7 @@ from lib.brain.capabilities import (
     handle_deep_research,
     handle_document_generation,
     handle_feedback_generation,
+    handle_google_meet_minutes,
     handle_image_generation,
     handle_meeting_transcription,
     handle_read_presentation,
@@ -359,6 +360,10 @@ class CapabilityBridge:
         if self.feature_flags.get("ENABLE_ZOOM_MEETING_MINUTES", False):
             handlers["zoom_meeting_minutes"] = self._handle_zoom_meeting_minutes
 
+        # Google Meet Minutes (Phase C MVP0 Google Meet対応)
+        if self.feature_flags.get("ENABLE_GOOGLE_MEET_MINUTES", False):
+            handlers["google_meet_minutes"] = self._handle_google_meet_minutes
+
         # Connection Query（v10.44.0: DM可能な相手一覧）
         # Feature Flag不要（常に有効）
         handlers["connection_query"] = self._handle_connection_query
@@ -626,6 +631,30 @@ class CapabilityBridge:
             account_id=account_id,
             sender_name=sender_name,
             params=params,
+            **kwargs,
+        )
+
+    # =========================================================================
+    # Google Meet Minutes（Phase C MVP0 Google Meet対応）
+    # =========================================================================
+
+    async def _handle_google_meet_minutes(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """Google Meet議事録ハンドラー — capabilities/meeting.py に委譲"""
+        return await handle_google_meet_minutes(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
+            llm_caller=self.llm_caller,
             **kwargs,
         )
 

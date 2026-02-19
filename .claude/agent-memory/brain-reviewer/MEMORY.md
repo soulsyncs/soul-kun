@@ -208,3 +208,12 @@
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614
+- `topics/admin_dashboard_frontend.md`: admin-dashboard フロントエンドレビューパターン (Phase A-1 通貨表示バグ修正等)
+
+## Phase A-1 admin-dashboard 通貨表示修正 (fix/currency-display-jpy, reviewed 2026-02-19)
+
+- **CRITICAL**: `kpi-card.test.tsx` line 22 の `'$42.50'` → `'¥43'`（またはテスト入力を整数に変更）
+- 変更4ファイル: kpi-card.tsx, costs.tsx, dashboard.tsx, brain.tsx — 13箇所の $ を ¥ に変更
+- 残存 $ 表示: 0件（網羅性確認済み）
+- `api/app/schemas/admin.py` の "（USD）" 記述: 既に存在しない（前回記録の残存事項は解消済み）
+- WARNING: dashboard.tsx `予算残高` カードのツールチップに通貨単位記述なし

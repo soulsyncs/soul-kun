@@ -22,7 +22,7 @@ function formatValue(value: number | string, format?: string): string {
 
   switch (format) {
     case 'currency':
-      return `$${value.toFixed(2)}`;
+      return `¥${value.toFixed(0)}`;
     case 'seconds':
       return `${value.toFixed(1)}s`;
     case 'ms':

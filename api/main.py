@@ -14,12 +14,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 import time
 
 from lib.config import get_settings
 from lib.logging import get_logger
 from lib.tenant import TenantContext, get_current_or_default_tenant
 from app.api.v1 import router as v1_router
+from app.limiter import limiter
 
 logger = get_logger(__name__)
 settings = get_settings()
@@ -41,6 +44,12 @@ app = FastAPI(
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
 )
+
+# レート制限（slowapi）
+# SlowAPIMiddleware が全ルートに default_limits=["100/minute"] を適用
+# 認証系エンドポイントは auth_routes.py で @limiter.limit("10/minute") を追加（より厳しく制限）
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS設定
 app.add_middleware(
@@ -95,6 +104,20 @@ async def log_requests(request: Request, call_next):
     )
 
     return response
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+    """レート制限超過時のエラーレスポンス（プロジェクト標準形式）"""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "status": "failed",
+            "error_code": "RATE_LIMIT_EXCEEDED",
+            "error_message": "リクエスト数が制限を超えました。しばらく待ってから再試行してください。",
+        },
+        headers={"Retry-After": str(exc.retry_after) if hasattr(exc, "retry_after") else "60"},
+    )
 
 
 @app.exception_handler(Exception)

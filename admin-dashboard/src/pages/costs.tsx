@@ -18,11 +18,13 @@ import {
   Cell,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
+import { TrendingUp } from 'lucide-react';
 import { api } from '@/lib/api';
 import type {
   CostDailyResponse,
   CostMonthlyResponse,
   CostBreakdownResponse,
+  AiRoiResponse,
 } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -70,6 +72,12 @@ export function CostsPage() {
     useQuery<CostBreakdownResponse>({
       queryKey: ['costs-breakdown'],
       queryFn: () => api.costs.getBreakdown(30),
+    });
+
+  const { data: roiData } =
+    useQuery<AiRoiResponse>({
+      queryKey: ['costs-ai-roi'],
+      queryFn: () => api.costs.getAiRoi(30),
     });
 
   const isLoading = dailyLoading || monthlyLoading || breakdownLoading;
@@ -395,6 +403,65 @@ export function CostsPage() {
                 </CardContent>
               </Card>
             </Tabs>
+
+            {/* AI ROI Card */}
+            {roiData && (
+              <Card className="border-2 border-green-200 bg-green-50 dark:bg-green-950 dark:border-green-800">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-green-800 dark:text-green-200">
+                    <TrendingUp className="h-5 w-5" />
+                    AI費用対効果（ROI）
+                    <InfoTooltip text="AIにかけた費用と、それによって削減できた人件費を比較した投資対効果です（AIによる推定値）" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-6 mb-4">
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground mb-1">AI費用（30日）</div>
+                      <div className="text-2xl font-bold text-destructive">
+                        ¥{Math.round(roiData.total_cost_jpy).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground mb-1">削減できた人件費（推定）</div>
+                      <div className="text-2xl font-bold text-green-700 dark:text-green-300">
+                        ¥{Math.round(roiData.labor_saved_jpy).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-xs text-muted-foreground mb-1">ROI倍率</div>
+                      <div className="text-3xl font-bold text-green-700 dark:text-green-300">
+                        {roiData.roi_multiplier.toFixed(1)}x
+                      </div>
+                      <div className="text-xs text-muted-foreground">費用の{roiData.roi_multiplier.toFixed(1)}倍の価値</div>
+                    </div>
+                  </div>
+                  <div className="text-sm text-muted-foreground mb-3">
+                    削減工数: <strong>{roiData.time_saved_hours.toFixed(1)}時間</strong>（{roiData.total_requests.toLocaleString()}リクエスト × 平均処理時間）
+                  </div>
+                  {roiData.by_tier.length > 0 && (
+                    <div className="space-y-2">
+                      {roiData.by_tier.map((t) => (
+                        <div key={t.tier} className="flex items-center gap-3 text-sm">
+                          <span className="w-24 font-medium text-muted-foreground">{t.tier}</span>
+                          <div className="flex-1 bg-secondary rounded-full h-2">
+                            <div
+                              className="h-2 rounded-full bg-green-500"
+                              style={{
+                                width: `${roiData.labor_saved_jpy > 0 ? Math.min((t.labor_saved_jpy / roiData.labor_saved_jpy) * 100, 100) : 0}%`,
+                              }}
+                            />
+                          </div>
+                          <span className="w-28 text-right text-xs">
+                            ¥{Math.round(t.labor_saved_jpy).toLocaleString()} 節約
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
 
             {/* Monthly Summary Table */}
             <Card>

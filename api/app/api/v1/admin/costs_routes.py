@@ -26,6 +26,8 @@ from app.schemas.admin import (
     CostBreakdownResponse,
     CostModelBreakdown,
     CostTierBreakdown,
+    AiRoiResponse,
+    AiRoiTierBreakdown,
     AdminErrorResponse,
 )
 
@@ -365,6 +367,147 @@ async def get_costs_breakdown(
     except Exception as e:
         logger.exception(
             "Get costs breakdown error",
+            organization_id=organization_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "failed",
+                "error_code": "INTERNAL_ERROR",
+                "error_message": "内部エラーが発生しました",
+            },
+        )
+
+
+# ROI換算係数（ティアごとの「1リクエストあたり削減時間（分）」）
+# 人手で同じことをやるのに何分かかるかの推定値
+_ROI_MINUTES_PER_REQUEST: dict[str, float] = {
+    "brain": 10.0,       # 思考・判断：会話整理・次アクション決定
+    "assistant": 5.0,    # 回答・要約：メール返答・情報収集
+    "generation": 15.0,  # 文書生成：議事録・提案書
+    "embedding": 0.5,    # ベクトル検索：情報分類
+    "unknown": 3.0,      # 不明
+}
+_LABOR_COST_PER_HOUR_JPY = 3_000.0  # ナレッジワーカー平均時給（円）
+
+
+@router.get(
+    "/costs/ai-roi",
+    response_model=AiRoiResponse,
+    responses={
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+        500: {"model": AdminErrorResponse, "description": "サーバーエラー"},
+    },
+    summary="AI費用対効果（ROI）取得",
+    description="""
+AIへの投資費用と、それによって削減できた人件費・工数を比較したROIレポート。
+
+## 計算方法
+- ティアごとに「1リクエストあたり削減時間（分）」の係数を掛けて工数を算出
+- 削減工数 × 時給（3,000円）＝ 削減人件費
+- ROI倍率 = 削減人件費 ÷ AI費用
+
+## データソース
+- ai_usage_logs テーブル（ティア別リクエスト数・コスト）
+    """,
+)
+async def get_ai_roi(
+    days: int = Query(
+        30,
+        ge=1,
+        le=90,
+        description="集計日数（デフォルト30日）",
+    ),
+    user: UserContext = Depends(require_admin),
+):
+    """AI費用対効果（ROI）を取得"""
+
+    organization_id = user.organization_id
+    now = datetime.now(JST)
+    start_date = (now - timedelta(days=days)).date()
+
+    logger.info(
+        "Get AI ROI",
+        organization_id=organization_id,
+        days=days,
+        user_id=user.user_id,
+    )
+
+    pool = get_db_pool()
+
+    try:
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT
+                        COALESCE(tier, 'unknown') as tier,
+                        COUNT(*) as requests,
+                        COALESCE(SUM(cost_jpy), 0) as cost
+                    FROM ai_usage_logs
+                    WHERE organization_id = :org_id
+                      AND created_at >= :start_date
+                    GROUP BY tier
+                    ORDER BY cost DESC
+                """),
+                {"org_id": organization_id, "start_date": start_date},
+            )
+            rows = result.fetchall()
+
+        by_tier = []
+        total_cost = 0.0
+        total_requests = 0
+        total_time_saved_hours = 0.0
+        total_labor_saved = 0.0
+
+        for row in rows:
+            tier = str(row[0])
+            requests = int(row[1])
+            cost = float(row[2])
+            minutes_per_req = _ROI_MINUTES_PER_REQUEST.get(tier, _ROI_MINUTES_PER_REQUEST["unknown"])
+            time_saved_hours = (requests * minutes_per_req) / 60.0
+            labor_saved = time_saved_hours * _LABOR_COST_PER_HOUR_JPY
+
+            by_tier.append(
+                AiRoiTierBreakdown(
+                    tier=tier,
+                    requests=requests,
+                    cost_jpy=round(cost, 2),
+                    time_saved_hours=round(time_saved_hours, 2),
+                    labor_saved_jpy=round(labor_saved, 0),
+                )
+            )
+            total_cost += cost
+            total_requests += requests
+            total_time_saved_hours += time_saved_hours
+            total_labor_saved += labor_saved
+
+        roi_multiplier = (total_labor_saved / total_cost) if total_cost > 0 else 0.0
+
+        log_audit_event(
+            logger=logger,
+            action="get_ai_roi",
+            resource_type="cost",
+            resource_id=organization_id,
+            user_id=user.user_id,
+            details={"days": days, "roi_multiplier": round(roi_multiplier, 2)},
+        )
+
+        return AiRoiResponse(
+            status="success",
+            days=days,
+            total_cost_jpy=round(total_cost, 2),
+            total_requests=total_requests,
+            time_saved_hours=round(total_time_saved_hours, 2),
+            labor_saved_jpy=round(total_labor_saved, 0),
+            roi_multiplier=round(roi_multiplier, 2),
+            by_tier=by_tier,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "Get AI ROI error",
             organization_id=organization_id,
         )
         raise HTTPException(

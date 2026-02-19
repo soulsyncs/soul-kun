@@ -228,3 +228,114 @@ async def get_teaching_usage_stats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
         )
+
+
+@router.get(
+    "/teachings/penetration",
+    summary="理念浸透度メーター",
+    description="社長の教えがソウルくんの判断にどれだけ活用されているかを数値化（Level 5+）",
+)
+async def get_teaching_penetration(
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            # 全教えとそのusage_countを取得
+            teachings_result = conn.execute(
+                text("""
+                    SELECT id, category, statement, COALESCE(usage_count, 0) AS usage_count
+                    FROM ceo_teachings
+                    WHERE organization_id = :org_id AND is_active = TRUE
+                    ORDER BY usage_count DESC NULLS LAST
+                """),
+                {"org_id": organization_id},
+            )
+            all_teachings = teachings_result.fetchall()
+
+        total_teachings = len(all_teachings)
+        used_teachings = sum(1 for r in all_teachings if int(r[3]) > 0)
+        total_usages = sum(int(r[3]) for r in all_teachings)
+        overall_pct = round(used_teachings / total_teachings * 100, 1) if total_teachings > 0 else 0.0
+
+        # カテゴリ別集計
+        category_map: dict = {}
+        for row in all_teachings:
+            cat = str(row[1])
+            cnt = int(row[3])
+            if cat not in category_map:
+                category_map[cat] = {"total": 0, "used": 0, "usages": 0}
+            category_map[cat]["total"] += 1
+            category_map[cat]["usages"] += cnt
+            if cnt > 0:
+                category_map[cat]["used"] += 1
+
+        from app.schemas.admin import (
+            TeachingPenetrationResponse,
+            TeachingPenetrationCategory,
+            TeachingPenetrationItem,
+        )
+
+        by_category = [
+            TeachingPenetrationCategory(
+                category=cat,
+                total_teachings=v["total"],
+                used_teachings=v["used"],
+                total_usages=v["usages"],
+                penetration_pct=round(v["used"] / v["total"] * 100, 1) if v["total"] > 0 else 0.0,
+            )
+            for cat, v in sorted(category_map.items(), key=lambda x: -x[1]["usages"])
+        ]
+
+        # TOP5 使われている教え
+        top_teachings = [
+            TeachingPenetrationItem(
+                id=str(r[0]),
+                statement=str(r[2])[:60],
+                category=str(r[1]),
+                usage_count=int(r[3]),
+                penetration_pct=round(int(r[3]) / total_usages * 100, 1) if total_usages > 0 else 0.0,
+            )
+            for r in all_teachings[:5]
+            if int(r[3]) > 0
+        ]
+
+        # 未使用の教え（上限10件）
+        unused_teachings = [
+            TeachingPenetrationItem(
+                id=str(r[0]),
+                statement=str(r[2])[:60],
+                category=str(r[1]),
+                usage_count=0,
+                penetration_pct=0.0,
+            )
+            for r in all_teachings
+            if int(r[3]) == 0
+        ][:10]
+
+        log_audit_event(
+            logger=logger, action="get_teaching_penetration",
+            resource_type="teachings", resource_id="penetration",
+            user_id=user.user_id,
+            details={"total": total_teachings, "used": used_teachings},
+        )
+        return TeachingPenetrationResponse(
+            status="success",
+            total_teachings=total_teachings,
+            used_teachings=used_teachings,
+            total_usages=total_usages,
+            overall_penetration_pct=overall_pct,
+            by_category=by_category,
+            top_teachings=top_teachings,
+            unused_teachings=unused_teachings,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Get teaching penetration error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )

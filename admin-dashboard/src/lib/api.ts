@@ -185,6 +185,11 @@ export const api = {
       fetchWithAuth<CostBreakdownResponse>('/admin/costs/breakdown', {
         params: { days },
       }),
+
+    getAiRoi: (days = 30) =>
+      fetchWithAuth<import('@/types/api').AiRoiResponse>('/admin/costs/ai-roi', {
+        params: { days },
+      }),
   },
 
   // Members endpoints
@@ -416,6 +421,9 @@ export const api = {
 
     getUsageStats: () =>
       fetchWithAuth<import('@/types/api').TeachingUsageStatsResponse>('/admin/teachings/usage-stats'),
+
+    getPenetration: () =>
+      fetchWithAuth<import('@/types/api').TeachingPenetrationResponse>('/admin/teachings/penetration'),
   },
 
   // Phase 4: System Health

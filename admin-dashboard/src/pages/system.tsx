@@ -50,13 +50,23 @@ export function SystemPage() {
       setConfirmStep((s) => (s + 1) as 1 | 2);
       return;
     }
-    await activateMutation.mutateAsync(stopReason || '管理者による緊急停止');
-    setConfirmStep(0);
-    setStopReason('');
+    try {
+      await activateMutation.mutateAsync(stopReason || '管理者による緊急停止');
+      setConfirmStep(0);
+      setStopReason('');
+    } catch {
+      // APIエラー時はconfirmStepをリセットして安全な状態に戻す
+      setConfirmStep(0);
+      alert('緊急停止に失敗しました。ネットワークを確認して再試行してください。');
+    }
   };
 
   const handleDeactivate = async () => {
-    await deactivateMutation.mutateAsync();
+    try {
+      await deactivateMutation.mutateAsync();
+    } catch {
+      alert('停止解除に失敗しました。ネットワークを確認して再試行してください。');
+    }
   };
 
   return (

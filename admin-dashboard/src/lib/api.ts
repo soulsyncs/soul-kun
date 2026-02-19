@@ -24,6 +24,8 @@ import type {
   UpdateDepartmentRequest,
   UpdateMemberRequest,
   UpdateMemberDepartmentsRequest,
+  EmergencyStopStatusResponse,
+  EmergencyStopActionResponse,
 } from '@/types/api';
 
 const API_BASE_URL =
@@ -443,24 +445,18 @@ export const api = {
   // Emergency Stop
   emergencyStop: {
     getStatus: () =>
-      fetchWithAuth<import('@/types/api').EmergencyStopStatusResponse>(
-        '/admin/emergency-stop/status'
-      ),
+      fetchWithAuth<EmergencyStopStatusResponse>('/admin/emergency-stop/status'),
 
     activate: (reason: string) =>
-      fetchWithAuth<import('@/types/api').EmergencyStopActionResponse>(
-        '/admin/emergency-stop/activate',
-        {
-          method: 'POST',
-          body: JSON.stringify({ reason }),
-        }
-      ),
+      fetchWithAuth<EmergencyStopActionResponse>('/admin/emergency-stop/activate', {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
 
     deactivate: () =>
-      fetchWithAuth<import('@/types/api').EmergencyStopActionResponse>(
-        '/admin/emergency-stop/deactivate',
-        { method: 'POST' }
-      ),
+      fetchWithAuth<EmergencyStopActionResponse>('/admin/emergency-stop/deactivate', {
+        method: 'POST',
+      }),
   },
 
   // ===== 連携設定 =====

@@ -90,6 +90,41 @@
 - 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical (verified).
 - audit logging: NO audit calls in any capabilities/ handler. Pre-existing gap (old bridge same).
 
+## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
+
+- `--all` flag only scans `lib/`, `chatwork-webhook/lib/`, `proactive-monitor/lib/` — NOT `api/` or `cost-report/`
+- Bugs in `api/app/api/v1/admin/brain_routes.py` and `cost-report/main.py` pass `--all` silently
+- To detect API layer SQL bugs, must manually grep `api/` and `cost-report/` for old column names
+
+## Phase 3 (AI cost visibility) — FIXED in feat/phase3-ai-cost-visibility (reviewed 2026-02-19)
+
+### All previously flagged issues now RESOLVED:
+- C-1: `brain_routes.py` `SUM(cost_usd)` → `0 as cost` (brain_decision_logs has no cost column)
+- C-2: `cost-report/main.py` `model_name` → `model_id`, `GROUP BY model_name` → `GROUP BY model_id`
+- W-1: `dashboard_routes.py` `AVG(response_time_ms)` → `AVG(latency_ms)`
+- W-2: `dashboard_routes.py` `is_error = TRUE` → `success = FALSE`
+- W-3: `dashboard_routes.py` `FROM brain_insights / summary` → `FROM brain_strategic_insights / description`
+- costs_routes.py: `cost_usd`→`cost_jpy`, `budget_usd`→`budget_jpy`, `model_name`→`model_id`, `usage_tier`→`tier`
+
+### Remaining open items (SUGGESTION level, not blocking):
+- `api/app/schemas/admin.py`: All cost `Field(description=...)` still say "（USD）" but actual values are JPY
+  - Lines 102,103,134,186,188,205,223,232: `description="コスト（USD）"` should be `（円）`
+  - Non-breaking (description is documentation only), SUGGESTION to fix for clarity
+- `bottleneck_alerts` queries in `dashboard_routes.py`: `organization_id::text` cast is inconsistent
+  with other tables (no cast). Pre-existing, correct behavior, minor inconsistency only.
+- `cost-report/main.py` line 27: `ALERT_ROOM_ID` default `"417892193"` hardcoded — same as alert_sender.py pre-existing
+
+## Phase 3 admin API patterns (confirmed 2026-02-19)
+
+- `api/app/api/v1/admin/deps.py`: `require_admin` = Level 5+, `require_editor` = Level 6+
+- Auth: `get_current_user` (JWT) + `get_user_role_level_sync` DB check — fully authenticated
+- All 4 routes have `organization_id` filter on every SELECT — org isolation OK
+- Audit logging via `log_audit_event()` present on all endpoints
+- `async def` + synchronous `pool.connect()` pattern — pre-existing, admin dashboard is §1-1 exception
+- `brain_strategic_insights` is in `soulkun_tasks` DB (NOT soulkun DB)
+- `bottleneck_alerts.organization_id` is UUID type (both soulkun and soulkun_tasks DBs)
+- `ai_usage_logs.organization_id` is UUID type — no cast needed (PostgreSQL auto-casts text literals)
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

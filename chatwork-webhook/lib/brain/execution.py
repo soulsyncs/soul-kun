@@ -131,9 +131,9 @@ SUGGESTION_TEMPLATES: Dict[str, List[str]] = {
 
 REQUIRED_PARAMETERS: Dict[str, List[str]] = {
     "chatwork_task_create": ["task_body"],  # v10.56.24: limit_dateはハンドラー側で確認（実行層で弾かない）
-    "chatwork_task_complete": ["task_id"],
+    "chatwork_task_complete": ["task_identifier"],  # fix: registry.pyと整合（task_id→task_identifier）
     "chatwork_task_search": [],  # オプションのみ
-    "learn_knowledge": ["content"],
+    "learn_knowledge": ["key", "value"],  # fix: registry.pyと整合（content→key/value）
     "forget_knowledge": ["keyword"],
     "announcement_create": ["message", "target_room"],
     "send_reminder": ["task_id"],
@@ -148,7 +148,7 @@ PARAMETER_TYPES: Dict[str, Dict[str, Any]] = {
         "limit_time": str,
     },
     "chatwork_task_complete": {
-        "task_id": (int, str),
+        "task_identifier": str,  # fix: registry.pyと整合
     },
     "announcement_create": {
         "message": str,
@@ -554,8 +554,11 @@ class BrainExecution:
         display_names = {
             "task_body": "タスクの内容",  # v10.56.16: registry.pyと整合
             "body": "タスクの内容",  # 後方互換
-            "task_id": "タスクID",
-            "content": "覚えてほしい内容",
+            "task_id": "タスクID",  # 後方互換
+            "task_identifier": "完了するタスク",  # fix: registry.pyと整合
+            "key": "覚えてほしい項目名",  # fix: registry.pyと整合
+            "value": "覚えてほしい内容",  # fix: registry.pyと整合
+            "content": "覚えてほしい内容",  # 後方互換
             "keyword": "キーワード",
             "message": "メッセージ",
             "target_room": "送信先",

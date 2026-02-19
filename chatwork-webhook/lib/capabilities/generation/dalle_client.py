@@ -178,6 +178,7 @@ class DALLEClient:
                     timeout_seconds=self._timeout_seconds,
                 )
                 logger.warning(f"DALL-E API timeout (attempt {attempt + 1}/{self._max_retries})")
+                continue  # fix: タイムアウト時も次のリトライへ進む
 
             except (DALLERateLimitError, DALLETimeoutError) as e:
                 last_error = e

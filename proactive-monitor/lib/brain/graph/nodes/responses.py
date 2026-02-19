@@ -99,11 +99,29 @@ def make_handle_confirm(brain: "SoulkunBrain"):
         guardian_result = state["guardian_result"]
         llm_result = state["llm_result"]
         start_time = state["start_time"]
+        # fix: ApprovalGate の確認メッセージも活用（generate_document 等で "確認させてほしいウル" になる問題を解消）
+        approval_result = state.get("approval_result")
 
         try:
             tool_call = llm_result.tool_calls[0] if llm_result.tool_calls else None
+            # fix: approval_result.confirmation_message も fallback として使う
+            approval_msg = (approval_result.confirmation_message if approval_result else None)
+            # capability_bridge の confirmation_template からより詳細な確認メッセージを生成
+            template_msg = None
+            if tool_call:
+                try:
+                    from lib.brain.capability_bridge import CAPABILITIES
+                    cap = CAPABILITIES.get(tool_call.tool_name, {})
+                    template = cap.get("confirmation_template", "")
+                    if template:
+                        params = tool_call.parameters or {}
+                        template_msg = template.format_map({k: params.get(k, f"（{k}未指定）") for k in cap.get("parameters", {}).keys()})
+                except Exception:
+                    pass
             confirm_question = (
                 guardian_result.confirmation_question
+                or template_msg
+                or approval_msg
                 or guardian_result.reason
                 or "確認させてほしいウル"
             )

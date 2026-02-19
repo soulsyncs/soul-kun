@@ -722,6 +722,12 @@ class LLMBrain:
 
 ■ goal_status_check を使うべきケース:
 - 「目標の進捗」「OKR」「目標どうなった？」など明確に目標に言及している場合のみ
+- ユーザーが目標の現状を「確認・教えて」と聞いてくるとき
+
+■ goal_progress_report を使うべきケース:
+- 「目標の進捗を報告したい」「今月の売上はXXX万円だった」「OKR達成率80%です」
+- ユーザーが数値・実績・進捗を"報告"してきたとき（ソウルくんが受け取って記録する）
+- goal_status_checkとの違い：status_checkは"教えて"系、progress_reportは"報告する"系
 
 ■ 判断に迷った場合:
 - 社内のこと → query_knowledge

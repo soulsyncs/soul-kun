@@ -445,9 +445,14 @@ class KnowledgeExpert(BaseAgent):
         """記憶削除ハンドラー"""
         message = content.get("message", "")
         memory_id = content.get("memory_id", "")
+        # fix: save_memoryと同じperson/subjectキーで人物名を取り出し、
+        # ハンドラー（memory_actions.py）が期待するpersonsリスト形式に変換
+        person = content.get("person", "") or content.get("subject", "")
+        persons_list = [person] if person else ([message] if message else [])
 
         return {
             "action": "delete_memory",
+            "persons": persons_list,  # fix: ハンドラーが期待するキー（queryではなくpersons）
             "query": message,
             "memory_id": memory_id,
             "response": "記憶を削除しますウル。",

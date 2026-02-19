@@ -234,6 +234,33 @@
 - `handlers.registry.SYSTEM_CAPABILITIES` は `/Users/kikubookair/soul-kun/handlers/registry.py` に存在（line49）。root registry: 38エントリ、chatwork-webhook registry: 37エントリ。api_limitation エントリ: chatwork_task_edit, chatwork_task_delete の2種。
 - `confirmation_template` は `lib/brain/capability_bridge.py` の `CAPABILITIES` dict に格納。generate_document/generate_image/generate_video/deep_research等に存在。`responses.py` は `CAPABILITIES` を参照（`SYSTEM_CAPABILITIES` でなく）。
 
+## Bug③ person_events.organization_id missing (2026-02-19, fix/all-function-test-bugs)
+
+### 確定した事実
+- 本番DB `person_events` に `organization_id` 列が存在しない (Cloud Logging実証)
+- `db_schema.json` には `person_events.organization_id: uuid` と記録されているが**本番実態と乖離**
+  - `20260216_create_persons_tables.sql` の `CREATE TABLE IF NOT EXISTS` が既存テーブルをスキップした
+  - `db_schema.json` はマイグレーション後の「想定スキーマ」を記録しており、本番の実状とは異なる場合がある
+- 同じバグ `DELETE FROM person_events WHERE ... AND organization_id = :org_id` が**8箇所**に存在:
+  - `lib/person_service.py` L121
+  - `chatwork-webhook/lib/person_service.py` L121
+  - `proactive-monitor/lib/person_service.py` L121
+  - `main.py` L376
+  - `cleanup-old-data/main.py` L275
+  - `check-reply-messages/main.py` L620
+  - `remind-tasks/main.py` L1259
+  - `sync-chatwork-tasks/main.py` L2482
+
+### Option B (CASCADE依存) の評価
+- 方向性は正しいが **ON DELETE CASCADE が本番DBで有効か未確認** → CRITICAL
+- 本番確認SQL: `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname = 'person_events' AND c.contype = 'f';`
+- `person_name` をエラーログに追加するのは PII違反 (CLAUDE.md §9-3)
+
+### 推奨修正順序
+1. 本番DBで `\d person_events` と FK CASCADE を確認
+2. Option C推奨: `ALTER TABLE person_events ADD COLUMN organization_id UUID` + バックフィル先行
+3. または CASCADE確認後に Option B で全8箇所一括修正
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

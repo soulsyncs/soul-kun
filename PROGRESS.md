@@ -1,6 +1,6 @@
 # PROGRESS.md - ソウルくんプロジェクト進捗記録
 
-**最終更新: 2026-02-19 JST（v11.2.3）**
+**最終更新: 2026-02-19 JST（v11.2.4）**
 
 > このファイルは作業履歴・進捗状況を記録するためのファイルです。
 > 開発ルールやアーキテクチャについては `CLAUDE.md` を参照してください。
@@ -78,8 +78,9 @@
 
 | # | タスク | 種別 | 状態 | 備考 |
 |---|--------|------|------|------|
-| 1 | **P18 terraform import** | IaC | 次フェーズ | 既存Cloud Runサービスをterraform管理に取り込む |
-| 2 | **GitHub Secrets設定** | 設定 | 次フェーズ | GCP_CREDENTIALS_JSONをGitHub Secretsに登録 |
+| 1 | **P18 terraform import** | IaC | ✅ 完了 | Cloud Run / IAM / Secret Manager を terraform apply済み（2026-02-19） |
+| 2 | **GitHub Secrets設定** | 設定 | ✅ 完了 | GCP_CREDENTIALS_JSONは設定済みを確認 |
+| 2.5 | **service_account切替（cloud_run_sa）** | IaC | 次フェーズ | 新SAへの切替は段階的に実施（IAMは確立済み） |
 | 3 | **P7（DB型統一）** | 見送り | ⏸ LOW urgency / HIGH risk | 将来のメジャーアップデート時に対応 |
 | 4 | **Google Meet連携** | 新機能 | 未着手 | Zoom Case Cと同アーキテクチャで横展開 |
 | 5 | **LangGraph導入** | 戦略改善 | 未着手 | Brain判断フローの可視化・分割 |

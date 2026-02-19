@@ -5,6 +5,7 @@
  */
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Network,
   LayoutGrid,
@@ -13,7 +14,11 @@ import {
   Plus,
   RefreshCw,
   Users,
+  Target,
+  Activity,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import type { GoalsListResponse, EmotionTrendsResponse } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,7 +48,39 @@ export function OrgChartPage() {
   const { data: detailData, isLoading: isDetailLoading } =
     useDepartmentDetail(selectedDeptId);
 
+  const { data: deptGoals, isLoading: isGoalsLoading } = useQuery<GoalsListResponse>({
+    queryKey: ['dept-goals', selectedDeptId],
+    queryFn: () => api.goals.getList({ department_id: selectedDeptId!, limit: 5 }),
+    enabled: !!selectedDeptId,
+  });
+
+  const { data: deptWellness, isLoading: isWellnessLoading } = useQuery<EmotionTrendsResponse>({
+    queryKey: ['dept-wellness', selectedDeptId],
+    queryFn: () => api.wellness.getTrends({ department_id: selectedDeptId!, days: 14 }),
+    enabled: !!selectedDeptId,
+  });
+
   const departments = treeData?.departments ?? [];
+
+  // Dept drilldown: goals
+  const goals = deptGoals?.goals ?? [];
+  const totalGoals = deptGoals?.total_count ?? 0;
+
+  // Dept drilldown: wellness
+  const wellnessTrends = deptWellness?.trends ?? [];
+  const recentScore = wellnessTrends.length > 0
+    ? wellnessTrends[wellnessTrends.length - 1].avg_score
+    : null;
+  const wellnessColor = recentScore === null
+    ? 'text-muted-foreground'
+    : recentScore >= 7 ? 'text-green-600'
+    : recentScore >= 5 ? 'text-yellow-600'
+    : 'text-red-600';
+  const wellnessLabel = recentScore === null
+    ? 'データなし'
+    : recentScore >= 7 ? '良好'
+    : recentScore >= 5 ? '注意'
+    : '要対応';
 
   const handleCreateDept = () => {
     setEditingDept('new');
@@ -245,6 +282,94 @@ export function OrgChartPage() {
                   </CardContent>
                 </Card>
               )}
+
+              {/* Department Goals */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Target className="h-4 w-4" />
+                    目標
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isGoalsLoading ? (
+                    <div className="space-y-2">
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-3/4" />
+                    </div>
+                  ) : goals.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">目標データなし</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {goals.map((goal) => (
+                        <div key={goal.id}>
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="truncate text-xs flex-1">{goal.title}</span>
+                            <span className="text-xs text-muted-foreground ml-2 shrink-0">
+                              {goal.progress_pct != null ? `${Math.round(goal.progress_pct)}%` : '—'}
+                            </span>
+                          </div>
+                          <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${
+                                goal.status === 'completed' ? 'bg-green-500' :
+                                goal.status === 'overdue' ? 'bg-red-500' :
+                                'bg-primary'
+                              }`}
+                              style={{ width: `${Math.min(goal.progress_pct ?? 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      {totalGoals > 5 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          他 {totalGoals - 5}件の目標があります
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Department Wellness */}
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="h-4 w-4" />
+                    ウェルネス（直近14日）
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {isWellnessLoading ? (
+                    <Skeleton className="h-8 w-24" />
+                  ) : wellnessTrends.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">データなし</p>
+                  ) : (
+                    <div>
+                      <div className={`text-2xl font-bold ${wellnessColor}`}>
+                        {recentScore != null ? recentScore.toFixed(1) : '—'}
+                        <span className="text-sm font-normal text-muted-foreground ml-1">/ 10</span>
+                      </div>
+                      <div className={`text-sm font-medium ${wellnessColor}`}>{wellnessLabel}</div>
+                      {/* Mini bar chart: last 7 days */}
+                      <div className="flex items-end gap-0.5 mt-2 h-8">
+                        {wellnessTrends.slice(-7).map((entry) => (
+                          <div
+                            key={entry.date}
+                            className={`flex-1 rounded-sm ${
+                              entry.avg_score >= 7 ? 'bg-green-400' :
+                              entry.avg_score >= 5 ? 'bg-yellow-400' :
+                              'bg-red-400'
+                            }`}
+                            style={{ height: `${Math.max((entry.avg_score / 10) * 100, 10)}%` }}
+                          />
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">直近7日の推移</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </div>
           )}
         </div>

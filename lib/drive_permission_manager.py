@@ -41,6 +41,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
 from lib.config import get_settings
+from lib.logging import mask_email
 
 
 logger = logging.getLogger(__name__)
@@ -308,7 +309,7 @@ class DrivePermissionManager:
         existing = await self.get_permission_by_email(file_id, email)
         if existing:
             if existing.role == role:
-                logger.info(f"Permission already exists: {email} has {role.value} on {file_id}")
+                logger.info(f"Permission already exists: {mask_email(email)} has {role.value} on {file_id}")
                 return PermissionChange(
                     file_id=file_id,
                     file_name=file_name,
@@ -328,7 +329,7 @@ class DrivePermissionManager:
                 )
 
         if dry_run:
-            logger.info(f"[DRY RUN] Would add permission: {email} as {role.value} on {file_id}")
+            logger.info(f"[DRY RUN] Would add permission: {mask_email(email)} as {role.value} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -357,7 +358,7 @@ class DrivePermissionManager:
                 ).execute()
             )
 
-            logger.info(f"Added permission: {email} as {role.value} on {file_id}")
+            logger.info(f"Added permission: {mask_email(email)} as {role.value} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -406,7 +407,7 @@ class DrivePermissionManager:
         # 権限を検索
         permission = await self.get_permission_by_email(file_id, email)
         if not permission:
-            logger.info(f"Permission not found: {email} on {file_id}")
+            logger.info(f"Permission not found: {mask_email(email)} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -418,7 +419,7 @@ class DrivePermissionManager:
 
         if not permission.is_editable:
             error_msg = f"Cannot remove {permission.role.value} permission"
-            logger.warning(f"{error_msg}: {email} on {file_id}")
+            logger.warning(f"{error_msg}: {mask_email(email)} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -430,7 +431,7 @@ class DrivePermissionManager:
             )
 
         if dry_run:
-            logger.info(f"[DRY RUN] Would remove permission: {email} ({permission.role.value}) from {file_id}")
+            logger.info(f"[DRY RUN] Would remove permission: {mask_email(email)} ({permission.role.value}) from {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -451,7 +452,7 @@ class DrivePermissionManager:
                 ).execute()
             )
 
-            logger.info(f"Removed permission: {email} from {file_id}")
+            logger.info(f"Removed permission: {mask_email(email)} from {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -511,7 +512,7 @@ class DrivePermissionManager:
             )
 
         if permission.role == new_role:
-            logger.info(f"Permission unchanged: {email} already has {new_role.value} on {file_id}")
+            logger.info(f"Permission unchanged: {mask_email(email)} already has {new_role.value} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -524,7 +525,7 @@ class DrivePermissionManager:
 
         if not permission.is_editable:
             error_msg = f"Cannot update {permission.role.value} permission"
-            logger.warning(f"{error_msg}: {email} on {file_id}")
+            logger.warning(f"{error_msg}: {mask_email(email)} on {file_id}")
             return PermissionChange(
                 file_id=file_id,
                 file_name=file_name,
@@ -538,7 +539,7 @@ class DrivePermissionManager:
 
         if dry_run:
             logger.info(
-                f"[DRY RUN] Would update permission: {email} "
+                f"[DRY RUN] Would update permission: {mask_email(email)} "
                 f"{permission.role.value} -> {new_role.value} on {file_id}"
             )
             return PermissionChange(
@@ -564,7 +565,7 @@ class DrivePermissionManager:
             )
 
             logger.info(
-                f"Updated permission: {email} "
+                f"Updated permission: {mask_email(email)} "
                 f"{permission.role.value} -> {new_role.value} on {file_id}"
             )
             return PermissionChange(
@@ -667,7 +668,7 @@ class DrivePermissionManager:
             for email_lower, perm in current_by_email.items():
                 if email_lower not in expected_lower:
                     if email_lower in protected:
-                        logger.info(f"Skipping protected email: {email_lower}")
+                        logger.info(f"Skipping protected email: {mask_email(email_lower)}")
                         continue
                     if not perm.is_editable:
                         continue

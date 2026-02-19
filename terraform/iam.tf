@@ -45,6 +45,18 @@ resource "google_storage_bucket_iam_member" "cloud_run_recordings_admin" {
   member = "serviceAccount:${google_service_account.cloud_run_sa.email}"
 }
 
+# Cloud Run SA → Firestore 読み書き権限（chatwork-webhookがFirestoreを使用）
+# roles/datastore.user = Firestoreエンティティの読み書き（over/under-privilegedなし）
+resource "google_project_iam_member" "cloud_run_firestore_user" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
+# NOTE: roles/run.invoker はプロジェクトレベルではなく、
+# cloud_run.tf のサービスレベルバインディング（proactive_monitor_invoker）で管理。
+# 3AI合議（brain-reviewer 2026-02-19）: プロジェクトレベル付与は最小権限原則に反する。
+
 # Cloud Scheduler 呼び出し用サービスアカウント
 resource "google_service_account" "scheduler_invoker" {
   account_id   = "scheduler-invoker"

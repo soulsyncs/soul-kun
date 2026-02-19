@@ -251,15 +251,19 @@
   - `remind-tasks/main.py` L1259
   - `sync-chatwork-tasks/main.py` L2482
 
-### Option B (CASCADE依存) の評価
-- 方向性は正しいが **ON DELETE CASCADE が本番DBで有効か未確認** → CRITICAL
-- 本番確認SQL: `SELECT pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname = 'person_events' AND c.contype = 'f';`
-- `person_name` をエラーログに追加するのは PII違反 (CLAUDE.md §9-3)
+### Option B (CASCADE依存) の評価（2回目レビュー 2026-02-19）
+- `person_events` の CASCADE: 本番DB確認済み（ユーザー提供）→ CRITICAL 解消
+- **残課題 W-1**: `person_attributes` の CASCADE が本番DBで有効か未確認（同様に `CREATE TABLE IF NOT EXISTS` でスキップされた可能性）
+  - 確認SQL: `SELECT conname, pg_get_constraintdef(c.oid) FROM pg_constraint c JOIN pg_class t ON t.oid = c.conrelid WHERE t.relname IN ('person_attributes', 'person_events') AND c.contype = 'f';`
+- **残課題 W-2**: 修正が `chatwork-webhook/lib/person_service.py` の1ファイルのみで、残り7箇所が未修正
+  - 3コピー同期（鉄則#17）が壊れる: `lib/` と `proactive-monitor/lib/` が未修正
+  - `main.py` + 4CF main.py も同一バグが継続
+- マイグレーション `20260214_persons_org_id_uuid.sql` line 10: `-- person_events: organization_id column does NOT exist (skip)` → 本番でテーブルが既存だったと確定
+- `person_attributes` は同じ `CREATE TABLE IF NOT EXISTS` ブロックのため、同様にスキップされた可能性が高い
 
-### 推奨修正順序
-1. 本番DBで `\d person_events` と FK CASCADE を確認
-2. Option C推奨: `ALTER TABLE person_events ADD COLUMN organization_id UUID` + バックフィル先行
-3. または CASCADE確認後に Option B で全8箇所一括修正
+### 修正完了条件
+1. `person_attributes` の CASCADE を本番DBで確認
+2. 全8箇所（lib/, chatwork-webhook/lib/, proactive-monitor/lib/, main.py, 4CF main.py）を同一PR で修正（横展開完了）
 
 ## Topic files index
 

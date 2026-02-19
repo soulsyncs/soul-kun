@@ -167,6 +167,44 @@
 - `user_departments` query has no org_id filter — table has no org_id column (pre-existing).
 - No new tests added for scheduled.py routes (pre-existing gap, CFs have their own separate tests).
 
+## Phase 4C next-phase evaluation (2026-02-19)
+
+- **B (requirements固定)**: Phase 4C で完了。`google-cloud-storage==2.19.0` に固定（2.19.0 = 2.x系最新、PyPI確認済み）
+- **A-1 (Scheduled Blueprint分割)**: 実施不推奨。Cloud Schedulerはchatwork-webhook Cloud Runを呼ばない。追加してもunreachable+unauthenticated endpoint増加になる
+- **A-2 (chatwork_webhook分割)**: 本番主要エンドポイント。依存関数群1054行(行822-1875)がセット。`get_ai_response`単独312行。TelegramやZoomの3-5倍の規模。高リスク
+- **C (Google Meet)**: lib/meetings/に`google_calendar_client.py`のみ。録画取得実装ゼロ。Drive API経由+Webhook設定複雑。前提条件(Google Workspace録画機能の有効化)確認が必要
+- **推奨順**: B(1行修正) → A-2(段階的) → C(前提確認後)。A-1は非推奨
+
+## chatwork-webhook/main.py の4スケジュールルートの状態 (確定調査結果 2026-02-19)
+
+### デプロイアーキテクチャ（確定）
+- chatwork-webhook = Cloud Run (Docker)。`allUsers` invoker権限（公開アクセス）
+- 4つのスケジュールジョブ = 独立したCloud Functions Gen2（`cloud_functions.tf`に定義）
+- Cloud Schedulerは `google_cloudfunctions2_function.functions["check-reply-messages"]` 等のURIを直接呼ぶ。chatwork-webhook Cloud RunのURIは一切指定していない
+
+### main.py内4ルートの性質（確定）
+- `/check-reply-messages`（行2214）、`/sync-chatwork-tasks`（行2327）、`/remind-tasks`（行2573）、`/cleanup-old-data`（行2698）
+- Cloud Schedulerから呼ばれることはない（スケジューラーは独立CF直接呼び出し）
+- 認証なし（HMACはWebhook `/` のみ）。かつ chatwork-webhook は `allUsers` 公開 → **誰でも呼べるエンドポイント**
+- 判断：**デッドコード（A）。Blueprint分割は不要かつ有害（セキュリティリスク増大なし変化なし）**
+- 推奨アクション：Blueprint分割より**削除**が正しい。ただし削除前に「本番で手動呼び出しに使っていないか」確認が必要
+
+### 独立CF main.py の構造
+- `check-reply-messages/main.py`：Flask `@app.route("/")` が `check_reply_messages()` のエントリ。Dockerでgunicorn起動。cloud_functions.tfの `entry_point = "check_reply_messages"` で `@` デコレータなし関数を直接呼ぶ（Gen2はFlaskアプリ or functions-framework両対応）
+- 4つのCFディレクトリそれぞれに独立したmain.pyあり（互いのコードを共有せず）
+
+## routes/ ファイル現状 (2026-02-19確認、Phase 4C完了後)
+
+- `chatwork-webhook/routes/telegram.py`: 226行（Phase 4で分割済み）
+- `chatwork-webhook/routes/zoom.py`: 176行（Phase 5で分割済み）
+- `chatwork-webhook/routes/scheduled.py`: 存在しない（実装すべきでない）
+- main.pyに残存するルート: `/`(chatwork_webhook) のみ（2236行）
+- Phase 4C: 4デッドルート削除完了（2907→2236行、-671行）
+- 残存する軽微なTODO（SUGGESTION only、マージ非ブロック）:
+  - `flush_dm_unavailable_notifications` が import 行（line 58）にのみ残存。削除されたルートでのみ使われていた。未使用 import だが実害なし。
+  - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
+  - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

@@ -24,6 +24,8 @@ import type {
   UpdateDepartmentRequest,
   UpdateMemberRequest,
   UpdateMemberDepartmentsRequest,
+  EmergencyStopStatusResponse,
+  EmergencyStopActionResponse,
 } from '@/types/api';
 
 const API_BASE_URL =
@@ -438,6 +440,23 @@ export const api = {
         `/admin/system/diagnoses${qs ? `?${qs}` : ''}`
       );
     },
+  },
+
+  // Emergency Stop
+  emergencyStop: {
+    getStatus: () =>
+      fetchWithAuth<EmergencyStopStatusResponse>('/admin/emergency-stop/status'),
+
+    activate: (reason: string) =>
+      fetchWithAuth<EmergencyStopActionResponse>('/admin/emergency-stop/activate', {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      }),
+
+    deactivate: () =>
+      fetchWithAuth<EmergencyStopActionResponse>('/admin/emergency-stop/deactivate', {
+        method: 'POST',
+      }),
   },
 
   // ===== 連携設定 =====

@@ -873,3 +873,72 @@ class EmergencyStopActionResponse(BaseModel):
     status: str = "success"
     message: str = Field(..., description="操作結果メッセージ")
     is_active: bool = Field(..., description="操作後の停止状態")
+
+
+# =============================================================================
+# Phase 2 新機能: AI ROI / Teaching Penetration
+# =============================================================================
+
+
+class AiRoiTierBreakdown(BaseModel):
+    """AIティア別ROI内訳"""
+
+    tier: str = Field(..., description="ティア名（brain/assistant/generation等）")
+    requests: int = Field(0, description="リクエスト数")
+    cost_jpy: float = Field(0.0, description="コスト（円）")
+    time_saved_hours: float = Field(0.0, description="削減工数（時間）")
+    labor_saved_jpy: float = Field(0.0, description="削減人件費（円）")
+
+
+class AiRoiResponse(BaseModel):
+    """AI費用対効果レスポンス"""
+
+    status: str = "success"
+    days: int = Field(30, description="集計日数")
+    total_cost_jpy: float = Field(0.0, description="AI費用合計（円）")
+    total_requests: int = Field(0, description="総リクエスト数")
+    time_saved_hours: float = Field(0.0, description="総削減工数（時間）")
+    labor_saved_jpy: float = Field(0.0, description="総削減人件費（円）")
+    roi_multiplier: float = Field(0.0, description="ROI倍率（削減人件費 / AI費用）")
+    by_tier: List[AiRoiTierBreakdown] = Field(
+        default_factory=list, description="ティア別内訳"
+    )
+
+
+class TeachingPenetrationItem(BaseModel):
+    """教え別浸透度"""
+
+    id: str = Field(..., description="教えID")
+    statement: str = Field(..., description="教えの内容（先頭60文字）")
+    category: str = Field(..., description="カテゴリ")
+    usage_count: int = Field(0, description="利用回数")
+    penetration_pct: float = Field(0.0, description="浸透度（%）")
+
+
+class TeachingPenetrationCategory(BaseModel):
+    """カテゴリ別浸透度"""
+
+    category: str = Field(..., description="カテゴリ名")
+    total_teachings: int = Field(0, description="教えの総数")
+    used_teachings: int = Field(0, description="1回以上使われた教えの数")
+    total_usages: int = Field(0, description="カテゴリ内総利用回数")
+    penetration_pct: float = Field(0.0, description="使用率（used/total * 100）")
+
+
+class TeachingPenetrationResponse(BaseModel):
+    """理念浸透度レスポンス"""
+
+    status: str = "success"
+    total_teachings: int = Field(0, description="教えの総数")
+    used_teachings: int = Field(0, description="1回以上使われた教えの数")
+    total_usages: int = Field(0, description="総利用回数")
+    overall_penetration_pct: float = Field(0.0, description="全体浸透度（%）")
+    by_category: List[TeachingPenetrationCategory] = Field(
+        default_factory=list, description="カテゴリ別浸透度"
+    )
+    top_teachings: List[TeachingPenetrationItem] = Field(
+        default_factory=list, description="利用回数TOP5の教え"
+    )
+    unused_teachings: List[TeachingPenetrationItem] = Field(
+        default_factory=list, description="未使用の教え（改善機会）"
+    )

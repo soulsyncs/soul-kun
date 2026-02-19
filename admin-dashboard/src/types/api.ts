@@ -658,6 +658,60 @@ export interface SelfDiagnosesResponse {
 }
 
 // =============================================================================
+// Phase 2 新機能: AI ROI
+// =============================================================================
+
+export interface AiRoiTierBreakdown {
+  tier: string;
+  requests: number;
+  cost_jpy: number;
+  time_saved_hours: number;
+  labor_saved_jpy: number;
+}
+
+export interface AiRoiResponse {
+  status: string;
+  days: number;
+  total_cost_jpy: number;
+  total_requests: number;
+  time_saved_hours: number;
+  labor_saved_jpy: number;
+  roi_multiplier: number;
+  by_tier: AiRoiTierBreakdown[];
+}
+
+// =============================================================================
+// Phase 2 新機能: Teaching Penetration
+// =============================================================================
+
+export interface TeachingPenetrationItem {
+  id: string;
+  statement: string;
+  category: string;
+  usage_count: number;
+  penetration_pct: number;
+}
+
+export interface TeachingPenetrationCategory {
+  category: string;
+  total_teachings: number;
+  used_teachings: number;
+  total_usages: number;
+  penetration_pct: number;
+}
+
+export interface TeachingPenetrationResponse {
+  status: string;
+  total_teachings: number;
+  used_teachings: number;
+  total_usages: number;
+  overall_penetration_pct: number;
+  by_category: TeachingPenetrationCategory[];
+  top_teachings: TeachingPenetrationItem[];
+  unused_teachings: TeachingPenetrationItem[];
+}
+
+// =============================================================================
 // Emergency Stop
 // =============================================================================
 

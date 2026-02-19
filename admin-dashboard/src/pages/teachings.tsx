@@ -4,20 +4,25 @@
  */
 
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   BookOpen,
   RefreshCw,
   AlertTriangle,
   BarChart3,
+  Gauge,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTeachingsList, useTeachingConflicts, useTeachingUsageStats } from '@/hooks/use-teachings';
+import { api } from '@/lib/api';
+import type { TeachingPenetrationResponse } from '@/types/api';
 
-type TabView = 'teachings' | 'conflicts' | 'stats';
+type TabView = 'teachings' | 'conflicts' | 'stats' | 'penetration';
 
 const STATUS_COLORS: Record<string, 'default' | 'secondary' | 'destructive' | 'outline'> = {
   validated: 'default',
@@ -34,6 +39,11 @@ export function TeachingsPage() {
   });
   const { data: conflictsData, isLoading: conflictsLoading, refetch: refetchConflicts } = useTeachingConflicts();
   const { data: usageData, isLoading: usageLoading, refetch: refetchUsage } = useTeachingUsageStats();
+  const { data: penetrationData, isLoading: penetrationLoading, refetch: refetchPenetration } =
+    useQuery<TeachingPenetrationResponse>({
+      queryKey: ['teachings-penetration'],
+      queryFn: () => api.teachings.getPenetration(),
+    });
 
   // Extract unique categories from teachings
   const categories = teachingsData?.teachings
@@ -61,6 +71,7 @@ export function TeachingsPage() {
               refetchTeachings();
               refetchConflicts();
               refetchUsage();
+              refetchPenetration();
             }}
           >
             <RefreshCw className="mr-1 h-4 w-4" />
@@ -93,6 +104,14 @@ export function TeachingsPage() {
           >
             <BarChart3 className="mr-1 h-4 w-4" />
             利用統計
+          </Button>
+          <Button
+            variant={tab === 'penetration' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setTab('penetration')}
+          >
+            <Gauge className="mr-1 h-4 w-4" />
+            浸透度メーター
           </Button>
         </div>
 
@@ -206,6 +225,160 @@ export function TeachingsPage() {
               )}
             </CardContent>
           </Card>
+        )}
+
+        {/* Penetration tab */}
+        {tab === 'penetration' && (
+          <div className="space-y-4">
+            {/* Overall penetration summary */}
+            <div className="grid grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="p-4 text-center">
+                  {penetrationLoading ? (
+                    <Skeleton className="h-12 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold">
+                        {penetrationData ? `${penetrationData.overall_penetration_pct.toFixed(0)}%` : '—'}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        全体浸透度
+                        <InfoTooltip text="登録済みの教えのうち、ソウルくんが実際に1回以上使った割合です（AIによる推定値）" />
+                      </div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  {penetrationLoading ? (
+                    <Skeleton className="h-12 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold">
+                        {penetrationData?.used_teachings ?? 0}
+                        <span className="text-sm text-muted-foreground font-normal">
+                          /{penetrationData?.total_teachings ?? 0}件
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">活用中の教え数</div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4 text-center">
+                  {penetrationLoading ? (
+                    <Skeleton className="h-12 w-full" />
+                  ) : (
+                    <>
+                      <div className="text-3xl font-bold">{penetrationData?.total_usages ?? 0}</div>
+                      <div className="text-xs text-muted-foreground mt-1">総参照回数</div>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Category penetration bars */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-medium">カテゴリ別浸透度</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {penetrationLoading ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={i} className="h-10 w-full" />
+                    ))}
+                  </div>
+                ) : !penetrationData?.by_category.length ? (
+                  <div className="text-center py-4 text-muted-foreground text-sm">データがありません</div>
+                ) : (
+                  <div className="space-y-3">
+                    {penetrationData.by_category.map((cat) => (
+                      <div key={cat.category}>
+                        <div className="flex items-center justify-between text-sm mb-1">
+                          <span className="font-medium">{cat.category}</span>
+                          <span className="text-muted-foreground">
+                            {cat.used_teachings}/{cat.total_teachings}件 使用中・{cat.total_usages}回参照
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary rounded-full h-3">
+                          <div
+                            className={`h-3 rounded-full transition-all ${
+                              cat.penetration_pct >= 70
+                                ? 'bg-green-500'
+                                : cat.penetration_pct >= 40
+                                  ? 'bg-yellow-500'
+                                  : 'bg-destructive'
+                            }`}
+                            style={{ width: `${Math.min(cat.penetration_pct, 100)}%` }}
+                          />
+                        </div>
+                        <div className="text-xs text-right text-muted-foreground mt-0.5">
+                          {cat.penetration_pct.toFixed(0)}%
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Top teachings */}
+            {(penetrationData?.top_teachings.length ?? 0) > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium">
+                    よく使われている教え TOP5
+                    <InfoTooltip text="ソウルくんが判断の際に最もよく参照している教えです" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {penetrationData!.top_teachings.map((t, idx) => (
+                      <div key={t.id} className="flex items-start gap-3 rounded border p-3">
+                        <span className="text-lg font-bold text-muted-foreground w-6 shrink-0">
+                          {idx + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <Badge variant="outline" className="mb-1">{t.category}</Badge>
+                          <p className="text-sm">{t.statement}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <div className="text-sm font-bold">{t.usage_count}回</div>
+                          <div className="text-xs text-muted-foreground">{t.penetration_pct.toFixed(1)}%</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Unused teachings */}
+            {(penetrationData?.unused_teachings.length ?? 0) > 0 && (
+              <Card className="border-orange-200 dark:border-orange-800">
+                <CardHeader>
+                  <CardTitle className="text-sm font-medium text-orange-700 dark:text-orange-300">
+                    未活用の教え（改善チャンス）
+                    <InfoTooltip text="ソウルくんがまだ一度も参照していない教えです。教えの書き方を改善するとより使われるようになります" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-2">
+                    {penetrationData!.unused_teachings.map((t) => (
+                      <div key={t.id} className="flex items-start gap-3 rounded border border-orange-100 dark:border-orange-900 p-3">
+                        <Badge variant="outline">{t.category}</Badge>
+                        <p className="text-sm text-muted-foreground">{t.statement}</p>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </div>
         )}
 
         {/* Stats tab */}

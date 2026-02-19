@@ -8,7 +8,7 @@ google-cloud-firestore==2.23.0
 google-cloud-secret-manager==2.26.0
 google-cloud-logging==3.13.0
 google-cloud-speech==2.36.1
-google-cloud-storage>=2.0.0,<3.0.0
+google-cloud-storage==2.19.0
 google-api-python-client==2.190.0
 jpholiday==1.0.3
 pytz==2025.2

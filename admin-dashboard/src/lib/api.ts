@@ -207,6 +207,11 @@ export const api = {
     getFullDetail: (userId: string) =>
       fetchWithAuth<MemberDetailResponse>(`/admin/members/${userId}/detail`),
 
+    getKeymen: (periodDays = 90) =>
+      fetchWithAuth<import('@/types/api').KeymenResponse>('/admin/members/keymen', {
+        params: { period_days: periodDays },
+      }),
+
     update: (userId: string, data: UpdateMemberRequest) =>
       fetchWithAuth<DepartmentMutationResponse>(`/admin/members/${userId}`, {
         method: 'PUT',
@@ -279,6 +284,9 @@ export const api = {
 
     getStats: () =>
       fetchWithAuth<import('@/types/api').GoalStatsResponse>('/admin/goals/stats'),
+
+    getForecast: () =>
+      fetchWithAuth<import('@/types/api').GoalForecastResponse>('/admin/goals/forecast'),
   },
 
   // Phase 2: Wellness

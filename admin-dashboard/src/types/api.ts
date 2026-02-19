@@ -712,6 +712,59 @@ export interface TeachingPenetrationResponse {
 }
 
 // =============================================================================
+// Phase 3 新機能: Goal Forecast（目標未来予測）
+// =============================================================================
+
+export interface GoalForecastItem {
+  id: string;
+  title: string;
+  user_name: string | null;
+  department_name: string | null;
+  forecast_status: string; // ahead / on_track / at_risk / stalled / no_data
+  progress_pct: number | null;
+  deadline: string | null;
+  projected_completion_date: string | null;
+  days_to_deadline: number | null;
+  days_ahead_or_behind: number | null;
+  current_value: number | null;
+  target_value: number | null;
+  unit: string | null;
+  slope_per_day: number | null;
+}
+
+export interface GoalForecastResponse {
+  status: string;
+  total_active: number;
+  ahead_count: number;
+  on_track_count: number;
+  at_risk_count: number;
+  stalled_count: number;
+  forecasts: GoalForecastItem[];
+}
+
+// =============================================================================
+// Phase 3 新機能: Key Person Score（隠れたキーマン発見）
+// =============================================================================
+
+export interface KeyPersonScore {
+  user_id: string;
+  name: string | null;
+  department_name: string | null;
+  total_requests: number;
+  active_days: number;
+  tiers_used: number;
+  score: number;
+  rank: number;
+  recent_trend: string; // rising / stable / declining
+}
+
+export interface KeymenResponse {
+  status: string;
+  period_days: number;
+  top_keymen: KeyPersonScore[];
+}
+
+// =============================================================================
 // Emergency Stop
 // =============================================================================
 

@@ -19,7 +19,7 @@ import {
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { api } from '@/lib/api';
-import type { DashboardSummaryResponse, BrainMetricsResponse } from '@/types/api';
+import type { DashboardSummaryResponse, BrainMetricsResponse, GoalStatsResponse } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -33,6 +33,9 @@ import {
   Clock,
   Activity,
   Zap,
+  TrendingUp,
+  Target,
+  Flame,
 } from 'lucide-react';
 
 type Period = 'today' | '7d' | '30d';
@@ -58,6 +61,11 @@ export function DashboardPage() {
       queryKey: ['brain-metrics-dashboard', brainDays],
       queryFn: () => api.brain.getMetrics(brainDays),
     });
+
+  const { data: goalStats } = useQuery<GoalStatsResponse>({
+    queryKey: ['goal-stats'],
+    queryFn: () => api.goals.getStats(),
+  });
 
   if (summaryLoading) {
     return (
@@ -92,6 +100,15 @@ export function DashboardPage() {
     dateLabel: format(parseISO(m.date), 'M/d'),
   }));
 
+  const totalCost = chartData.reduce((sum, m) => sum + m.cost, 0);
+  const totalConversations = chartData.reduce((sum, m) => sum + m.conversations, 0);
+  const costPerConv = totalConversations > 0 ? Math.round(totalCost / totalConversations) : 0;
+
+  const urgentAlerts = alerts
+    .filter((a) => !a.is_resolved)
+    .sort((a, b) => (a.severity === 'critical' ? -1 : b.severity === 'critical' ? 1 : 0))
+    .slice(0, 3);
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -118,6 +135,82 @@ export function DashboardPage() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Executive KPI Section */}
+        <div className="grid gap-4 md:grid-cols-3">
+          {/* ROI: 1会話あたりコスト */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                1会話あたりコスト（ROI）
+                <InfoTooltip text="AIにかかった費用を会話数で割った値です。低いほどコスト効率が良い状態です" />
+              </CardTitle>
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">¥{costPerConv.toLocaleString()}</div>
+              <p className="text-xs text-muted-foreground">
+                {PERIOD_LABELS[period]}の合計 ¥{Math.round(totalCost).toLocaleString()} / {totalConversations.toLocaleString()}会話
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* 全社目標達成率 */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                全社目標達成率
+                <InfoTooltip text="現在進行中の全ての目標のうち、達成済みの割合です" />
+              </CardTitle>
+              <Target className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">
+                {goalStats ? `${Math.round(goalStats.completion_rate)}%` : '—'}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {goalStats
+                  ? `達成 ${goalStats.completed_goals}件 / 全体 ${goalStats.total_goals}件`
+                  : 'データ取得中...'}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* トップ3緊急案件 */}
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">
+                緊急対応が必要な案件
+                <InfoTooltip text="未解決のアラートのうち、優先度が高い順に最大3件を表示します" />
+              </CardTitle>
+              <Flame className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              {urgentAlerts.length === 0 ? (
+                <p className="text-sm text-green-600 font-medium">緊急案件なし ✓</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {urgentAlerts.map((alert) => (
+                    <div key={alert.id} className="flex items-center gap-2 text-sm">
+                      <Badge
+                        variant={alert.severity === 'critical' ? 'destructive' : 'secondary'}
+                        className="text-xs shrink-0"
+                      >
+                        {alert.severity === 'critical' ? '緊急' : '警告'}
+                      </Badge>
+                      <span className="truncate text-xs">{alert.alert_type}</span>
+                    </div>
+                  ))}
+                  {alerts.filter((a) => !a.is_resolved).length > 3 && (
+                    <p className="text-xs text-muted-foreground">
+                      他 {alerts.filter((a) => !a.is_resolved).length - 3}件の未解決アラートがあります
+                    </p>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
 
         {/* KPI Grid */}

@@ -205,44 +205,28 @@
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
 
-## Phase B-1 mask_email PIIマスキング (fix/currency-display-jpy, reviewed 2026-02-19)
-
-- `lib/logging.py` に `mask_email(email: str) -> str` を追加（行328-347）
-- `lib/drive_permission_manager.py` の10箇所を `{email}` → `{mask_email(email)}` に変更
-- **WARNING: 修正漏れ2箇所** — `update_permission()` の lines 542, 568 に `{email}` 生ログが残存
-  - line 542: `f"[DRY RUN] Would update permission: {email} {permission.role.value}..."` (masked なし)
-  - line 568: `f"Updated permission: {email} {permission.role.value}..."` (masked なし)
-  - 3コピー全てに同じ漏れあり（lib/, chatwork-webhook/lib/, proactive-monitor/lib/）
-- **SUGGESTION: `@nodomain` エッジケース** — `"@nodomain".split("@",1)` → `local=""`, `len("")<=1` → `*@nodomain` を返す。意図は不明だが実害なし（空localは無効メール）
-- **SUGGESTION: `mask_email()` 専用ユニットテストなし** — `test_memory_sanitizer.py:64` の `test_mask_email` は `mask_pii()` のテスト。`lib.logging.mask_email` 直接テストは存在しない
-- **SUGGESTION: `google_docs_client.py` line 360** — `logger.info(f"Shared document {document_id} with {len(email_addresses)} users")` はカウントのみで生メール非ログ。対象外（スコープ外として正しい）
-- `PermissionChange.email` フィールドへの生メール保存は設計上正当（ビジネスロジック構造体）
-- 3-copy sync: lib/ = chatwork-webhook/lib/ = proactive-monitor/lib/ 全一致（確認済み）— ただし漏れも3コピー全て同じ
-
-## Phase A-2 document_generator.py タイムアウト有効化 (fix/currency-display-jpy, reviewed 2026-02-19)
-
-- 対象: `lib/capabilities/generation/document_generator.py`
-- `_call_llm` / `_call_llm_json` は pure async (httpx.AsyncClient を直接 await) — asyncio.to_thread は使っていない
-- `asyncio.wait_for + asyncio.to_thread` の禁止パターン (#20) に該当しない
-- タイムアウト定数は constants.py で正しく定義 (OUTLINE=60, SECTION=120)
-- **WARNING: `asyncio.TimeoutError` が `OutlineGenerationError` に変換されるが `OutlineTimeoutError` にならない**
-  - `_generate_outline` の `except Exception as e` が `asyncio.TimeoutError` を `OutlineGenerationError` にラップ
-  - `_generate_section` の `asyncio.TimeoutError` は呼び出し元 `_generate_full_document` の `except Exception` で `SectionGenerationError` にラップ
-  - 専用クラス `OutlineTimeoutError`/`SectionTimeoutError` が存在するが使われない
-- **WARNING: `import time` が関数本体内にある (line 506)** — 通常は module-level に置くべき
-- **WARNING: `str(e)` をユーザー向けエラー応答に含める箇所あり (lines 164, 175, 186)** — 既存の pre-existing 問題
-- **SUGGESTION: タイムアウトテストなし** — `test_generation.py` にタイムアウト時の `_generate_outline`/`_generate_section` 動作テストがない (例外クラスのユニットテストのみ)
-- 3-copy sync: lib/ = chatwork-webhook/lib/ = proactive-monitor/lib/ 全一致（確認済み）
-
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614
 - `topics/admin_dashboard_frontend.md`: admin-dashboard フロントエンドレビューパターン (Phase A-1 通貨表示バグ修正等)
+- `topics/phase_b2_audit_db_write.md`: Phase B-2 監査ログDB永続保存 詳細レビュー結果
 
-## Phase A-1 admin-dashboard 通貨表示修正 (fix/currency-display-jpy, reviewed 2026-02-19)
+## fix/currency-display-jpy ブランチ フェーズ別サマリー
 
-- **CRITICAL**: `kpi-card.test.tsx` line 22 の `'$42.50'` → `'¥43'`（またはテスト入力を整数に変更）
-- 変更4ファイル: kpi-card.tsx, costs.tsx, dashboard.tsx, brain.tsx — 13箇所の $ を ¥ に変更
-- 残存 $ 表示: 0件（網羅性確認済み）
-- `api/app/schemas/admin.py` の "（USD）" 記述: 既に存在しない（前回記録の残存事項は解消済み）
-- WARNING: dashboard.tsx `予算残高` カードのツールチップに通貨単位記述なし
+### Phase A-1 admin-dashboard 通貨表示修正
+- CRITICAL: `kpi-card.test.tsx` line 22 `'$42.50'` → `'¥43'` 要修正
+- 変更4ファイル 13箇所 $ → ¥ 変更済み。WARNING: `予算残高` ツールチップに通貨単位なし
+
+### Phase A-2 document_generator.py タイムアウト有効化
+- WARNING: `asyncio.TimeoutError` が専用クラスでなく汎用 `*GenerationError` にラップされる
+- WARNING: `import time` が関数本体内にある (line 506)
+- 詳細: `lib/capabilities/generation/document_generator.py`
+
+### Phase B-1 mask_email PIIマスキング
+- WARNING: `lib/drive_permission_manager.py` lines 542, 568 に `{email}` 生ログ残存 (3コピー全て)
+- SUGGESTION: `mask_email()` 専用ユニットテストなし
+
+### Phase B-2 監査ログDB永続保存
+- WARNING: `lib/audit.py` line 367 `logger.warning("... %s", db_err)` — db_err に接続情報含む可能性 → `type(db_err).__name__` 推奨
+- WARNING: `batch_N_folders` / `batch_N_items` の resource_id が DB で NULL 化 (非UUID のため)
+- 詳細: `topics/phase_b2_audit_db_write.md`

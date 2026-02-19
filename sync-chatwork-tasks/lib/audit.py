@@ -32,6 +32,8 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from enum import Enum
 
+from lib.logging import mask_email
+
 logger = logging.getLogger(__name__)
 
 
@@ -304,9 +306,68 @@ async def log_audit_async(
 
         logger.info(f"📝 Audit: {json.dumps(log_entry, ensure_ascii=False)}")
 
-        # TODO: Phase 4でDB書き込みを追加
-        # async with get_async_db_pool() as conn:
-        #     await conn.execute(...)
+        # DB書き込み（asyncpg経由）
+        try:
+            from uuid import UUID as _UUID
+            from lib.db import get_async_db_pool
+            from sqlalchemy import text
+
+            def _to_uuid_or_none(value: Optional[str]) -> Optional[str]:
+                """文字列がUUIDとして有効な場合のみ返す。無効またはNoneの場合はNoneを返す"""
+                if not value:
+                    return None
+                try:
+                    _UUID(value)
+                    return value
+                except (ValueError, AttributeError):
+                    logger.debug("Non-UUID value stored as NULL in audit_logs: %s", value[:20])
+                    return None
+
+            # バッチ処理ID（例: "batch_10_folders"）はUUIDでないためDB上はNULL保存。
+            # 元の値はCloud Loggingとdetailsに残るため追跡可能。
+            resource_uuid = _to_uuid_or_none(resource_id)
+            user_uuid = _to_uuid_or_none(user_id)
+
+            pool = await get_async_db_pool()
+            async with pool.connect() as conn:
+                await conn.execute(
+                    text("""
+                        INSERT INTO audit_logs (
+                            organization_id, user_id, action, resource_type,
+                            resource_id, resource_name, classification,
+                            details, created_at
+                        ) VALUES (
+                            :org_id,
+                            CAST(:user_id AS UUID),
+                            :action,
+                            :resource_type,
+                            CAST(:resource_id AS UUID),
+                            :resource_name,
+                            :classification,
+                            CAST(:details AS JSONB),
+                            :created_at
+                        )
+                    """),
+                    {
+                        "org_id": organization_id,
+                        "user_id": user_uuid,
+                        "action": action,
+                        "resource_type": resource_type,
+                        "resource_id": resource_uuid,
+                        "resource_name": resource_name,
+                        "classification": classification,
+                        "details": json.dumps(details, ensure_ascii=False) if details else None,
+                        "created_at": datetime.now(timezone.utc),
+                    }
+                )
+                await conn.commit()
+
+            logger.info("Audit DB logged: %s %s/%s", action, resource_type, resource_id)
+
+        except Exception as db_err:
+            # DB書き込み失敗はCloud Loggingにフォールバック（non-blocking）
+            # Rule #8: 内部DB情報を隠蔽するため例外クラス名のみログに出力
+            logger.warning("Audit DB write failed (non-blocking): %s", type(db_err).__name__)
 
         return True
 
@@ -344,7 +405,7 @@ async def log_drive_permission_change(
         True: 成功
     """
     details = {
-        "email": email,
+        "email": mask_email(email),
         "dry_run": dry_run,
     }
     if role:

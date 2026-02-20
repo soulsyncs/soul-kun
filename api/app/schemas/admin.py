@@ -401,6 +401,7 @@ class MemberDetailResponse(BaseModel):
     )
     chatwork_account_id: Optional[str] = Field(None, description="ChatWorkアカウントID")
     is_active: bool = Field(True, description="有効か")
+    hire_date: Optional[dt.datetime] = Field(None, description="入社日（主所属部署の開始日）")
     created_at: Optional[dt.datetime] = Field(None, description="作成日時")
     updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
 

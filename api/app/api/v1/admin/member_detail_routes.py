@@ -89,7 +89,7 @@ async def get_member_full_detail(
                     SELECT
                         ud.department_id, d.name as dept_name,
                         r.name as role_name, r.level as role_level,
-                        ud.is_primary
+                        ud.is_primary, ud.started_at
                     FROM user_departments ud
                     JOIN departments d ON ud.department_id = d.id
                     LEFT JOIN roles r ON ud.role_id = r.id
@@ -112,6 +112,12 @@ async def get_member_full_detail(
             )
             for row in dept_rows
         ]
+
+        # 主所属の開始日を入社日として取得
+        hire_date = next(
+            (row[5] for row in dept_rows if row[4]),  # is_primary = True
+            dept_rows[0][5] if dept_rows else None,   # フォールバック: 最初の部署
+        )
 
         # 最高ロールレベルを取得
         max_role_level = max(
@@ -141,6 +147,7 @@ async def get_member_full_detail(
             departments=departments,
             chatwork_account_id=user_row[3],
             is_active=bool(user_row[4]) if user_row[4] is not None else True,
+            hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
         )

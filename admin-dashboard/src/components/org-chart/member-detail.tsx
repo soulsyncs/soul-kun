@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil } from 'lucide-react';
+import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil, Briefcase } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -162,6 +162,13 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
               {detail?.is_active !== false ? '在籍中' : '非アクティブ'}
             </Badge>
           </div>
+
+          {formatDate(detail?.hire_date ?? null) && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Briefcase className="h-3 w-3" />
+              入社日: {formatDate(detail?.hire_date ?? null)}
+            </div>
+          )}
 
           {formatDate(detail?.created_at ?? null) && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">

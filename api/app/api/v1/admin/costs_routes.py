@@ -16,6 +16,7 @@ from .deps import (
     JST,
     logger,
     require_admin,
+    require_editor,
     UserContext,
 )
 from app.schemas.admin import (
@@ -540,7 +541,7 @@ async def get_ai_roi(
 )
 async def update_monthly_budget(
     body: BudgetUpdateRequest,
-    user: UserContext = Depends(require_admin),
+    user: UserContext = Depends(require_editor),
 ):
     """月間予算を設定"""
 

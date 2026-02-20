@@ -66,7 +66,12 @@
 
 ## Known open issues (pre-existing, not introduced by any reviewed PR)
 
-- `lib/brain/episodic_memory.py` line 251: keywords logged at INFO (PII leak risk)
+- `lib/brain/episodic_memory.py` `save_episode()`: **FIXED** in Task A implementation — now has set_config RLS context, 3-copy sync done, error handling with rollback+invalidate. See episodic_memory.py review below.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW WARNING** — `brain_episodes` table has `room_id` and `source` columns that are not inserted (INSERT omits them). Both are nullable, so no runtime error, but data is incomplete.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW WARNING** — `set_config(..., NULL, false)` may fail on some PostgreSQL versions (NULL not valid for set_config text parameter). state_manager.py uses the same pattern — treat as consistent but note risk. Actual behavior: PostgreSQL accepts NULL and sets to empty string.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW CRITICAL** — `self.pool.connect()` is synchronous blocking called directly (not via asyncio.to_thread()). create_episode() is sync, but callers in async chain (Brain nodes) will block the event loop. Must use asyncio.to_thread() or check _is_async_pool.
+- `lib/brain/episodic_memory.py` line 443: `message[:50]` logged in recall() debug — message content (PII) in logs. DEBUG only, harmless in prod.
+- `lib/brain/episodic_memory.py` `_generate_episode_id()`: uuid5(NAMESPACE_DNS, content) where content = f"{summary}_{occurred_at.isoformat()}". If two different episodes have the same summary+time, they will silently collide (ON CONFLICT DO UPDATE). This is a design choice, not a bug per se.
 - `lib/brain/alert_sender.py` line 78: hardcoded ChatWork room ID `"417892193"` as default
 - `lib/brain/integration.py` lines 624, 630: bare `asyncio.create_task()` (not _fire_and_forget)
 - `lib/brain/authorization_gate.py` line 378, `memory_access.py` line 348, `agents/base.py` line 669: same pattern
@@ -89,6 +94,16 @@
 - `result.error_message` propagated to user message in generation.py lines 165, 279, 378. Pre-existing (same in old bridge).
 - 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical (verified).
 - audit logging: NO audit calls in any capabilities/ handler. Pre-existing gap (old bridge same).
+
+## memory_layer.py / context_builder.py RLS パターン (タスクE 2026-02-21, 最終確認)
+
+- `BrainLearning._connect_with_org_context()`: `lib/brain/learning.py` line 266, 引数なし(@contextmanager), `self.org_id` を set_config する。finally でクリアあり（ただし try/except なし → finally 内で例外が発生する可能性あり）
+- **タスクE修正済み**: memory_layer.py `_fetch_learnings()` が `self.pool.connect()` → `self.learning._connect_with_org_context()` に修正。3コピー同期PASS。
+- **タスクE修正済み**: context_builder.py `_fetch_all_db_data()` に set_config org_id 設定追加。クリアは try/except（try/finally でない）。
+- **残存RLS漏れ (WARNING)**: `lib/brain/context_builder.py` line 1106 `_get_phase2e_learnings()` の `_sync_fetch()` が `self.pool.connect()` のまま。ただし現在この関数は asyncio.gather から呼ばれておらず `_fetch_all_db_data` 統合後はデッドコード化している可能性あり（line 1055「DEPRECATED」コメント確認要）。
+- **RLSクリアの安全性**: context_builder.py の RLS クリアは try/except（not try/finally）。最後のクエリ（query_9_ceo）が失敗して例外が catch されると `with pool.connect() as conn:` ブロックの外側 except に飛ぶため、クリア処理がスキップされる可能性あり。ただし中間 9クエリはそれぞれ個別 try/except でロールバックされ外側 except には飛ばない設計なので、実際のリスクは低い。
+- `_connect_with_org_context()` の finally は try/except なし → finally 内の NULL set_config が失敗した場合 TypeError が伝播する（pre-existing）
+- 詳細: `topics/memory_layer_rls_patterns.md`
 
 ## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
 
@@ -491,6 +506,103 @@
 
 ### 3コピー同期
 - proactive-monitor/main.py は lib/ のコピーではなく独自ファイル。同期不要。PASS。
+
+## Task B: _update_user_preference (lib/brain/learning.py, 2026-02-21)
+
+### DB schema key facts (verified from db_schema.json)
+- `user_preferences` exists in BOTH soulkun (root section) and soulkun_tasks schema
+  - Root section (`"user_preferences"`): organization_id=uuid, user_id=uuid, preference_type=varchar, preference_key=varchar, preference_value=jsonb, learned_from=varchar, confidence=numeric, sample_count=integer, classification=varchar. NO `id` column listed in flat section.
+  - soulkun_tasks section (`"soulkun_tasks.user_preferences"`): same columns, id=uuid NOT NULL
+- `soulkun_tasks.users`: organization_id = **character varying** (NOT uuid). `id` = uuid. `chatwork_account_id` = character varying (nullable=true)
+- The pool in BrainLearning is passed from core/initialization.py (same pool used for brain_decision_logs). Likely soulkun_tasks DB.
+
+### CRITICAL issue found
+- **C-1 (CRITICAL)**: `WHERE u.organization_id = :org_id` in both INSERTs — `soulkun_tasks.users.organization_id` is **character varying**, NOT uuid. `CAST(:org_id AS uuid)` casts org_id to uuid for the INSERT value (correct), but the WHERE clause `u.organization_id = :org_id` passes org_id as text compared to varchar column — this is correct. NO PROBLEM here.
+- **C-2 (CRITICAL)**: `learned_from = 'behavior'` in INSERT — `LearnedFrom` enum in `lib/memory/constants.py` has values: `AUTO="auto"`, `EXPLICIT="explicit"`, `A4_EMOTION="a4_emotion"`. `'behavior'` is NOT a valid LearnedFrom value. The column is varchar so no DB constraint prevents insert, but the value is semantically wrong and inconsistent with the enum.
+- **C-3 (CRITICAL — async blocking)**: `_update_user_preference` is `async def` but calls `self._begin_with_org_context()` which calls `self.pool.begin()` synchronously. Same pattern as pre-existing bug in episodic_memory.py. Blocks the event loop.
+
+### WARNING issues found
+- **W-1**: `json.dumps(interaction_outcome)` where `interaction_outcome = "success"` or `"failure"` → produces `'"success"'` (JSON string with quotes). This is valid JSONB but storing a JSON-encoded string as the value of a JSONB column is unusual. `CAST('"success"' AS jsonb)` is valid in PostgreSQL. Functionally correct but semantically odd — direct string `"success"` without json.dumps would be stored as JSONB text type too via `CAST('success' AS jsonb)` (without quotes this would FAIL since 'success' is not valid JSON). So json.dumps is actually REQUIRED here. PASS.
+- **W-2**: `communication` PreferenceType value — `PreferenceType.COMMUNICATION = "communication"` is valid (line 55 of constants.py). `feature_usage` = `PreferenceType.FEATURE_USAGE = "feature_usage"` is also valid (line 54). Both preference_type values MATCH the enum. PASS.
+- **W-3 (WARNING)**: `_begin_with_org_context` is used for WRITE operations (INSERT) — correct choice over `_connect_with_org_context`. Provides transaction semantics. PASS.
+- **W-4 (WARNING)**: No audit log for user preference writes. Not required (not confidential+ operation per CLAUDE.md §3 鉄則#3), PASS.
+- **W-5 (SUGGESTION)**: `import sqlalchemy` is inside the function body (line 731). Should be at module top. Pre-existing pattern in this file (same in `_save_decision_log`).
+
+### org_id filter check (C-5)
+- INSERT uses subquery: `WHERE u.organization_id = :org_id AND u.chatwork_account_id = :account_id` — correct org isolation. If account_id not found for this org, zero rows inserted (safe failure). PASS.
+- `CAST(:org_id AS uuid)` for the INSERT value is correct (organization_id column is uuid type). PASS.
+
+### PII check
+- `account_id` NOT in logs (line 801 explicitly notes CLAUDE.md §9-3). PASS.
+- `response_style` and `interaction_outcome` are enum-like strings, not PII. PASS.
+
+## Task D: episodic_memory recall → Brain context pipeline (feature/admin-dashboard-phase2, 2026-02-21)
+
+### 変更概要（3ファイル）
+- `lib/brain/core/initialization.py`: `from lib.brain.episodic_memory import create_episodic_memory` 追加。`self.episodic_memory = create_episodic_memory(pool=pool, organization_id=org_id)` を `BrainMemoryAccess` 初期化直後に追加。
+- `lib/brain/models.py` line 719: `recent_episodes: List[Any] = field(default_factory=list)` を `BrainContext` に追加。
+- `lib/brain/core/memory_layer.py` lines 200-211: Phase 2E ブロック直後に episodic recall ブロックを追加。
+
+### 3コピー同期確認（PASS）
+- 3コピー全て同一: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ — `recent_episodes` (models.py), recall ブロック (memory_layer.py), `create_episodic_memory` import (initialization.py) 全て IDENTICAL。
+
+### recall() の特性（重要）
+- `recall()` は `self._memory_cache: Dict[str, Episode]` のみ参照（DB呼び出しなし、I/Oなし）
+- `_recall_by_keywords`, `_recall_by_entities`, `_recall_by_temporal`, `_score_and_rank`, `_update_recall_stats` — 全てin-memoryのみ
+- `asyncio.to_thread()` の使用は技術的に正しい（GILリリース、CPU仕事のオフロード）が実質不要（I/Oなし）。正確性は保たれているが誤解を招くコメント。
+
+### CRITICAL issues
+- **なし**（セキュリティ・データ整合性・Brain architecture 上の blocking issue は見つからなかった）
+
+### WARNING issues
+- **W-1 (型の弱さ)**: `recent_episodes: List[Any]` は型情報を失っている。正確には `List[RecallResult]` であるべき。ただし `RecallResult` は `episodic_memory.py` で定義されており models.py が直接 import するのが適切か要検討（循環 import リスクはない、episodic_memory.py は models.py を import しないため）。
+- **W-2 (PII in logs)**: `episodic_memory.py` line 463 `f"... {message[:50]}..."` — recall() 内で message 先頭50文字をDEBUGログに出力。PRE-EXISTING（Task Dで新規導入ではない）。DEBUG levelなのでprodで問題なし。
+- **W-3 (ダミー想起)**: `_memory_cache` はインスタンス生成時に空（`{}`）。Task Aで save_episode() 実装済みだが、キャッシュへの populate が async 経由（DB→キャッシュへの初回ロードは未実装）。つまり実行時に recall() は常に空リストを返す可能性が高い。`recent_episodes` は常に空で LLM に渡されない。機能的デッドコードの可能性。
+
+### SUGGESTION issues
+- **S-1 (asyncio.to_thread 不要)**: recall() は純粋にin-memory（I/Oなし）。`asyncio.to_thread()` は技術的に害はないが unnecessary overhead。コメント「キャッシュ参照のみ、高速」と矛盾している（to_threadはスレッドプール経由でむしろ遅い）。将来的にDB呼び出しが追加された場合に備えた防衛的コードとも解釈できる。
+- **S-2 (hasattr ガード)**: `hasattr(self, 'episodic_memory')` は防衛的だが、`initialization.py` で `self.episodic_memory` が必ず設定されるため通常不要。ただしテスト時などで Brain が部分初期化された場合の安全ガードとして妥当。
+- **S-3 (recent_episodes の消費先がない)**: `recent_episodes` は `BrainContext` に格納されるが、`build_context.py`（LangGraph）も `context_builder.py`（LLM Brain）も `recent_episodes` を参照していない。LLM プロンプトに挿入されない。格納するだけで LLM に渡らない — Task D は「パイプラインに接続」と銘打っているが実際には未接続。
+
+### org_id filter (PASS)
+- `EpisodicMemory.recall()` はin-memory cacheのみ参照。cacheは `self.organization_id` をキーとして org 分離されたインスタンス（`create_episodic_memory(organization_id=org_id)`）が保持。org_id leakなし。
+
+## Task C: _update_conversation_summary (lib/brain/learning.py, 2026-02-21)
+
+### 変更概要
+- `BrainLearning.__init__` に `get_ai_response_func` 追加 + `_summary_update_times` dict追加
+- `update_memory()` に `_should_update_summary(room_id)` 条件追加
+- 新規: `_update_conversation_summary()`, `_build_summary_prompt()`, `_call_ai_for_summary()`, `_parse_summary_response()`, `_save_summary_sync()`, `_should_update_summary()`
+
+### DB schema 確認（conversation_summaries）
+- `conversation_summaries` は db_schema.json の root section には **ない**（tables セクションに存在）
+- `tables.conversation_summaries`: id=uuid, organization_id=uuid, user_id=uuid, summary_text=text, key_topics=ARRAY, mentioned_persons=ARRAY, mentioned_tasks=ARRAY, conv_start/end=timestamptz, message_count=int, room_id=varchar, generated_by=varchar, classification=varchar
+- **UNIQUE 制約なし** (organization_id, user_id, ...) → ON CONFLICT なし INSERT は重複行を生成しうる
+- マイグレーション: `migrations/phase2_b_memory_framework.sql` で CREATE TABLE 定義確認済み
+
+### CRITICAL issues
+- なし（セキュリティ・テナント分離上のブロッカーなし）
+
+### WARNING issues
+- **W-1 (テストカバレッジ不足)**: `test_brain_learning.py` の `brain_learning` fixture に `get_ai_response_func` がない。`test_update_memory_generates_summary_when_threshold` でサマリー生成テストは通るが、実際は `get_ai_response` が None → LLM スキップ → `_update_conversation_summary` は return False。つまりテストは「サマリー生成パスを通らずに PASS」している。LLM あり時のサマリー実際生成パス（`_build_summary_prompt`, `_call_ai_for_summary`, `_parse_summary_response`, `_save_summary_sync`）に対するテストが存在しない。
+- **W-2 (重複行の可能性)**: `conversation_summaries` に UNIQUE 制約なし。同じ room_id + user_id で SUMMARY_THRESHOLD を何度も超えた場合、ON CONFLICT なし INSERT により重複行が蓄積する。`_should_update_summary()` の 30分間隔制御はメモリ上のみ（プロセス再起動でリセット）。
+- **W-3 (mentioned_persons が PII)**: `_build_summary_prompt` で LLM に人名抽出を依頼 → `mentioned_persons` 列に人名がDBに保存される。CLAUDE.md §9-2「業務に必要な事実は覚える」に合致するが、§9-3「名前は監査ログに入れない」との境界が曖昧。ここは会話記憶であり監査ログではないため設計上は許容範囲。
+- **W-4 (create_learning factory に get_ai_response_func なし)**: line 1587 の `create_learning()` ファクトリ関数に `get_ai_response_func` パラメータが追加されていない。直接 `BrainLearning(...)` を使う initialization.py は問題ないが、他の呼び出し元（テスト等）が `create_learning()` を使う場合にサマリー機能を有効化できない。
+
+### SUGGESTION issues
+- **S-1**: `_parse_summary_response` の `re.search(r'\{[\s\S]*\}', response)` — 貪欲マッチ。通常のLLMレスポンス（数百文字）ではReDoSリスクなし。
+- **S-2**: `_build_summary_prompt` の各メッセージを `msg.content[:200]` でカット。最大20件×200文字 = 4000文字がプロンプトに含まれる。許容範囲。
+
+### PASS
+- 3コピー同期: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL
+- asyncio.to_thread 使用正しい（`_save_summary_sync` は同期関数→to_thread経由）
+- pool は QueuePool（同期）。to_thread 内で _begin_with_org_context → pool.begin() は正しい
+- org_id フィルタ: INSERT の SELECT サブクエリで `WHERE u.organization_id = :org_id AND u.chatwork_account_id = :account_id` — 正しいテナント分離
+- `CAST(:org_id AS uuid)` for INSERT value — conversation_summaries.organization_id は uuid 型 → 正しい
+- `u.organization_id = :org_id` (users テーブル) — users.organization_id は character varying → text パラメータの比較は正しい
+- PII ログなし: account_id はログに出ない（line 849-853で明示的に除外）
+- LLM 不使用時 return False — ゴミデータをDBに入れない設計は正しい
+- `_should_update_summary` の成功時のみ `_summary_update_times` 更新（失敗時は次回再試行できる設計）
 
 ## Topic files index
 

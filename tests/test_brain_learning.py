@@ -691,7 +691,7 @@ class TestUpdateMemory:
         brain_learning,
         sample_handler_result,
     ):
-        """会話数が閾値を超えるとサマリーが生成される"""
+        """LLM未設定時: 閾値を超えてもサマリーは生成されない（LLMが必要）"""
         # 閾値以上の会話を持つコンテキスト
         context_with_many_msgs = BrainContext(
             sender_account_id="12345",
@@ -709,6 +709,60 @@ class TestUpdateMemory:
         )
 
         result = await brain_learning.update_memory(
+            message="タスクを教えて",
+            result=sample_handler_result,
+            context=context_with_many_msgs,
+            room_id="room123",
+            account_id="user456",
+            sender_name="テストユーザー",
+        )
+
+        # LLM未設定のためサマリーは生成されない
+        assert result.summary_generated is False
+
+    @pytest.mark.asyncio
+    async def test_update_memory_generates_summary_with_llm(
+        self,
+        mock_pool,
+        mock_firestore,
+        sample_handler_result,
+    ):
+        """LLM設定時: 閾値超で会話要約がDBに保存される（タスクC）"""
+        # LLMモック: 有効なJSONサマリーを返す
+        mock_ai = AsyncMock(return_value=
+            '{"summary_text": "テスト要約", "key_topics": ["タスク"], '
+            '"mentioned_persons": [], "mentioned_tasks": []}'
+        )
+
+        # DBモック: 重複チェックでNone（新規挿入パス）
+        mock_conn = MagicMock()
+        mock_conn.execute.return_value.fetchone.return_value = None
+        mock_pool.begin.return_value.__enter__.return_value = mock_conn
+
+        bl = BrainLearning(
+            pool=mock_pool,
+            org_id="org_test",
+            firestore_db=mock_firestore,
+            enable_learning=True,
+            get_ai_response_func=mock_ai,
+        )
+
+        context_with_many_msgs = BrainContext(
+            sender_account_id="12345",
+            sender_name="テストユーザー",
+            recent_conversation=[
+                ConversationMessage(
+                    role="user" if i % 2 == 0 else "assistant",
+                    content=f"メッセージ{i}",
+                    timestamp=datetime.now() - timedelta(minutes=i),
+                )
+                for i in range(SUMMARY_THRESHOLD + 5)
+            ],
+            organization_id="org_test",
+            room_id="room123",
+        )
+
+        result = await bl.update_memory(
             message="タスクを教えて",
             result=sample_handler_result,
             context=context_with_many_msgs,

@@ -178,12 +178,13 @@ class MemoryLayerMixin:
                     for knowledge in memory_context["relevant_knowledge"]
                 ]
 
-            # Phase 2E: 適用可能な学習をコンテキストに追加
+            # Phase 2E: 適用可能な学習をコンテキストに追加（タスクE: RLSコンテキスト修正）
             # asyncio.to_thread()で同期DB呼び出しをオフロード
+            # 注意: brain_learnings はRLS有効のため _connect_with_org_context() が必須
             if self.learning.phase2e_learning:
                 try:
                     def _fetch_learnings():
-                        with self.pool.connect() as conn:
+                        with self.learning._connect_with_org_context() as conn:
                             applicable = self.learning.phase2e_learning.find_applicable(
                                 conn, message or "", None, user_id, room_id
                             )
@@ -196,6 +197,19 @@ class MemoryLayerMixin:
                         context.phase2e_learnings = result
                 except Exception as e:
                     logger.warning(f"Error fetching Phase 2E learnings: {type(e).__name__}")
+
+            # タスクD: エピソード記憶を想起（キャッシュ参照のみ、高速）
+            # recall()はin-memoryキャッシュを参照するため to_thread で安全に呼ぶ
+            if message and hasattr(self, 'episodic_memory') and self.episodic_memory:
+                try:
+                    recall_results = await asyncio.to_thread(
+                        self.episodic_memory.recall, message, user_id
+                    )
+                    if recall_results:
+                        context.recent_episodes = recall_results
+                        logger.debug("Recalled %d episodes", len(recall_results))
+                except Exception as e:
+                    logger.warning(f"Error recalling episodes: {type(e).__name__}")
 
             logger.debug(
                 f"Context loaded: conversation={len(context.recent_conversation)}, "

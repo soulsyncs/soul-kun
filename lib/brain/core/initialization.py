@@ -51,6 +51,9 @@ from lib.brain.deep_understanding.emotion_reader import create_emotion_reader
 # v10.46.0: 観測機能（Observability Layer）
 from lib.brain.observability import create_observability
 
+# タスクD: エピソード記憶（過去の出来事を想起）
+from lib.brain.episodic_memory import create_episodic_memory
+
 logger = logging.getLogger(__name__)
 
 
@@ -107,6 +110,12 @@ class InitializationMixin:
             hybrid_searcher=hybrid_searcher,
         )
 
+        # タスクD: エピソード記憶（過去の出来事を記憶・想起）
+        self.episodic_memory = create_episodic_memory(
+            pool=pool,
+            organization_id=org_id,
+        )
+
         # 状態管理層の初期化
         self.state_manager = BrainStateManager(
             pool=pool,
@@ -137,13 +146,14 @@ class InitializationMixin:
             enable_retry=True,
         )
 
-        # 学習層の初期化
+        # 学習層の初期化（タスクC: get_ai_response_funcで会話要約生成を有効化）
         self.learning = BrainLearning(
             pool=pool,
             org_id=org_id,
             firestore_db=firestore_db,
             enable_logging=True,
             enable_learning=True,
+            get_ai_response_func=get_ai_response_func,
         )
 
         # Phase 2E: 学習ループの初期化（フィードバック→判断改善）

@@ -8,14 +8,16 @@ Ultimate Brain Architecture - Phase 2: エピソード記憶
 重要な出来事を長期記憶し、関連する場面で想起する。
 """
 
-import hashlib
+import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
-from uuid import UUID
+from uuid import UUID, NAMESPACE_DNS, uuid5
+
+from sqlalchemy import text as sql_text
 
 from .constants import JST
 
@@ -174,6 +176,8 @@ class EpisodicMemory:
         self.pool = pool
         self.organization_id = organization_id
         self._memory_cache: Dict[str, Episode] = {}
+        self._bg_tasks: set = set()  # run_in_executor futureの参照保持（GC防止）
+        self._cache_loaded: bool = False  # W-3: 起動時DBキャッシュウォームアップ済みフラグ
 
         logger.debug(f"EpisodicMemory initialized for org_id={organization_id}")
 
@@ -243,8 +247,8 @@ class EpisodicMemory:
             created_at=now,
         )
 
-        # キャッシュに保存
-        self._memory_cache[episode_id] = episode
+        # キャッシュとDBに保存
+        self.save_episode(episode)
 
         # v11.2.0: CLAUDE.md §9-3「名前・メール・本文をログに記録しない」準拠
         # keywordsには人名（田中さん等）が含まれうるため出力を禁止し件数のみ記録
@@ -257,26 +261,151 @@ class EpisodicMemory:
 
     def save_episode(self, episode: Episode) -> bool:
         """
-        エピソードをDBに保存
+        エピソードをDBに保存（RLS対応・async/syncコンテキスト両対応）
 
-        Args:
-            episode: 保存するエピソード
+        asyncコンテキストから呼ばれた場合はrun_in_executorでスレッドプールに委譲し、
+        syncコンテキストからは直接DB書き込みを行う。
+        いずれの場合もキャッシュには先に書き込む。
 
         Returns:
-            bool: 成功したか
+            bool: 成功したか（キャッシュ保存のみの場合もTrueを返す）
         """
-        if not self.pool:
-            logger.warning("No database pool, episode not persisted")
+        import asyncio
+
+        # W-3: episode.id の None チェック（DBのNOT NULL制約違反を防ぐ）
+        if episode.id is None:
+            logger.error("save_episode: episode.id is None, cannot persist to DB")
             return False
 
-        try:
-            # DB保存は実装時に追加
-            # 現時点ではキャッシュのみ
-            if episode.id is not None:
-                self._memory_cache[episode.id] = episode
+        # S-2: organization_id の None チェック（RLSコンテキスト設定に必須）
+        if not self.organization_id:
+            logger.warning("save_episode: organization_id is None, cannot persist")
+            self._memory_cache[episode.id] = episode
+            return False
+
+        # キャッシュには必ず保存（DB失敗時のフォールバック）
+        self._memory_cache[episode.id] = episode
+
+        if not self.pool:
+            logger.warning("No database pool, episode cached only (not persisted)")
             return True
+
+        # C-1: asyncコンテキスト検出（CLAUDE.md §3-2 #6 asyncブロッキング防止）
+        try:
+            loop = asyncio.get_running_loop()
+            # asyncコンテキスト: run_in_executorでスレッドプールに委譲（fire-and-forget）
+            future = loop.run_in_executor(None, self._persist_episode_sync, episode)
+            self._bg_tasks.add(future)
+            future.add_done_callback(self._bg_tasks.discard)
+            return True
+        except RuntimeError:
+            # イベントループなし: syncコンテキスト、直接呼び出し可
+            return self._persist_episode_sync(episode)
+
+    def _persist_episode_sync(self, episode: Episode) -> bool:
+        """
+        エピソードをDBに同期書き込み（RLS対応）
+
+        run_in_executor経由で呼ばれることを前提。
+        直接呼び出す場合はイベントループ外（syncコンテキスト）のみ。
+        """
+        try:
+            with self.pool.connect() as conn:
+                # RLS対応 — state_manager._connect_with_org_context()と同じパターン
+                # (CLAUDE.md §3-2 #9: pg8000はSET文でパラメータ使用不可のためset_config()を使用)
+                try:
+                    conn.rollback()  # アボート状態をクリア
+                except Exception:
+                    pass
+
+                conn.execute(
+                    sql_text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+                    {"org_id": self.organization_id},
+                )
+
+                try:
+                    conn.execute(
+                        sql_text("""
+                            INSERT INTO brain_episodes (
+                                id, organization_id, user_id,
+                                episode_type, summary, details,
+                                emotional_valence, importance_score,
+                                keywords, embedding_id,
+                                recall_count, last_recalled_at, decay_factor,
+                                occurred_at, created_at, updated_at
+                            ) VALUES (
+                                CAST(:id AS uuid),
+                                CAST(:organization_id AS uuid),
+                                :user_id,
+                                :episode_type, :summary, CAST(:details AS jsonb),
+                                :emotional_valence, :importance_score,
+                                :keywords, :embedding_id,
+                                :recall_count, :last_recalled_at, :decay_factor,
+                                :occurred_at, :created_at, :updated_at
+                            )
+                            ON CONFLICT (id) DO UPDATE SET
+                                summary = EXCLUDED.summary,
+                                details = EXCLUDED.details,
+                                emotional_valence = EXCLUDED.emotional_valence,
+                                importance_score = EXCLUDED.importance_score,
+                                keywords = EXCLUDED.keywords,
+                                recall_count = EXCLUDED.recall_count,
+                                last_recalled_at = EXCLUDED.last_recalled_at,
+                                decay_factor = EXCLUDED.decay_factor,
+                                updated_at = EXCLUDED.updated_at
+                        """),
+                        {
+                            "id": episode.id,
+                            "organization_id": self.organization_id,
+                            "user_id": episode.user_id,
+                            "episode_type": (
+                                episode.episode_type.value
+                                if isinstance(episode.episode_type, EpisodeType)
+                                else episode.episode_type
+                            ),
+                            "summary": episode.summary,
+                            "details": json.dumps(episode.details, ensure_ascii=False, default=str),
+                            "emotional_valence": episode.emotional_valence,
+                            "importance_score": episode.importance_score,
+                            "keywords": episode.keywords,
+                            "embedding_id": episode.embedding_id,
+                            "recall_count": episode.recall_count,
+                            "last_recalled_at": episode.last_recalled_at,
+                            "decay_factor": episode.decay_factor,
+                            "occurred_at": episode.occurred_at,
+                            "created_at": episode.created_at,
+                            "updated_at": datetime.now(JST),
+                        },
+                    )
+                    conn.commit()
+                    logger.debug("Episode persisted to DB: id=%s", episode.id)
+                    return True
+
+                except Exception:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+                    raise
+
+                finally:
+                    # RLSコンテキストをクリア（org_id残留によるデータ漏洩防止）
+                    try:
+                        conn.execute(sql_text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                    except Exception as reset_err:
+                        logger.warning("[RLS] RESET failed: %s", type(reset_err).__name__)
+                        try:
+                            conn.rollback()
+                            conn.execute(sql_text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                        except Exception:
+                            logger.error("[RLS] RESET retry failed, invalidating connection")
+                            try:
+                                conn.invalidate()
+                            except Exception:
+                                pass
+
         except Exception as e:
-            logger.error(f"Failed to save episode: {type(e).__name__}")
+            logger.error("Failed to persist episode to DB: %s", type(e).__name__)
             return False
 
     # =========================================================================
@@ -304,6 +433,11 @@ class EpisodicMemory:
         """
         context = context or {}
         results: List[RecallResult] = []
+
+        # W-3: 起動直後はキャッシュが空のためDBから最新エピソードを読み込む
+        # 一度だけ実行（_cache_loaded フラグで制御）
+        if not self._cache_loaded and self.pool and self.organization_id:
+            self._load_recent_from_db()
 
         # キーワードマッチング
         keyword_matches = self._recall_by_keywords(message, user_id)
@@ -516,6 +650,105 @@ class EpisodicMemory:
             logger.info(f"Cleaned up {len(to_remove)} forgotten episodes")
 
     # =========================================================================
+    # DBキャッシュウォームアップ（W-3: 起動直後のキャッシュ空問題対策）
+    # =========================================================================
+
+    def _load_recent_from_db(self, limit: int = 50) -> None:
+        """
+        DBから最新エピソードをキャッシュに読み込む（初回呼び出し時のみ）
+
+        Cloud Runは再起動のたびにキャッシュがリセットされるため、
+        recall()の初回呼び出し時にDBから最新N件を読み込んでキャッシュを温める。
+
+        Args:
+            limit: 読み込む最大件数
+        """
+        self._cache_loaded = True  # エラーが起きても二重実行しない
+
+        if not self.pool or not self.organization_id:
+            return
+
+        try:
+            with self.pool.connect() as conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+
+                conn.execute(
+                    sql_text("SELECT set_config('app.current_organization_id', :org_id, false)"),
+                    {"org_id": self.organization_id},
+                )
+
+                try:
+                    rows = conn.execute(
+                        sql_text("""
+                            SELECT
+                                id, organization_id, user_id,
+                                episode_type, summary, details,
+                                emotional_valence, importance_score,
+                                keywords, embedding_id,
+                                recall_count, last_recalled_at, decay_factor,
+                                occurred_at, created_at
+                            FROM brain_episodes
+                            WHERE organization_id = CAST(:org_id AS uuid)
+                            ORDER BY importance_score DESC, occurred_at DESC
+                            LIMIT :limit
+                        """),
+                        {"org_id": self.organization_id, "limit": limit},
+                    ).fetchall()
+
+                    for row in rows:
+                        ep_id = str(row[0]) if row[0] else None
+                        if not ep_id or ep_id in self._memory_cache:
+                            continue
+
+                        # details はJSONB → Python dict
+                        details_raw = row[5]
+                        if isinstance(details_raw, str):
+                            details = json.loads(details_raw)
+                        elif isinstance(details_raw, dict):
+                            details = details_raw
+                        else:
+                            details = {}
+
+                        # keywords はARRAY → List[str]
+                        keywords = list(row[8]) if row[8] else []
+
+                        episode = Episode(
+                            id=ep_id,
+                            organization_id=str(row[1]) if row[1] else None,
+                            user_id=row[2],
+                            episode_type=EpisodeType(row[3]) if row[3] in [e.value for e in EpisodeType] else EpisodeType.INTERACTION,
+                            summary=row[4] or "",
+                            details=details,
+                            emotional_valence=float(row[6]) if row[6] is not None else 0.0,
+                            importance_score=float(row[7]) if row[7] is not None else 0.5,
+                            keywords=keywords,
+                            embedding_id=row[9],
+                            recall_count=int(row[10]) if row[10] is not None else 0,
+                            last_recalled_at=row[11],
+                            decay_factor=float(row[12]) if row[12] is not None else 1.0,
+                            occurred_at=row[13],
+                            created_at=row[14],
+                        )
+                        self._memory_cache[ep_id] = episode
+
+                    logger.debug("Loaded %d episodes from DB into cache", len(rows))
+
+                finally:
+                    try:
+                        conn.execute(sql_text("SELECT set_config('app.current_organization_id', NULL, false)"))
+                    except Exception:
+                        try:
+                            conn.invalidate()
+                        except Exception:
+                            pass
+
+        except Exception as e:
+            logger.warning("Failed to load episodes from DB: %s", type(e).__name__)
+
+    # =========================================================================
     # ユーティリティ
     # =========================================================================
 
@@ -561,9 +794,9 @@ class EpisodicMemory:
         return min(1.0, base + keyword_bonus + emotion_bonus)
 
     def _generate_episode_id(self, summary: str, occurred_at: datetime) -> str:
-        """エピソードIDを生成"""
+        """エピソードIDを生成（UUID形式 — brain_episodes.id はuuid型）"""
         content = f"{summary}_{occurred_at.isoformat()}"
-        return hashlib.md5(content.encode()).hexdigest()[:16]
+        return str(uuid5(NAMESPACE_DNS, content))
 
     # =========================================================================
     # 便利メソッド

@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useEmotionAlerts, useEmotionTrends } from '@/hooks/use-wellness';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 const RISK_COLORS: Record<string, 'destructive' | 'default' | 'secondary' | 'outline'> = {
   critical: 'destructive',
@@ -78,10 +79,11 @@ export function WellnessPage() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Heart className="h-6 w-6" />
-              ウェルネス
+              ウェルネス（組織の健康状態）
+              <InfoTooltip text="ウェルネスとは「会社全体の雰囲気・健康状態」のことです。ソウルくんがChatWorkのやりとりを分析して、組織の気分が良いか悪いかを毎日計測しています" />
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              組織の感情分析とアラート
+              ChatWorkのやりとりをAIが分析して、チームの雰囲気を天気で表現しています
             </p>
           </div>
           <div className="flex gap-2">

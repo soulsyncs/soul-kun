@@ -48,14 +48,24 @@ interface RequestOptions extends RequestInit {
 }
 
 // In-memory Bearer token (used for cross-origin token-login flow)
+// Also persisted to sessionStorage so page reloads don't require re-login
+const _TOKEN_KEY = 'soulkun_admin_token';
 let _bearerToken: string | null = null;
+
+// Restore token from sessionStorage on module load (survives page refresh)
+try {
+  const saved = sessionStorage.getItem(_TOKEN_KEY);
+  if (saved) { _bearerToken = saved; }
+} catch { /* ignore */ }
 
 export function setBearerToken(token: string) {
   _bearerToken = token;
+  try { sessionStorage.setItem(_TOKEN_KEY, token); } catch { /* ignore */ }
 }
 
 export function clearBearerToken() {
   _bearerToken = null;
+  try { sessionStorage.removeItem(_TOKEN_KEY); } catch { /* ignore */ }
 }
 
 async function fetchWithAuth<T>(

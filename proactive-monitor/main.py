@@ -276,7 +276,7 @@ async def _try_cost_budget_alert(pool) -> str:
         return "sent"
 
     except Exception as e:
-        logger.warning(f"[CostAlert] Failed (non-critical): {e}")
+        logger.warning("[CostAlert] Failed (non-critical): %s", type(e).__name__)
         return "error"
 
 

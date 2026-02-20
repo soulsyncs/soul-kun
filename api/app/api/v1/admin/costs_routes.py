@@ -568,11 +568,11 @@ async def update_monthly_budget(
                     VALUES
                         (gen_random_uuid(), :org_id, :year_month,
                          0, 0,
-                         :budget_jpy, -:budget_jpy,
+                         :budget_jpy, :budget_jpy,
                          NOW(), NOW())
                     ON CONFLICT (organization_id, year_month) DO UPDATE SET
                         budget_jpy = :budget_jpy,
-                        budget_remaining_jpy = COALESCE(ai_monthly_cost_summary.total_cost_jpy, 0) - :budget_jpy,
+                        budget_remaining_jpy = :budget_jpy - COALESCE(ai_monthly_cost_summary.total_cost_jpy, 0),
                         updated_at = NOW()
                 """),
                 {

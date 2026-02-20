@@ -18,8 +18,9 @@ import {
   Cell,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Download } from 'lucide-react';
 import { api } from '@/lib/api';
+import { downloadCSV } from '@/lib/utils';
 import type {
   CostDailyResponse,
   CostMonthlyResponse,
@@ -39,6 +40,7 @@ import {
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { Button } from '@/components/ui/button';
 
 const CHART_COLORS = [
   'var(--color-chart-1)',
@@ -82,6 +84,30 @@ export function CostsPage() {
 
   const isLoading = dailyLoading || monthlyLoading || breakdownLoading;
   const isError = dailyError || monthlyError || breakdownError;
+
+  const handleDownloadDailyCsv = () => {
+    const rows = (dailyData?.daily ?? []).map((d) => [d.date, d.cost.toFixed(0)]);
+    downloadCSV(
+      `ai_daily_cost_${format(new Date(), 'yyyyMMdd')}.csv`,
+      ['日付', 'コスト（円）'],
+      rows
+    );
+  };
+
+  const handleDownloadMonthlyCsv = () => {
+    const rows = (monthlyData?.months ?? []).map((m) => [
+      m.year_month,
+      m.total_cost.toFixed(0),
+      m.requests,
+      m.budget != null ? m.budget.toFixed(0) : '',
+      STATUS_LABELS[m.status] ?? m.status,
+    ]);
+    downloadCSV(
+      `ai_monthly_cost_${format(new Date(), 'yyyyMMdd')}.csv`,
+      ['月', 'コスト（円）', 'リクエスト数', '予算（円）', 'ステータス'],
+      rows
+    );
+  };
 
   const dailyChartData = (dailyData?.daily ?? []).map((d) => ({
     ...d,
@@ -230,11 +256,20 @@ export function CostsPage() {
 
             {/* Daily Cost Chart */}
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>
                   日別コスト（30日間）
                   <InfoTooltip text="過去30日間のAI利用コストを日ごとに棒グラフで表示しています" />
                 </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadDailyCsv}
+                  disabled={!dailyData?.daily.length}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  CSV
+                </Button>
               </CardHeader>
               <CardContent>
                 {dailyChartData.length === 0 ? (
@@ -465,11 +500,20 @@ export function CostsPage() {
 
             {/* Monthly Summary Table */}
             <Card>
-              <CardHeader>
+              <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>
                   月次サマリー
                   <InfoTooltip text="月ごとのコスト・リクエスト数・予算消化状況の一覧です" />
                 </CardTitle>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadMonthlyCsv}
+                  disabled={!monthlyData?.months.length}
+                >
+                  <Download className="h-4 w-4 mr-1" />
+                  CSV
+                </Button>
               </CardHeader>
               <CardContent>
                 <Table>

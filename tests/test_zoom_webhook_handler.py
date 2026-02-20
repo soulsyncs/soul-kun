@@ -280,3 +280,40 @@ class TestHandleZoomWebhookEvent:
             # attendee_countが記録されたか
             assert result.data.get("attendee_count") == 2
             assert result.data.get("room_resolved_by") == "calendar+router"
+
+    @pytest.mark.asyncio
+    async def test_transcript_completed_event_accepted(
+        self, mock_pool, sample_recording_completed_payload
+    ):
+        """recording.transcript_completed イベントが処理される（3AI合意: 2026-02-20）"""
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.message = "議事録生成完了"
+        mock_result.data = {"meeting_id": "m1"}
+
+        with patch(
+            "lib.meetings.zoom_brain_interface.ZoomBrainInterface"
+        ) as MockInterface, patch(
+            "handlers.zoom_webhook_handler._lookup_calendar_event",
+            new_callable=AsyncMock,
+            return_value=None,
+        ), patch(
+            "handlers.zoom_webhook_handler._resolve_room_id",
+            return_value=DEFAULT_ADMIN_ROOM_ID,
+        ):
+            instance = MockInterface.return_value
+            instance.process_zoom_minutes = AsyncMock(return_value=mock_result)
+
+            result = await handle_zoom_webhook_event(
+                event_type="recording.transcript_completed",
+                payload=sample_recording_completed_payload,
+                pool=mock_pool,
+                organization_id="org_test",
+            )
+
+            # transcript_completedも処理される（ignoredにならない）
+            assert result.success is True
+            instance.process_zoom_minutes.assert_called_once()
+            # webhook_eventがevent_typeを正しく記録する
+            assert result.data.get("webhook_event") == "recording.transcript_completed"
+            assert result.data.get("trigger") == "webhook"

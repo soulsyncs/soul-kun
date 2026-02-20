@@ -504,6 +504,177 @@ class TestPiiProtection:
         assert save_call_params["raw"] is None
 
 
+class TestSaveMinutesToMemory:
+    """Step 12: 議事録をエピソード記憶に保存するテスト"""
+
+    @pytest.mark.asyncio
+    async def test_save_called_when_minutes_generated(self, mock_pool, mock_zoom_client):
+        """議事録生成後に_save_minutes_to_memoryが呼ばれる"""
+        def mock_ai(messages, system_prompt):
+            return "■ 議題（00:00〜）\n内容\n\n■ タスク一覧\nなし"
+
+        with patch.object(
+            ZoomBrainInterface, "_save_minutes_to_memory", new_callable=AsyncMock
+        ) as mock_save:
+            interface = ZoomBrainInterface(
+                mock_pool, "org_test", zoom_client=mock_zoom_client
+            )
+            result = await interface.process_zoom_minutes(
+                room_id="room_123",
+                account_id="user_456",
+                get_ai_response_func=mock_ai,
+            )
+        assert result.success is True
+        mock_save.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_memory_failure_does_not_block_result(
+        self, mock_pool, mock_zoom_client
+    ):
+        """記憶保存失敗でも議事録送信はブロックされない（非クリティカル）"""
+        def mock_ai(messages, system_prompt):
+            return "■ 議題（00:00〜）\n内容\n\n■ タスク一覧\nなし"
+
+        with patch.object(
+            ZoomBrainInterface,
+            "_save_minutes_to_memory",
+            side_effect=RuntimeError("DB Error"),
+        ):
+            interface = ZoomBrainInterface(
+                mock_pool, "org_test", zoom_client=mock_zoom_client
+            )
+            result = await interface.process_zoom_minutes(
+                room_id="room_123",
+                account_id="user_456",
+                get_ai_response_func=mock_ai,
+            )
+        assert result.success is True
+        assert "minutes_text" in result.data  # 議事録はちゃんと入っている
+
+    @pytest.mark.asyncio
+    async def test_memory_not_called_without_minutes(self, mock_pool, mock_zoom_client):
+        """議事録なし（LLM未使用）の場合はメモリ保存しない"""
+        with patch.object(
+            ZoomBrainInterface, "_save_minutes_to_memory", new_callable=AsyncMock
+        ) as mock_save:
+            interface = ZoomBrainInterface(
+                mock_pool, "org_test", zoom_client=mock_zoom_client
+            )
+            result = await interface.process_zoom_minutes(
+                room_id="room_123",
+                account_id="user_456",
+                # get_ai_response_func なし → minutes = None
+            )
+        assert result.success is True
+        mock_save.assert_not_called()  # 議事録なしなので呼ばれない
+
+    @pytest.mark.asyncio
+    async def test_save_minutes_summary_contains_title(self, mock_pool):
+        """サマリーに会議タイトルとタスク数が含まれる"""
+        with patch(
+            "lib.brain.memory_enhancement.BrainMemoryEnhancement"
+        ) as mock_mem_cls:
+            mock_mem = MagicMock()
+            mock_mem.record_episode = MagicMock()
+            mock_mem_cls.return_value = mock_mem
+
+            conn = MagicMock()
+            conn.__enter__ = MagicMock(return_value=conn)
+            conn.__exit__ = MagicMock(return_value=False)
+            conn.commit = MagicMock()
+            mock_pool.connect.return_value = conn
+
+            interface = ZoomBrainInterface(
+                mock_pool, "00000000-0000-0000-0000-000000000001"
+            )
+            await interface._save_minutes_to_memory(
+                meeting_id="m1",
+                title="週次営業MTG",
+                room_id="room_1",
+                document_url="https://docs.google.com/example",
+                duration_seconds=3600.0,
+                task_count=3,
+            )
+
+        mock_mem.record_episode.assert_called_once()
+        kw = mock_mem.record_episode.call_args.kwargs
+        assert "週次営業MTG" in kw["summary"]
+        assert "タスク3件" in kw["summary"]
+        assert "会議" in kw["keywords"]
+        assert "議事録" in kw["keywords"]
+        # PII保護: details に minutes_text は含まない
+        assert "minutes_text" not in kw["details"]
+
+    @pytest.mark.asyncio
+    async def test_save_minutes_summary_truncation(self, mock_pool):
+        """200文字超のサマリーは切り詰める"""
+        with patch(
+            "lib.brain.memory_enhancement.BrainMemoryEnhancement"
+        ) as mock_mem_cls:
+            mock_mem = MagicMock()
+            mock_mem.record_episode = MagicMock()
+            mock_mem_cls.return_value = mock_mem
+
+            conn = MagicMock()
+            conn.__enter__ = MagicMock(return_value=conn)
+            conn.__exit__ = MagicMock(return_value=False)
+            conn.commit = MagicMock()
+            mock_pool.connect.return_value = conn
+
+            long_title = "あ" * 180  # 200文字超になるタイトル
+            interface = ZoomBrainInterface(
+                mock_pool, "00000000-0000-0000-0000-000000000001"
+            )
+            await interface._save_minutes_to_memory(
+                meeting_id="m1",
+                title=long_title,
+                room_id="room_1",
+                document_url="",
+                duration_seconds=1800.0,
+                task_count=0,
+            )
+
+        kw = mock_mem.record_episode.call_args.kwargs
+        assert len(kw["summary"]) <= 200
+
+    @pytest.mark.asyncio
+    async def test_save_minutes_entities_include_meeting_and_room(self, mock_pool):
+        """関連エンティティにMEETINGとROOMが含まれる"""
+        with patch(
+            "lib.brain.memory_enhancement.BrainMemoryEnhancement"
+        ) as mock_mem_cls:
+            mock_mem = MagicMock()
+            mock_mem.record_episode = MagicMock()
+            mock_mem_cls.return_value = mock_mem
+
+            conn = MagicMock()
+            conn.__enter__ = MagicMock(return_value=conn)
+            conn.__exit__ = MagicMock(return_value=False)
+            conn.commit = MagicMock()
+            mock_pool.connect.return_value = conn
+
+            interface = ZoomBrainInterface(
+                mock_pool, "00000000-0000-0000-0000-000000000001"
+            )
+            await interface._save_minutes_to_memory(
+                meeting_id="meeting-abc",
+                title="朝会",
+                room_id="room_999",
+                document_url="",
+                duration_seconds=600.0,
+                task_count=0,
+            )
+
+        kw = mock_mem.record_episode.call_args.kwargs
+        entities = kw["entities"]
+        entity_types = [e.entity_type.value for e in entities]
+        assert "meeting" in entity_types
+        assert "room" in entity_types
+        entity_ids = [e.entity_id for e in entities]
+        assert "meeting-abc" in entity_ids
+        assert "room_999" in entity_ids
+
+
 class TestParseZoomDatetime:
     def test_valid_iso_with_z(self):
         dt = _parse_zoom_datetime("2026-02-09T10:00:00Z")

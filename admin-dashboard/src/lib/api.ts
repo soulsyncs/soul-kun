@@ -475,6 +475,93 @@ export const api = {
       }),
   },
 
+  // ===== Zoom連携設定 =====
+  zoomSettings: {
+    getConfigs: () =>
+      fetchWithAuth<{
+        status: string;
+        configs: Array<{
+          id: string;
+          meeting_name_pattern: string;
+          chatwork_room_id: string;
+          room_name: string | null;
+          is_active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        }>;
+        total: number;
+      }>('/admin/zoom/configs'),
+
+    createConfig: (data: {
+      meeting_name_pattern: string;
+      chatwork_room_id: string;
+      room_name?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; config: Record<string, unknown> }>('/admin/zoom/configs', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateConfig: (id: string, data: { is_active?: boolean; meeting_name_pattern?: string; chatwork_room_id?: string; room_name?: string }) =>
+      fetchWithAuth<{ status: string; config: Record<string, unknown> }>(`/admin/zoom/configs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteConfig: (id: string) =>
+      fetchWithAuth<{ status: string }>(`/admin/zoom/configs/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
+  // ===== Zoomアカウント管理（複数アカウント対応） =====
+  zoomAccounts: {
+    getAccounts: () =>
+      fetchWithAuth<{
+        status: string;
+        accounts: Array<{
+          id: string;
+          account_name: string;
+          zoom_account_id: string;
+          webhook_secret_token_masked: string;
+          default_room_id: string | null;
+          is_active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        }>;
+        total: number;
+      }>('/admin/zoom/accounts'),
+
+    createAccount: (data: {
+      account_name: string;
+      zoom_account_id: string;
+      webhook_secret_token: string;
+      default_room_id?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; account: Record<string, unknown> }>('/admin/zoom/accounts', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateAccount: (id: string, data: {
+      account_name?: string;
+      webhook_secret_token?: string;
+      default_room_id?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; account: Record<string, unknown> }>(`/admin/zoom/accounts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteAccount: (id: string) =>
+      fetchWithAuth<{ status: string }>(`/admin/zoom/accounts/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
   // ===== 連携設定 =====
   integrations: {
     getGoogleCalendarStatus: () =>

@@ -32,7 +32,11 @@ logger = logging.getLogger(__name__)
 _CW_TAG_PATTERN = re.compile(r"CW:(\d{5,12})")
 
 # デフォルトの検索ウィンドウ（分）
-DEFAULT_TIME_WINDOW_MINUTES = 30
+# ±60分に設定することで、以下のケースをカバーする:
+#   - 祝日・振替休日で会議が同日に1時間ずれた場合（旧: ±30分では検出できなかった）
+#   - 会議が遅れて開始した場合（例: 45分遅延）
+# Phase Z2 ④: 30→60分に変更（3AI合意: 2026-02-20）
+DEFAULT_TIME_WINDOW_MINUTES = 60
 
 # 環境変数
 CALENDAR_ID_ENV = "GOOGLE_CALENDAR_ID"
@@ -178,7 +182,9 @@ class GoogleCalendarClient:
         Args:
             zoom_start_time: Zoom録画の開始時刻（UTC）
             zoom_topic: Zoom会議のトピック（タイトル照合に使用）
-            time_window_minutes: 検索ウィンドウ（±分）
+            time_window_minutes: 検索ウィンドウ（±分）。デフォルト60分。
+                祝日・振替休日で会議が同日にずれた場合や
+                遅延開始（最大60分）のケースでも確実にマッチする。
 
         Returns:
             最も一致度の高いCalendarEvent、なければNone
@@ -232,8 +238,8 @@ class GoogleCalendarClient:
         if not candidates:
             return None
 
-        # ベストマッチを選択
-        best = _select_best_match(candidates, zoom_start_time, zoom_topic)
+        # ベストマッチを選択（time_window_minutes を渡して一貫性を保つ）
+        best = _select_best_match(candidates, zoom_start_time, zoom_topic, time_window_minutes)
 
         if best:
             logger.info(
@@ -324,6 +330,7 @@ def _select_best_match(
     candidates: List[CalendarEvent],
     zoom_start: datetime,
     zoom_topic: Optional[str],
+    time_window_minutes: int = DEFAULT_TIME_WINDOW_MINUTES,
 ) -> Optional[CalendarEvent]:
     """
     候補イベントからベストマッチを選択する。
@@ -331,7 +338,13 @@ def _select_best_match(
     スコアリング:
       - CW:タグあり → +10点（最優先）
       - タイトル部分一致 → +5点
-      - 時刻の近さ → 0〜3点（30分以内で線形）
+      - 時刻の近さ → 0〜3点（time_window_minutes 以内で線形）
+
+    Args:
+        candidates: 候補CalendarEventリスト
+        zoom_start: Zoom録画の開始時刻（UTC）
+        zoom_topic: Zoom会議のトピック（タイトル照合に使用）
+        time_window_minutes: スコアリング対象の時間ウィンドウ（分）
     """
     if not candidates:
         return None
@@ -354,7 +367,7 @@ def _select_best_match(
             if zoom_topic_lower in event_title_lower or event_title_lower in zoom_topic_lower:
                 score += 5.0
 
-        # 時刻の近さ（±30分で0〜3点）
+        # 時刻の近さ（±time_window_minutes で0〜3点）
         if event.start_time and zoom_start:
             # timezone-aware比較
             event_start = event.start_time
@@ -367,9 +380,9 @@ def _select_best_match(
             diff_minutes = abs(
                 (event_start - zoom_start_aware).total_seconds()
             ) / 60.0
-            if diff_minutes <= DEFAULT_TIME_WINDOW_MINUTES:
+            if diff_minutes <= time_window_minutes:
                 time_score = 3.0 * (
-                    1.0 - diff_minutes / DEFAULT_TIME_WINDOW_MINUTES
+                    1.0 - diff_minutes / time_window_minutes
                 )
                 score += time_score
 

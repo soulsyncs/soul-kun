@@ -138,49 +138,23 @@ class ZoomBrainInterface:
             raw_id = recording_data.get("id")
             source_mid = str(raw_id) if raw_id else None
 
-            # Step 2: Find VTT transcript URL (with exponential backoff retry)
-            # Zoom generates transcripts asynchronously after recording.
-            # recording.completed webhook fires before transcript is ready.
-            # 指数バックオフ: 30秒 → 60秒 → 120秒 の3回リトライ。
-            # 3回失敗したら retry=True を返し、呼び出し側（Zoom webhook）に通知する。
-            _RETRY_INTERVALS = [30, 60, 120]
+            # Step 2: Find VTT transcript URL
+            # recording.transcript_completed イベントではVTTが既に生成済み。
+            # recording.completed イベントでもVTTが存在すれば即座に処理する。
+            # リトライなし: VTTが存在しない場合は transcript_completed イベントを待つ。
             transcript_url = await asyncio.to_thread(
                 zoom_client.find_transcript_url,
                 recording_data,
             )
-            for attempt, wait_sec in enumerate(_RETRY_INTERVALS, start=1):
-                if transcript_url is not None:
-                    break
-                if not zoom_meeting_id:
-                    break
-                logger.debug(
-                    "No transcript, retry %d/%d in %ds...",
-                    attempt, len(_RETRY_INTERVALS), wait_sec,
-                )
-                await asyncio.sleep(wait_sec)
-                recording_data = await self._find_recording(
-                    zoom_client, zoom_meeting_id, None,
-                )
-                if recording_data:
-                    api_files_retry = recording_data.get("recording_files", [])
-                    logger.debug(
-                        "Retry %d: recording_files types: %s",
-                        attempt,
-                        [f.get("file_type") for f in api_files_retry],
-                    )
-                    transcript_url = await asyncio.to_thread(
-                        zoom_client.find_transcript_url,
-                        recording_data,
-                    )
 
             if transcript_url is None:
-                logger.debug("find_transcript_url returned None after all retries")
+                logger.debug("find_transcript_url returned None (VTT not yet ready)")
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
                     data={
                         "zoom_meeting_id": source_mid or "",
-                        "retry": True,
+                        "retry": False,
                     },
                 )
 
@@ -386,6 +360,26 @@ class ZoomBrainInterface:
                 len(vtt_transcript.speakers),
             )
 
+            # Step 12: 議事録をソウルくんの記憶に保存（非クリティカル）
+            # 目的: 「あの会議で何を決めたか」をソウルくんに後で聞けるようにする。
+            # CLAUDE.md §9-2準拠: 議事録本文（PII可能性あり）は保存しない。
+            #   タイトル・メタ情報のみをエピソード記憶として保存する。
+            # 失敗しても議事録送信はブロックしない（try/except で保護）。
+            if minutes:
+                try:
+                    await self._save_minutes_to_memory(
+                        meeting_id=meeting_id,
+                        title=resolved_title,
+                        room_id=room_id,
+                        document_url=document_url,
+                        duration_seconds=vtt_transcript.duration_seconds,
+                        task_count=task_result.total_created if task_result else 0,
+                    )
+                except Exception as mem_err:
+                    logger.warning(
+                        "Memory save skipped (non-critical): %s", type(mem_err).__name__
+                    )
+
             return HandlerResult(
                 success=True,
                 message=message,
@@ -461,6 +455,92 @@ class ZoomBrainInterface:
 
         # Fallback: return most recent (transcript may still be processing)
         return meetings[0] if meetings else None
+
+    async def _save_minutes_to_memory(
+        self,
+        meeting_id: str,
+        title: str,
+        room_id: str,
+        document_url: str,
+        duration_seconds: float,
+        task_count: int,
+    ) -> None:
+        """議事録の要約をエピソード記憶（brain_episodes）に保存する（Step 12）
+
+        CLAUDE.md §9-2準拠:
+        - 議事録本文（PII可能性あり）は保存しない
+        - タイトル・メタ情報のみを保存
+        - これにより「先月の会議で何を決めたか」をソウルくんに聞ける
+
+        Raises:
+            Exception: DB接続失敗など（呼び出し元でtry/exceptすること）
+        """
+        from lib.brain.memory_enhancement import (
+            BrainMemoryEnhancement,
+            EpisodeType,
+            EntityType,
+            EntityRelationship,
+            RelatedEntity,
+        )
+
+        # キーワード: 会議タイトルの単語（2文字以上）＋固定キーワード
+        title_words = [
+            w for w in title.replace("\u3000", " ").split()
+            if len(w) >= 2
+        ]
+        keywords = list(
+            dict.fromkeys(["会議", "議事録", "Zoom"] + title_words[:5])
+        )
+
+        # Summary（200文字上限）
+        # CLAUDE.md §9-2 設計判断: 会議タイトルは「業務に必要な事実」として保存する。
+        # 例: "週次朝会"・"受注確認MTG" はビジネス文脈の事実であり記憶すべき情報。
+        # 議事録本文（PII可能性あり）は保存しない（上流でこのメソッドに渡さない）。
+        task_info = f"・タスク{task_count}件" if task_count > 0 else ""
+        summary = f"Zoom会議「{title}」の議事録を作成{task_info}"
+        if len(summary) > 200:
+            summary = summary[:197] + "..."
+
+        entities = [
+            RelatedEntity(
+                entity_type=EntityType.MEETING,
+                entity_id=meeting_id,
+                entity_name=title,
+                relationship=EntityRelationship.INVOLVED,
+            ),
+            RelatedEntity(
+                entity_type=EntityType.ROOM,
+                entity_id=room_id,
+                entity_name=f"ChatWorkルーム#{room_id}",
+                relationship=EntityRelationship.INVOLVED,
+            ),
+        ]
+
+        memory = BrainMemoryEnhancement(self.organization_id)
+
+        def _save_sync() -> None:
+            with self.pool.connect() as conn:
+                memory.record_episode(
+                    conn=conn,
+                    episode_type=EpisodeType.INTERACTION,
+                    summary=summary,
+                    details={
+                        "meeting_id": meeting_id,
+                        "title": title,
+                        "room_id": room_id,
+                        "document_url": document_url,
+                        "duration_seconds": int(duration_seconds),
+                        "task_count": task_count,
+                        "source": "zoom",
+                    },
+                    keywords=keywords,
+                    entities=entities,
+                    importance=0.7,
+                )
+                conn.commit()
+
+        await asyncio.to_thread(_save_sync)
+        logger.info("Meeting episode saved to memory: meeting_id=%s", meeting_id)
 
     async def _generate_minutes(
         self,

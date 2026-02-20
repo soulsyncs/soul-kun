@@ -134,7 +134,9 @@ class BrainMemoryEnhancement:
         self._episode_repo = EpisodeRepository(organization_id)
         self._knowledge_graph = KnowledgeGraph(organization_id)
 
-        logger.info(f"BrainMemoryEnhancement initialized for org: {organization_id}")
+        # P15: organization_id を生ログに出さない（マスク）
+        _masked_org = organization_id[:8] + "..." if organization_id else ""
+        logger.info("BrainMemoryEnhancement initialized for org: %s", _masked_org)
 
     # ========================================================================
     # エピソード記憶

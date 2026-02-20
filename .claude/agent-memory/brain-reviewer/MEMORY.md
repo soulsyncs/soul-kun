@@ -196,7 +196,7 @@
 ## routes/ ファイル現状 (2026-02-19確認、Phase 4C完了後)
 
 - `chatwork-webhook/routes/telegram.py`: 226行（Phase 4で分割済み）
-- `chatwork-webhook/routes/zoom.py`: 176行（Phase 5で分割済み）
+- `chatwork-webhook/routes/zoom.py`: 185行（Phase 5で分割済み、Phase Z1で+9行）
 - `chatwork-webhook/routes/scheduled.py`: 存在しない（実装すべきでない）
 - main.pyに残存するルート: `/`(chatwork_webhook) のみ（2236行）
 - Phase 4C: 4デッドルート削除完了（2907→2236行、-671行）
@@ -204,6 +204,49 @@
   - `flush_dm_unavailable_notifications` が import 行（line 58）にのみ残存。削除されたルートでのみ使われていた。未使用 import だが実害なし。
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
+
+## Phase Z2 ④ Google Calendar ±60分ウィンドウ変更 (2026-02-20, APPROVED)
+
+### 変更: lib/meetings/google_calendar_client.py
+- `DEFAULT_TIME_WINDOW_MINUTES` 30 → 60（コメントに理由追記）
+- `_select_best_match()` に `time_window_minutes: int = DEFAULT_TIME_WINDOW_MINUTES` 引数追加
+- `find_matching_event()` が `_select_best_match` に `time_window_minutes` を渡すよう修正
+- 3コピー同期済み（lib/, chatwork-webhook/lib/, proactive-monitor/lib/ 全てIDENTICAL確認済み）
+
+### テスト: tests/test_google_calendar_client.py
+- 新テスト4件追加（window boundary, score calc, custom window）
+- **注意**: `test_30min_window_misses_event_at_50min` は関数内部のスコア値を直接assert **しておらず**、手計算の算術式をassertするのみ（設計意図の文書化テスト）。機能的には正しい（diff=50 > window=30なのでtime_score=0は正しい）が、回帰テストとしては弱い。
+
+### callers 確認
+- `handlers/zoom_webhook_handler.py` line 191: `client.find_matching_event(zoom_start, zoom_topic=topic)` — time_window_minutesを渡さない（デフォルト60分が使われる）
+- root `handlers/` と `chatwork-webhook/handlers/` 両方IDENTICAL確認済み
+- 本番で明示的なtime_window変更呼び出しはなし（デフォルト値変更のみが実効的な変更）
+
+### ローカルテスト実行結果
+- テスト自体は正しく動作（直接import検証済み）
+- `python3 -m pytest tests/test_google_calendar_client.py` は langfuse/pydantic.v1/Python3.14 問題でCOLLECTION ERRORになる（pre-existing、PRに関係なし）
+
+## Phase Z1 Zoom transcript_completed 対応 (2026-02-20)
+
+### 変更概要
+- `recording.transcript_completed` イベント対応（VTT生成完了時に発火）
+- 3.5分待ちリトライ（30s→60s→120s）を削除 → VTT未存在時は `retry=False` で即リターン
+- `webhook_event` ハードコード `"recording.completed"` → `event_type` に修正
+
+### 重要発見: handlers/ ディレクトリが2箇所に存在
+- `handlers/zoom_webhook_handler.py` (rootレベル) — **未更新のまま**
+- `chatwork-webhook/handlers/zoom_webhook_handler.py` — 今回更新済み
+- rootの`handlers/`はchatwork-webhook固有（lib/のような3コピー同期対象ではない）
+- **テストは `sys.path.insert(0, 'chatwork-webhook')` で chatwork-webhook 側を読む** → テスト自体は正しい
+- rootの`handlers/`を実際に使う場所: lib/brain/capabilities/meeting.py が `from handlers.meeting_handler import` で lazy import
+- **根本問題**: rootの `handlers/` はchatwork-webhookのランタイムPYTHONPATH上には「ない」はず（Dockerfileで `/app/chatwork-webhook` がCOPY先）。rootの`handlers/`は開発/テスト環境のartifact。本番は chatwork-webhook/handlers/ のみ使われる。
+
+### WARNING: 残存するハードコード
+- `chatwork-webhook/handlers/zoom_webhook_handler.py` line 81: ログ文字列 `"Zoom webhook: recording.completed meeting_id=%s"` — `recording.transcript_completed` の場合でも同じ文字列でログされる。機能には影響なし（ログの誤解招き）。
+
+### 3コピー同期状態
+- `lib/meetings/zoom_brain_interface.py`: 3コピー全て同一 (PASS)
+- `handlers/zoom_webhook_handler.py`: rootは**意図的に未更新**（chatwork-webhookのみが対象）
 
 ## Phase D-1 dead-comment cleanup (feat/org-chart-drilldown, 2026-02-19)
 
@@ -264,6 +307,74 @@
 ### 修正完了条件
 1. `person_attributes` の CASCADE を本番DBで確認
 2. 全8箇所（lib/, chatwork-webhook/lib/, proactive-monitor/lib/, main.py, 4CF main.py）を同一PR で修正（横展開完了）
+
+## Phase Z1 ⑤ task_extractor.py parse_deadline_hint (2026-02-20)
+
+- `lib/meetings/task_extractor.py`: `parse_deadline_hint()` 新規追加。3コピー同期PASS。
+- **LOGIC BUG (WARNING)**: 今週 on Friday: `(4 - now.weekday()) % 7 == 0` → forced to 7. 金曜当日に「今週中」→ 翌週金曜になる。今週当日 = 今日 (end_of_day(now)) が正しい。
+- **TEST GAP (WARNING)**: `parse_deadline_hint` が `test_task_extractor.py` にimportされておらず、直接ユニットテストなし。`test_full_flow_with_chatwork_creation` が `call_args[0][3]` (deadline引数) を検証しない。
+- **SUGGESTION**: `import re as _re` と `import calendar` が関数本体内にある（モジュールトップへ移動推奨）。
+- **PASS**: None/空文字/なし/未設定/不明 → default 7d。UTCタイムゾーン使用正しい。PIIログなし。90日キャップ正常動作。
+- **PASS**: 3コピー同期（lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て同一）。
+
+## Phase Z2 ⑥ zoom_brain_interface.py Step 12 Memory Save (2026-02-20)
+
+### 変更概要
+- `lib/meetings/zoom_brain_interface.py`: `process_zoom_minutes()` に Step 12「議事録をエピソード記憶に保存」追加
+- 新メソッド `_save_minutes_to_memory()` を追加（非クリティカル、try/exceptで保護）
+- `tests/test_zoom_brain_interface.py`: `TestSaveMinutesToMemory` クラス（6テスト）追加
+
+### 3コピー同期確認済み
+- lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL (PASS)
+
+### memory_enhancement モジュール署名確認 (確定)
+- `BrainMemoryEnhancement.__init__(organization_id: str)` — poolは取らない。Correct: pool は _save_sync() 内でのみ使用
+- `record_episode(conn, episode_type, summary, details, user_id, room_id, keywords, entities, importance, emotional_valence)` — 署名MATCH
+- `RelatedEntity(entity_type: EntityType, entity_id: str, entity_name, relationship: EntityRelationship)` — 正しくobjectアクセス（dict不使用）
+- `EntityType.MEETING = "meeting"`, `EntityType.ROOM = "room"` — 両方定義済み (constants.py L86,82)
+- `EpisodeType.INTERACTION = "interaction"` — 定義済み (constants.py L51)
+
+### 確認した問題点
+
+**WARNING-1: BrainMemoryEnhancement.__init__ で organization_id を生ログ記録**
+- `__init__.py` line 137: `logger.info(f"BrainMemoryEnhancement initialized for org: {organization_id}")`
+- organization_id（UUID）が INFO レベルでログに出力される。P15で指摘済みのパターン。PRE-EXISTING
+- zoom_brain_interface.py の新コードは毎回 `BrainMemoryEnhancement(self.organization_id)` を _save_minutes_to_memory() 内でインスタンス化 → 毎回ログ出力
+- 既存コードの問題（PRE-EXISTING）。今回の変更で露出頻度は増加するが、新規導入ではない
+
+**WARNING-2: details dict に `title` が含まれる（PII軽微リスク）**
+- `details={"title": title, "room_id": room_id, ...}` で会議タイトルがDBのJSONBに保存される
+- 会議タイトルには人名が含まれうる（例: 「田中部長との面談」）
+- CLAUDE.md §9-2: 「チャット本文そのまま」は禁止だが会議タイトルは明示的に禁止されていない
+- summary にも title が含まれる（「Zoom会議「田中部長との面談」の議事録を作成」）
+- SUGGESTION: title を details から除外するか、タイトルをハッシュ化する（ただし設計意図として検索性が必要なため現状維持も合理的）
+
+**WARNING-3: _save_entities の DELETE に organization_id フィルタなし (PRE-EXISTING)**
+- `episode_repository.py` _save_entities(): `DELETE FROM brain_episode_entities WHERE episode_id = CAST(:episode_id AS uuid)` — organization_id フィルタなし
+- episode_id は UUID（ランダム）なので実質的なリスクは低いが、設計上の漏れ。PRE-EXISTING
+
+**INFO (PASS): asyncio.to_thread 使用正しい**
+- _save_sync() は同期関数 → asyncio.to_thread(_save_sync) で正しくオフロード。ブロッキングなし。
+
+**INFO (PASS): 接続管理正しい**
+- `with self.pool.connect() as conn:` でwith文使用 → リークなし
+
+**INFO (PASS): org_id isolation 正しい**
+- `BrainMemoryEnhancement(self.organization_id)` → _episode_repo.save() → INSERT時 organization_id=self.organization_id でフィルタ
+
+**INFO (PASS): 非クリティカル失敗隔離**
+- try/except Exception でラップ、type(mem_err).__name__ のみログ記録（PII漏洩なし）
+
+**INFO (PASS): 3コピー同期**
+- lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL
+
+**SUGGESTION: BrainMemoryEnhancement を _save_minutes_to_memory() 内でインスタンス化している**
+- 毎回 Step 12 が実行されるたびに新しいインスタンスを生成。軽量だが無駄
+- クラス属性として初期化（`__init__` で `self._memory = BrainMemoryEnhancement(organization_id)` など）が望ましい
+
+**SUGGESTION: test_memory_failure_does_not_block_result の mock が async でない**
+- `side_effect=RuntimeError(...)` で同期的に例外を投げるが、`_save_minutes_to_memory` は `async def` なので、`patch.object` がそのまま `side_effect` を設定した MagicMock（非async）になる
+- Python の unittest.mock では、async メソッドに side_effect を設定した場合、AsyncMock が必要。ただし Python 3.8+ では `patch.object` が async 関数を自動でAsyncMockに変換するため、実際には動作する。テストは機能的に正しい。
 
 ## Topic files index
 

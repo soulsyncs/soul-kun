@@ -31,6 +31,7 @@ from .teachings_routes import router as teachings_router
 from .system_routes import router as system_router
 from .calendar_routes import router as calendar_router
 from .emergency_routes import router as emergency_router
+from .zoom_routes import router as zoom_router
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -52,3 +53,4 @@ router.include_router(teachings_router)
 router.include_router(system_router)
 router.include_router(calendar_router)
 router.include_router(emergency_router)
+router.include_router(zoom_router)

@@ -4,12 +4,16 @@ Zoom Webhook ルート
 CLAUDE.md §1: 全入力は脳を通る（Zoom webhook は Brain-level LLMを使用）
 セキュリティ: HMAC-SHA256署名検証必須（3AI合意）
 リスク対策:
-  - Risk 1: 指数バックオフリトライ（30s+60s+120s）— zoom_brain_interface.py
   - Risk 2: 録音検索ウィンドウ2日以内
   - Risk 4: バックグラウンドスレッドで即200応答（Zoomタイムアウト防止）
   - Risk 5: dedup_hash（SHA256）で二重処理防止
 
+トリガーイベント:
+  - recording.transcript_completed: VTT生成完了時（推奨）。即座に処理可能。
+  - recording.completed: 後方互換性のため継続対応。VTTが存在する場合のみ処理。
+
 v1.0.0: main.py から分割（Phase 5）
+v1.1.0: recording.transcript_completed 対応（3AI合意: 2026-02-20）
 """
 
 import asyncio
@@ -25,15 +29,21 @@ logger = logging.getLogger(__name__)
 zoom_bp = Blueprint("zoom", __name__)
 
 
+_SUPPORTED_RECORDING_EVENTS = frozenset({
+    "recording.completed",
+    "recording.transcript_completed",
+})
+
+
 @zoom_bp.route("/zoom-webhook", methods=["POST", "GET"])
 def zoom_webhook():
     """
-    Cloud Function: Zoom recording.completed Webhook受信
+    Cloud Function: Zoom recording Webhook受信
 
     フロー:
     1. 署名検証（x-zm-signature + x-zm-request-timestamp）
     2. endpoint.url_validation → チャレンジ応答
-    3. recording.completed → 議事録自動生成パイプライン
+    3. recording.transcript_completed / recording.completed → 議事録自動生成パイプライン
 
     セキュリティ:
     - HMAC-SHA256署名検証必須（3AI合意）
@@ -92,15 +102,13 @@ def zoom_webhook():
         if os.environ.get("ENABLE_ZOOM_WEBHOOK", "").lower() not in ("true", "1"):
             return jsonify({"status": "disabled", "message": "Zoom webhook is disabled"}), 200
 
-        # recording.completed のみ処理
-        if event_type != "recording.completed":
+        # recording.completed / recording.transcript_completed のみ処理
+        if event_type not in _SUPPORTED_RECORDING_EVENTS:
             return jsonify({"status": "ok", "message": f"Event '{event_type}' acknowledged"}), 200
 
         # Risk 4: 即座に200を返してZoomのタイムアウトを防ぐ（非同期分離）
         # Zoomは応答が5秒を超えるとリトライを繰り返す。
-        # 議事録生成（VTT取得+LLM）は2〜5分かかるためバックグラウンドで実行する。
-        # Risk 1（指数バックオフ3回: 30s+60s+120s）でVTT未準備も自己解決するため
-        # 503リトライ誘発は不要。
+        # 議事録生成（VTT取得+LLM）はバックグラウンドで実行する。
         payload = data.get("payload", {})
 
         from handlers.zoom_webhook_handler import handle_zoom_webhook_event

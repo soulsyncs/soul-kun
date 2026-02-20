@@ -138,49 +138,23 @@ class ZoomBrainInterface:
             raw_id = recording_data.get("id")
             source_mid = str(raw_id) if raw_id else None
 
-            # Step 2: Find VTT transcript URL (with exponential backoff retry)
-            # Zoom generates transcripts asynchronously after recording.
-            # recording.completed webhook fires before transcript is ready.
-            # 指数バックオフ: 30秒 → 60秒 → 120秒 の3回リトライ。
-            # 3回失敗したら retry=True を返し、呼び出し側（Zoom webhook）に通知する。
-            _RETRY_INTERVALS = [30, 60, 120]
+            # Step 2: Find VTT transcript URL
+            # recording.transcript_completed イベントではVTTが既に生成済み。
+            # recording.completed イベントでもVTTが存在すれば即座に処理する。
+            # リトライなし: VTTが存在しない場合は transcript_completed イベントを待つ。
             transcript_url = await asyncio.to_thread(
                 zoom_client.find_transcript_url,
                 recording_data,
             )
-            for attempt, wait_sec in enumerate(_RETRY_INTERVALS, start=1):
-                if transcript_url is not None:
-                    break
-                if not zoom_meeting_id:
-                    break
-                logger.debug(
-                    "No transcript, retry %d/%d in %ds...",
-                    attempt, len(_RETRY_INTERVALS), wait_sec,
-                )
-                await asyncio.sleep(wait_sec)
-                recording_data = await self._find_recording(
-                    zoom_client, zoom_meeting_id, None,
-                )
-                if recording_data:
-                    api_files_retry = recording_data.get("recording_files", [])
-                    logger.debug(
-                        "Retry %d: recording_files types: %s",
-                        attempt,
-                        [f.get("file_type") for f in api_files_retry],
-                    )
-                    transcript_url = await asyncio.to_thread(
-                        zoom_client.find_transcript_url,
-                        recording_data,
-                    )
 
             if transcript_url is None:
-                logger.debug("find_transcript_url returned None after all retries")
+                logger.debug("find_transcript_url returned None (VTT not yet ready)")
                 return HandlerResult(
                     success=False,
                     message=ZOOM_TRANSCRIPT_NOT_READY_MESSAGE,
                     data={
                         "zoom_meeting_id": source_mid or "",
-                        "retry": True,
+                        "retry": False,
                     },
                 )
 

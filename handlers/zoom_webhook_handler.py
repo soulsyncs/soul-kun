@@ -2,21 +2,22 @@
 """
 Zoom Webhookイベントハンドラー
 
-recording.completed Webhookイベントを処理し、
+recording.transcript_completed / recording.completed Webhookイベントを処理し、
 ZoomBrainInterfaceを呼び出して議事録を自動生成する。
 
 フロー:
 1. Webhook署名検証 → 不正リクエスト拒否
 2. endpoint.url_validation → チャレンジ応答
-3. recording.completed → カレンダー照合 → ルーム自動判定 → 議事録生成
+3. recording.transcript_completed（推奨）/ recording.completed → カレンダー照合 → ルーム自動判定 → 議事録生成
 4. 冪等性チェック → 重複処理防止
 
 Phase 3: Google Calendar連携追加
 Phase 4: ChatWorkルーム自動振り分け統合
+Phase 5: recording.transcript_completed 対応（3AI合意: 2026-02-20）
 
 Author: Claude Opus 4.6
 Created: 2026-02-13
-Updated: 2026-02-13 (Phase 3+4統合)
+Updated: 2026-02-20 (transcript_completed対応)
 """
 
 import asyncio
@@ -53,7 +54,8 @@ async def handle_zoom_webhook_event(
     Returns:
         HandlerResult with processing status
     """
-    if event_type != "recording.completed":
+    _SUPPORTED_EVENTS = frozenset({"recording.completed", "recording.transcript_completed"})
+    if event_type not in _SUPPORTED_EVENTS:
         logger.info("Zoom webhook: ignoring event type=%s", event_type)
         return HandlerResult(
             success=True,
@@ -61,7 +63,7 @@ async def handle_zoom_webhook_event(
             data={"event_type": event_type, "action": "ignored"},
         )
 
-    # recording.completed イベントを処理
+    # recording.completed / recording.transcript_completed イベントを処理
     meeting_obj = payload.get("object", {})
     meeting_id_raw = meeting_obj.get("id")
     topic = meeting_obj.get("topic", "Zoomミーティング")
@@ -76,7 +78,8 @@ async def handle_zoom_webhook_event(
 
     # CLAUDE.md §3-2 #8: PIIをログに含めない（topic/host_emailはマスク）
     logger.info(
-        "Zoom webhook: recording.completed meeting_id=%s, has_transcript=%s, host=%s",
+        "Zoom webhook: %s meeting_id=%s, has_transcript=%s, host=%s",
+        event_type,
         meeting_id_raw,
         has_transcript,
         host_email[:3] + "***" if host_email else "unknown",
@@ -138,7 +141,7 @@ async def handle_zoom_webhook_event(
     if result.data is None:
         result.data = {}
     result.data["trigger"] = "webhook"
-    result.data["webhook_event"] = "recording.completed"
+    result.data["webhook_event"] = event_type
     result.data["room_id"] = resolved_room_id
     result.data["room_resolved_by"] = (
         "calendar+router" if calendar_event else "router"

@@ -127,10 +127,21 @@ async def handle_google_meet_minutes(
     days_back = int(params.get("days_back", 1))
     meeting_title_filter = params.get("meeting_title") or params.get("title")
 
+    # ChatworkClientをタスク自動作成用に取得（GM①: 失敗時はタスク作成スキップ）
+    chatwork_client = None
+    try:
+        from lib.chatwork import ChatworkClient
+        chatwork_client = ChatworkClient()
+    except Exception as e:
+        logger.warning(
+            "ChatworkClient init failed (task creation disabled): %s", type(e).__name__
+        )
+
     return await interface.process_google_meet_minutes(
         room_id=room_id,
         account_id=account_id,
         days_back=days_back,
         meeting_title_filter=meeting_title_filter,
         get_ai_response_func=llm_caller,
+        chatwork_client=chatwork_client,
     )

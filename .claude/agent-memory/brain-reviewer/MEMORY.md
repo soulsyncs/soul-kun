@@ -95,6 +95,16 @@
 - 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all identical (verified).
 - audit logging: NO audit calls in any capabilities/ handler. Pre-existing gap (old bridge same).
 
+## memory_layer.py / context_builder.py RLS パターン (タスクE 2026-02-21, 最終確認)
+
+- `BrainLearning._connect_with_org_context()`: `lib/brain/learning.py` line 266, 引数なし(@contextmanager), `self.org_id` を set_config する。finally でクリアあり（ただし try/except なし → finally 内で例外が発生する可能性あり）
+- **タスクE修正済み**: memory_layer.py `_fetch_learnings()` が `self.pool.connect()` → `self.learning._connect_with_org_context()` に修正。3コピー同期PASS。
+- **タスクE修正済み**: context_builder.py `_fetch_all_db_data()` に set_config org_id 設定追加。クリアは try/except（try/finally でない）。
+- **残存RLS漏れ (WARNING)**: `lib/brain/context_builder.py` line 1106 `_get_phase2e_learnings()` の `_sync_fetch()` が `self.pool.connect()` のまま。ただし現在この関数は asyncio.gather から呼ばれておらず `_fetch_all_db_data` 統合後はデッドコード化している可能性あり（line 1055「DEPRECATED」コメント確認要）。
+- **RLSクリアの安全性**: context_builder.py の RLS クリアは try/except（not try/finally）。最後のクエリ（query_9_ceo）が失敗して例外が catch されると `with pool.connect() as conn:` ブロックの外側 except に飛ぶため、クリア処理がスキップされる可能性あり。ただし中間 9クエリはそれぞれ個別 try/except でロールバックされ外側 except には飛ばない設計なので、実際のリスクは低い。
+- `_connect_with_org_context()` の finally は try/except なし → finally 内の NULL set_config が失敗した場合 TypeError が伝播する（pre-existing）
+- 詳細: `topics/memory_layer_rls_patterns.md`
+
 ## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
 
 - `--all` flag only scans `lib/`, `chatwork-webhook/lib/`, `proactive-monitor/lib/` — NOT `api/` or `cost-report/`

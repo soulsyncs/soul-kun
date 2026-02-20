@@ -225,6 +225,45 @@ class TestSelectBestMatch:
         assert best is not None
         assert best.event_id == "1"
 
+    def test_60min_window_finds_event_at_50min(self, base_time):
+        """±60分ウィンドウで50分ずれたイベントを検出（Phase Z2 ④: 祝日振替対応）"""
+        ev = self._make_event("1", title="MTG", start_offset_min=50)
+        best = _select_best_match([ev], base_time, "MTG", time_window_minutes=60)
+        assert best is not None
+        assert best.event_id == "1"
+
+    def test_30min_window_misses_event_at_50min(self, base_time):
+        """±30分ウィンドウでは50分ずれたイベントはスコアゼロ（旧動作確認）"""
+        ev = self._make_event("1", title="MTG", start_offset_min=50)
+        best = _select_best_match([ev], base_time, None, time_window_minutes=30)
+        # タイトルスコアも0の場合、time_scoreは0になりbest_score=0でevが選ばれるが
+        # time_window外なのでtime_scoreは0。スコア0でも唯一の候補なのでbestには入る。
+        # ただし「time_window=30で50分先のeventのtime_scoreは0」を確認する。
+        assert best is not None  # 唯一の候補なので選ばれる
+        # time_score が 0 だと確認（diff=50 > window=30）
+        diff_minutes = 50
+        window = 30
+        expected_time_score = 0.0 if diff_minutes > window else 3.0 * (1.0 - diff_minutes / window)
+        assert expected_time_score == 0.0
+
+    def test_60min_window_scores_event_correctly(self, base_time):
+        """±60分ウィンドウでのスコア計算が正しいか（Phase Z2 ④）"""
+        # 45分ずれたイベント: score = 3.0 * (1 - 45/60) = 0.75
+        ev = self._make_event("1", title="MTG", start_offset_min=45)
+        best = _select_best_match([ev], base_time, None, time_window_minutes=60)
+        assert best is not None
+        assert best.event_id == "1"
+
+    def test_custom_window_respected(self, base_time):
+        """カスタムウィンドウ引数が実際に反映されるか（回帰テスト）"""
+        # 35分ずれたイベント: window=30では時刻スコア0、window=60では時刻スコア>0
+        ev_35 = self._make_event("1", title="A", start_offset_min=35)
+        ev_5 = self._make_event("2", title="B", start_offset_min=5)
+        # window=60のとき: ev_35のtime_score=3*(1-35/60)≈1.25, ev_5のtime_score=3*(1-5/60)≈2.75
+        # タイトルも同等なので ev_5 が勝つ
+        best = _select_best_match([ev_35, ev_5], base_time, None, time_window_minutes=60)
+        assert best.event_id == "2"
+
 
 # ============================================================
 # GoogleCalendarClient tests

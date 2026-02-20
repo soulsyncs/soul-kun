@@ -64,7 +64,7 @@ async def get_member_full_detail(
                         u.id, u.name, u.email,
                         u.chatwork_account_id, u.is_active,
                         u.created_at, u.updated_at,
-                        u.employment_type, u.avatar_url, u.evaluation
+                        u.employment_type, u.avatar_url, u.evaluation, u.goal_achievement
                     FROM users u
                     WHERE u.id = :user_id
                       AND u.organization_id = :org_id
@@ -151,6 +151,7 @@ async def get_member_full_detail(
             avatar_url=user_row[8],
             employment_type=user_row[7],
             evaluation=user_row[9],
+            goal_achievement=int(user_row[10]) if user_row[10] is not None else None,
             hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
@@ -242,6 +243,9 @@ async def update_member(
             if request.evaluation is not None:
                 set_clauses.append("evaluation = :evaluation")
                 params["evaluation"] = request.evaluation or None
+            if request.goal_achievement is not None:
+                set_clauses.append("goal_achievement = :goal_achievement")
+                params["goal_achievement"] = request.goal_achievement
 
             if not set_clauses:
                 return DepartmentMutationResponse(

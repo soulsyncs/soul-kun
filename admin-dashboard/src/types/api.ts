@@ -255,6 +255,7 @@ export interface MemberDetailResponse {
   avatar_url: string | null;
   employment_type: string | null;
   evaluation: string | null;
+  goal_achievement: number | null;
   hire_date: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -281,6 +282,7 @@ export interface UpdateMemberRequest {
   employment_type?: string;
   avatar_url?: string;
   evaluation?: string;
+  goal_achievement?: number | null;
 }
 
 export interface MemberDepartmentAssignment {

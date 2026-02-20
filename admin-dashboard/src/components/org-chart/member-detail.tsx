@@ -40,6 +40,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formEmploymentType, setFormEmploymentType] = useState('');
   const [formAvatarUrl, setFormAvatarUrl] = useState('');
   const [formEvaluation, setFormEvaluation] = useState('');
+  const [formGoalAchievement, setFormGoalAchievement] = useState('');
 
   const detail = data;
 
@@ -52,6 +53,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormEmploymentType(detail.employment_type ?? '');
       setFormAvatarUrl(detail.avatar_url ?? '');
       setFormEvaluation(detail.evaluation ?? '');
+      setFormGoalAchievement(detail.goal_achievement !== null && detail.goal_achievement !== undefined ? String(detail.goal_achievement) : '');
     }
   }, [isEditOpen, detail]);
 
@@ -67,6 +69,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           employment_type: formEmploymentType.trim() || undefined,
           avatar_url: formAvatarUrl.trim() || undefined,
           evaluation: formEvaluation.trim() || undefined,
+          goal_achievement: formGoalAchievement !== '' ? Number(formGoalAchievement) : null,
         },
       });
       setIsEditOpen(false);
@@ -208,6 +211,26 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             </div>
           )}
 
+          {detail?.goal_achievement !== null && detail?.goal_achievement !== undefined && (
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-1.5 w-full">
+                <span className="whitespace-nowrap">目標達成率:</span>
+                <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full ${
+                      detail.goal_achievement >= 80 ? 'bg-green-500' :
+                      detail.goal_achievement >= 60 ? 'bg-blue-500' :
+                      detail.goal_achievement >= 40 ? 'bg-yellow-500' :
+                      'bg-red-400'
+                    }`}
+                    style={{ width: `${detail.goal_achievement}%` }}
+                  />
+                </div>
+                <span className="font-medium whitespace-nowrap">{detail.goal_achievement}%</span>
+              </div>
+            </div>
+          )}
+
           {formatDate(detail?.created_at ?? null) && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
@@ -298,6 +321,23 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 <option value="C">C（普通）</option>
                 <option value="D">D（要改善）</option>
               </select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-goal-achievement">目標達成率（0〜100）</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="member-goal-achievement"
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={formGoalAchievement}
+                  onChange={(e) => setFormGoalAchievement(e.target.value)}
+                  placeholder="例: 85"
+                  className="w-28"
+                />
+                <span className="text-sm text-muted-foreground">%</span>
+              </div>
             </div>
 
             <div className="grid gap-2">

@@ -39,6 +39,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formChatworkId, setFormChatworkId] = useState('');
   const [formEmploymentType, setFormEmploymentType] = useState('');
   const [formAvatarUrl, setFormAvatarUrl] = useState('');
+  const [formEvaluation, setFormEvaluation] = useState('');
 
   const detail = data;
 
@@ -50,6 +51,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormChatworkId(detail.chatwork_account_id ?? '');
       setFormEmploymentType(detail.employment_type ?? '');
       setFormAvatarUrl(detail.avatar_url ?? '');
+      setFormEvaluation(detail.evaluation ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -64,6 +66,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           chatwork_account_id: formChatworkId.trim() || undefined,
           employment_type: formEmploymentType.trim() || undefined,
           avatar_url: formAvatarUrl.trim() || undefined,
+          evaluation: formEvaluation.trim() || undefined,
         },
       });
       setIsEditOpen(false);
@@ -181,6 +184,21 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 {detail.employment_type}
               </Badge>
             )}
+            {detail?.evaluation && (
+              <Badge
+                variant="outline"
+                className={`text-xs font-bold ${
+                  detail.evaluation === 'S' ? 'border-yellow-400 text-yellow-600 bg-yellow-50' :
+                  detail.evaluation === 'A' ? 'border-blue-400 text-blue-600 bg-blue-50' :
+                  detail.evaluation === 'B' ? 'border-green-400 text-green-600 bg-green-50' :
+                  detail.evaluation === 'C' ? 'border-gray-400 text-gray-600 bg-gray-50' :
+                  detail.evaluation === 'D' ? 'border-red-400 text-red-600 bg-red-50' :
+                  ''
+                }`}
+              >
+                評価: {detail.evaluation}
+              </Badge>
+            )}
           </div>
 
           {formatDate(detail?.hire_date ?? null) && (
@@ -262,6 +280,23 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 <option value="パート">パート</option>
                 <option value="インターン">インターン</option>
                 <option value="顧問">顧問</option>
+              </select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-evaluation">評価ランク</Label>
+              <select
+                id="member-evaluation"
+                value={formEvaluation}
+                onChange={(e) => setFormEvaluation(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">未設定</option>
+                <option value="S">S（最高）</option>
+                <option value="A">A（優秀）</option>
+                <option value="B">B（良好）</option>
+                <option value="C">C（普通）</option>
+                <option value="D">D（要改善）</option>
               </select>
             </div>
 

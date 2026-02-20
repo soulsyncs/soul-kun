@@ -66,7 +66,12 @@
 
 ## Known open issues (pre-existing, not introduced by any reviewed PR)
 
-- `lib/brain/episodic_memory.py` line 251: keywords logged at INFO (PII leak risk)
+- `lib/brain/episodic_memory.py` `save_episode()`: **FIXED** in Task A implementation — now has set_config RLS context, 3-copy sync done, error handling with rollback+invalidate. See episodic_memory.py review below.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW WARNING** — `brain_episodes` table has `room_id` and `source` columns that are not inserted (INSERT omits them). Both are nullable, so no runtime error, but data is incomplete.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW WARNING** — `set_config(..., NULL, false)` may fail on some PostgreSQL versions (NULL not valid for set_config text parameter). state_manager.py uses the same pattern — treat as consistent but note risk. Actual behavior: PostgreSQL accepts NULL and sets to empty string.
+- `lib/brain/episodic_memory.py` `save_episode()`: **NEW CRITICAL** — `self.pool.connect()` is synchronous blocking called directly (not via asyncio.to_thread()). create_episode() is sync, but callers in async chain (Brain nodes) will block the event loop. Must use asyncio.to_thread() or check _is_async_pool.
+- `lib/brain/episodic_memory.py` line 443: `message[:50]` logged in recall() debug — message content (PII) in logs. DEBUG only, harmless in prod.
+- `lib/brain/episodic_memory.py` `_generate_episode_id()`: uuid5(NAMESPACE_DNS, content) where content = f"{summary}_{occurred_at.isoformat()}". If two different episodes have the same summary+time, they will silently collide (ON CONFLICT DO UPDATE). This is a design choice, not a bug per se.
 - `lib/brain/alert_sender.py` line 78: hardcoded ChatWork room ID `"417892193"` as default
 - `lib/brain/integration.py` lines 624, 630: bare `asyncio.create_task()` (not _fire_and_forget)
 - `lib/brain/authorization_gate.py` line 378, `memory_access.py` line 348, `agents/base.py` line 669: same pattern

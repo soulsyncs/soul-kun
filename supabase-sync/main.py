@@ -1130,6 +1130,5 @@ def sync_org():
             "sync_id": sync_id,
             "status": "failed",
             "error": type(e).__name__,
-            "message": str(e),
             "duration_ms": duration_ms,
         }), 500

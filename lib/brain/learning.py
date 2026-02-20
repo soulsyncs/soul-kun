@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -70,6 +71,9 @@ SUMMARY_THRESHOLD: int = 10
 
 # ユーザー嗜好更新の最小間隔（分）
 PREFERENCE_UPDATE_INTERVAL_MINUTES: int = 60
+
+# 会話サマリー更新の最小間隔（分）
+SUMMARY_UPDATE_INTERVAL_MINUTES: int = 30
 
 
 # =============================================================================
@@ -205,6 +209,7 @@ class BrainLearning:
         firestore_db=None,
         enable_logging: bool = True,
         enable_learning: bool = True,
+        get_ai_response_func: Optional[Callable] = None,
     ):
         """
         学習層を初期化
@@ -221,9 +226,11 @@ class BrainLearning:
         self.firestore_db = firestore_db
         self.enable_logging = enable_logging and SAVE_DECISION_LOGS
         self.enable_learning = enable_learning
+        self.get_ai_response = get_ai_response_func
 
         # キャッシュ
         self._preference_update_times: Dict[str, datetime] = {}
+        self._summary_update_times: Dict[str, datetime] = {}
         self._decision_logs_buffer: List[DecisionLogEntry] = []
 
         # Phase 2E: 学習基盤
@@ -614,12 +621,16 @@ class BrainLearning:
             ):
                 update_result.conversation_saved = True
 
-            # 2. 会話サマリーを更新（閾値を超えた場合）
-            if len(context.recent_conversation) >= SUMMARY_THRESHOLD:
+            # 2. 会話サマリーを更新（閾値を超え、かつ更新間隔が経過した場合）
+            if (
+                len(context.recent_conversation) >= SUMMARY_THRESHOLD
+                and self._should_update_summary(room_id)
+            ):
                 if await self._update_conversation_summary(
                     context.recent_conversation, room_id, account_id
                 ):
                     update_result.summary_generated = True
+                    self._summary_update_times[room_id] = datetime.now()
 
             # 3. ユーザー嗜好を更新（間隔をチェック）
             if self._should_update_preference(account_id):
@@ -681,12 +692,15 @@ class BrainLearning:
         account_id: str,
     ) -> bool:
         """
-        会話サマリーを更新
+        会話サマリーを更新（タスクC: LLM生成 + DB保存）
+
+        LLMが利用可能な場合: LLMで要約生成 → conversation_summariesに保存
+        LLMが利用不可の場合: スキップ（不完全なデータをDBに入れない）
 
         Args:
-            recent_conversation: 直近の会話
+            recent_conversation: 直近の会話（SUMMARY_THRESHOLD件以上）
             room_id: ルームID
-            account_id: アカウントID
+            account_id: アカウントID（ChatWork）
 
         Returns:
             更新に成功したか
@@ -695,17 +709,184 @@ class BrainLearning:
             return False
 
         try:
-            # Phase AA: LLMを使用してサマリーを生成
-            # conversation_summariesテーブル作成後に実装
+            # Step 1: LLMで要約を生成
+            if not self.get_ai_response:
+                # LLM不使用時はスキップ（ゴミデータをDBに入れない）
+                return False
+
+            prompt = self._build_summary_prompt(recent_conversation)
+            raw_response = await self._call_ai_for_summary(prompt)
+            if not raw_response:
+                return False
+
+            summary_data = self._parse_summary_response(raw_response)
+            if not summary_data:
+                return False
+
+            # Step 2: DBに保存（asyncio.to_threadで同期処理をオフロード）
+            return await asyncio.to_thread(
+                self._save_summary_sync, summary_data, recent_conversation, room_id, account_id
+            )
+
+        except Exception as e:
+            logger.warning("Error updating conversation summary: %s", type(e).__name__)
+            return False
+
+    def _build_summary_prompt(self, messages: List[ConversationMessage]) -> str:
+        """会話要約用のプロンプトを構築（最新20件を対象）"""
+        target = messages[-20:] if len(messages) > 20 else messages
+        lines = []
+        for msg in target:
+            role_label = "ユーザー" if msg.role == "user" else "ソウルくん"
+            content = (msg.content or "")[:200]  # 1メッセージ最大200文字
+            lines.append(f"{role_label}: {content}")
+        conversation_text = "\n".join(lines)
+
+        return f"""以下の会話を要約してください。JSON形式で出力してください。
+
+会話:
+{conversation_text}
+
+以下のJSON形式で出力:
+{{
+  "summary_text": "会話全体の要約（200文字以内）",
+  "key_topics": ["主要トピック1", "主要トピック2"],
+  "mentioned_persons": ["登場した人名1"],
+  "mentioned_tasks": ["言及されたタスク・依頼1"]
+}}
+
+注意: 存在しない場合は空のリスト[]を使用してください。"""
+
+    async def _call_ai_for_summary(self, prompt: str) -> Optional[str]:
+        """LLMを呼び出して会話要約を生成（sync/async両対応）"""
+        if not self.get_ai_response:
+            return None
+        try:
+            if asyncio.iscoroutinefunction(self.get_ai_response):
+                return await self.get_ai_response(prompt)
+            else:
+                return await asyncio.to_thread(self.get_ai_response, prompt)
+        except Exception as e:
+            logger.warning("LLM call for summary failed: %s", type(e).__name__)
+            return None
+
+    def _parse_summary_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """LLMの要約レスポンスをJSONでパース"""
+        try:
+            json_match = re.search(r'\{[\s\S]*\}', response)
+            if not json_match:
+                return None
+            parsed = json.loads(json_match.group())
+            if not isinstance(parsed.get("summary_text"), str):
+                return None
+            return {
+                "summary_text": str(parsed.get("summary_text", ""))[:500],
+                "key_topics": [
+                    str(t) for t in parsed.get("key_topics", []) if t
+                ][:5],
+                "mentioned_persons": [
+                    str(p) for p in parsed.get("mentioned_persons", []) if p
+                ][:10],
+                "mentioned_tasks": [
+                    str(t) for t in parsed.get("mentioned_tasks", []) if t
+                ][:10],
+            }
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning("Failed to parse summary response: %s", type(e).__name__)
+            return None
+
+    def _save_summary_sync(
+        self,
+        summary_data: Dict[str, Any],
+        messages: List[ConversationMessage],
+        room_id: str,
+        account_id: str,
+    ) -> bool:
+        """
+        会話要約をDBに保存（asyncio.to_thread経由で呼ぶこと）
+
+        conversation_summaries テーブルに INSERT する。
+        user_id は chatwork_account_id から users テーブルで参照する。
+
+        W-2対策: INSERT前にDB側で直近30分以内の同一ルームのサマリーを確認し、
+        存在する場合はスキップする（マルチインスタンス対応）。
+        """
+        import sqlalchemy
+        try:
+            timestamps = [m.timestamp for m in messages if m.timestamp]
+            conv_start = min(timestamps) if timestamps else datetime.now()
+            conv_end = max(timestamps) if timestamps else datetime.now()
+
+            with self._begin_with_org_context() as conn:
+                # W-2: DB側で重複チェック（マルチインスタンス対応）
+                recent = conn.execute(
+                    sqlalchemy.text("""
+                        SELECT id FROM conversation_summaries
+                        WHERE organization_id = CAST(:org_id AS uuid)
+                          AND room_id = :room_id
+                          AND created_at > NOW() - INTERVAL '30 minutes'
+                        LIMIT 1
+                    """),
+                    {"org_id": self.org_id, "room_id": room_id},
+                ).fetchone()
+
+                if recent:
+                    logger.debug("Skipping duplicate summary: room=%s", room_id)
+                    return True
+
+                conn.execute(
+                    sqlalchemy.text("""
+                        INSERT INTO conversation_summaries (
+                            organization_id, user_id, summary_text,
+                            key_topics, mentioned_persons, mentioned_tasks,
+                            conversation_start, conversation_end, message_count,
+                            room_id, generated_by, classification
+                        )
+                        SELECT
+                            CAST(:org_id AS uuid), u.id, :summary_text,
+                            :key_topics, :mentioned_persons, :mentioned_tasks,
+                            :conv_start, :conv_end, :message_count,
+                            :room_id, 'brain_learning', 'internal'
+                        FROM users u
+                        WHERE u.organization_id = :org_id
+                          AND u.chatwork_account_id = :account_id
+                    """),
+                    {
+                        "org_id": self.org_id,
+                        "account_id": account_id,
+                        "summary_text": summary_data["summary_text"],
+                        "key_topics": summary_data["key_topics"],
+                        "mentioned_persons": summary_data["mentioned_persons"],
+                        "mentioned_tasks": summary_data["mentioned_tasks"],
+                        "conv_start": conv_start,
+                        "conv_end": conv_end,
+                        "message_count": len(messages),
+                        "room_id": room_id,
+                    },
+                )
+
+            # CLAUDE.md §9-3: account_id はPIIのためログに出力しない
             logger.debug(
-                f"Conversation summary updated: room={room_id}, "
-                f"messages={len(recent_conversation)}"
+                "Conversation summary saved: room=%s, messages=%d",
+                room_id, len(messages),
             )
             return True
 
         except Exception as e:
-            logger.warning(f"Error updating conversation summary: {type(e).__name__}")
+            logger.warning("Error saving conversation summary: %s", type(e).__name__)
             return False
+
+    def _should_update_summary(self, room_id: str) -> bool:
+        """
+        会話サマリーを更新すべきかチェック（時間間隔ベース）
+
+        同じルームで短時間に何度も要約が生成されないよう制御する。
+        """
+        last_update = self._summary_update_times.get(room_id)
+        if last_update is None:
+            return True
+        elapsed = datetime.now() - last_update
+        return elapsed.total_seconds() >= SUMMARY_UPDATE_INTERVAL_MINUTES * 60
 
     async def _update_user_preference(
         self,
@@ -1428,6 +1609,7 @@ def create_learning(
     firestore_db=None,
     enable_logging: bool = True,
     enable_learning: bool = True,
+    get_ai_response_func: Optional[Callable] = None,
 ) -> BrainLearning:
     """
     BrainLearningインスタンスを作成
@@ -1438,6 +1620,7 @@ def create_learning(
         firestore_db: Firestoreクライアント
         enable_logging: ログ記録を有効にするか
         enable_learning: 学習機能を有効にするか
+        get_ai_response_func: AI応答生成関数（会話要約生成に使用）
 
     Returns:
         BrainLearning
@@ -1448,4 +1631,5 @@ def create_learning(
         firestore_db=firestore_db,
         enable_logging=enable_logging,
         enable_learning=enable_learning,
+        get_ai_response_func=get_ai_response_func,
     )

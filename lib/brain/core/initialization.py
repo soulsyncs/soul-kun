@@ -146,13 +146,14 @@ class InitializationMixin:
             enable_retry=True,
         )
 
-        # 学習層の初期化
+        # 学習層の初期化（タスクC: get_ai_response_funcで会話要約生成を有効化）
         self.learning = BrainLearning(
             pool=pool,
             org_id=org_id,
             firestore_db=firestore_db,
             enable_logging=True,
             enable_learning=True,
+            get_ai_response_func=get_ai_response_func,
         )
 
         # Phase 2E: 学習ループの初期化（フィードバック→判断改善）

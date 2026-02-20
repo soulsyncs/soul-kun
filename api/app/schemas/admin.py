@@ -1062,7 +1062,11 @@ class KeymenResponse(BaseModel):
 class BudgetUpdateRequest(BaseModel):
     """月間予算設定リクエスト"""
 
-    year_month: str = Field(..., description="年月（YYYY-MM形式）")
+    year_month: str = Field(
+        ...,
+        description="年月（YYYY-MM形式）",
+        pattern=r"^\d{4}-\d{2}$",
+    )
     budget_jpy: float = Field(..., ge=0, description="月間予算（円）")
 
 

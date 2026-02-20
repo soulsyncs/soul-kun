@@ -550,7 +550,6 @@ async def update_monthly_budget(
         "Update monthly budget",
         organization_id=organization_id,
         year_month=body.year_month,
-        budget_jpy=body.budget_jpy,
         user_id=user.user_id,
     )
 

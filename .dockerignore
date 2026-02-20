@@ -34,7 +34,6 @@ cloudbuild*.yaml
 .dockerignore
 
 # Unused/legacy services
-api/
 weekly-summary/
 cost-report/
 

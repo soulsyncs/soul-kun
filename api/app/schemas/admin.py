@@ -401,6 +401,7 @@ class MemberDetailResponse(BaseModel):
     )
     chatwork_account_id: Optional[str] = Field(None, description="ChatWorkアカウントID")
     is_active: bool = Field(True, description="有効か")
+    avatar_url: Optional[str] = Field(None, description="顔写真URL")
     employment_type: Optional[str] = Field(None, description="雇用形態（正社員/業務委託/パート等）")
     hire_date: Optional[dt.datetime] = Field(None, description="入社日（主所属部署の開始日）")
     created_at: Optional[dt.datetime] = Field(None, description="作成日時")
@@ -418,6 +419,7 @@ class UpdateMemberRequest(BaseModel):
     employment_type: Optional[str] = Field(
         None, max_length=50, description="雇用形態（正社員/業務委託/パート/インターン/顧問）"
     )
+    avatar_url: Optional[str] = Field(None, max_length=500, description="顔写真URL")
 
 
 class MemberDepartmentAssignment(BaseModel):

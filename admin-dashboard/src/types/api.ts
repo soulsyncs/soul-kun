@@ -252,6 +252,7 @@ export interface MemberDetailResponse {
   departments: MemberDepartmentInfo[];
   chatwork_account_id: string | null;
   is_active: boolean;
+  avatar_url: string | null;
   employment_type: string | null;
   hire_date: string | null;
   created_at: string | null;
@@ -277,6 +278,7 @@ export interface UpdateMemberRequest {
   email?: string;
   chatwork_account_id?: string;
   employment_type?: string;
+  avatar_url?: string;
 }
 
 export interface MemberDepartmentAssignment {

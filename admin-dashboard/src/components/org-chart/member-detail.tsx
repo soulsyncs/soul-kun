@@ -38,6 +38,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formEmail, setFormEmail] = useState('');
   const [formChatworkId, setFormChatworkId] = useState('');
   const [formEmploymentType, setFormEmploymentType] = useState('');
+  const [formAvatarUrl, setFormAvatarUrl] = useState('');
 
   const detail = data;
 
@@ -48,6 +49,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormEmail(detail.email ?? '');
       setFormChatworkId(detail.chatwork_account_id ?? '');
       setFormEmploymentType(detail.employment_type ?? '');
+      setFormAvatarUrl(detail.avatar_url ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -61,6 +63,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           email: formEmail.trim() || undefined,
           chatwork_account_id: formChatworkId.trim() || undefined,
           employment_type: formEmploymentType.trim() || undefined,
+          avatar_url: formAvatarUrl.trim() || undefined,
         },
       });
       setIsEditOpen(false);
@@ -87,7 +90,16 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base">
-              <User className="h-4 w-4" />
+              {detail?.avatar_url ? (
+                <img
+                  src={detail.avatar_url}
+                  alt={detail.name ?? ''}
+                  className="h-8 w-8 rounded-full object-cover border border-border"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              ) : (
+                <User className="h-4 w-4" />
+              )}
               {detail?.name || member.name || '名前未設定'}
             </CardTitle>
             <div className="flex items-center gap-1">
@@ -251,6 +263,25 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 <option value="インターン">インターン</option>
                 <option value="顧問">顧問</option>
               </select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-avatar-url">顔写真URL</Label>
+              <Input
+                id="member-avatar-url"
+                value={formAvatarUrl}
+                onChange={(e) => setFormAvatarUrl(e.target.value)}
+                placeholder="https://example.com/photo.jpg"
+                maxLength={500}
+              />
+              {formAvatarUrl && (
+                <img
+                  src={formAvatarUrl}
+                  alt="プレビュー"
+                  className="h-12 w-12 rounded-full object-cover border border-border"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                />
+              )}
             </div>
           </div>
 

@@ -57,8 +57,13 @@ def _build_department_tree(
             nodes[parent_id].children.append(node)
         elif not parent_id:
             # True root (no parent) → show at top level
+            # Skip empty shell roots (0 members, 0 children) to avoid showing duplicate stale records
             roots.append(node)
         # else: orphaned (parent_id set but not found in this org) → skip to avoid duplicate display
+
+    # Remove empty shell roots: roots with no members and no children are stale duplicates
+    # (legitimate new departments will have either children or members soon after creation)
+    roots = [r for r in roots if r.member_count > 0 or len(r.children) > 0]
 
     # Sort children by display_order at each level
     def sort_children(node: DepartmentTreeNode):

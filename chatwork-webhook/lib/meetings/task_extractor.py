@@ -25,8 +25,10 @@ Author: Claude Opus 4.6
 Created: 2026-02-13
 """
 
+import calendar
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
@@ -68,13 +70,85 @@ class ExtractedTask:
 
     task_body: str
     assignee_name: Optional[str] = None
-    # TODO(Phase5.1): deadline_hintを実際の期限にパースする
     deadline_hint: Optional[str] = None
     # 解決後のフィールド
     assignee_account_id: Optional[str] = None
     chatwork_task_id: Optional[str] = None
     created: bool = False
     error: Optional[str] = None
+
+
+def parse_deadline_hint(hint: Optional[str], default_days: int = DEFAULT_TASK_DEADLINE_DAYS) -> int:
+    """
+    LLMが返した期限ヒント（日本語）を Unix タイムスタンプに変換する。
+
+    サポートする表現:
+        - 今日, 本日                  → 今日の23:59
+        - 明日                        → 明日の23:59
+        - 今週中, 今週末              → 今週金曜日の23:59
+        - 来週, 来週中                → 7日後の23:59
+        - 今月中, 今月末              → 今月最終日の23:59
+        - 来月中, 来月末              → 来月最終日の23:59
+        - N日後（例: 3日後）          → N日後の23:59
+        - なし, 未設定, 不明, 空文字  → default_days 日後の23:59
+
+    Returns:
+        Unix timestamp (int)
+    """
+    now = datetime.now(timezone.utc)
+
+    def _end_of_day(dt: datetime) -> int:
+        """その日の23:59のUnixタイムスタンプを返す"""
+        end = dt.replace(hour=23, minute=59, second=0, microsecond=0)
+        return int(end.timestamp())
+
+    if not hint or hint.strip() in ("なし", "未設定", "不明", "なし。", ""):
+        return _end_of_day(now + timedelta(days=default_days))
+
+    h = hint.strip()
+
+    # 今日・本日
+    if any(kw in h for kw in ("今日", "本日")):
+        return _end_of_day(now)
+
+    # 明日
+    if "明日" in h:
+        return _end_of_day(now + timedelta(days=1))
+
+    # N日後
+    m = re.search(r"(\d+)\s*日後", h)
+    if m:
+        days = min(int(m.group(1)), 90)  # 最大90日でキャップ
+        return _end_of_day(now + timedelta(days=days))
+
+    # 今週中・今週末（最も近い金曜日。金曜当日なら今日）
+    if any(kw in h for kw in ("今週", "今週末", "今週中")):
+        days_until_friday = (4 - now.weekday()) % 7
+        return _end_of_day(now + timedelta(days=days_until_friday))
+
+    # 来週・来週中
+    if "来週" in h:
+        return _end_of_day(now + timedelta(days=7))
+
+    # 今月中・今月末
+    if any(kw in h for kw in ("今月", "今月中", "今月末")):
+        last_day = calendar.monthrange(now.year, now.month)[1]
+        end_of_month = now.replace(day=last_day)
+        return _end_of_day(end_of_month)
+
+    # 来月中・来月末
+    if any(kw in h for kw in ("来月", "来月中", "来月末")):
+        if now.month == 12:
+            next_month_year, next_month = now.year + 1, 1
+        else:
+            next_month_year, next_month = now.year, now.month + 1
+        last_day = calendar.monthrange(next_month_year, next_month)[1]
+        end_of_next_month = now.replace(year=next_month_year, month=next_month, day=last_day)
+        return _end_of_day(end_of_next_month)
+
+    # 解釈できない場合はデフォルト
+    logger.debug("deadline_hint not parsed, using default: hint=%r", hint)
+    return _end_of_day(now + timedelta(days=default_days))
 
 
 @dataclass
@@ -227,12 +301,6 @@ async def extract_and_create_tasks(
         result.total_failed = len(tasks)
         return result
 
-    # デフォルト期限: 1週間後
-    default_deadline = int(
-        (datetime.now(timezone.utc) + timedelta(days=DEFAULT_TASK_DEADLINE_DAYS))
-        .timestamp()
-    )
-
     for task in tasks:
         try:
             # 担当者解決
@@ -255,13 +323,16 @@ async def extract_and_create_tasks(
                 result.total_failed += 1
                 continue
 
+            # 期限: deadline_hintをパース（なければデフォルト1週間）
+            task_deadline = parse_deadline_hint(task.deadline_hint)
+
             # ChatWorkタスク作成
             task_response = await asyncio.to_thread(
                 chatwork_client.create_task,
                 room_id_int,
                 task.task_body,
                 [account_id_int],
-                default_deadline,
+                task_deadline,
                 "date",
             )
 

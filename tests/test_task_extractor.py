@@ -7,17 +7,119 @@ Created: 2026-02-13
 """
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from lib.meetings.task_extractor import (
+    DEFAULT_TASK_DEADLINE_DAYS,
     ExtractedTask,
     TaskExtractionResult,
     build_task_extraction_prompt,
     extract_and_create_tasks,
+    parse_deadline_hint,
     parse_task_extraction_response,
 )
+
+
+# ============================================================
+# parse_deadline_hint tests
+# ============================================================
+
+
+class TestParseDeadlineHint:
+    """parse_deadline_hint のユニットテスト（3AI合意: 2026-02-20）"""
+
+    def _days_from_now(self, timestamp: int) -> int:
+        """Unixタイムスタンプと現在時刻の差を日数（切り捨て）で返す"""
+        now_ts = datetime.now(timezone.utc).timestamp()
+        return int((timestamp - now_ts) / 86400)
+
+    def test_none_returns_default_7days(self):
+        ts = parse_deadline_hint(None)
+        days = self._days_from_now(ts)
+        assert days == DEFAULT_TASK_DEADLINE_DAYS - 1 or days == DEFAULT_TASK_DEADLINE_DAYS
+
+    def test_empty_string_returns_default(self):
+        ts = parse_deadline_hint("")
+        days = self._days_from_now(ts)
+        assert days >= DEFAULT_TASK_DEADLINE_DAYS - 1
+
+    def test_nashi_returns_default(self):
+        for hint in ("なし", "未設定", "不明"):
+            ts = parse_deadline_hint(hint)
+            days = self._days_from_now(ts)
+            assert days >= DEFAULT_TASK_DEADLINE_DAYS - 1
+
+    def test_kyou_returns_today(self):
+        for hint in ("今日", "本日"):
+            ts = parse_deadline_hint(hint)
+            days = self._days_from_now(ts)
+            assert days == 0
+
+    def test_ashita_returns_tomorrow(self):
+        ts = parse_deadline_hint("明日")
+        days = self._days_from_now(ts)
+        assert days == 1
+
+    def test_n_days_later(self):
+        ts = parse_deadline_hint("3日後")
+        days = self._days_from_now(ts)
+        assert days == 3
+
+    def test_n_days_cap_at_90(self):
+        ts = parse_deadline_hint("999日後")
+        days = self._days_from_now(ts)
+        assert days == 90
+
+    def test_konshu_returns_this_friday(self):
+        """今週中 → 最も近い金曜日（金曜なら今日）"""
+        ts = parse_deadline_hint("今週中")
+        now = datetime.now(timezone.utc)
+        weekday = now.weekday()  # 0=月, 4=金
+        expected_days = (4 - weekday) % 7
+        days = self._days_from_now(ts)
+        assert days == expected_days
+
+    def test_konshu_on_friday_returns_today(self):
+        """金曜当日に今週中 → 今日（翌週金曜ではない、W-1修正確認）"""
+        from unittest.mock import patch
+        from datetime import timedelta
+        # 2026-02-20は金曜日（weekday=4）
+        friday = datetime(2026, 2, 20, 10, 0, 0, tzinfo=timezone.utc)
+        with patch("lib.meetings.task_extractor.datetime") as mock_dt:
+            mock_dt.now.return_value = friday
+            ts = parse_deadline_hint("今週中")
+        # 金曜当日 → end_of_day of Friday
+        friday_end = int(friday.replace(hour=23, minute=59, second=0, microsecond=0).timestamp())
+        assert ts == friday_end
+
+    def test_raishu_returns_7days(self):
+        ts = parse_deadline_hint("来週")
+        days = self._days_from_now(ts)
+        assert days == 7
+
+    def test_kongetsu_returns_end_of_month(self):
+        from datetime import date
+        import calendar
+        ts = parse_deadline_hint("今月中")
+        now = datetime.now(timezone.utc)
+        last_day = calendar.monthrange(now.year, now.month)[1]
+        end_of_month = datetime(now.year, now.month, last_day, 23, 59, 0, tzinfo=timezone.utc)
+        assert ts == int(end_of_month.timestamp())
+
+    def test_unknown_hint_returns_default(self):
+        """解釈不能なヒントはデフォルト7日"""
+        ts = parse_deadline_hint("未定")
+        days = self._days_from_now(ts)
+        assert days >= DEFAULT_TASK_DEADLINE_DAYS - 1
+
+    def test_custom_default_days(self):
+        """default_days引数が反映されるか"""
+        ts = parse_deadline_hint(None, default_days=14)
+        days = self._days_from_now(ts)
+        assert days == 13 or days == 14
 
 
 # ============================================================

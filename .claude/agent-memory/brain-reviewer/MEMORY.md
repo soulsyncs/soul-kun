@@ -526,6 +526,37 @@
 - `account_id` NOT in logs (line 801 explicitly notes CLAUDE.md §9-3). PASS.
 - `response_style` and `interaction_outcome` are enum-like strings, not PII. PASS.
 
+## Task D: episodic_memory recall → Brain context pipeline (feature/admin-dashboard-phase2, 2026-02-21)
+
+### 変更概要（3ファイル）
+- `lib/brain/core/initialization.py`: `from lib.brain.episodic_memory import create_episodic_memory` 追加。`self.episodic_memory = create_episodic_memory(pool=pool, organization_id=org_id)` を `BrainMemoryAccess` 初期化直後に追加。
+- `lib/brain/models.py` line 719: `recent_episodes: List[Any] = field(default_factory=list)` を `BrainContext` に追加。
+- `lib/brain/core/memory_layer.py` lines 200-211: Phase 2E ブロック直後に episodic recall ブロックを追加。
+
+### 3コピー同期確認（PASS）
+- 3コピー全て同一: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ — `recent_episodes` (models.py), recall ブロック (memory_layer.py), `create_episodic_memory` import (initialization.py) 全て IDENTICAL。
+
+### recall() の特性（重要）
+- `recall()` は `self._memory_cache: Dict[str, Episode]` のみ参照（DB呼び出しなし、I/Oなし）
+- `_recall_by_keywords`, `_recall_by_entities`, `_recall_by_temporal`, `_score_and_rank`, `_update_recall_stats` — 全てin-memoryのみ
+- `asyncio.to_thread()` の使用は技術的に正しい（GILリリース、CPU仕事のオフロード）が実質不要（I/Oなし）。正確性は保たれているが誤解を招くコメント。
+
+### CRITICAL issues
+- **なし**（セキュリティ・データ整合性・Brain architecture 上の blocking issue は見つからなかった）
+
+### WARNING issues
+- **W-1 (型の弱さ)**: `recent_episodes: List[Any]` は型情報を失っている。正確には `List[RecallResult]` であるべき。ただし `RecallResult` は `episodic_memory.py` で定義されており models.py が直接 import するのが適切か要検討（循環 import リスクはない、episodic_memory.py は models.py を import しないため）。
+- **W-2 (PII in logs)**: `episodic_memory.py` line 463 `f"... {message[:50]}..."` — recall() 内で message 先頭50文字をDEBUGログに出力。PRE-EXISTING（Task Dで新規導入ではない）。DEBUG levelなのでprodで問題なし。
+- **W-3 (ダミー想起)**: `_memory_cache` はインスタンス生成時に空（`{}`）。Task Aで save_episode() 実装済みだが、キャッシュへの populate が async 経由（DB→キャッシュへの初回ロードは未実装）。つまり実行時に recall() は常に空リストを返す可能性が高い。`recent_episodes` は常に空で LLM に渡されない。機能的デッドコードの可能性。
+
+### SUGGESTION issues
+- **S-1 (asyncio.to_thread 不要)**: recall() は純粋にin-memory（I/Oなし）。`asyncio.to_thread()` は技術的に害はないが unnecessary overhead。コメント「キャッシュ参照のみ、高速」と矛盾している（to_threadはスレッドプール経由でむしろ遅い）。将来的にDB呼び出しが追加された場合に備えた防衛的コードとも解釈できる。
+- **S-2 (hasattr ガード)**: `hasattr(self, 'episodic_memory')` は防衛的だが、`initialization.py` で `self.episodic_memory` が必ず設定されるため通常不要。ただしテスト時などで Brain が部分初期化された場合の安全ガードとして妥当。
+- **S-3 (recent_episodes の消費先がない)**: `recent_episodes` は `BrainContext` に格納されるが、`build_context.py`（LangGraph）も `context_builder.py`（LLM Brain）も `recent_episodes` を参照していない。LLM プロンプトに挿入されない。格納するだけで LLM に渡らない — Task D は「パイプラインに接続」と銘打っているが実際には未接続。
+
+### org_id filter (PASS)
+- `EpisodicMemory.recall()` はin-memory cacheのみ参照。cacheは `self.organization_id` をキーとして org 分離されたインスタンス（`create_episodic_memory(organization_id=org_id)`）が保持。org_id leakなし。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

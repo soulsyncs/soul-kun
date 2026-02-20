@@ -338,6 +338,15 @@ export function IntegrationsPage() {
                   )}
                   個人のGoogleアカウントを接続
                 </Button>
+                {connectMutation.isError && (
+                  <div className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-red-700">
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium">接続できませんでした</p>
+                      <p className="text-xs">Google OAuth設定がサーバー側で完了していません。管理者にご連絡ください。</p>
+                    </div>
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   ※ 会社カレンダーはすでに上部で確認できます。個人の予定もソウルくんに見せたい場合に使用します。
                 </p>

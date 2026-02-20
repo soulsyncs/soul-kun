@@ -171,7 +171,7 @@ export function SystemPage() {
                       onChange={(e) => setStopReason(e.target.value)}
                       className="border-red-300"
                     />
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Button variant="destructive" size="sm" onClick={handleActivate}>
                         はい、停止に進む
                       </Button>
@@ -189,7 +189,7 @@ export function SystemPage() {
                     <p className="text-xs text-red-700">
                       「実行する」を押すと直ちに全AIが停止します。
                     </p>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <Button
                         variant="destructive"
                         size="sm"

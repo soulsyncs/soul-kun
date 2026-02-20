@@ -23,8 +23,9 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ChevronLeft, ChevronRight, RefreshCw, Users, X, Star, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, RefreshCw, Users, X, Star, TrendingUp, TrendingDown, Minus, Download } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { downloadCSV } from '@/lib/utils';
 
 const LIMIT = 20;
 
@@ -114,6 +115,39 @@ export function MembersPage() {
   const page = Math.floor(offset / LIMIT) + 1;
   const totalPages = Math.max(1, Math.ceil(totalCount / LIMIT));
 
+  const handleDownloadMembersCsv = () => {
+    const rows = (data?.members ?? []).map((m) => [
+      m.name ?? '',
+      m.department ?? '',
+      m.role ?? '',
+      m.role_level ?? '',
+      m.created_at ? format(parseISO(m.created_at), 'yyyy/MM/dd') : '',
+    ]);
+    downloadCSV(
+      `members_${format(new Date(), 'yyyyMMdd')}.csv`,
+      ['名前', '部署', '役職', '権限レベル', '登録日'],
+      rows
+    );
+  };
+
+  const handleDownloadKeymenCsv = () => {
+    const rows = (keymenData?.top_keymen ?? []).map((p, i) => [
+      i + 1,
+      p.name ?? '',
+      p.department_name ?? '',
+      p.score.toFixed(1),
+      p.total_requests,
+      p.active_days,
+      p.tiers_used,
+      p.recent_trend === 'rising' ? '増加' : p.recent_trend === 'declining' ? '減少' : '安定',
+    ]);
+    downloadCSV(
+      `keymen_ranking_${format(new Date(), 'yyyyMMdd')}.csv`,
+      ['順位', '名前', '部署', 'スコア', 'リクエスト数', 'アクティブ日数', '使用機能数', '傾向'],
+      rows
+    );
+  };
+
   return (
     <AppLayout>
       <div className="space-y-6">
@@ -190,11 +224,20 @@ export function MembersPage() {
             <div className="flex flex-col md:flex-row gap-4">
               {/* Members Table */}
               <Card className={selectedUserId ? 'flex-1' : 'w-full'}>
-                <CardHeader>
+                <CardHeader className="flex flex-row items-center justify-between">
                   <CardTitle>
                     メンバー一覧
                     <InfoTooltip text="ソウルくんに登録されている全メンバーの一覧です。クリックで詳細を表示します" />
                   </CardTitle>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDownloadMembersCsv}
+                    disabled={!data?.members.length}
+                  >
+                    <Download className="h-4 w-4 mr-1" />
+                    CSV
+                  </Button>
                 </CardHeader>
                 <CardContent>
                   {isLoading ? (
@@ -405,12 +448,21 @@ export function MembersPage() {
         {/* ===== Tab: 隠れたキーマン発見 ===== */}
         {activeTab === 'keymen' && (
           <Card>
-            <CardHeader className="pb-3">
+            <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2">
                 <Star className="h-4 w-4 text-yellow-500" />
                 AIキーマン スコアランキング（直近90日）
                 <InfoTooltip text="AI活用回数・継続日数・機能の多様性から総合スコアを算出。組織を実際に支えているキーパーソンを可視化します。AIによる推定値です" />
               </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDownloadKeymenCsv}
+                disabled={!keymenData?.top_keymen.length}
+              >
+                <Download className="h-4 w-4 mr-1" />
+                CSV
+              </Button>
             </CardHeader>
             <CardContent>
               {keymenLoading ? (

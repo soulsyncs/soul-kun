@@ -156,6 +156,17 @@ export interface CostBreakdownResponse {
   by_tier: CostTierBreakdown[];
 }
 
+export interface BudgetUpdateRequest {
+  year_month: string;
+  budget_jpy: number;
+}
+
+export interface BudgetUpdateResponse {
+  status: string;
+  year_month: string;
+  budget_jpy: number;
+}
+
 // =============================================================================
 // Members
 // =============================================================================

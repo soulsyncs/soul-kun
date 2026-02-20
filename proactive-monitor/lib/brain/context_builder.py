@@ -532,6 +532,11 @@ class ContextBuilder:
                     conn.execute(sa_text(
                         "SELECT set_config('statement_timeout', '5000', true)"
                     ))
+                    # タスクE: RLS対応テーブル（brain_learnings等）のためORG_IDを設定
+                    # brain_learnings, conversation_summaries, user_preferences 等はRLS有効
+                    conn.execute(sa_text(
+                        "SELECT set_config('app.current_organization_id', :org_id, false)"
+                    ), {"org_id": org_id})
                     t_conn = _time.monotonic()
                     logger.debug("[DIAG] _fetch_all_db_data: conn ready in %.3fs", t_conn - t0)
                     t_q = _time.monotonic()  # クエリ個別タイミング
@@ -842,6 +847,13 @@ class ContextBuilder:
                         "[DIAG] _fetch_all_db_data: all 9 queries done in %.3fs",
                         t_done - t0,
                     )
+                    # タスクE: 接続プール返却前にRLSコンテキストをクリア（他組織データ漏洩防止）
+                    try:
+                        conn.execute(sa_text(
+                            "SELECT set_config('app.current_organization_id', NULL, false)"
+                        ))
+                    except Exception:
+                        pass
 
             except Exception as e:
                 logger.warning(

@@ -178,12 +178,13 @@ class MemoryLayerMixin:
                     for knowledge in memory_context["relevant_knowledge"]
                 ]
 
-            # Phase 2E: 適用可能な学習をコンテキストに追加
+            # Phase 2E: 適用可能な学習をコンテキストに追加（タスクE: RLSコンテキスト修正）
             # asyncio.to_thread()で同期DB呼び出しをオフロード
+            # 注意: brain_learnings はRLS有効のため _connect_with_org_context() が必須
             if self.learning.phase2e_learning:
                 try:
                     def _fetch_learnings():
-                        with self.pool.connect() as conn:
+                        with self.learning._connect_with_org_context() as conn:
                             applicable = self.learning.phase2e_learning.find_applicable(
                                 conn, message or "", None, user_id, room_id
                             )

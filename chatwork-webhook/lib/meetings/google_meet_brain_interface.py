@@ -10,16 +10,20 @@ Brain（lib/brain/）との唯一の接続点（zoom_brain_interface.pyと同パ
 3. 自動文字起こし（Google Docs）があれば取得。なければ録画をWhisper APIで文字起こし
 4. PII除去 → DB保存（brain_approved=FALSE）
 5. LLM議事録生成（Brain経由）
-6. HandlerResult返却 → Brainが投稿判断
+6. タスク自動抽出＆ChatWork作成（GM①）
+7. ソウルくん記憶保存（GM②）
+8. HandlerResult返却 → Brainが投稿判断
+9. 送信失敗時→管理者DM通知（GM③ / routes/google_meet.py 側で実施）
 
 Author: Claude Sonnet 4.6
 Created: 2026-02-19
+Updated: 2026-02-20 — GM①②③: タスク抽出・記憶保存・管理者通知
 """
 
 import asyncio
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from lib.brain.models import HandlerResult
 from lib.meetings.meeting_db import MeetingDB
@@ -34,6 +38,10 @@ from lib.meetings.minutes_generator import (
     build_chatwork_minutes_prompt,
     format_chatwork_minutes,
     CHATWORK_MINUTES_SYSTEM_PROMPT,
+)
+from lib.meetings.task_extractor import (
+    extract_and_create_tasks,
+    TaskExtractionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,6 +107,7 @@ class GoogleMeetBrainInterface:
         days_back: int = 1,
         meeting_title_filter: Optional[str] = None,
         get_ai_response_func: Optional[Callable] = None,
+        chatwork_client=None,
     ) -> HandlerResult:
         """
         Google Meet議事録を生成する。
@@ -109,6 +118,7 @@ class GoogleMeetBrainInterface:
             days_back: 何日前まで検索するか（デフォルト: 1日）
             meeting_title_filter: 会議名フィルタ（部分一致）
             get_ai_response_func: LLM呼び出し関数（Brain側から注入）
+            chatwork_client: ChatWork APIクライアント（タスク作成に使用。任意）
 
         Returns:
             HandlerResult with minutes data
@@ -207,30 +217,86 @@ class GoogleMeetBrainInterface:
             )
 
             # Step 6: 議事録生成（LLMが注入されている場合）
+            minutes: Optional[str] = None
             if get_ai_response_func is not None:
-                return await self._generate_minutes(
+                minutes = await self._generate_minutes_text(
                     sanitized_text,
                     meeting_title,
                     meeting_date,
                     meeting_id,
-                    transcript_id,
                     get_ai_response_func,
-                    recording,
                 )
 
-            # LLM未注入の場合: 文字起こし結果のみ返す
-            return HandlerResult(
-                success=True,
-                message=(
+            # Step 7: タスク自動抽出＆ChatWork作成（GM①）
+            task_result: Optional[TaskExtractionResult] = None
+            if minutes and get_ai_response_func:
+                try:
+                    task_result = await extract_and_create_tasks(
+                        minutes_text=minutes,
+                        meeting_title=meeting_title,
+                        room_id=room_id,
+                        organization_id=self.organization_id,
+                        get_ai_response_func=get_ai_response_func,
+                        chatwork_client=chatwork_client,
+                        name_resolver=self._build_name_resolver(),
+                    )
+                    if task_result and task_result.total_extracted > 0:
+                        logger.info(
+                            "Tasks extracted: %d, created: %d",
+                            task_result.total_extracted,
+                            task_result.total_created,
+                        )
+                except Exception as e:
+                    logger.warning("Task extraction failed: %s", type(e).__name__)
+
+            # Step 8: 3点セットメッセージ組み立て
+            drive_url = recording.web_view_link  # Google Drive の録画URL
+            if minutes:
+                message = self._build_delivery_message(
+                    title=meeting_title,
+                    minutes_text=minutes,
+                    drive_url=drive_url,
+                    task_result=task_result,
+                )
+            else:
+                message = (
                     f"「{meeting_title}」の文字起こしを取得したウル\U0001f43a\n"
                     f"議事録生成機能が有効でないため、文字起こし結果のみウル。\n"
                     f"（{len(sanitized_text)}文字）"
-                ),
+                )
+
+            # Step 9: 議事録をソウルくんの記憶に保存（GM②・非クリティカル）
+            # CLAUDE.md §9-2準拠: 議事録本文（PII可能性あり）は保存しない。
+            # タイトル・メタ情報のみをエピソード記憶として保存する。
+            if minutes:
+                try:
+                    await self._save_minutes_to_memory(
+                        meeting_id=meeting_id,
+                        title=meeting_title,
+                        room_id=room_id,
+                        drive_url=drive_url or "",
+                        task_count=task_result.total_created if task_result else 0,
+                    )
+                except Exception as mem_err:
+                    logger.warning(
+                        "Memory save skipped (non-critical): %s", type(mem_err).__name__
+                    )
+
+            logger.info(
+                "Google Meet minutes generated: meeting_id=%s, title_prefix=%s...",
+                meeting_id,
+                meeting_title[:20],
+            )
+
+            return HandlerResult(
+                success=True,
+                message=message,
                 data={
                     "meeting_id": meeting_id,
                     "transcript_id": transcript_id,
                     "meeting_title": meeting_title,
-                    "transcript_length": len(sanitized_text),
+                    "source": "google_meet",
+                    "drive_url": drive_url or "",
                 },
             )
 
@@ -342,35 +408,43 @@ class GoogleMeetBrainInterface:
             )
             return None
 
-    async def _generate_minutes(
+    async def _generate_minutes_text(
         self,
         transcript_text: str,
         meeting_title: str,
         meeting_date: datetime,
         meeting_id: str,
-        transcript_id: str,
         get_ai_response_func: Callable,
-        recording: MeetRecordingFile,
-    ) -> HandlerResult:
-        """LLMで議事録を生成してHandlerResultを返す。"""
-        try:
-            prompt = build_chatwork_minutes_prompt(
-                transcript_text=transcript_text,
-                meeting_title=meeting_title,
-                meeting_date=meeting_date.strftime("%Y-%m-%d"),
-            )
+    ) -> Optional[str]:
+        """
+        LLMで議事録テキストを生成して返す（zoom_brain_interface.pyと同パターン）。
 
-            history: list = []
-            raw_minutes = await asyncio.to_thread(
-                get_ai_response_func,
-                prompt,
-                history,
-                "meeting_minutes_bot",
-            )
+        Returns:
+            フォーマット済み議事録テキスト。失敗時はNone。
+        """
+        try:
+            # C-1修正: meeting_dateはbuild_chatwork_minutes_promptの引数に存在しない
+            prompt = build_chatwork_minutes_prompt(transcript_text, meeting_title)
+
+            # C-2修正: async/sync callable を判別して適切に呼ぶ（Zoomと同パターン）
+            if asyncio.iscoroutinefunction(get_ai_response_func):
+                raw_minutes = await get_ai_response_func(
+                    prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
+                )
+            else:
+                raw_minutes = await asyncio.to_thread(
+                    get_ai_response_func,
+                    prompt,
+                    system_prompt=CHATWORK_MINUTES_SYSTEM_PROMPT,
+                )
+
+            if not raw_minutes:
+                return None
 
             formatted = format_chatwork_minutes(raw_minutes, meeting_title, meeting_date)
 
-            # DB更新: status="completed", brain_approved=True（version=2に更新済みのため）
+            # DB更新: status="completed", brain_approved=True
             await asyncio.to_thread(
                 self.db.update_meeting_status,
                 meeting_id,
@@ -379,30 +453,172 @@ class GoogleMeetBrainInterface:
                 brain_approved=True,
             )
 
-            return HandlerResult(
-                success=True,
-                message=formatted,
-                data={
-                    "meeting_id": meeting_id,
-                    "transcript_id": transcript_id,
-                    "meeting_title": meeting_title,
-                    "recording_name": recording.name,
-                    "source": "google_meet",
-                },
-            )
+            return formatted
 
         except Exception as e:
-            logger.error(
-                "Minutes generation failed: %s", type(e).__name__, exc_info=True
+            logger.warning(
+                "Minutes generation failed: %s", type(e).__name__
             )
-            return HandlerResult(
-                success=False,
-                message=(
-                    "議事録の生成中にエラーが発生したウル\U0001f43a"
-                    "文字起こしは保存済みなので、もう一度試してほしいウル。"
-                ),
-                data={"meeting_id": meeting_id, "transcript_id": transcript_id},
-            )
+            return None
+
+    def _build_name_resolver(self):
+        """
+        名前→ChatWork account_id 解決関数を返す（zoom_brain_interface.pyと同パターン）。
+
+        chatwork_usersテーブルとusersテーブルからLIKE検索で名前を解決。
+        """
+        from sqlalchemy import text as sa_text
+
+        pool = self.pool
+        org_id = self.organization_id
+
+        def resolver(name: str) -> Optional[str]:
+            if not name:
+                return None
+            # 「さん」「くん」等の敬称を除去
+            clean_name = name.rstrip("さんくんちゃん様氏")
+            if not clean_name:
+                return None
+
+            with pool.connect() as conn:
+                # chatwork_usersテーブルから検索
+                row = conn.execute(
+                    sa_text("""
+                        SELECT cu.account_id
+                        FROM chatwork_users cu
+                        WHERE cu.organization_id = :org_id
+                          AND cu.name LIKE :pattern
+                        LIMIT 1
+                    """),
+                    {"org_id": org_id, "pattern": f"%{clean_name}%"},
+                ).fetchone()
+                if row:
+                    return str(row[0])
+
+                # usersテーブルからもフォールバック検索
+                row = conn.execute(
+                    sa_text("""
+                        SELECT u.chatwork_account_id
+                        FROM users u
+                        WHERE u.organization_id = :org_id
+                          AND u.name LIKE :pattern
+                          AND u.chatwork_account_id IS NOT NULL
+                        LIMIT 1
+                    """),
+                    {"org_id": org_id, "pattern": f"%{clean_name}%"},
+                ).fetchone()
+                if row:
+                    return str(row[0])
+
+            return None
+
+        return resolver
+
+    @staticmethod
+    def _build_delivery_message(
+        title: str,
+        minutes_text: str,
+        drive_url: Optional[str] = None,
+        task_result: Optional[TaskExtractionResult] = None,
+    ) -> str:
+        """
+        3点セット（Drive録画URL + 議事録テキスト + タスク結果）の
+        ChatWorkメッセージを組み立てる。
+        """
+        parts = [f"[info][title]\U0001f4cb {title} - 議事録[/title]"]
+
+        # Google Drive の録画URL
+        if drive_url:
+            parts.append(f"\U0001f4f9 録画 (Google Drive): {drive_url}")
+            parts.append("")
+
+        # 議事録テキスト
+        parts.append(minutes_text)
+
+        # タスク抽出結果
+        if task_result and task_result.total_extracted > 0:
+            parts.append("")
+            parts.append(f"\u2705 タスク: {task_result.total_created}件作成")
+            if task_result.total_unassigned > 0:
+                parts.append(
+                    f"\u26a0 担当者不明: {task_result.total_unassigned}件"
+                    "（手動で担当者を設定してください）"
+                )
+
+        parts.append("[/info]")
+        return "\n".join(parts)
+
+    async def _save_minutes_to_memory(
+        self,
+        meeting_id: str,
+        title: str,
+        room_id: str,
+        drive_url: str,
+        task_count: int,
+    ) -> None:
+        """
+        会議メタ情報をソウルくんのエピソード記憶に保存する（GM②）。
+
+        CLAUDE.md §9-2準拠:
+        - 議事録本文は保存しない（PII可能性あり）
+        - タイトル・meeting_id・room_id・task_count のみ保存
+        - タイトルは「業務に必要な事実」として保存可（§9-2 カテゴリ1）
+        """
+        from lib.brain.memory_enhancement import (
+            BrainMemoryEnhancement,
+            EpisodeType,
+            EntityType,
+            EntityRelationship,
+            RelatedEntity,
+        )
+
+        title_words = [w for w in title.replace("\u3000", " ").split() if len(w) >= 2]
+        keywords = list(dict.fromkeys(["会議", "議事録", "Google Meet"] + title_words[:5]))
+
+        task_info = f"・タスク{task_count}件" if task_count > 0 else ""
+        summary = f"Google Meet「{title}」の議事録を作成{task_info}"
+        if len(summary) > 200:
+            summary = summary[:197] + "..."
+
+        entities = [
+            RelatedEntity(
+                entity_type=EntityType.MEETING,
+                entity_id=meeting_id,
+                entity_name=title,
+                relationship=EntityRelationship.INVOLVED,
+            ),
+            RelatedEntity(
+                entity_type=EntityType.ROOM,
+                entity_id=room_id,
+                entity_name=f"ChatWorkルーム#{room_id}",
+                relationship=EntityRelationship.INVOLVED,
+            ),
+        ]
+
+        memory = BrainMemoryEnhancement(self.organization_id)
+
+        def _save_sync() -> None:
+            with self.pool.connect() as conn:
+                memory.record_episode(
+                    conn=conn,
+                    episode_type=EpisodeType.INTERACTION,
+                    summary=summary,
+                    details={
+                        "meeting_id": meeting_id,
+                        "title": title,
+                        "room_id": room_id,
+                        "drive_url": drive_url,
+                        "task_count": task_count,
+                        "source": "google_meet",
+                    },
+                    keywords=keywords,
+                    entities=entities,
+                    importance=0.7,
+                )
+                conn.commit()
+
+        await asyncio.to_thread(_save_sync)
+        logger.info("Meeting episode saved to memory: meeting_id=%s", meeting_id)
 
     @staticmethod
     def _extract_title(recording_name: str) -> str:

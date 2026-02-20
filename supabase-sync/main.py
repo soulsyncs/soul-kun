@@ -236,6 +236,250 @@ def build_employee_mapping(
 
 
 # ================================================================
+# 組織図所属データ同期ヘルパー
+# ================================================================
+
+
+def build_user_mapping_by_chatwork(
+    conn, sb_employees: List[Dict], org_id: str
+) -> Dict[str, str]:
+    """
+    Supabase employee_id → Cloud SQL user_id のマッピング
+
+    1次: chatwork_account_id マッチング（より確実）
+    2次: 名前マッチング（フォールバック）
+    重複名はスキップ（安全優先）
+    """
+    result = conn.execute(
+        sql_text("""
+            SELECT id, chatwork_account_id, name
+            FROM users
+            WHERE organization_id = :org_id AND is_active = true
+        """),
+        {"org_id": org_id}
+    )
+    cs_by_chatwork: Dict[str, str] = {}
+    cs_by_name: Dict[str, Optional[str]] = {}
+    for row in result:
+        user_id = str(row[0])
+        cw_id = str(row[1]).strip() if row[1] else None
+        name = row[2]
+        if cw_id:
+            cs_by_chatwork[cw_id] = user_id
+        if name:
+            if name in cs_by_name:
+                cs_by_name[name] = None  # 重複名 → スキップ
+            else:
+                cs_by_name[name] = user_id
+
+    mapping: Dict[str, str] = {}
+    chatwork_matched = 0
+    name_matched = 0
+    unmatched = 0
+
+    for emp in sb_employees:
+        sb_id = emp.get('id')
+        if not sb_id:
+            continue
+        # 1次: chatwork_account_id
+        cw_id = str(emp.get('chatwork_account_id', '') or '').strip()
+        if cw_id and cw_id in cs_by_chatwork:
+            mapping[sb_id] = cs_by_chatwork[cw_id]
+            chatwork_matched += 1
+            continue
+        # 2次: 名前フォールバック
+        name = emp.get('name')
+        if name and cs_by_name.get(name):
+            mapping[sb_id] = cs_by_name[name]  # type: ignore[assignment]
+            name_matched += 1
+            continue
+        unmatched += 1
+
+    logger.info(
+        "User mapping: chatwork=%d, name=%d, unmatched=%d",
+        chatwork_matched, name_matched, unmatched
+    )
+    return mapping
+
+
+def build_dept_mapping(
+    conn, sb_departments: List[Dict], org_id: str
+) -> Dict[str, str]:
+    """
+    Supabase dept_id → Cloud SQL dept_id のマッピング（部署名で照合）
+    重複名はスキップ（安全優先）
+    """
+    result = conn.execute(
+        sql_text("""
+            SELECT id, name FROM departments
+            WHERE organization_id = :org_id AND is_active = true
+        """),
+        {"org_id": org_id}
+    )
+    cs_by_name: Dict[str, Optional[str]] = {}
+    for row in result:
+        name = row[1]
+        if name in cs_by_name:
+            cs_by_name[name] = None  # 重複 → スキップ
+        else:
+            cs_by_name[name] = str(row[0])
+
+    mapping: Dict[str, str] = {}
+    unmatched_count = 0
+    for dept in sb_departments:
+        sb_id = dept.get('id')
+        name = dept.get('name')
+        if not sb_id or not name:
+            continue
+        cs_id = cs_by_name.get(name)
+        if cs_id:
+            mapping[sb_id] = cs_id
+        else:
+            unmatched_count += 1
+
+    logger.info(
+        "Dept mapping: %d matched, %d unmatched",
+        len(mapping), unmatched_count
+    )
+    return mapping
+
+
+def get_default_role_id(conn, org_id: str) -> Optional[str]:
+    """組織の最も低いレベルのロールIDを返す（role_idのデフォルト値）"""
+    result = conn.execute(
+        sql_text("""
+            SELECT id FROM roles
+            WHERE organization_id = :org_id AND is_active = true
+            ORDER BY level ASC
+            LIMIT 1
+        """),
+        {"org_id": org_id}
+    )
+    row = result.fetchone()
+    return str(row[0]) if row else None
+
+
+def sync_org_assignments(
+    conn,
+    sb_employees: List[Dict],
+    user_map: Dict[str, str],
+    dept_map: Dict[str, str],
+    default_role_id: Optional[str],
+    org_id: str,
+    dry_run: bool = True,
+) -> Dict[str, int]:
+    """
+    Supabaseの所属データを user_departments に同期（UPSERT）
+
+    - 主所属 (department_id) と兼務 (departments_json) を両方処理
+    - 既存レコードがあれば is_primary のみ更新
+    - 新規レコードは default_role_id を使用
+    - dry_run=True では DB書き込みを行わずカウントのみ返す
+    """
+    inserted = 0
+    updated = 0
+    skipped = 0
+
+    for emp in sb_employees:
+        sb_id = emp.get('id')
+        cs_user_id = user_map.get(sb_id)
+        if not cs_user_id:
+            skipped += 1
+            continue
+
+        # 主所属 + 兼務部署のリストを作成
+        assignments: List[Dict[str, Any]] = []
+
+        main_dept_sb_id = emp.get('department_id')
+        if main_dept_sb_id:
+            cs_dept_id = dept_map.get(main_dept_sb_id)
+            if cs_dept_id:
+                assignments.append({'dept_id': cs_dept_id, 'is_primary': True})
+
+        departments_json_raw = emp.get('departments_json')
+        if departments_json_raw:
+            try:
+                additional = (
+                    json.loads(departments_json_raw)
+                    if isinstance(departments_json_raw, str)
+                    else departments_json_raw
+                )
+                for extra in (additional or []):
+                    extra_sb_dept_id = extra.get('department_id')
+                    if extra_sb_dept_id and extra_sb_dept_id != main_dept_sb_id:
+                        cs_dept_id = dept_map.get(extra_sb_dept_id)
+                        if cs_dept_id:
+                            assignments.append({'dept_id': cs_dept_id, 'is_primary': False})
+            except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                logger.warning("Failed to parse departments_json: %s", e)
+
+        if not assignments:
+            skipped += 1
+            continue
+
+        for assignment in assignments:
+            cs_dept_id = assignment['dept_id']
+            is_primary = assignment['is_primary']
+
+            if dry_run:
+                inserted += 1  # dry_run では新規扱いでカウント
+                continue
+
+            # 既存の有効な所属レコードを確認
+            existing_row = conn.execute(
+                sql_text("""
+                    SELECT id, is_primary FROM user_departments
+                    WHERE user_id = CAST(:user_id AS uuid)
+                      AND department_id = CAST(:dept_id AS uuid)
+                      AND ended_at IS NULL
+                    LIMIT 1
+                """),
+                {"user_id": cs_user_id, "dept_id": cs_dept_id}
+            ).fetchone()
+
+            if existing_row:
+                if bool(existing_row[1]) != is_primary:
+                    conn.execute(
+                        sql_text("""
+                            UPDATE user_departments
+                            SET is_primary = :is_primary, updated_at = NOW()
+                            WHERE id = CAST(:id AS uuid)
+                        """),
+                        {"id": str(existing_row[0]), "is_primary": is_primary}
+                    )
+                    updated += 1
+            else:
+                if not default_role_id:
+                    logger.warning(
+                        "No default role in org %s, skipping assignment", org_id
+                    )
+                    skipped += 1
+                    continue
+                conn.execute(
+                    sql_text("""
+                        INSERT INTO user_departments
+                            (id, user_id, department_id, role_id, is_primary, started_at)
+                        VALUES
+                            (gen_random_uuid(),
+                             CAST(:user_id AS uuid),
+                             CAST(:dept_id AS uuid),
+                             CAST(:role_id AS uuid),
+                             :is_primary,
+                             NOW())
+                    """),
+                    {
+                        "user_id": cs_user_id,
+                        "dept_id": cs_dept_id,
+                        "role_id": default_role_id,
+                        "is_primary": is_primary,
+                    }
+                )
+                inserted += 1
+
+    return {"inserted": inserted, "updated": updated, "skipped": skipped}
+
+
+# ================================================================
 # Cloud SQL同期（UPSERT）
 # ================================================================
 
@@ -759,3 +1003,135 @@ def _get_supabase_key() -> Optional[str]:
         return key
 
     return None
+
+
+# ================================================================
+# 組織図所属データ同期エンドポイント
+# ================================================================
+
+
+@app.route("/sync-org", methods=["POST"])
+def sync_org():
+    """
+    Supabase → Cloud SQL 組織図所属データ同期
+
+    Supabase の employees.department_id / departments_json を
+    Cloud SQL の user_departments テーブルに同期する。
+
+    Request body (JSON):
+        dry_run: bool (default: true) - trueの場合、読み取りのみ（書き込みなし）
+
+    手動実行例:
+        # ドライラン（安全確認）
+        curl -X POST -H 'Content-Type: application/json' \\
+            -d '{"dry_run": true}' \\
+            https://supabase-sync-xxxxx-an.a.run.app/sync-org
+
+        # 本番実行
+        curl -X POST -H 'Content-Type: application/json' \\
+            -d '{"dry_run": false}' \\
+            https://supabase-sync-xxxxx-an.a.run.app/sync-org
+    """
+    request = flask_request
+    start_time = time.time()
+    sync_id = f"ORG-SYNC-{datetime.now(JST).strftime('%Y%m%d%H%M%S')}-{uuid.uuid4().hex[:6]}"
+
+    try:
+        body = request.get_json(silent=True) or {}
+    except Exception:
+        body = {}
+    dry_run = body.get('dry_run', True)  # 安全のためデフォルトはTrue
+
+    logger.info("[%s] Starting org sync (dry_run=%s)", sync_id, dry_run)
+
+    try:
+        supabase_key = _get_supabase_key()
+        if not supabase_key:
+            return jsonify({"error": "SUPABASE_ANON_KEY not configured"}), 500
+
+        reader = SupabaseReader(SUPABASE_URL, supabase_key)
+
+        # Step 1: Supabaseから組織データ読み取り
+        logger.info("[%s] Fetching org data from Supabase...", sync_id)
+        sb_employees_raw = reader.fetch_table(
+            'employees',
+            select='id,name,chatwork_account_id,department_id,departments_json,is_active'
+        )
+        sb_departments = reader.fetch_table('departments', select='id,name')
+
+        # アクティブ社員のみ絞り込み
+        sb_employees = [e for e in sb_employees_raw if e.get('is_active', True)]
+
+        logger.info(
+            "[%s] Fetched: %d active employees (of %d), %d departments",
+            sync_id, len(sb_employees), len(sb_employees_raw), len(sb_departments)
+        )
+
+        # Step 2: Cloud SQL マッピング構築 + 同期
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            conn.execute(sql_text(
+                "SELECT set_config('statement_timeout', '30000', false)"
+            ))
+
+            user_map = build_user_mapping_by_chatwork(
+                conn, sb_employees, CLOUDSQL_ORG_ID
+            )
+            dept_map = build_dept_mapping(
+                conn, sb_departments, CLOUDSQL_ORG_ID
+            )
+            default_role_id = get_default_role_id(conn, CLOUDSQL_ORG_ID)
+
+            logger.info(
+                "[%s] Mappings: users=%d/%d, depts=%d/%d, default_role=%s",
+                sync_id,
+                len(user_map), len(sb_employees),
+                len(dept_map), len(sb_departments),
+                default_role_id,
+            )
+
+            if not user_map:
+                duration_ms = int((time.time() - start_time) * 1000)
+                return jsonify({
+                    "sync_id": sync_id,
+                    "warning": "No user mapping found. Check chatwork_account_id in Supabase.",
+                    "supabase_employee_count": len(sb_employees),
+                    "duration_ms": duration_ms,
+                }), 200
+
+            # Step 3: 所属データ同期
+            counts = sync_org_assignments(
+                conn, sb_employees, user_map, dept_map,
+                default_role_id, CLOUDSQL_ORG_ID, dry_run=dry_run
+            )
+
+            if not dry_run:
+                conn.commit()
+
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.info(
+            "[%s] Org sync complete: %s (duration=%dms)", sync_id, counts, duration_ms
+        )
+
+        return jsonify({
+            "sync_id": sync_id,
+            "dry_run": dry_run,
+            "supabase_employee_count": len(sb_employees),
+            "supabase_dept_count": len(sb_departments),
+            "user_mapping_count": len(user_map),
+            "dept_mapping_count": len(dept_map),
+            "default_role_id": default_role_id,
+            "counts": counts,
+            "duration_ms": duration_ms,
+        })
+
+    except Exception as e:
+        duration_ms = int((time.time() - start_time) * 1000)
+        logger.error("[%s] Org sync failed: %s: %s", sync_id, type(e).__name__, e)
+        return jsonify({
+            "sync_id": sync_id,
+            "status": "failed",
+            "error": type(e).__name__,
+            "message": str(e),
+            "duration_ms": duration_ms,
+        }), 500

@@ -515,6 +515,53 @@ export const api = {
       }),
   },
 
+  // ===== Zoomアカウント管理（複数アカウント対応） =====
+  zoomAccounts: {
+    getAccounts: () =>
+      fetchWithAuth<{
+        status: string;
+        accounts: Array<{
+          id: string;
+          account_name: string;
+          zoom_account_id: string;
+          webhook_secret_token_masked: string;
+          default_room_id: string | null;
+          is_active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        }>;
+        total: number;
+      }>('/admin/zoom/accounts'),
+
+    createAccount: (data: {
+      account_name: string;
+      zoom_account_id: string;
+      webhook_secret_token: string;
+      default_room_id?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; account: Record<string, unknown> }>('/admin/zoom/accounts', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateAccount: (id: string, data: {
+      account_name?: string;
+      webhook_secret_token?: string;
+      default_room_id?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; account: Record<string, unknown> }>(`/admin/zoom/accounts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteAccount: (id: string) =>
+      fetchWithAuth<{ status: string }>(`/admin/zoom/accounts/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
   // ===== 連携設定 =====
   integrations: {
     getGoogleCalendarStatus: () =>

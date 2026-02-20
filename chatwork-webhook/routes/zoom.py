@@ -12,8 +12,14 @@ CLAUDE.md §1: 全入力は脳を通る（Zoom webhook は Brain-level LLMを使
   - recording.transcript_completed: VTT生成完了時（推奨）。即座に処理可能。
   - recording.completed: 後方互換性のため継続対応。VTTが存在する場合のみ処理。
 
+複数アカウント対応（Phase Z2 ③）:
+  - Zoomペイロードの account_id から zoom_accounts テーブルを参照
+  - アカウント固有の webhook_secret_token で署名検証
+  - 未登録アカウントはデフォルトシークレット（Secret Manager）にフォールバック
+
 v1.0.0: main.py から分割（Phase 5）
 v1.1.0: recording.transcript_completed 対応（3AI合意: 2026-02-20）
+v1.2.0: 複数アカウント対応（3AI合意: 2026-02-20）
 """
 
 import asyncio
@@ -35,15 +41,70 @@ _SUPPORTED_RECORDING_EVENTS = frozenset({
 })
 
 
+def _get_webhook_secret_for_account(zoom_account_id: str | None) -> str | None:
+    """
+    Zoomの account_id に対応する webhook_secret_token をDBから取得する。
+
+    フォールバック順:
+    1. zoom_accounts テーブルの zoom_account_id が一致するアクティブなレコード
+    2. Secret Manager の "zoom-webhook-secret-token"（既存のデフォルト）
+
+    SECURITY NOTES:
+    - account_idの読み取りはJSONパース後・署名検証前に行う（正しいsecretを選ぶため）。
+      署名検証はこの関数が返したsecretで行うため、セキュリティは損なわれない。
+    - org_idフィルタを省略する理由:
+      (1) zoom_account_id はZoomが発行するグローバル一意IDのため、他組織のIDと衝突しない
+      (2) 返値はシークレットのみで組織固有の業務データは含まない
+      (3) 間違ったシークレットが返っても署名検証が失敗する（自己修正的）
+      (4) webhookエンドポイントはユーザーセッションがなくorg_idを特定する手段がない
+      → CLAUDE.md §1-1「読み取り専用・判断なし」相当の例外として意図的に省略。
+    - INFRA RATE LIMIT REQUIRED: このDB lookupは署名検証前に実行されるため、
+      未認証リクエストがDB hitを引き起こす。Cloud Run または Cloud Armor で
+      /zoom-webhook への max-requests-per-second を必ず設定すること（推奨: 30req/s）。
+    """
+    if zoom_account_id:
+        try:
+            from infra.db import get_pool
+            from sqlalchemy import text
+
+            pool = get_pool()
+            with pool.connect() as conn:
+                row = conn.execute(
+                    text("""
+                        SELECT webhook_secret_token
+                        FROM zoom_accounts
+                        WHERE zoom_account_id = :aid
+                          AND is_active = true
+                        LIMIT 1
+                    """),
+                    {"aid": zoom_account_id},
+                ).fetchone()
+            if row and row[0]:
+                logger.debug("zoom_accounts hit for account_id=%s", zoom_account_id[:8])
+                return row[0]
+        except Exception as lookup_err:
+            # DB参照失敗時はデフォルトシークレットにフォールバック
+            logger.warning(
+                "zoom_accounts lookup failed, falling back to default secret: %s",
+                type(lookup_err).__name__,
+            )
+
+    # フォールバック: 既存のSecret Manager（後方互換）
+    from lib.secrets import get_secret_cached
+    return get_secret_cached("zoom-webhook-secret-token")
+
+
 @zoom_bp.route("/zoom-webhook", methods=["POST", "GET"])
 def zoom_webhook():
     """
     Cloud Function: Zoom recording Webhook受信
 
     フロー:
-    1. 署名検証（x-zm-signature + x-zm-request-timestamp）
-    2. endpoint.url_validation → チャレンジ応答
-    3. recording.transcript_completed / recording.completed → 議事録自動生成パイプライン
+    1. JSONパース → account_id 取得
+    2. zoom_accounts テーブルから account_id に対応するシークレット取得
+    3. 署名検証（x-zm-signature + x-zm-request-timestamp）
+    4. endpoint.url_validation → チャレンジ応答
+    5. recording.transcript_completed / recording.completed → 議事録自動生成パイプライン
 
     セキュリティ:
     - HMAC-SHA256署名検証必須（3AI合意）
@@ -57,28 +118,29 @@ def zoom_webhook():
             verify_zoom_webhook_signature,
             generate_zoom_url_validation_response,
         )
-        from lib.secrets import get_secret_cached
 
         request_body = request.get_data()
         if not request_body:
             return jsonify({"status": "error", "message": "Empty body"}), 400
 
-        # 署名検証
-        zoom_secret = get_secret_cached("zoom-webhook-secret-token")
-        if not zoom_secret:
-            print("❌ Zoom webhook secret token not configured")
-            return jsonify({"status": "error", "message": "Server configuration error"}), 500
-
         timestamp = request.headers.get("x-zm-request-timestamp", "")
         signature = request.headers.get("x-zm-signature", "")
 
-        # JSONパース
+        # JSONパース（署名検証前にaccount_idを取得するため）
         try:
             data = json.loads(request_body)
         except json.JSONDecodeError:
             return jsonify({"status": "error", "message": "Invalid JSON"}), 400
 
         event_type = data.get("event", "")
+        # Zoomペイロードのaccount_idでアカウント固有のシークレットを選択
+        zoom_account_id = data.get("account_id")
+
+        # 複数アカウント対応: zoom_account_id に対応するシークレットを取得
+        zoom_secret = _get_webhook_secret_for_account(zoom_account_id)
+        if not zoom_secret:
+            print("❌ Zoom webhook secret token not configured")
+            return jsonify({"status": "error", "message": "Server configuration error"}), 500
 
         # 全イベントで署名検証（url_validationも含む）
         # SECURITY: 署名検証を最初に行い、不正リクエストを全て拒否

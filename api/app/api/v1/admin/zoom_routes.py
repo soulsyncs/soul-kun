@@ -1,14 +1,19 @@
 """
 Admin Dashboard - Zoom連携設定 Endpoints
 
-Zoom議事録の送信先設定を一元管理する。
-「この会議名パターン → このChatWorkルームへ送信」という設定をCRUDで管理。
+Zoom議事録の送信先設定と複数アカウントを一元管理する。
 
-エンドポイント:
+エンドポイント（送信先設定）:
     GET  /admin/zoom/configs       - 設定一覧
     POST /admin/zoom/configs       - 設定追加
     PUT  /admin/zoom/configs/{id}  - 設定更新
     DELETE /admin/zoom/configs/{id} - 設定削除
+
+エンドポイント（複数アカウント管理）:
+    GET  /admin/zoom/accounts       - アカウント一覧（secretはマスク）
+    POST /admin/zoom/accounts       - アカウント追加
+    PUT  /admin/zoom/accounts/{id}  - アカウント更新
+    DELETE /admin/zoom/accounts/{id} - アカウント削除
 
 セキュリティ:
     - Level 5以上（管理部/取締役/代表）のみアクセス可。
@@ -17,6 +22,7 @@ Zoom議事録の送信先設定を一元管理する。
       Level 5（管理部）が業務上変更権限を持つことが自然な運用フロー。
     - 全クエリにorganization_idフィルタ（鉄則#1）
     - SQLは全てパラメータ化（鉄則#9）
+    - webhook_secret_token はレスポンスでマスク（後4桁のみ表示）
 """
 
 from typing import Optional
@@ -311,4 +317,298 @@ async def delete_zoom_config(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="設定の削除に失敗しました",
+        )
+
+
+# ===================================================================
+# Zoom複数アカウント管理 Endpoints（Phase Z2 ③）
+# ===================================================================
+
+
+def _mask_secret(token: str) -> str:
+    """Webhook Secret Tokenをマスク（後4桁のみ表示）"""
+    if not token:
+        return "****"
+    if len(token) <= 4:
+        return "****"
+    return "****" + token[-4:]
+
+
+class ZoomAccountCreate(BaseModel):
+    account_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="管理用ラベル（例: '営業部Zoom'）",
+    )
+    zoom_account_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="ZoomのAccount ID（Zoom Appのダッシュボード → Account ID）",
+    )
+    webhook_secret_token: str = Field(
+        ...,
+        min_length=1,
+        description="Webhook Secret Token（Zoom App → Feature → Webhook Subscriptions → Secret Token）",
+    )
+    default_room_id: Optional[str] = Field(
+        None,
+        max_length=50,
+        description="このアカウントのデフォルト送信先ChatWorkルームID（省略時はズームの会議名マッチを優先）",
+    )
+    is_active: bool = Field(True, description="有効/無効")
+
+
+class ZoomAccountUpdate(BaseModel):
+    account_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    webhook_secret_token: Optional[str] = Field(None, min_length=1)
+    default_room_id: Optional[str] = Field(None, max_length=50)
+    is_active: Optional[bool] = None
+
+
+@router.get(
+    "/zoom/accounts",
+    summary="Zoomアカウント一覧取得",
+    description="登録済みZoomアカウントを一覧で取得（Level 5+）。secret tokenはマスク済み。",
+)
+async def get_zoom_accounts(
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT id, account_name, zoom_account_id, webhook_secret_token,
+                           default_room_id, is_active, created_at, updated_at
+                    FROM zoom_accounts
+                    WHERE organization_id = :org_id
+                    ORDER BY created_at DESC
+                """),
+                {"org_id": organization_id},
+            )
+            rows = result.mappings().fetchall()
+
+        return {
+            "status": "ok",
+            "accounts": [
+                {
+                    "id": str(row["id"]),
+                    "account_name": row["account_name"],
+                    "zoom_account_id": row["zoom_account_id"],
+                    "webhook_secret_token_masked": _mask_secret(row["webhook_secret_token"]),
+                    "default_room_id": row["default_room_id"],
+                    "is_active": row["is_active"],
+                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+                }
+                for row in rows
+            ],
+            "total": len(rows),
+        }
+    except Exception as e:
+        logger.error("zoom accounts fetch failed: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="アカウント一覧の取得に失敗しました",
+        )
+
+
+@router.post(
+    "/zoom/accounts",
+    summary="Zoomアカウント追加",
+    description="Zoomアカウントを追加（Level 5+）",
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_zoom_account(
+    body: ZoomAccountCreate,
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            # 重複チェック（同じzoom_account_idが既にある場合）
+            existing = conn.execute(
+                text("""
+                    SELECT id FROM zoom_accounts
+                    WHERE organization_id = :org_id
+                      AND zoom_account_id = :zoom_aid
+                """),
+                {"org_id": organization_id, "zoom_aid": body.zoom_account_id},
+            ).fetchone()
+            if existing:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Account ID「{body.zoom_account_id}」は既に登録されています",
+                )
+
+            row = conn.execute(
+                text("""
+                    INSERT INTO zoom_accounts
+                        (organization_id, account_name, zoom_account_id,
+                         webhook_secret_token, default_room_id, is_active)
+                    VALUES (:org_id, :name, :zoom_aid, :secret, :room_id, :is_active)
+                    RETURNING id, account_name, zoom_account_id, webhook_secret_token,
+                              default_room_id, is_active, created_at, updated_at
+                """),
+                {
+                    "org_id": organization_id,
+                    "name": body.account_name,
+                    "zoom_aid": body.zoom_account_id,
+                    "secret": body.webhook_secret_token,
+                    "room_id": body.default_room_id,
+                    "is_active": body.is_active,
+                },
+            ).mappings().fetchone()
+            conn.commit()
+
+        logger.info("zoom account created: org=%s", organization_id[:8])
+        return {
+            "status": "created",
+            "account": {
+                "id": str(row["id"]),
+                "account_name": row["account_name"],
+                "zoom_account_id": row["zoom_account_id"],
+                "webhook_secret_token_masked": _mask_secret(row["webhook_secret_token"]),
+                "default_room_id": row["default_room_id"],
+                "is_active": row["is_active"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("zoom account create failed: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="アカウントの追加に失敗しました",
+        )
+
+
+@router.put(
+    "/zoom/accounts/{account_id}",
+    summary="Zoomアカウント更新",
+    description="Zoomアカウント情報を更新（Level 5+）",
+)
+async def update_zoom_account(
+    account_id: str = Path(..., description="アカウントID"),
+    body: ZoomAccountUpdate = ...,
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            existing = conn.execute(
+                text("""
+                    SELECT id FROM zoom_accounts
+                    WHERE id = :account_id AND organization_id = :org_id
+                """),
+                {"account_id": account_id, "org_id": organization_id},
+            ).fetchone()
+            if not existing:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="アカウントが見つかりません",
+                )
+
+            # 更新フィールドを動的に構築
+            # SAFE: set_clauses はハードコードされたカラム名定数のみ。
+            # ユーザー入力は全て params のバインド変数経由で渡す（鉄則#9準拠）。
+            # NOTE: model_fields_set で「明示的に送られた」フィールドのみ更新。
+            # これにより default_room_id = null（NULLクリア）も正しく動作する。
+            set_clauses = ["updated_at = NOW()"]
+            params: dict = {"account_id": account_id, "org_id": organization_id}
+            sent_fields = body.model_fields_set
+
+            if "account_name" in sent_fields and body.account_name is not None:
+                set_clauses.append("account_name = :account_name")
+                params["account_name"] = body.account_name
+            if "webhook_secret_token" in sent_fields and body.webhook_secret_token is not None:
+                set_clauses.append("webhook_secret_token = :secret")
+                params["secret"] = body.webhook_secret_token
+            if "default_room_id" in sent_fields:
+                # None を明示送信した場合は DB を NULL にクリアする（意図的）
+                set_clauses.append("default_room_id = :room_id")
+                params["room_id"] = body.default_room_id  # None → SQL NULL
+            if "is_active" in sent_fields and body.is_active is not None:
+                set_clauses.append("is_active = :is_active")
+                params["is_active"] = body.is_active
+
+            row = conn.execute(
+                text(f"""
+                    UPDATE zoom_accounts
+                    SET {', '.join(set_clauses)}
+                    WHERE id = :account_id AND organization_id = :org_id
+                    RETURNING id, account_name, zoom_account_id, webhook_secret_token,
+                              default_room_id, is_active, updated_at
+                """),
+                params,
+            ).mappings().fetchone()
+            conn.commit()
+
+        logger.info("zoom account updated: id=%s", account_id[:8])
+        return {
+            "status": "updated",
+            "account": {
+                "id": str(row["id"]),
+                "account_name": row["account_name"],
+                "zoom_account_id": row["zoom_account_id"],
+                "webhook_secret_token_masked": _mask_secret(row["webhook_secret_token"]),
+                "default_room_id": row["default_room_id"],
+                "is_active": row["is_active"],
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("zoom account update failed: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="アカウントの更新に失敗しました",
+        )
+
+
+@router.delete(
+    "/zoom/accounts/{account_id}",
+    summary="Zoomアカウント削除",
+    description="Zoomアカウントを削除（Level 5+）",
+)
+async def delete_zoom_account(
+    account_id: str = Path(..., description="アカウントID"),
+    user: UserContext = Depends(require_admin),
+):
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    DELETE FROM zoom_accounts
+                    WHERE id = :account_id AND organization_id = :org_id
+                """),
+                {"account_id": account_id, "org_id": organization_id},
+            )
+            conn.commit()
+
+            if result.rowcount == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="アカウントが見つかりません",
+                )
+
+        logger.info("zoom account deleted: id=%s", account_id[:8])
+        return {"status": "deleted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("zoom account delete failed: %s", type(e).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="アカウントの削除に失敗しました",
         )

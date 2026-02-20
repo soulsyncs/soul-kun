@@ -226,6 +226,43 @@
 - テスト自体は正しく動作（直接import検証済み）
 - `python3 -m pytest tests/test_google_calendar_client.py` は langfuse/pydantic.v1/Python3.14 問題でCOLLECTION ERRORになる（pre-existing、PRに関係なし）
 
+## Google Calendar Events API (サービスアカウント方式) — 2026-02-20
+
+### calendar_routes.py の /events エンドポイント（今回追加）
+
+- **CRITICAL: `_get_calendar_service()` が `subprocess.run(["gcloud", ...])` を使用している**
+  - Cloud Run環境ではgcloudコマンドが存在しない可能性が高い。本番でHTTP 503になるリスク。
+  - 正しい実装: `google.cloud.secretmanager.SecretManagerServiceClient()` で取得すべき（lib/brain/capabilities/generation.py lines 22-32 が正しい実装例）
+  - `result.returncode` チェックなし: gcloudコマンドが失敗しても空文字が `sa_key_str` に入り、後段でJSONパースエラーになる（503でなくUnhandled exceptionになる）
+  - 一時ファイル（`tempfile.NamedTemporaryFile`）にSAキーを書き出している。`delete=False` + `finally: os.unlink()` で削除は行われるが、例外発生時にファイルが残る可能性あり（finally内でのunlinkが失敗した場合）
+
+- **WARNING: `/events` エンドポイントは `get_current_user` のみで Level 未チェック**
+  - 他のエンドポイント（status/connect/disconnect）も同様に `get_current_user` のみ（require_adminなし）
+  - 管理画面APIでLevel 5+チェックなしは pre-existing pattern（今回新規追加の問題ではなく、既存の設計選択）
+  - admin dashboard は §1-1 例外（読み取り専用）に該当するため SUGGESTION 扱い
+
+- **WARNING: `/events` エンドポイントに audit ログなし**
+  - /status, /connect, /disconnect, /callback には `log_audit_event()` があるが `/events` にはない
+  - カレンダーの「閲覧」は confidential 操作に当たる可能性あり（鉄則#3）
+
+- **`_SA_KEY_SECRET = "google-docs-sa-key"` はハードコード**（鉄則#16相当）
+  - ただし lib/brain/capabilities/generation.py line 25 でも `"soulkun-production"` と `"google-docs-sa-key"` がハードコードされており、PRE-EXISTING パターン
+  - 環境変数 `GOOGLE_SA_KEY_SECRET` で上書き可能な設計にすべき
+
+- **既存の `create_calendar_client_from_db()` との重複**
+  - `lib/meetings/google_calendar_client.py` の `create_calendar_client_from_db()` が OAuth方式でカレンダーを取得する正規ルート
+  - `calendar_tool.py` の `list_calendar_events()` も同クライアントを使う
+  - 今回の `/events` エンドポイントはサービスアカウント方式で別実装。2つのアクセス方式が並存している
+  - 設計として意図的かどうか確認が必要（管理画面は会社カレンダー全体を見る、Brain toolはOAuth接続カレンダーを見る、という分離かもしれない）
+
+- **`CalendarEvent` dataclass名の衝突**
+  - `lib/meetings/google_calendar_client.py` にも `CalendarEvent` クラスが定義されている
+  - `api/app/schemas/admin.py` の `CalendarEvent` (Pydantic) は同名だが別クラス。import時に混乱する可能性あり（型ヒント的には問題ないが混乱招く）
+
+### use-integrations.ts (今回追加)
+
+- `staleTime: 5 * 60 * 1000` (5分): CLAUDE.md 鉄則#6 (キャッシュTTL 5分) 準拠
+
 ## Phase Z1 Zoom transcript_completed 対応 (2026-02-20)
 
 ### 変更概要

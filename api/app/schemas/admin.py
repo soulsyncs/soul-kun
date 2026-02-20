@@ -405,6 +405,7 @@ class MemberDetailResponse(BaseModel):
     employment_type: Optional[str] = Field(None, description="雇用形態（正社員/業務委託/パート等）")
     evaluation: Optional[str] = Field(None, description="評価ランク（S/A/B/C/D）")
     goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
+    skills: List[str] = Field(default_factory=list, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
     hire_date: Optional[dt.datetime] = Field(None, description="入社日（主所属部署の開始日）")
     created_at: Optional[dt.datetime] = Field(None, description="作成日時")
     updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
@@ -424,6 +425,7 @@ class UpdateMemberRequest(BaseModel):
     avatar_url: Optional[str] = Field(None, max_length=500, description="顔写真URL")
     evaluation: Optional[str] = Field(None, max_length=10, description="評価ランク（S/A/B/C/D）")
     goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
+    skills: Optional[List[str]] = Field(None, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
 
 
 class MemberDepartmentAssignment(BaseModel):

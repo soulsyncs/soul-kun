@@ -41,6 +41,8 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formAvatarUrl, setFormAvatarUrl] = useState('');
   const [formEvaluation, setFormEvaluation] = useState('');
   const [formGoalAchievement, setFormGoalAchievement] = useState('');
+  const [formSkills, setFormSkills] = useState<string[]>([]);
+  const [formSkillInput, setFormSkillInput] = useState('');
 
   const detail = data;
 
@@ -54,6 +56,8 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormAvatarUrl(detail.avatar_url ?? '');
       setFormEvaluation(detail.evaluation ?? '');
       setFormGoalAchievement(detail.goal_achievement !== null && detail.goal_achievement !== undefined ? String(detail.goal_achievement) : '');
+      setFormSkills(detail.skills ?? []);
+      setFormSkillInput('');
     }
   }, [isEditOpen, detail]);
 
@@ -70,6 +74,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           avatar_url: formAvatarUrl.trim() || undefined,
           evaluation: formEvaluation.trim() || undefined,
           goal_achievement: formGoalAchievement !== '' ? Number(formGoalAchievement) : null,
+          skills: formSkills,
         },
       });
       setIsEditOpen(false);
@@ -231,6 +236,16 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             </div>
           )}
 
+          {detail?.skills && detail.skills.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 pt-1">
+              {detail.skills.map((skill) => (
+                <Badge key={skill} variant="secondary" className="text-xs px-2 py-0.5">
+                  {skill}
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {formatDate(detail?.created_at ?? null) && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
@@ -338,6 +353,59 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 />
                 <span className="text-sm text-muted-foreground">%</span>
               </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label>スキル</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={formSkillInput}
+                  onChange={(e) => setFormSkillInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      const val = formSkillInput.trim();
+                      if (val && !formSkills.includes(val)) {
+                        setFormSkills([...formSkills, val]);
+                      }
+                      setFormSkillInput('');
+                    }
+                  }}
+                  placeholder="例: 営業（Enterで追加）"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const val = formSkillInput.trim();
+                    if (val && !formSkills.includes(val)) {
+                      setFormSkills([...formSkills, val]);
+                    }
+                    setFormSkillInput('');
+                  }}
+                >
+                  追加
+                </Button>
+              </div>
+              {formSkills.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {formSkills.map((skill) => (
+                    <Badge key={skill} variant="secondary" className="flex items-center gap-1 pl-2 pr-1">
+                      {skill}
+                      <button
+                        type="button"
+                        onClick={() => setFormSkills(formSkills.filter((s) => s !== skill))}
+                        className="ml-0.5 text-muted-foreground hover:text-foreground"
+                        aria-label={`${skill}を削除`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="grid gap-2">

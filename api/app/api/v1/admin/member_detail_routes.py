@@ -4,6 +4,7 @@ Admin Dashboard - Member Detail/Update Endpoints
 メンバー詳細取得（全属性）、メンバー情報更新、所属部署更新。
 """
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -64,7 +65,8 @@ async def get_member_full_detail(
                         u.id, u.name, u.email,
                         u.chatwork_account_id, u.is_active,
                         u.created_at, u.updated_at,
-                        u.employment_type, u.avatar_url, u.evaluation, u.goal_achievement
+                        u.employment_type, u.avatar_url, u.evaluation, u.goal_achievement,
+                        u.skills
                     FROM users u
                     WHERE u.id = :user_id
                       AND u.organization_id = :org_id
@@ -152,6 +154,7 @@ async def get_member_full_detail(
             employment_type=user_row[7],
             evaluation=user_row[9],
             goal_achievement=int(user_row[10]) if user_row[10] is not None else None,
+            skills=json.loads(user_row[11]) if user_row[11] else [],
             hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
@@ -246,6 +249,9 @@ async def update_member(
             if request.goal_achievement is not None:
                 set_clauses.append("goal_achievement = :goal_achievement")
                 params["goal_achievement"] = request.goal_achievement
+            if request.skills is not None:
+                set_clauses.append("skills = :skills")
+                params["skills"] = json.dumps(request.skills, ensure_ascii=False) if request.skills else None
 
             if not set_clauses:
                 return DepartmentMutationResponse(

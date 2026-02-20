@@ -413,6 +413,33 @@
 - `side_effect=RuntimeError(...)` で同期的に例外を投げるが、`_save_minutes_to_memory` は `async def` なので、`patch.object` がそのまま `side_effect` を設定した MagicMock（非async）になる
 - Python の unittest.mock では、async メソッドに side_effect を設定した場合、AsyncMock が必要。ただし Python 3.8+ では `patch.object` が async 関数を自動でAsyncMockに変換するため、実際には動作する。テストは機能的に正しい。
 
+## PR #654 supabase-sync/main.py /sync-org レビュー結果 (2026-02-20)
+
+### スキーマ確認結果（db_schema.json）
+- `user_departments` テーブル: `organization_id` カラムが存在しない（tables section / soulkun section 両方で確認済み）
+- `user_departments.user_id`: `tables` section では `uuid` 型、`soulkun.*` section では `integer` 型 → スキーマ不一致（どちらかが古い。Phase 3-5 マイグレーションで uuid に変更された可能性）
+- `roles.organization_id`: `character varying` 型。`WHERE organization_id = :org_id` は正しく動作（PostgreSQL auto-cast）
+- `departments.organization_id`: `uuid` 型
+- `users.id`: `uuid` 型（存在する）、`users.organization_id`: `character varying` 型
+
+### Critical Issues in PR #654
+- **C-1 (型不整合)**: `user_departments.user_id` が `integer` 型（soulkun section）なのに `CAST(:user_id AS uuid)` している。本番でエラーになる可能性。ただし `tables` section では `uuid` → どちらが最新か要確認。
+- **C-2 (N+1クエリ)**: `sync_org_assignments()` でループ内に `conn.execute(SELECT)` + `conn.execute(UPDATE/INSERT)` がある。従業員×部署数分のクエリが発生。
+- **C-3 (APIコールをトランザクション外で行い、同一接続でDB書き込み)**: Supabase API fetch は pool.connect() の外（正しい）。問題なし。
+
+### WARNING Issues in PR #654
+- **W-1 (str(e)をHTTPレスポンスに返す)**: line 1135 `"message": str(e)` → DB接続文字列・内部パスが漏洩しうる。鉄則#8違反。
+- **W-2 (user_departments に organization_id フィルタなし)**: SELECT/UPDATE/INSERT すべてに org_id フィルタがない。ただしテーブル自体にカラムがない（PRE-EXISTING設計）。
+- **W-3 (/sync-org に認証なし)**: `X-CloudScheduler` ヘッダーチェックなし。ただし deploy.sh で `--no-allow-unauthenticated` 設定。Cloud Run IAM で保護されている。
+- **W-4 (Supabase全件取得にページネーションなし)**: `fetch_table()` にページネーション実装なし。1000件超えで全件取得。鉄則#5。PRE-EXISTING（既存エンドポイントと共通）。
+- **W-5 (logger.warning の %s に e が入る)**: line 414 `logger.warning("Failed to parse departments_json: %s", e)` — departments_json の内容が漏れる可能性（PII含む場合）。
+
+### supabase-sync のアーキテクチャ（確定）
+- Cloud Run、`--no-allow-unauthenticated` = IAM認証必須（`allUsers` ではない）
+- Cloud Scheduler が `X-CloudScheduler` ヘッダー付きで呼ぶ（/sync-org にはそのチェックがない — pre-existing gap）
+- `CLOUDSQL_ORG_ID` はハードコードデフォルト値 `'5f98365f-e7c5-4f48-9918-7fe9aabae5df'` あり（pre-existing）
+- 既存 `/` エンドポイント（form data sync）は同様の構造
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useInsightsList, useQuestionPatterns, useWeeklyReports } from '@/hooks/use-insights';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 
 type TabView = 'insights' | 'patterns' | 'reports';
 
@@ -45,10 +46,11 @@ export function InsightsPage() {
           <div>
             <h1 className="text-2xl font-bold flex items-center gap-2">
               <Lightbulb className="h-6 w-6" />
-              インサイト
+              インサイト（AI発見レポート）
+              <InfoTooltip text="インサイトとは「ソウルくんが自動的に気づいた重要な傾向や提案」のことです。誰がよく質問しているか・どんな話題が多いかなどをAIが分析してお知らせします" />
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              AI分析による洞察と質問パターン
+              ソウルくんが会話から自動的に発見した傾向・気づき・改善提案をまとめています
             </p>
           </div>
           <Button

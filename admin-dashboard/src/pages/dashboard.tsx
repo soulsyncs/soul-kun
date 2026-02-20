@@ -48,6 +48,28 @@ const PERIOD_LABELS: Record<Period, string> = {
   '30d': '30日間',
 };
 
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: '緊急',
+  high: '警告',
+  medium: '注意',
+  low: '情報',
+};
+
+const ALERT_TYPE_LABELS: Record<string, string> = {
+  overdue_task: '期限切れタスクあり',
+  high_cost_usage: 'コスト超過の可能性',
+  low_response_rate: '応答率が低下しています',
+  error_spike: 'エラーが急増しています',
+  budget_exceeded: '予算上限に達しました',
+  budget_warning: '予算残高が少なくなっています',
+  brain_error: 'AI脳にエラーが発生しました',
+  api_error: 'API接続エラー',
+  auth_failure: '認証エラー',
+  data_sync_failure: 'データ同期に失敗しました',
+  wellness_drop: 'チームの状態が低下しています',
+  goal_at_risk: '目標達成が危うい状態です',
+};
+
 export function DashboardPage() {
   const [period, setPeriod] = useState<Period>('7d');
 
@@ -454,10 +476,10 @@ export function DashboardPage() {
                         }
                         className="mt-0.5"
                       >
-                        {alert.severity}
+                        {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                       </Badge>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{alert.alert_type}</p>
+                        <p className="text-sm font-medium">{ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}</p>
                         <p className="text-xs text-muted-foreground truncate">
                           {alert.message}
                         </p>

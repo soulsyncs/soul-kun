@@ -181,7 +181,7 @@ export function MeetingsPage() {
                       </h4>
                       {detailData.transcript ? (
                         <div className="rounded border p-3 text-sm whitespace-pre-wrap max-h-[500px] overflow-y-auto bg-muted/30">
-                          {detailData.transcript}
+                          {detailData.transcript.replace(/\\n/g, '\n')}
                         </div>
                       ) : (
                         <div className="text-sm text-muted-foreground">

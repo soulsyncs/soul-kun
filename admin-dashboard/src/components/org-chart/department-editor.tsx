@@ -88,7 +88,7 @@ export function DepartmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>
             {isEdit ? '部署を編集' : '部署を作成'}

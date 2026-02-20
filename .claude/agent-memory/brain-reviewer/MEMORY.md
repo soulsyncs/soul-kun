@@ -317,6 +317,65 @@
 - **PASS**: None/空文字/なし/未設定/不明 → default 7d。UTCタイムゾーン使用正しい。PIIログなし。90日キャップ正常動作。
 - **PASS**: 3コピー同期（lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て同一）。
 
+## Phase Z2 ⑥ zoom_brain_interface.py Step 12 Memory Save (2026-02-20)
+
+### 変更概要
+- `lib/meetings/zoom_brain_interface.py`: `process_zoom_minutes()` に Step 12「議事録をエピソード記憶に保存」追加
+- 新メソッド `_save_minutes_to_memory()` を追加（非クリティカル、try/exceptで保護）
+- `tests/test_zoom_brain_interface.py`: `TestSaveMinutesToMemory` クラス（6テスト）追加
+
+### 3コピー同期確認済み
+- lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL (PASS)
+
+### memory_enhancement モジュール署名確認 (確定)
+- `BrainMemoryEnhancement.__init__(organization_id: str)` — poolは取らない。Correct: pool は _save_sync() 内でのみ使用
+- `record_episode(conn, episode_type, summary, details, user_id, room_id, keywords, entities, importance, emotional_valence)` — 署名MATCH
+- `RelatedEntity(entity_type: EntityType, entity_id: str, entity_name, relationship: EntityRelationship)` — 正しくobjectアクセス（dict不使用）
+- `EntityType.MEETING = "meeting"`, `EntityType.ROOM = "room"` — 両方定義済み (constants.py L86,82)
+- `EpisodeType.INTERACTION = "interaction"` — 定義済み (constants.py L51)
+
+### 確認した問題点
+
+**WARNING-1: BrainMemoryEnhancement.__init__ で organization_id を生ログ記録**
+- `__init__.py` line 137: `logger.info(f"BrainMemoryEnhancement initialized for org: {organization_id}")`
+- organization_id（UUID）が INFO レベルでログに出力される。P15で指摘済みのパターン。PRE-EXISTING
+- zoom_brain_interface.py の新コードは毎回 `BrainMemoryEnhancement(self.organization_id)` を _save_minutes_to_memory() 内でインスタンス化 → 毎回ログ出力
+- 既存コードの問題（PRE-EXISTING）。今回の変更で露出頻度は増加するが、新規導入ではない
+
+**WARNING-2: details dict に `title` が含まれる（PII軽微リスク）**
+- `details={"title": title, "room_id": room_id, ...}` で会議タイトルがDBのJSONBに保存される
+- 会議タイトルには人名が含まれうる（例: 「田中部長との面談」）
+- CLAUDE.md §9-2: 「チャット本文そのまま」は禁止だが会議タイトルは明示的に禁止されていない
+- summary にも title が含まれる（「Zoom会議「田中部長との面談」の議事録を作成」）
+- SUGGESTION: title を details から除外するか、タイトルをハッシュ化する（ただし設計意図として検索性が必要なため現状維持も合理的）
+
+**WARNING-3: _save_entities の DELETE に organization_id フィルタなし (PRE-EXISTING)**
+- `episode_repository.py` _save_entities(): `DELETE FROM brain_episode_entities WHERE episode_id = CAST(:episode_id AS uuid)` — organization_id フィルタなし
+- episode_id は UUID（ランダム）なので実質的なリスクは低いが、設計上の漏れ。PRE-EXISTING
+
+**INFO (PASS): asyncio.to_thread 使用正しい**
+- _save_sync() は同期関数 → asyncio.to_thread(_save_sync) で正しくオフロード。ブロッキングなし。
+
+**INFO (PASS): 接続管理正しい**
+- `with self.pool.connect() as conn:` でwith文使用 → リークなし
+
+**INFO (PASS): org_id isolation 正しい**
+- `BrainMemoryEnhancement(self.organization_id)` → _episode_repo.save() → INSERT時 organization_id=self.organization_id でフィルタ
+
+**INFO (PASS): 非クリティカル失敗隔離**
+- try/except Exception でラップ、type(mem_err).__name__ のみログ記録（PII漏洩なし）
+
+**INFO (PASS): 3コピー同期**
+- lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL
+
+**SUGGESTION: BrainMemoryEnhancement を _save_minutes_to_memory() 内でインスタンス化している**
+- 毎回 Step 12 が実行されるたびに新しいインスタンスを生成。軽量だが無駄
+- クラス属性として初期化（`__init__` で `self._memory = BrainMemoryEnhancement(organization_id)` など）が望ましい
+
+**SUGGESTION: test_memory_failure_does_not_block_result の mock が async でない**
+- `side_effect=RuntimeError(...)` で同期的に例外を投げるが、`_save_minutes_to_memory` は `async def` なので、`patch.object` がそのまま `side_effect` を設定した MagicMock（非async）になる
+- Python の unittest.mock では、async メソッドに side_effect を設定した場合、AsyncMock が必要。ただし Python 3.8+ では `patch.object` が async 関数を自動でAsyncMockに変換するため、実際には動作する。テストは機能的に正しい。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

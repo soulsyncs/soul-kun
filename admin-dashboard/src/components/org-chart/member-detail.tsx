@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil, Briefcase, Phone } from 'lucide-react';
+import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil, Briefcase, Phone, Cake } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -45,6 +45,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formSkillInput, setFormSkillInput] = useState('');
   const [formNotes, setFormNotes] = useState('');
   const [formPhone, setFormPhone] = useState('');
+  const [formBirthday, setFormBirthday] = useState('');
 
   const detail = data;
 
@@ -62,6 +63,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormSkillInput('');
       setFormNotes(detail.notes ?? '');
       setFormPhone(detail.phone ?? '');
+      setFormBirthday(detail.birthday ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -81,6 +83,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           skills: formSkills,
           notes: formNotes.trim() || null,
           phone: formPhone.trim() || null,
+          birthday: formBirthday || null,
         },
       });
       setIsEditOpen(false);
@@ -231,6 +234,26 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             </div>
           )}
 
+          {detail?.birthday && (() => {
+            const bd = new Date(detail.birthday);
+            const today = new Date();
+            const age = today.getFullYear() - bd.getFullYear() -
+              (today.getMonth() < bd.getMonth() || (today.getMonth() === bd.getMonth() && today.getDate() < bd.getDate()) ? 1 : 0);
+            const isTodayBirthday = today.getMonth() === bd.getMonth() && today.getDate() === bd.getDate();
+            const label = bd.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+            return (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Cake className="h-3 w-3" />
+                <span>{label}（{age}歳）</span>
+                {isTodayBirthday && (
+                  <Badge variant="outline" className="text-xs border-pink-400 text-pink-500 bg-pink-50 px-1.5">
+                    🎂 今日！
+                  </Badge>
+                )}
+              </div>
+            );
+          })()}
+
           {detail?.goal_achievement !== null && detail?.goal_achievement !== undefined && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <div className="flex items-center gap-1.5 w-full">
@@ -323,6 +346,17 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 onChange={(e) => setFormPhone(e.target.value)}
                 placeholder="例: 090-1234-5678"
                 maxLength={50}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-birthday">誕生日</Label>
+              <Input
+                id="member-birthday"
+                type="date"
+                value={formBirthday}
+                onChange={(e) => setFormBirthday(e.target.value)}
+                max={new Date().toISOString().split('T')[0]}
               />
             </div>
 

@@ -66,7 +66,7 @@ async def get_member_full_detail(
                         u.chatwork_account_id, u.is_active,
                         u.created_at, u.updated_at,
                         u.employment_type, u.avatar_url, u.evaluation, u.goal_achievement,
-                        u.skills, u.notes, u.phone
+                        u.skills, u.notes, u.phone, u.birthday
                     FROM users u
                     WHERE u.id = :user_id
                       AND u.organization_id = :org_id
@@ -157,6 +157,7 @@ async def get_member_full_detail(
             skills=json.loads(user_row[11]) if user_row[11] else [],
             notes=user_row[12],
             phone=user_row[13],
+            birthday=user_row[14],
             hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
@@ -260,6 +261,9 @@ async def update_member(
             if request.phone is not None:
                 set_clauses.append("phone = :phone")
                 params["phone"] = request.phone or None
+            if request.birthday is not None:
+                set_clauses.append("birthday = :birthday")
+                params["birthday"] = request.birthday.isoformat() if request.birthday else None
 
             if not set_clauses:
                 return DepartmentMutationResponse(

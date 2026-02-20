@@ -259,6 +259,7 @@ export interface MemberDetailResponse {
   skills: string[];
   notes: string | null;
   phone: string | null;
+  birthday: string | null;
   hire_date: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -289,6 +290,7 @@ export interface UpdateMemberRequest {
   skills?: string[] | null;
   notes?: string | null;
   phone?: string | null;
+  birthday?: string | null;
 }
 
 export interface MemberDepartmentAssignment {

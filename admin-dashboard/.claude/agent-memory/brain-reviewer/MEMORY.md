@@ -41,6 +41,13 @@ Only the following CLAUDE.md rules directly apply to this scope:
 - Overlay: z-20, Sidebar: z-30 — correct order.
 - `md:z-auto` on sidebar wrapper resets z-index on desktop — correct.
 
+## Backend API pattern (admin routes)
+- `deps.py` exports: `require_admin` (Level 5+), `require_editor` (Level 6+), `DEFAULT_ORG_ID`
+- Read-only GET endpoints use `require_admin`; other admin write endpoints (departments, members) use `require_editor`
+- Zoom routes use `require_admin` for ALL verbs (GET/POST/PUT/DELETE) — intentional design, but inconsistent with other write endpoints
+- Dynamic UPDATE SET clauses built with f-string + list of hardcoded column strings: values still bound via :params, so SQLi risk is zero, but flag pattern in future reviews (WARNING-level, not CRITICAL)
+- `organization_id = user.organization_id or DEFAULT_ORG_ID` pattern is standard in this codebase — acceptable
+
 ## Files reviewed on 2026-02-20
 - src/components/layout/app-layout.tsx
 - src/components/layout/sidebar.tsx
@@ -49,3 +56,14 @@ Only the following CLAUDE.md rules directly apply to this scope:
 - src/pages/costs.tsx
 - src/pages/members.tsx
 - src/pages/goals.tsx
+
+## Files reviewed on 2026-02-20 (Phase Z1 Zoom review)
+- migrations/20260220_zoom_meeting_configs.sql
+- migrations/20260220_zoom_meeting_configs_rollback.sql
+- api/app/api/v1/admin/zoom_routes.py
+- api/app/api/v1/admin/__init__.py
+- api/app/api/v1/admin/deps.py
+- admin-dashboard/src/pages/zoom-settings.tsx
+- admin-dashboard/src/App.tsx
+- admin-dashboard/src/components/layout/sidebar.tsx
+- admin-dashboard/src/lib/api.ts (zoomSettings section)

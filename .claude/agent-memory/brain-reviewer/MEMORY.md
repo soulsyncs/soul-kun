@@ -287,6 +287,15 @@
 1. `person_attributes` の CASCADE を本番DBで確認
 2. 全8箇所（lib/, chatwork-webhook/lib/, proactive-monitor/lib/, main.py, 4CF main.py）を同一PR で修正（横展開完了）
 
+## Phase Z1 ⑤ task_extractor.py parse_deadline_hint (2026-02-20)
+
+- `lib/meetings/task_extractor.py`: `parse_deadline_hint()` 新規追加。3コピー同期PASS。
+- **LOGIC BUG (WARNING)**: 今週 on Friday: `(4 - now.weekday()) % 7 == 0` → forced to 7. 金曜当日に「今週中」→ 翌週金曜になる。今週当日 = 今日 (end_of_day(now)) が正しい。
+- **TEST GAP (WARNING)**: `parse_deadline_hint` が `test_task_extractor.py` にimportされておらず、直接ユニットテストなし。`test_full_flow_with_chatwork_creation` が `call_args[0][3]` (deadline引数) を検証しない。
+- **SUGGESTION**: `import re as _re` と `import calendar` が関数本体内にある（モジュールトップへ移動推奨）。
+- **PASS**: None/空文字/なし/未設定/不明 → default 7d。UTCタイムゾーン使用正しい。PIIログなし。90日キャップ正常動作。
+- **PASS**: 3コピー同期（lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て同一）。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

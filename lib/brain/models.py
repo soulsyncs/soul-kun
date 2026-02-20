@@ -11,8 +11,11 @@
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional, List, Dict, Any, Union
+from typing import TYPE_CHECKING, Optional, List, Dict, Any, Union
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from .episodic_memory import RecallResult
 
 
 # =============================================================================
@@ -714,6 +717,10 @@ class BrainContext:
 
     # Phase 2E: 学習基盤からの適用学習（LLMプロンプト用テキスト）
     phase2e_learnings: Optional[str] = None
+
+    # タスクD: エピソード記憶（想起された過去の出来事）
+    # 型: List[RecallResult] — TYPE_CHECKINGのため実行時はList[Any]として動作
+    recent_episodes: List[Any] = field(default_factory=list)
 
     # v10.42.0 P2: ユーザーの人生軸・価値観・長期目標
     # UserLongTermMemory.get_all()の結果を格納

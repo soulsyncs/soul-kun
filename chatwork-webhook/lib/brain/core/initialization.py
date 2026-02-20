@@ -51,6 +51,9 @@ from lib.brain.deep_understanding.emotion_reader import create_emotion_reader
 # v10.46.0: 観測機能（Observability Layer）
 from lib.brain.observability import create_observability
 
+# タスクD: エピソード記憶（過去の出来事を想起）
+from lib.brain.episodic_memory import create_episodic_memory
+
 logger = logging.getLogger(__name__)
 
 
@@ -105,6 +108,12 @@ class InitializationMixin:
             firestore_db=firestore_db,
             memory_flusher=memory_flusher,
             hybrid_searcher=hybrid_searcher,
+        )
+
+        # タスクD: エピソード記憶（過去の出来事を記憶・想起）
+        self.episodic_memory = create_episodic_memory(
+            pool=pool,
+            organization_id=org_id,
         )
 
         # 状態管理層の初期化

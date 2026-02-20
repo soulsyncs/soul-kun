@@ -197,6 +197,19 @@ class MemoryLayerMixin:
                 except Exception as e:
                     logger.warning(f"Error fetching Phase 2E learnings: {type(e).__name__}")
 
+            # タスクD: エピソード記憶を想起（キャッシュ参照のみ、高速）
+            # recall()はin-memoryキャッシュを参照するため to_thread で安全に呼ぶ
+            if message and hasattr(self, 'episodic_memory') and self.episodic_memory:
+                try:
+                    recall_results = await asyncio.to_thread(
+                        self.episodic_memory.recall, message, user_id
+                    )
+                    if recall_results:
+                        context.recent_episodes = recall_results
+                        logger.debug("Recalled %d episodes", len(recall_results))
+                except Exception as e:
+                    logger.warning(f"Error recalling episodes: {type(e).__name__}")
+
             logger.debug(
                 f"Context loaded: conversation={len(context.recent_conversation)}, "
                 f"tasks={len(context.recent_tasks)}, goals={len(context.active_goals)}, "

@@ -43,6 +43,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formGoalAchievement, setFormGoalAchievement] = useState('');
   const [formSkills, setFormSkills] = useState<string[]>([]);
   const [formSkillInput, setFormSkillInput] = useState('');
+  const [formNotes, setFormNotes] = useState('');
 
   const detail = data;
 
@@ -58,6 +59,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormGoalAchievement(detail.goal_achievement !== null && detail.goal_achievement !== undefined ? String(detail.goal_achievement) : '');
       setFormSkills(detail.skills ?? []);
       setFormSkillInput('');
+      setFormNotes(detail.notes ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -75,6 +77,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           evaluation: formEvaluation.trim() || undefined,
           goal_achievement: formGoalAchievement !== '' ? Number(formGoalAchievement) : null,
           skills: formSkills,
+          notes: formNotes.trim() || null,
         },
       });
       setIsEditOpen(false);
@@ -246,6 +249,12 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             </div>
           )}
 
+          {detail?.notes && (
+            <div className="text-xs text-muted-foreground bg-muted/40 rounded-md px-3 py-2 whitespace-pre-wrap leading-relaxed">
+              {detail.notes}
+            </div>
+          )}
+
           {formatDate(detail?.created_at ?? null) && (
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Calendar className="h-3 w-3" />
@@ -406,6 +415,18 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                   ))}
                 </div>
               )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-notes">備考・メモ</Label>
+              <textarea
+                id="member-notes"
+                value={formNotes}
+                onChange={(e) => setFormNotes(e.target.value)}
+                placeholder="自由にメモを入力（入社背景、注意事項など）"
+                rows={4}
+                className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring resize-none"
+              />
             </div>
 
             <div className="grid gap-2">

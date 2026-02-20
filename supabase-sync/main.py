@@ -349,7 +349,7 @@ def get_default_role_id(conn, org_id: str) -> Optional[str]:
     result = conn.execute(
         sql_text("""
             SELECT id FROM roles
-            WHERE organization_id = :org_id AND is_active = true
+            WHERE organization_id = :org_id
             ORDER BY level ASC
             LIMIT 1
         """),

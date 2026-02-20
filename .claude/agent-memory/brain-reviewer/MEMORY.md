@@ -557,6 +557,43 @@
 ### org_id filter (PASS)
 - `EpisodicMemory.recall()` はin-memory cacheのみ参照。cacheは `self.organization_id` をキーとして org 分離されたインスタンス（`create_episodic_memory(organization_id=org_id)`）が保持。org_id leakなし。
 
+## Task C: _update_conversation_summary (lib/brain/learning.py, 2026-02-21)
+
+### 変更概要
+- `BrainLearning.__init__` に `get_ai_response_func` 追加 + `_summary_update_times` dict追加
+- `update_memory()` に `_should_update_summary(room_id)` 条件追加
+- 新規: `_update_conversation_summary()`, `_build_summary_prompt()`, `_call_ai_for_summary()`, `_parse_summary_response()`, `_save_summary_sync()`, `_should_update_summary()`
+
+### DB schema 確認（conversation_summaries）
+- `conversation_summaries` は db_schema.json の root section には **ない**（tables セクションに存在）
+- `tables.conversation_summaries`: id=uuid, organization_id=uuid, user_id=uuid, summary_text=text, key_topics=ARRAY, mentioned_persons=ARRAY, mentioned_tasks=ARRAY, conv_start/end=timestamptz, message_count=int, room_id=varchar, generated_by=varchar, classification=varchar
+- **UNIQUE 制約なし** (organization_id, user_id, ...) → ON CONFLICT なし INSERT は重複行を生成しうる
+- マイグレーション: `migrations/phase2_b_memory_framework.sql` で CREATE TABLE 定義確認済み
+
+### CRITICAL issues
+- なし（セキュリティ・テナント分離上のブロッカーなし）
+
+### WARNING issues
+- **W-1 (テストカバレッジ不足)**: `test_brain_learning.py` の `brain_learning` fixture に `get_ai_response_func` がない。`test_update_memory_generates_summary_when_threshold` でサマリー生成テストは通るが、実際は `get_ai_response` が None → LLM スキップ → `_update_conversation_summary` は return False。つまりテストは「サマリー生成パスを通らずに PASS」している。LLM あり時のサマリー実際生成パス（`_build_summary_prompt`, `_call_ai_for_summary`, `_parse_summary_response`, `_save_summary_sync`）に対するテストが存在しない。
+- **W-2 (重複行の可能性)**: `conversation_summaries` に UNIQUE 制約なし。同じ room_id + user_id で SUMMARY_THRESHOLD を何度も超えた場合、ON CONFLICT なし INSERT により重複行が蓄積する。`_should_update_summary()` の 30分間隔制御はメモリ上のみ（プロセス再起動でリセット）。
+- **W-3 (mentioned_persons が PII)**: `_build_summary_prompt` で LLM に人名抽出を依頼 → `mentioned_persons` 列に人名がDBに保存される。CLAUDE.md §9-2「業務に必要な事実は覚える」に合致するが、§9-3「名前は監査ログに入れない」との境界が曖昧。ここは会話記憶であり監査ログではないため設計上は許容範囲。
+- **W-4 (create_learning factory に get_ai_response_func なし)**: line 1587 の `create_learning()` ファクトリ関数に `get_ai_response_func` パラメータが追加されていない。直接 `BrainLearning(...)` を使う initialization.py は問題ないが、他の呼び出し元（テスト等）が `create_learning()` を使う場合にサマリー機能を有効化できない。
+
+### SUGGESTION issues
+- **S-1**: `_parse_summary_response` の `re.search(r'\{[\s\S]*\}', response)` — 貪欲マッチ。通常のLLMレスポンス（数百文字）ではReDoSリスクなし。
+- **S-2**: `_build_summary_prompt` の各メッセージを `msg.content[:200]` でカット。最大20件×200文字 = 4000文字がプロンプトに含まれる。許容範囲。
+
+### PASS
+- 3コピー同期: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL
+- asyncio.to_thread 使用正しい（`_save_summary_sync` は同期関数→to_thread経由）
+- pool は QueuePool（同期）。to_thread 内で _begin_with_org_context → pool.begin() は正しい
+- org_id フィルタ: INSERT の SELECT サブクエリで `WHERE u.organization_id = :org_id AND u.chatwork_account_id = :account_id` — 正しいテナント分離
+- `CAST(:org_id AS uuid)` for INSERT value — conversation_summaries.organization_id は uuid 型 → 正しい
+- `u.organization_id = :org_id` (users テーブル) — users.organization_id は character varying → text パラメータの比較は正しい
+- PII ログなし: account_id はログに出ない（line 849-853で明示的に除外）
+- LLM 不使用時 return False — ゴミデータをDBに入れない設計は正しい
+- `_should_update_summary` の成功時のみ `_summary_update_times` 更新（失敗時は次回再試行できる設計）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

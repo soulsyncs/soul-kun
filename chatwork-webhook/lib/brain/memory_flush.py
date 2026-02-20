@@ -417,17 +417,19 @@ class AutoMemoryFlusher:
                 try:
                     if item.category == "preference":
                         # user_preferences テーブルに保存（org_idスコープ済み）
+                        # Fix: organizationsへのJOINを除去し、CAST(:org_id AS uuid)を直接使用
+                        # 旧: FROM organizations o JOIN users u ON u.organization_id = o.id
+                        #     WHERE o.organization_id = :org_id  ← varchar列にUUID比較でバグ
                         conn.execute(
                             sql_text("""
                                 INSERT INTO user_preferences
                                     (organization_id, user_id, preference_type, preference_key,
                                      preference_value, learned_from, confidence, classification)
                                 SELECT
-                                    o.id, u.id, 'communication', :key, :value,
+                                    CAST(:org_id AS uuid), u.id, 'communication', :key, :value,
                                     'auto_flush', :confidence, 'internal'
-                                FROM organizations o
-                                JOIN users u ON u.organization_id = o.id
-                                WHERE o.organization_id = :org_id
+                                FROM users u
+                                WHERE u.organization_id = :org_id
                                   AND u.chatwork_account_id = :user_id
                                 ON CONFLICT (organization_id, user_id, preference_type, preference_key)
                                 DO UPDATE SET
@@ -447,6 +449,8 @@ class AutoMemoryFlusher:
 
                     elif item.category in ("fact", "decision", "commitment"):
                         # soulkun_knowledge テーブルに保存（Phase 4: org_idカラム対応）
+                        # Fix: organizations.organization_id (varchar) ではなく
+                        #      organizations.id (uuid PK) で存在確認する
                         conn.execute(
                             sql_text("""
                                 INSERT INTO soulkun_knowledge
@@ -454,7 +458,7 @@ class AutoMemoryFlusher:
                                 SELECT
                                     :org_id, :key, :value, :category, 'auto_flush'
                                 WHERE EXISTS (
-                                    SELECT 1 FROM organizations WHERE organization_id = :org_id
+                                    SELECT 1 FROM organizations WHERE id = CAST(:org_id AS uuid)
                                 )
                                 ON CONFLICT (organization_id, category, key) DO UPDATE SET
                                     value = EXCLUDED.value,

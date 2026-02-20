@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil, Briefcase } from 'lucide-react';
+import { User, Mail, Building2, Shield, X, Calendar, Clock, Pencil, Briefcase, Phone } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -44,6 +44,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formSkills, setFormSkills] = useState<string[]>([]);
   const [formSkillInput, setFormSkillInput] = useState('');
   const [formNotes, setFormNotes] = useState('');
+  const [formPhone, setFormPhone] = useState('');
 
   const detail = data;
 
@@ -60,6 +61,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormSkills(detail.skills ?? []);
       setFormSkillInput('');
       setFormNotes(detail.notes ?? '');
+      setFormPhone(detail.phone ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -78,6 +80,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           goal_achievement: formGoalAchievement !== '' ? Number(formGoalAchievement) : null,
           skills: formSkills,
           notes: formNotes.trim() || null,
+          phone: formPhone.trim() || null,
         },
       });
       setIsEditOpen(false);
@@ -145,6 +148,15 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Mail className="h-3.5 w-3.5" />
               {detail.email}
+            </div>
+          )}
+
+          {detail?.phone && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Phone className="h-3.5 w-3.5" />
+              <a href={`tel:${detail.phone}`} className="hover:text-foreground hover:underline">
+                {detail.phone}
+              </a>
             </div>
           )}
 
@@ -299,6 +311,18 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 onChange={(e) => setFormEmail(e.target.value)}
                 placeholder="例: taro@soulsyncs.jp"
                 maxLength={200}
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-phone">電話番号</Label>
+              <Input
+                id="member-phone"
+                type="tel"
+                value={formPhone}
+                onChange={(e) => setFormPhone(e.target.value)}
+                placeholder="例: 090-1234-5678"
+                maxLength={50}
               />
             </div>
 

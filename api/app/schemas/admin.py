@@ -407,6 +407,7 @@ class MemberDetailResponse(BaseModel):
     goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
     skills: List[str] = Field(default_factory=list, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
     notes: Optional[str] = Field(None, description="備考・メモ（自由記述）")
+    phone: Optional[str] = Field(None, description="電話番号")
     hire_date: Optional[dt.datetime] = Field(None, description="入社日（主所属部署の開始日）")
     created_at: Optional[dt.datetime] = Field(None, description="作成日時")
     updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
@@ -428,6 +429,7 @@ class UpdateMemberRequest(BaseModel):
     goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
     skills: Optional[List[str]] = Field(None, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
     notes: Optional[str] = Field(None, description="備考・メモ（自由記述）")
+    phone: Optional[str] = Field(None, max_length=50, description="電話番号")
 
 
 class MemberDepartmentAssignment(BaseModel):

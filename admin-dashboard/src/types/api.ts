@@ -258,6 +258,7 @@ export interface MemberDetailResponse {
   goal_achievement: number | null;
   skills: string[];
   notes: string | null;
+  phone: string | null;
   hire_date: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -287,6 +288,7 @@ export interface UpdateMemberRequest {
   goal_achievement?: number | null;
   skills?: string[] | null;
   notes?: string | null;
+  phone?: string | null;
 }
 
 export interface MemberDepartmentAssignment {

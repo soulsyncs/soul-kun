@@ -24,6 +24,7 @@ import {
   LogOut,
   Sunrise,
   X,
+  VideoIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -49,6 +50,7 @@ const navigation = [
   { name: 'CEO教え', href: '/teachings', icon: BookOpen },
   { name: 'コスト管理', href: '/costs', icon: DollarSign },
   { name: '連携設定', href: '/integrations', icon: Link2 },
+  { name: 'Zoom設定', href: '/zoom-settings', icon: VideoIcon },
   { name: 'システム', href: '/system', icon: Settings },
 ];
 

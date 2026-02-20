@@ -475,6 +475,46 @@ export const api = {
       }),
   },
 
+  // ===== Zoom連携設定 =====
+  zoomSettings: {
+    getConfigs: () =>
+      fetchWithAuth<{
+        status: string;
+        configs: Array<{
+          id: string;
+          meeting_name_pattern: string;
+          chatwork_room_id: string;
+          room_name: string | null;
+          is_active: boolean;
+          created_at: string | null;
+          updated_at: string | null;
+        }>;
+        total: number;
+      }>('/admin/zoom/configs'),
+
+    createConfig: (data: {
+      meeting_name_pattern: string;
+      chatwork_room_id: string;
+      room_name?: string;
+      is_active?: boolean;
+    }) =>
+      fetchWithAuth<{ status: string; config: Record<string, unknown> }>('/admin/zoom/configs', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    updateConfig: (id: string, data: { is_active?: boolean; meeting_name_pattern?: string; chatwork_room_id?: string; room_name?: string }) =>
+      fetchWithAuth<{ status: string; config: Record<string, unknown> }>(`/admin/zoom/configs/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }),
+
+    deleteConfig: (id: string) =>
+      fetchWithAuth<{ status: string }>(`/admin/zoom/configs/${id}`, {
+        method: 'DELETE',
+      }),
+  },
+
   // ===== 連携設定 =====
   integrations: {
     getGoogleCalendarStatus: () =>

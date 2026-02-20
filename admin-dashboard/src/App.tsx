@@ -56,6 +56,9 @@ const SystemPage = lazy(() =>
 const MorningBriefingPage = lazy(() =>
   import('@/pages/morning-briefing').then((m) => ({ default: m.MorningBriefingPage }))
 );
+const ZoomSettingsPage = lazy(() =>
+  import('@/pages/zoom-settings').then((m) => ({ default: m.ZoomSettingsPage }))
+);
 
 // Loading fallback
 function PageLoader() {
@@ -194,6 +197,12 @@ const morningRoute = new Route({
   component: () => <ProtectedRoute component={MorningBriefingPage} />,
 });
 
+const zoomSettingsRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/zoom-settings',
+  component: () => <ProtectedRoute component={ZoomSettingsPage} />,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
@@ -211,6 +220,7 @@ const routeTree = rootRoute.addChildren([
   systemRoute,
   membersRoute,
   morningRoute,
+  zoomSettingsRoute,
 ]);
 
 const router = new Router({ routeTree });

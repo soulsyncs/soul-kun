@@ -63,7 +63,8 @@ async def get_member_full_detail(
                     SELECT
                         u.id, u.name, u.email,
                         u.chatwork_account_id, u.is_active,
-                        u.created_at, u.updated_at
+                        u.created_at, u.updated_at,
+                        u.employment_type
                     FROM users u
                     WHERE u.id = :user_id
                       AND u.organization_id = :org_id
@@ -147,6 +148,7 @@ async def get_member_full_detail(
             departments=departments,
             chatwork_account_id=user_row[3],
             is_active=bool(user_row[4]) if user_row[4] is not None else True,
+            employment_type=user_row[7],
             hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
@@ -229,6 +231,9 @@ async def update_member(
             if request.chatwork_account_id is not None:
                 set_clauses.append("chatwork_account_id = :cw_id")
                 params["cw_id"] = request.chatwork_account_id
+            if request.employment_type is not None:
+                set_clauses.append("employment_type = :employment_type")
+                params["employment_type"] = request.employment_type or None
 
             if not set_clauses:
                 return DepartmentMutationResponse(

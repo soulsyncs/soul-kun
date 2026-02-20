@@ -37,6 +37,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const [formName, setFormName] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formChatworkId, setFormChatworkId] = useState('');
+  const [formEmploymentType, setFormEmploymentType] = useState('');
 
   const detail = data;
 
@@ -46,6 +47,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
       setFormName(detail.name ?? '');
       setFormEmail(detail.email ?? '');
       setFormChatworkId(detail.chatwork_account_id ?? '');
+      setFormEmploymentType(detail.employment_type ?? '');
     }
   }, [isEditOpen, detail]);
 
@@ -58,6 +60,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
           name: formName.trim(),
           email: formEmail.trim() || undefined,
           chatwork_account_id: formChatworkId.trim() || undefined,
+          employment_type: formEmploymentType.trim() || undefined,
         },
       });
       setIsEditOpen(false);
@@ -157,10 +160,15 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
             </div>
           )}
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <Badge variant={detail?.is_active !== false ? 'default' : 'secondary'}>
               {detail?.is_active !== false ? '在籍中' : '非アクティブ'}
             </Badge>
+            {detail?.employment_type && (
+              <Badge variant="outline" className="text-xs">
+                {detail.employment_type}
+              </Badge>
+            )}
           </div>
 
           {formatDate(detail?.hire_date ?? null) && (
@@ -226,6 +234,23 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
                 placeholder="例: 1728974"
                 maxLength={50}
               />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="member-employment-type">雇用形態</Label>
+              <select
+                id="member-employment-type"
+                value={formEmploymentType}
+                onChange={(e) => setFormEmploymentType(e.target.value)}
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">未設定</option>
+                <option value="正社員">正社員</option>
+                <option value="業務委託">業務委託</option>
+                <option value="パート">パート</option>
+                <option value="インターン">インターン</option>
+                <option value="顧問">顧問</option>
+              </select>
             </div>
           </div>
 

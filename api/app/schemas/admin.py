@@ -401,6 +401,15 @@ class MemberDetailResponse(BaseModel):
     )
     chatwork_account_id: Optional[str] = Field(None, description="ChatWorkアカウントID")
     is_active: bool = Field(True, description="有効か")
+    avatar_url: Optional[str] = Field(None, description="顔写真URL")
+    employment_type: Optional[str] = Field(None, description="雇用形態（正社員/業務委託/パート等）")
+    evaluation: Optional[str] = Field(None, description="評価ランク（S/A/B/C/D）")
+    goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
+    skills: List[str] = Field(default_factory=list, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
+    notes: Optional[str] = Field(None, description="備考・メモ（自由記述）")
+    phone: Optional[str] = Field(None, description="電話番号")
+    birthday: Optional[dt.date] = Field(None, description="誕生日（YYYY-MM-DD）")
+    hire_date: Optional[dt.datetime] = Field(None, description="入社日（主所属部署の開始日）")
     created_at: Optional[dt.datetime] = Field(None, description="作成日時")
     updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
 
@@ -413,6 +422,16 @@ class UpdateMemberRequest(BaseModel):
     chatwork_account_id: Optional[str] = Field(
         None, max_length=50, description="ChatWorkアカウントID"
     )
+    employment_type: Optional[str] = Field(
+        None, max_length=50, description="雇用形態（正社員/業務委託/パート/インターン/顧問）"
+    )
+    avatar_url: Optional[str] = Field(None, max_length=500, description="顔写真URL")
+    evaluation: Optional[str] = Field(None, max_length=10, description="評価ランク（S/A/B/C/D）")
+    goal_achievement: Optional[int] = Field(None, description="目標達成率（0〜100）", ge=0, le=100)
+    skills: Optional[List[str]] = Field(None, description="スキルリスト（例: [\"営業\", \"Excel\"]）")
+    notes: Optional[str] = Field(None, description="備考・メモ（自由記述）")
+    phone: Optional[str] = Field(None, max_length=50, description="電話番号")
+    birthday: Optional[dt.date] = Field(None, description="誕生日（YYYY-MM-DD）")
 
 
 class MemberDepartmentAssignment(BaseModel):

@@ -132,8 +132,8 @@ export function OrgChartPage() {
               </Button>
             </div>
 
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
-              <RefreshCw className="mr-1 h-4 w-4" />
+            <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
+              <RefreshCw className={`mr-1 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               更新
             </Button>
 
@@ -147,7 +147,7 @@ export function OrgChartPage() {
         </div>
 
         {/* Main content */}
-        <div className="flex gap-6">
+        <div className="flex flex-col gap-6 md:flex-row">
           {/* Left: Department view */}
           <div className="flex-1 min-w-0">
             <Card>
@@ -183,21 +183,32 @@ export function OrgChartPage() {
 
           {/* Right: Detail panel */}
           {selectedDeptId && (
-            <div className="w-80 shrink-0 space-y-4">
+            <div className="w-full md:w-80 md:shrink-0 space-y-4">
               {/* Department detail */}
               <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-base">部署詳細</CardTitle>
-                    {canEdit && detailData?.department && (
+                    <div className="flex items-center gap-2">
+                      {canEdit && detailData?.department && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleEditDept}
+                        >
+                          編集
+                        </Button>
+                      )}
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        onClick={handleEditDept}
+                        className="h-7 w-7 p-0"
+                        onClick={() => { setSelectedDeptId(null); setSelectedMember(null); }}
+                        aria-label="閉じる"
                       >
-                        編集
+                        ✕
                       </Button>
-                    )}
+                    </div>
                   </div>
                 </CardHeader>
                 <CardContent>
@@ -274,7 +285,7 @@ export function OrgChartPage() {
                         {selectedMember?.user_id === member.user_id && (
                           <>
                             <Separator className="my-2" />
-                            <MemberDetail member={member} />
+                            <MemberDetail member={member} onClose={() => setSelectedMember(null)} />
                           </>
                         )}
                       </div>

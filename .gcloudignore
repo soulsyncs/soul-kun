@@ -51,7 +51,6 @@ tmp_scheduler_backup/
 node_modules/
 
 # Unused/legacy services
-api/
 weekly-summary/
 cost-report/
 

@@ -4,6 +4,7 @@ Admin Dashboard - Member Detail/Update Endpoints
 メンバー詳細取得（全属性）、メンバー情報更新、所属部署更新。
 """
 
+import json
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Path, status
@@ -63,7 +64,9 @@ async def get_member_full_detail(
                     SELECT
                         u.id, u.name, u.email,
                         u.chatwork_account_id, u.is_active,
-                        u.created_at, u.updated_at
+                        u.created_at, u.updated_at,
+                        u.employment_type, u.avatar_url, u.evaluation, u.goal_achievement,
+                        u.skills, u.notes, u.phone, u.birthday
                     FROM users u
                     WHERE u.id = :user_id
                       AND u.organization_id = :org_id
@@ -89,7 +92,7 @@ async def get_member_full_detail(
                     SELECT
                         ud.department_id, d.name as dept_name,
                         r.name as role_name, r.level as role_level,
-                        ud.is_primary
+                        ud.is_primary, ud.started_at
                     FROM user_departments ud
                     JOIN departments d ON ud.department_id = d.id
                     LEFT JOIN roles r ON ud.role_id = r.id
@@ -112,6 +115,12 @@ async def get_member_full_detail(
             )
             for row in dept_rows
         ]
+
+        # 主所属の開始日を入社日として取得
+        hire_date = next(
+            (row[5] for row in dept_rows if row[4]),  # is_primary = True
+            dept_rows[0][5] if dept_rows else None,   # フォールバック: 最初の部署
+        )
 
         # 最高ロールレベルを取得
         max_role_level = max(
@@ -141,6 +150,15 @@ async def get_member_full_detail(
             departments=departments,
             chatwork_account_id=user_row[3],
             is_active=bool(user_row[4]) if user_row[4] is not None else True,
+            avatar_url=user_row[8],
+            employment_type=user_row[7],
+            evaluation=user_row[9],
+            goal_achievement=int(user_row[10]) if user_row[10] is not None else None,
+            skills=json.loads(user_row[11]) if user_row[11] else [],
+            notes=user_row[12],
+            phone=user_row[13],
+            birthday=user_row[14],
+            hire_date=hire_date,
             created_at=user_row[5],
             updated_at=user_row[6],
         )
@@ -222,6 +240,30 @@ async def update_member(
             if request.chatwork_account_id is not None:
                 set_clauses.append("chatwork_account_id = :cw_id")
                 params["cw_id"] = request.chatwork_account_id
+            if request.employment_type is not None:
+                set_clauses.append("employment_type = :employment_type")
+                params["employment_type"] = request.employment_type or None
+            if request.avatar_url is not None:
+                set_clauses.append("avatar_url = :avatar_url")
+                params["avatar_url"] = request.avatar_url or None
+            if request.evaluation is not None:
+                set_clauses.append("evaluation = :evaluation")
+                params["evaluation"] = request.evaluation or None
+            if request.goal_achievement is not None:
+                set_clauses.append("goal_achievement = :goal_achievement")
+                params["goal_achievement"] = request.goal_achievement
+            if request.skills is not None:
+                set_clauses.append("skills = :skills")
+                params["skills"] = json.dumps(request.skills, ensure_ascii=False) if request.skills else None
+            if request.notes is not None:
+                set_clauses.append("notes = :notes")
+                params["notes"] = request.notes or None
+            if request.phone is not None:
+                set_clauses.append("phone = :phone")
+                params["phone"] = request.phone or None
+            if request.birthday is not None:
+                set_clauses.append("birthday = :birthday")
+                params["birthday"] = request.birthday.isoformat() if request.birthday else None
 
             if not set_clauses:
                 return DepartmentMutationResponse(

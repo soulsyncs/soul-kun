@@ -1,0 +1,43 @@
+# =============================================================================
+# Cloud Build: soulkun-api デプロイ設定
+# =============================================================================
+# Usage: gcloud builds submit --config cloudbuild-api.yaml .
+
+substitutions:
+  _REGION: asia-northeast1
+  _SERVICE: soulkun-api
+  _REPO: cloud-run
+  _TAG: latest
+
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-build'
+    args:
+      - 'build'
+      - '-f'
+      - 'api/Dockerfile'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}'
+      - '.'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    id: 'docker-push'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}'
+    waitFor: ['docker-build']
+
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'deploy-cloud-run'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE}'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}'
+      - '--region=${_REGION}'
+      - '--add-cloudsql-instances=soulkun-production:${_REGION}:soulkun-db'
+    waitFor: ['docker-push']
+
+timeout: 1200s

@@ -10,7 +10,7 @@
  */
 
 import { useState } from 'react';
-import { Video, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Key } from 'lucide-react';
+import { Video, Plus, Trash2, RefreshCw, CheckCircle2, XCircle, Key, ExternalLink } from 'lucide-react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
@@ -120,6 +120,9 @@ function AddConfigForm({ onSuccess }: { onSuccess: () => void }) {
             placeholder="例: 417892193"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            📍 ChatWorkでルームを開いたときのURL末尾の数字です（例: #!rid<strong>417892193</strong>）
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -263,6 +266,18 @@ function AddAccountForm({ onSuccess }: { onSuccess: () => void }) {
             placeholder="例: AbCdEfGhIjKlMnOpQr"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            📍{' '}
+            <a
+              href="https://marketplace.zoom.us/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 text-blue-600 underline hover:text-blue-800"
+            >
+              Zoom App Marketplace <ExternalLink className="h-2.5 w-2.5" />
+            </a>
+            {' '}→ アプリを開く → 「App Credentials」タブに記載されています
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -275,6 +290,9 @@ function AddAccountForm({ onSuccess }: { onSuccess: () => void }) {
             placeholder="Zoom AppのSecret Token"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            📍 Zoom App Marketplace → アプリを開く → 「Feature」→「Event Subscriptions」に記載されています
+          </p>
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
@@ -287,6 +305,9 @@ function AddAccountForm({ onSuccess }: { onSuccess: () => void }) {
             placeholder="例: 417892193（省略時は会議名マッチを優先）"
             className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
           />
+          <p className="mt-1 text-xs text-muted-foreground">
+            📍 ChatWorkのルームURLの末尾の数字、またはグループチャット設定で確認できます（設定しない場合は「送信先設定」タブのキーワードで振り分けられます）
+          </p>
         </div>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -405,16 +426,25 @@ function ConfigsTab() {
 
       {/* 仕組みの説明 */}
       <Card className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-2">
           <p className="text-sm font-medium text-blue-900 dark:text-blue-100">📋 使い方</p>
-          <p className="mt-1 text-xs text-blue-800 dark:text-blue-200">
+          <p className="text-xs text-blue-800 dark:text-blue-200">
             会議が終わってZoom録画が完了すると、ソウルくんが自動で議事録を作成します。
             会議名に「キーワード」が含まれていれば、設定した先のChatWorkルームに届きます。
             どの設定にも一致しない場合は、管理部ルームに届きます。
           </p>
-          <p className="mt-2 text-xs text-blue-700 dark:text-blue-300">
+          <p className="text-xs text-blue-700 dark:text-blue-300">
             例: キーワード「朝会」→ 会議名「2月朝会」「3月朝会MTG」などが全て対象になります
           </p>
+          <div className="rounded-md border border-blue-300 bg-white/60 p-3 dark:bg-black/20">
+            <p className="text-xs font-semibold text-blue-900 dark:text-blue-100">💬 ChatWorkルームIDの調べ方</p>
+            <p className="mt-1 text-xs text-blue-800 dark:text-blue-200">
+              議事録を送りたいChatWorkのグループチャットを開き、URLの末尾の数字をコピーしてください。
+            </p>
+            <p className="mt-1 text-xs font-mono text-blue-700 dark:text-blue-300">
+              例: https://www.chatwork.com/#!rid<strong>417892193</strong> → ルームID は 417892193
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -525,17 +555,45 @@ function AccountsTab() {
 
       {/* 仕組みの説明 */}
       <Card className="border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950">
-        <CardContent className="p-4">
+        <CardContent className="p-4 space-y-3">
           <p className="text-sm font-medium text-amber-900 dark:text-amber-100">
             🔑 複数Zoomアカウントの使い方
           </p>
-          <p className="mt-1 text-xs text-amber-800 dark:text-amber-200">
+          <p className="text-xs text-amber-800 dark:text-amber-200">
             会社で複数のZoomアカウントを使っている場合、それぞれのアカウントを登録することで
             どのアカウントで録画した会議でも、ソウルくんが議事録を作れるようになります。
           </p>
-          <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-            ① ZoomのApp Marketplaceでアプリを作成 → ② Account IDとSecret Tokenをコピー → ③ ここに登録
-          </p>
+          <div className="rounded-md border border-amber-300 bg-white/60 p-3 space-y-2 dark:bg-black/20">
+            <p className="text-xs font-semibold text-amber-900 dark:text-amber-100">📋 設定手順（1アカウントにつき1回）</p>
+            <ol className="space-y-1.5 text-xs text-amber-800 dark:text-amber-200">
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 rounded-full bg-amber-400 text-white w-4 h-4 flex items-center justify-center text-[10px] font-bold mt-0.5">1</span>
+                <span>
+                  <a
+                    href="https://marketplace.zoom.us/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-0.5 font-semibold text-blue-700 underline hover:text-blue-900"
+                  >
+                    Zoom App Marketplace <ExternalLink className="h-3 w-3" />
+                  </a>
+                  {' '}にZoomアカウントでログインする
+                </span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 rounded-full bg-amber-400 text-white w-4 h-4 flex items-center justify-center text-[10px] font-bold mt-0.5">2</span>
+                <span>右上の「Develop」→「Build App」をクリック → 「General App」を選択して作成</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 rounded-full bg-amber-400 text-white w-4 h-4 flex items-center justify-center text-[10px] font-bold mt-0.5">3</span>
+                <span>「App Credentials」タブを開く → <strong>Account ID</strong> をコピーして下の欄に貼り付ける</span>
+              </li>
+              <li className="flex items-start gap-2">
+                <span className="shrink-0 rounded-full bg-amber-400 text-white w-4 h-4 flex items-center justify-center text-[10px] font-bold mt-0.5">4</span>
+                <span>「Feature」タブ → 「Event Subscriptions」を有効にする → <strong>Secret Token</strong> をコピーして下の欄に貼り付ける</span>
+              </li>
+            </ol>
+          </div>
         </CardContent>
       </Card>
 

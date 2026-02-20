@@ -4516,8 +4516,8 @@ def process_escalations(overdue_tasks, today):
     for requester_id, tasks in tasks_by_requester.items():
         requester_success_map[requester_id] = send_escalation_to_requester(requester_id, tasks)
 
-    # 管理部への報告（まとめて1通）
-    admin_success = send_escalation_to_admin(tasks_to_escalate)
+    # ★★★ v10.14.1: 管理部への別途報告は廃止（process_overdue_tasks_v2の日次報告に統合済み）★★★
+    # send_escalation_to_admin は削除 — 管理部は「遅延タスク日次報告」1通で全件把握できる
 
     # ★★★ v10.1.4: notification_logsに記録（UPSERT仕様）★★★
     with pool.begin() as conn:
@@ -4525,8 +4525,8 @@ def process_escalations(overdue_tasks, today):
             task_requester_id = task["assigned_by_account_id"]
             task_requester_success = requester_success_map.get(task_requester_id, False)
 
-            # 成功判定: 依頼者への送信または管理部への送信のいずれかが成功
-            overall_success = task_requester_success or admin_success
+            # 成功判定: 依頼者への送信が成功したか（管理部報告はprocess_overdue_tasks_v2で実施）
+            overall_success = task_requester_success
             status = "success" if overall_success else "failed"
 
             conn.execute(

@@ -497,6 +497,35 @@
 ### 3コピー同期
 - proactive-monitor/main.py は lib/ のコピーではなく独自ファイル。同期不要。PASS。
 
+## Task B: _update_user_preference (lib/brain/learning.py, 2026-02-21)
+
+### DB schema key facts (verified from db_schema.json)
+- `user_preferences` exists in BOTH soulkun (root section) and soulkun_tasks schema
+  - Root section (`"user_preferences"`): organization_id=uuid, user_id=uuid, preference_type=varchar, preference_key=varchar, preference_value=jsonb, learned_from=varchar, confidence=numeric, sample_count=integer, classification=varchar. NO `id` column listed in flat section.
+  - soulkun_tasks section (`"soulkun_tasks.user_preferences"`): same columns, id=uuid NOT NULL
+- `soulkun_tasks.users`: organization_id = **character varying** (NOT uuid). `id` = uuid. `chatwork_account_id` = character varying (nullable=true)
+- The pool in BrainLearning is passed from core/initialization.py (same pool used for brain_decision_logs). Likely soulkun_tasks DB.
+
+### CRITICAL issue found
+- **C-1 (CRITICAL)**: `WHERE u.organization_id = :org_id` in both INSERTs — `soulkun_tasks.users.organization_id` is **character varying**, NOT uuid. `CAST(:org_id AS uuid)` casts org_id to uuid for the INSERT value (correct), but the WHERE clause `u.organization_id = :org_id` passes org_id as text compared to varchar column — this is correct. NO PROBLEM here.
+- **C-2 (CRITICAL)**: `learned_from = 'behavior'` in INSERT — `LearnedFrom` enum in `lib/memory/constants.py` has values: `AUTO="auto"`, `EXPLICIT="explicit"`, `A4_EMOTION="a4_emotion"`. `'behavior'` is NOT a valid LearnedFrom value. The column is varchar so no DB constraint prevents insert, but the value is semantically wrong and inconsistent with the enum.
+- **C-3 (CRITICAL — async blocking)**: `_update_user_preference` is `async def` but calls `self._begin_with_org_context()` which calls `self.pool.begin()` synchronously. Same pattern as pre-existing bug in episodic_memory.py. Blocks the event loop.
+
+### WARNING issues found
+- **W-1**: `json.dumps(interaction_outcome)` where `interaction_outcome = "success"` or `"failure"` → produces `'"success"'` (JSON string with quotes). This is valid JSONB but storing a JSON-encoded string as the value of a JSONB column is unusual. `CAST('"success"' AS jsonb)` is valid in PostgreSQL. Functionally correct but semantically odd — direct string `"success"` without json.dumps would be stored as JSONB text type too via `CAST('success' AS jsonb)` (without quotes this would FAIL since 'success' is not valid JSON). So json.dumps is actually REQUIRED here. PASS.
+- **W-2**: `communication` PreferenceType value — `PreferenceType.COMMUNICATION = "communication"` is valid (line 55 of constants.py). `feature_usage` = `PreferenceType.FEATURE_USAGE = "feature_usage"` is also valid (line 54). Both preference_type values MATCH the enum. PASS.
+- **W-3 (WARNING)**: `_begin_with_org_context` is used for WRITE operations (INSERT) — correct choice over `_connect_with_org_context`. Provides transaction semantics. PASS.
+- **W-4 (WARNING)**: No audit log for user preference writes. Not required (not confidential+ operation per CLAUDE.md §3 鉄則#3), PASS.
+- **W-5 (SUGGESTION)**: `import sqlalchemy` is inside the function body (line 731). Should be at module top. Pre-existing pattern in this file (same in `_save_decision_log`).
+
+### org_id filter check (C-5)
+- INSERT uses subquery: `WHERE u.organization_id = :org_id AND u.chatwork_account_id = :account_id` — correct org isolation. If account_id not found for this org, zero rows inserted (safe failure). PASS.
+- `CAST(:org_id AS uuid)` for the INSERT value is correct (organization_id column is uuid type). PASS.
+
+### PII check
+- `account_id` NOT in logs (line 801 explicitly notes CLAUDE.md §9-3). PASS.
+- `response_style` and `interaction_outcome` are enum-like strings, not PII. PASS.
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

@@ -23,6 +23,8 @@ from app.schemas.admin import (
     GoogleCalendarStatusResponse,
     GoogleCalendarConnectResponse,
     GoogleCalendarDisconnectResponse,
+    GoogleCalendarEventsResponse,
+    CalendarEvent,
 )
 
 router = APIRouter()
@@ -351,3 +353,98 @@ async def google_calendar_disconnect(
     except Exception as e:
         logger.exception("Google Calendar disconnect error")
         raise HTTPException(status_code=500, detail="内部エラー")
+
+
+# サービスアカウント用の設定
+_COMPANY_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "ss.calendar.share@gmail.com")
+_SA_KEY_SECRET = "google-docs-sa-key"
+
+
+def _get_calendar_service():
+    """サービスアカウントでGoogle Calendar APIクライアントを取得する。"""
+    import json
+    import tempfile
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+
+    # GCPシークレットからサービスアカウントキーを取得
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["gcloud", "secrets", "versions", "access", "latest",
+             f"--secret={_SA_KEY_SECRET}", "--project=soulkun-production"],
+            capture_output=True, text=True, timeout=10
+        )
+        sa_key_str = result.stdout
+    except Exception as e:
+        logger.error("SA key fetch failed: %s", e)
+        raise HTTPException(status_code=503, detail="カレンダー認証情報の取得に失敗しました")
+
+    SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        f.write(sa_key_str)
+        key_file = f.name
+
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            key_file, scopes=SCOPES
+        )
+        return build("calendar", "v3", credentials=credentials)
+    finally:
+        import os as _os
+        _os.unlink(key_file)
+
+
+@router.get(
+    "/integrations/google-calendar/events",
+    response_model=GoogleCalendarEventsResponse,
+)
+async def google_calendar_events(
+    days: int = Query(14, ge=1, le=90, description="何日分の予定を取得するか（1〜90日）"),
+    user=Depends(get_current_user),
+):
+    """会社カレンダーの予定一覧を取得（サービスアカウント方式）"""
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    time_min = now.isoformat()
+    time_max = (now + timedelta(days=days)).isoformat()
+
+    try:
+        service = _get_calendar_service()
+        events_result = service.events().list(
+            calendarId=_COMPANY_CALENDAR_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=50,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Google Calendar events fetch error")
+        raise HTTPException(status_code=500, detail="カレンダーの取得に失敗しました")
+
+    raw_events = events_result.get("items", [])
+    events = []
+    for ev in raw_events:
+        start_raw = ev["start"].get("dateTime") or ev["start"].get("date", "")
+        end_raw = ev["end"].get("dateTime") or ev["end"].get("date", "")
+        all_day = "dateTime" not in ev["start"]
+        events.append(CalendarEvent(
+            id=ev["id"],
+            summary=ev.get("summary", "(タイトルなし)"),
+            start=start_raw,
+            end=end_raw,
+            all_day=all_day,
+            location=ev.get("location"),
+            description=ev.get("description"),
+            html_link=ev.get("htmlLink"),
+        ))
+
+    return GoogleCalendarEventsResponse(
+        calendar_id=_COMPANY_CALENDAR_ID,
+        events=events,
+        total=len(events),
+    )

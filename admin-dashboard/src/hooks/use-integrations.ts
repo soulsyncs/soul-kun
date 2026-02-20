@@ -32,3 +32,11 @@ export function useGoogleCalendarDisconnect() {
     },
   });
 }
+
+export function useCalendarEvents(days: number = 14) {
+  return useQuery({
+    queryKey: ['integrations', 'google-calendar', 'events', days],
+    queryFn: () => api.integrations.getCalendarEvents(days),
+    staleTime: 5 * 60 * 1000, // 5分キャッシュ
+  });
+}

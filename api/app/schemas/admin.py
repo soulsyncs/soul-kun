@@ -863,6 +863,28 @@ class GoogleCalendarDisconnectResponse(BaseModel):
     message: str = "Googleカレンダー連携を解除しました"
 
 
+class CalendarEvent(BaseModel):
+    """カレンダーイベント1件"""
+
+    id: str
+    summary: str = "(タイトルなし)"
+    start: str
+    end: str
+    all_day: bool = False
+    location: Optional[str] = None
+    description: Optional[str] = None
+    html_link: Optional[str] = None
+
+
+class GoogleCalendarEventsResponse(BaseModel):
+    """カレンダーイベント一覧"""
+
+    status: str = "success"
+    calendar_id: str
+    events: List[CalendarEvent] = Field(default_factory=list)
+    total: int = 0
+
+
 # =============================================================================
 # 緊急停止（Emergency Stop）— Step 0-3
 # =============================================================================

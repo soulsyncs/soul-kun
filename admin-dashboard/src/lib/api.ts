@@ -586,5 +586,22 @@ export const api = {
       }>('/admin/integrations/google-calendar/disconnect', {
         method: 'POST',
       }),
+
+    getCalendarEvents: (days: number = 14) =>
+      fetchWithAuth<{
+        status: string;
+        calendar_id: string;
+        events: Array<{
+          id: string;
+          summary: string;
+          start: string;
+          end: string;
+          all_day: boolean;
+          location: string | null;
+          description: string | null;
+          html_link: string | null;
+        }>;
+        total: number;
+      }>(`/admin/integrations/google-calendar/events?days=${days}`),
   },
 };

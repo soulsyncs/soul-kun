@@ -41,6 +41,7 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
+  const [showTokenLogin, setShowTokenLogin] = useState(false);
   const { loginWithGoogle, loginWithToken, isAuthenticated } = useAuth();
   const navigate = useNavigate();
 
@@ -155,10 +156,19 @@ export function LoginPage() {
         </CardHeader>
         <CardContent className="flex flex-col items-center gap-4">
           {/* Google Sign-In button (when configured) */}
-          {GOOGLE_CLIENT_ID ? (
-            <div id="google-signin-button" />
+          {GOOGLE_CLIENT_ID && !showTokenLogin ? (
+            <>
+              <div id="google-signin-button" />
+              <button
+                type="button"
+                onClick={() => setShowTokenLogin(true)}
+                className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              >
+                トークンでログイン
+              </button>
+            </>
           ) : (
-            /* Token-based login (fallback) */
+            /* Token-based login */
             <form onSubmit={handleTokenLogin} className="w-full space-y-3">
               <textarea
                 value={tokenInput}
@@ -175,6 +185,15 @@ export function LoginPage() {
               >
                 {isLoading ? '認証中...' : 'ログイン'}
               </button>
+              {GOOGLE_CLIENT_ID && (
+                <button
+                  type="button"
+                  onClick={() => setShowTokenLogin(false)}
+                  className="w-full text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                >
+                  Googleログインに戻る
+                </button>
+              )}
             </form>
           )}
 

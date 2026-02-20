@@ -200,6 +200,86 @@ async def _try_outcome_learning_batch() -> dict:
         return {"error": type(e).__name__}
 
 
+async def _try_cost_budget_alert(pool) -> str:
+    """
+    月次予算アラート（JST 9:00台に実行）
+
+    今月のAIコストが予算の80%を超えていたら、ChatWorkに通知する。
+    """
+    from datetime import timezone, timedelta
+    jst_now = datetime.now(timezone(timedelta(hours=9)))
+
+    if jst_now.hour != 9:
+        return "skipped_not_9am"
+
+    try:
+        from sqlalchemy import text as sa_text
+
+        org_id = os.environ.get("SOULKUN_ORG_ID", "5f98365f-e7c5-4f48-9918-7fe9aabae5df")
+        alert_room_id = os.environ.get("ALERT_ROOM_ID", "")
+        if not alert_room_id:
+            logger.warning("[CostAlert] ALERT_ROOM_ID not set, skipping")
+            return "skipped_no_room"
+
+        year_month = jst_now.strftime("%Y-%m")
+
+        def _query():
+            with pool.connect() as conn:
+                result = conn.execute(
+                    sa_text("""
+                        SELECT total_cost_jpy, budget_jpy
+                        FROM ai_monthly_cost_summary
+                        WHERE organization_id = :org_id
+                          AND year_month = :year_month
+                        LIMIT 1
+                    """),
+                    {"org_id": org_id, "year_month": year_month},
+                )
+                return result.fetchone()
+
+        row = await asyncio.to_thread(_query)
+        if row is None:
+            return "skipped_no_data"
+
+        total_cost = float(row[0] or 0)
+        budget = float(row[1]) if row[1] is not None else None
+
+        if budget is None or budget <= 0:
+            return "skipped_no_budget"
+
+        usage_pct = total_cost / budget * 100
+
+        if usage_pct < 80:
+            logger.info(
+                "[CostAlert] Usage %.1f%% — below threshold, no alert", usage_pct
+            )
+            return "ok"
+
+        # 80%超過 → アラート送信
+        jst = timezone(timedelta(hours=9))
+        time_str = jst_now.strftime("%Y-%m-%d %H:%M JST")
+        label = "⚠️ 予算警告" if usage_pct < 100 else "🚨 予算超過"
+        message = (
+            f"[info][title]{label} — 今月のAIコスト[/title]"
+            f"使用率: {usage_pct:.1f}%\n"
+            f"今月のコスト: ¥{total_cost:,.0f}\n"
+            f"月間予算: ¥{budget:,.0f}\n"
+            f"対象月: {year_month}\n"
+            f"検知時刻: {time_str}[/info]"
+        )
+
+        await send_chatwork_message(alert_room_id, message)
+        logger.info(
+            "[CostAlert] Alert sent: %.1f%% (¥%,.0f / ¥%,.0f)",
+            usage_pct, total_cost, budget,
+        )
+        return "sent"
+
+    except Exception as e:
+        logger.warning(f"[CostAlert] Failed (non-critical): {e}")
+        return "error"
+
+
 async def run_proactive_monitor():
     """能動的モニタリングを実行"""
     from lib.brain.proactive import create_proactive_monitor
@@ -227,6 +307,9 @@ async def run_proactive_monitor():
     # Phase 2-B: 日次レポート生成（JST 9:00台のみ）
     daily_log_result = await _try_generate_daily_log(pool)
 
+    # Phase 2-D: 月次予算アラート（JST 9:00台のみ）
+    cost_alert_result = await _try_cost_budget_alert(pool)
+
     # Phase 2F: 結果からの学習 — バッチ処理
     outcome_batch_result = await _try_outcome_learning_batch()
 
@@ -245,6 +328,7 @@ async def run_proactive_monitor():
         "dry_run": PROACTIVE_DRY_RUN,
         "brain_used": brain is not None,  # CLAUDE.md鉄則1b準拠状況
         "daily_log": daily_log_result,
+        "cost_alert": cost_alert_result,
         "outcome_learning": outcome_batch_result,
         "users_checked": total_users,
         "triggers_found": total_triggers,

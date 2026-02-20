@@ -4,7 +4,8 @@
  * Uses /admin/costs/daily, /admin/costs/monthly, /admin/costs/breakdown
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BarChart,
   Bar,
@@ -18,7 +19,7 @@ import {
   Cell,
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
-import { TrendingUp, Download } from 'lucide-react';
+import { TrendingUp, Download, Pencil, Check, X as XIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import { downloadCSV } from '@/lib/utils';
 import type {
@@ -58,6 +59,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export function CostsPage() {
+  const queryClient = useQueryClient();
+  const [budgetEditing, setBudgetEditing] = useState(false);
+  const [budgetInput, setBudgetInput] = useState('');
+
   const { data: dailyData, isLoading: dailyLoading, isError: dailyError } =
     useQuery<CostDailyResponse>({
       queryKey: ['costs-daily'],
@@ -84,6 +89,25 @@ export function CostsPage() {
 
   const isLoading = dailyLoading || monthlyLoading || breakdownLoading;
   const isError = dailyError || monthlyError || breakdownError;
+
+  const budgetMutation = useMutation({
+    mutationFn: (budget_jpy: number) => {
+      const year_month = format(new Date(), 'yyyy-MM');
+      return api.costs.updateBudget({ year_month, budget_jpy });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['costs-monthly'] });
+      setBudgetEditing(false);
+      setBudgetInput('');
+    },
+  });
+
+  const handleBudgetSave = () => {
+    const val = parseFloat(budgetInput.replace(/,/g, ''));
+    if (!isNaN(val) && val >= 0) {
+      budgetMutation.mutate(val);
+    }
+  };
 
   const handleDownloadDailyCsv = () => {
     const rows = (dailyData?.daily ?? []).map((d) => [d.date, d.cost.toFixed(0)]);
@@ -209,7 +233,7 @@ export function CostsPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {currentMonth?.budget != null ? (
+                  {currentMonth?.budget != null && !budgetEditing ? (
                     <>
                       <div className="flex items-center gap-2">
                         <Badge
@@ -221,6 +245,16 @@ export function CostsPage() {
                         >
                           {STATUS_LABELS[currentMonth.status] ?? currentMonth.status}
                         </Badge>
+                        <button
+                          className="text-muted-foreground hover:text-foreground ml-auto"
+                          onClick={() => {
+                            setBudgetInput(String(currentMonth.budget?.toFixed(0) ?? ''));
+                            setBudgetEditing(true);
+                          }}
+                          title="予算を変更"
+                        >
+                          <Pencil className="h-3 w-3" />
+                        </button>
                       </div>
                       {/* Budget progress bar */}
                       <div className="mt-3 w-full bg-secondary rounded-full h-2">
@@ -245,10 +279,62 @@ export function CostsPage() {
                         {currentMonth.budget.toFixed(0)}
                       </p>
                     </>
+                  ) : budgetEditing ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-1">
+                        <span className="text-sm text-muted-foreground shrink-0">¥</span>
+                        <input
+                          type="number"
+                          min="0"
+                          value={budgetInput}
+                          onChange={(e) => setBudgetInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleBudgetSave();
+                            if (e.key === 'Escape') setBudgetEditing(false);
+                          }}
+                          placeholder="例: 50000"
+                          className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          autoFocus
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={handleBudgetSave}
+                          disabled={budgetMutation.isPending}
+                        >
+                          <Check className="h-3 w-3" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 px-2"
+                          onClick={() => setBudgetEditing(false)}
+                          disabled={budgetMutation.isPending}
+                        >
+                          <XIcon className="h-3 w-3" />
+                        </Button>
+                      </div>
+                      {budgetMutation.isError && (
+                        <p className="text-xs text-destructive">保存に失敗しました</p>
+                      )}
+                    </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      予算が設定されていません
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        予算が設定されていません
+                      </p>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setBudgetInput('');
+                          setBudgetEditing(true);
+                        }}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        予算を設定
+                      </Button>
+                    </div>
                   )}
                 </CardContent>
               </Card>

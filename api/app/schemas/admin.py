@@ -1057,3 +1057,18 @@ class KeymenResponse(BaseModel):
     top_keymen: List[KeyPersonScore] = Field(
         default_factory=list, description="キーマンランキング（上位10名）"
     )
+
+
+class BudgetUpdateRequest(BaseModel):
+    """月間予算設定リクエスト"""
+
+    year_month: str = Field(..., description="年月（YYYY-MM形式）")
+    budget_jpy: float = Field(..., ge=0, description="月間予算（円）")
+
+
+class BudgetUpdateResponse(BaseModel):
+    """月間予算設定レスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    year_month: str = Field(..., description="更新された年月")
+    budget_jpy: float = Field(..., description="設定された予算（円）")

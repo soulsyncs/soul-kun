@@ -28,6 +28,8 @@ from app.schemas.admin import (
     CostTierBreakdown,
     AiRoiResponse,
     AiRoiTierBreakdown,
+    BudgetUpdateRequest,
+    BudgetUpdateResponse,
     AdminErrorResponse,
 )
 
@@ -508,6 +510,99 @@ async def get_ai_roi(
     except Exception as e:
         logger.exception(
             "Get AI ROI error",
+            organization_id=organization_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "status": "failed",
+                "error_code": "INTERNAL_ERROR",
+                "error_message": "内部エラーが発生しました",
+            },
+        )
+
+
+@router.put(
+    "/costs/budget",
+    response_model=BudgetUpdateResponse,
+    responses={
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+        500: {"model": AdminErrorResponse, "description": "サーバーエラー"},
+    },
+    summary="月間予算設定",
+    description="""
+指定した年月の月間予算（円）を設定する。
+行が存在しない場合は新規作成し、存在する場合は budget_jpy を更新する。
+
+## データソース
+- ai_monthly_cost_summary テーブル
+    """,
+)
+async def update_monthly_budget(
+    body: BudgetUpdateRequest,
+    user: UserContext = Depends(require_admin),
+):
+    """月間予算を設定"""
+
+    organization_id = user.organization_id
+
+    logger.info(
+        "Update monthly budget",
+        organization_id=organization_id,
+        year_month=body.year_month,
+        budget_jpy=body.budget_jpy,
+        user_id=user.user_id,
+    )
+
+    pool = get_db_pool()
+
+    try:
+        with pool.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO ai_monthly_cost_summary
+                        (id, organization_id, year_month,
+                         total_cost_jpy, total_requests,
+                         budget_jpy, budget_remaining_jpy,
+                         created_at, updated_at)
+                    VALUES
+                        (gen_random_uuid(), :org_id, :year_month,
+                         0, 0,
+                         :budget_jpy, -:budget_jpy,
+                         NOW(), NOW())
+                    ON CONFLICT (organization_id, year_month) DO UPDATE SET
+                        budget_jpy = :budget_jpy,
+                        budget_remaining_jpy = COALESCE(ai_monthly_cost_summary.total_cost_jpy, 0) - :budget_jpy,
+                        updated_at = NOW()
+                """),
+                {
+                    "org_id": organization_id,
+                    "year_month": body.year_month,
+                    "budget_jpy": body.budget_jpy,
+                },
+            )
+            conn.commit()
+
+        log_audit_event(
+            logger=logger,
+            action="update_monthly_budget",
+            resource_type="cost",
+            resource_id=organization_id,
+            user_id=user.user_id,
+            details={"year_month": body.year_month, "budget_jpy": body.budget_jpy},
+        )
+
+        return BudgetUpdateResponse(
+            status="success",
+            year_month=body.year_month,
+            budget_jpy=body.budget_jpy,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(
+            "Update monthly budget error",
             organization_id=organization_id,
         )
         raise HTTPException(

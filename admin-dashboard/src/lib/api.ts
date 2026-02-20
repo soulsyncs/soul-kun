@@ -14,6 +14,8 @@ import type {
   CostMonthlyResponse,
   CostDailyResponse,
   CostBreakdownResponse,
+  BudgetUpdateRequest,
+  BudgetUpdateResponse,
   MembersListResponse,
   MemberResponse,
   DepartmentsTreeResponse,
@@ -199,6 +201,12 @@ export const api = {
     getAiRoi: (days = 30) =>
       fetchWithAuth<import('@/types/api').AiRoiResponse>('/admin/costs/ai-roi', {
         params: { days },
+      }),
+
+    updateBudget: (body: BudgetUpdateRequest) =>
+      fetchWithAuth<BudgetUpdateResponse>('/admin/costs/budget', {
+        method: 'PUT',
+        body: JSON.stringify(body),
       }),
   },
 

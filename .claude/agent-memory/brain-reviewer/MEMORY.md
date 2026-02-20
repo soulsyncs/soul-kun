@@ -440,6 +440,58 @@
 - `CLOUDSQL_ORG_ID` はハードコードデフォルト値 `'5f98365f-e7c5-4f48-9918-7fe9aabae5df'` あり（pre-existing）
 - 既存 `/` エンドポイント（form data sync）は同様の構造
 
+## Phase D 予算アラート機能 (feature/admin-dashboard-phase2, 2026-02-21)
+
+### 変更ファイル
+- `api/app/schemas/admin.py`: BudgetUpdateRequest/BudgetUpdateResponse 追加
+- `api/app/api/v1/admin/costs_routes.py`: PUT /costs/budget 追加
+- `admin-dashboard/src/lib/api.ts`: updateBudget 追加
+- `admin-dashboard/src/types/api.ts`: BudgetUpdateRequest/Response 型追加
+- `admin-dashboard/src/pages/costs.tsx`: 予算設定フォームUI追加
+- `proactive-monitor/main.py`: _try_cost_budget_alert() 追加
+
+### ai_monthly_cost_summary スキーマ（確認済み）
+- UNIQUE(organization_id, year_month) → ON CONFLICT 句は正しい
+- budget_status CHECK: `('normal', 'warning', 'caution', 'limit')`
+- budget_remaining_jpy = budget_jpy - total_cost_jpy（コメントに記載）
+- organization_id 型: UUID
+
+### CRITICAL issues found
+- **C-1: `budget_remaining_jpy` の計算式が逆** (costs_routes.py line 571, 575)
+  - INSERT: `budget_remaining_jpy = -:budget_jpy` → 新規行（cost=0）では正しくは `budget_jpy`（残予算=予算全額）
+  - UPDATE: `COALESCE(ai_monthly_cost_summary.total_cost_jpy, 0) - :budget_jpy` → 「コスト - 予算」= 負値になる
+  - 正しくは `budget_jpy - COALESCE(total_cost_jpy, 0)`（予算 - コスト = 残予算）
+- **C-2: `budget_status` が UPDATE 句で更新されない**
+  - ON CONFLICT DO UPDATE に budget_status の更新がない
+  - `check_budget_status` CHECK制約: 'normal'/'warning'/'caution'/'limit'（4段階）
+  - だが costs_routes.py の GET monthly では CASE式で 'exceeded'/'warning'/'normal' の3値を計算している（budget_statusカラムを使っていない）
+  - つまり budget_status カラムはGETクエリでは使われていないため、機能的影響は軽微（WARNINGレベル）
+
+### WARNING issues found
+- **W-1: require_admin (Level 5+) でなく require_editor (Level 6+) が正しいかもしれない**
+  - 予算設定は「書き込み操作」。他の書き込み操作（部署作成/更新/メンバー更新）は `require_editor` (Level 6+)
+  - 現在は `require_admin` (Level 5+) で保護されている
+  - CLAUDE.md §8: Level 5=管理部/取締役、Level 6=代表/CFO
+  - 予算設定は CFO 相当の権限が適切とも考えられる → require_editor への変更を検討すべき
+- **W-2: year_month バリデーションなし**
+  - `BudgetUpdateRequest.year_month: str` に `pattern=r"^\d{4}-\d{2}$"` がない
+  - "2026-13", "invalid" などの不正値がDBに挿入される可能性
+- **W-3: logger.info に budget_jpy 金額を記録** (costs_routes.py line 549-555)
+  - `budget_jpy=body.budget_jpy` が INFO レベルでログに出力される
+  - CLAUDE.md §9-3: 監査ログに金額を記録しない（漏洩リスク）。プロダクション向けログには不適切
+  - log_audit_event の details にも `"budget_jpy": body.budget_jpy` が記録されている（同様）
+
+### SUGGESTION issues found
+- **S-1: proactive-monitor/main.py line 279**
+  - `logger.warning(f"[CostAlert] Failed (non-critical): {e}")` → `{e}` が DB接続文字列を含む可能性
+  - `type(e).__name__` 推奨（既存パターンと一致）
+- **S-2: costs.tsx の budgetMutation エラーハンドリング**
+  - `budgetMutation.isError` のエラーメッセージが "保存に失敗しました" のみ（API error detailを表示しない）
+  - ユーザーが何を修正すればよいか不明。SUGGESTION レベル
+
+### 3コピー同期
+- proactive-monitor/main.py は lib/ のコピーではなく独自ファイル。同期不要。PASS。
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

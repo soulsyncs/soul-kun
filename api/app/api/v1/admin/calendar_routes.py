@@ -23,6 +23,8 @@ from app.schemas.admin import (
     GoogleCalendarStatusResponse,
     GoogleCalendarConnectResponse,
     GoogleCalendarDisconnectResponse,
+    GoogleCalendarEventsResponse,
+    CalendarEvent,
 )
 
 router = APIRouter()
@@ -351,3 +353,101 @@ async def google_calendar_disconnect(
     except Exception as e:
         logger.exception("Google Calendar disconnect error")
         raise HTTPException(status_code=500, detail="内部エラー")
+
+
+# サービスアカウント用の設定
+_COMPANY_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "ss.calendar.share@gmail.com")
+_SA_KEY_SECRET = os.getenv("GOOGLE_SA_KEY_SECRET", "google-docs-sa-key")
+_GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "soulkun-production")
+
+
+def _get_calendar_service():
+    """サービスアカウントでGoogle Calendar APIクライアントを取得する。
+    Secret Manager クライアントライブラリ経由でキーを取得（Cloud Run対応）。
+    """
+    import json
+    from google.cloud import secretmanager
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+
+    # Secret Manager クライアントでサービスアカウントキーを取得
+    try:
+        sm_client = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{_GCP_PROJECT_ID}/secrets/{_SA_KEY_SECRET}/versions/latest"
+        response = sm_client.access_secret_version(request={"name": secret_name})
+        sa_key_str = response.payload.data.decode("utf-8")
+        sa_info = json.loads(sa_key_str)
+    except Exception as e:
+        logger.error("SA key fetch from Secret Manager failed: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="カレンダー認証情報の取得に失敗しました")
+
+    SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
+    try:
+        credentials = service_account.Credentials.from_service_account_info(
+            sa_info, scopes=SCOPES
+        )
+        return build("calendar", "v3", credentials=credentials)
+    except Exception as e:
+        logger.error("Calendar service build failed: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="カレンダー認証の初期化に失敗しました")
+
+
+@router.get(
+    "/integrations/google-calendar/events",
+    response_model=GoogleCalendarEventsResponse,
+)
+async def google_calendar_events(
+    days: int = Query(14, ge=1, le=90, description="何日分の予定を取得するか（1〜90日）"),
+    user=Depends(get_current_user),
+):
+    """会社カレンダーの予定一覧を取得（サービスアカウント方式）"""
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    time_min = now.isoformat()
+    time_max = (now + timedelta(days=days)).isoformat()
+
+    try:
+        service = _get_calendar_service()
+        events_result = service.events().list(
+            calendarId=_COMPANY_CALENDAR_ID,
+            timeMin=time_min,
+            timeMax=time_max,
+            maxResults=50,
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Google Calendar events fetch error")
+        raise HTTPException(status_code=500, detail="カレンダーの取得に失敗しました")
+
+    raw_events = events_result.get("items", [])
+    events = []
+    for ev in raw_events:
+        start_raw = ev["start"].get("dateTime") or ev["start"].get("date", "")
+        end_raw = ev["end"].get("dateTime") or ev["end"].get("date", "")
+        all_day = "dateTime" not in ev["start"]
+        events.append(CalendarEvent(
+            id=ev["id"],
+            summary=ev.get("summary", "(タイトルなし)"),
+            start=start_raw,
+            end=end_raw,
+            all_day=all_day,
+            location=ev.get("location"),
+            description=ev.get("description"),
+            html_link=ev.get("htmlLink"),
+        ))
+
+    log_audit_event(
+        logger=logger, action="google_calendar_events_accessed",
+        resource_type="integration", resource_id=_COMPANY_CALENDAR_ID,
+        user_id=user.user_id, details={"org_id": user.organization_id, "days": days},
+    )
+
+    return GoogleCalendarEventsResponse(
+        calendar_id=_COMPANY_CALENDAR_ID,
+        events=events,
+        total=len(events),
+    )

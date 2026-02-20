@@ -3,18 +3,20 @@
  * Shows member info and allows editing (Level 6+)
  */
 
-import { User, Mail, Building2, Shield } from 'lucide-react';
+import { User, Mail, Building2, Shield, X } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useMemberDetail } from '@/hooks/use-departments';
 import type { DepartmentMember } from '@/types/api';
 
 interface MemberDetailProps {
   member: DepartmentMember;
+  onClose?: () => void;
 }
 
-export function MemberDetail({ member }: MemberDetailProps) {
+export function MemberDetail({ member, onClose }: MemberDetailProps) {
   const { data, isLoading } = useMemberDetail(member.user_id);
 
   if (isLoading) {
@@ -34,10 +36,23 @@ export function MemberDetail({ member }: MemberDetailProps) {
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <User className="h-4 w-4" />
-          {detail?.name || member.name || '名前未設定'}
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <User className="h-4 w-4" />
+            {detail?.name || member.name || '名前未設定'}
+          </CardTitle>
+          {onClose && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 p-0"
+              onClick={onClose}
+              aria-label="閉じる"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {detail?.email && (

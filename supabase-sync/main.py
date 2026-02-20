@@ -1053,10 +1053,8 @@ def sync_org():
 
         # Step 1: Supabaseから組織データ読み取り
         logger.info("[%s] Fetching org data from Supabase...", sync_id)
-        sb_employees_raw = reader.fetch_table(
-            'employees',
-            select='id,name,chatwork_account_id,department_id,departments_json,is_active'
-        )
+        # select=* でテーブル全列取得（org_chart_serviceと同じパターン）
+        sb_employees_raw = reader.fetch_table('employees', select='*')
         sb_departments = reader.fetch_table('departments', select='id,name')
 
         # アクティブ社員のみ絞り込み

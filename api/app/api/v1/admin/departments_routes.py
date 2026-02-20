@@ -55,8 +55,10 @@ def _build_department_tree(
         parent_id = node.parent_department_id
         if parent_id and parent_id in nodes:
             nodes[parent_id].children.append(node)
-        else:
+        elif not parent_id:
+            # True root (no parent) → show at top level
             roots.append(node)
+        # else: orphaned (parent_id set but not found in this org) → skip to avoid duplicate display
 
     # Sort children by display_order at each level
     def sort_children(node: DepartmentTreeNode):

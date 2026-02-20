@@ -41,6 +41,66 @@ _SUPPORTED_RECORDING_EVENTS = frozenset({
 })
 
 
+def _notify_zoom_delivery_failure(
+    meeting_id: str,
+    title: str,
+    target_room_id: str,
+    error_detail: str,
+    admin_dm_room_id: "str | None",
+) -> None:
+    """
+    Zoom議事録のChatWork送信が全リトライ後も失敗したときに管理者へ通知する（Phase Z2 ⑦）。
+
+    CLAUDE.md §9-2: 議事録本文・PII は含めない。
+    メタ情報（会議ID・タイトル・送信先ルームID）のみを通知する。
+    NOTE: error_detail は必ず type(e).__name__ か固定文字列のみ渡すこと。
+          str(e) を渡すと内部パス・接続文字列が ChatWork に送信されるリスクがある。
+
+    Args:
+        meeting_id: 内部会議ID（meetings テーブル）
+        title: 会議タイトル（UIに表示される）
+        target_room_id: 届けようとしたChatWorkルームID
+        error_detail: エラー種別文字列（例外クラス名またはAPI拒否詳細）
+        admin_dm_room_id: 管理者DM通知先ルームID（None の場合は通知スキップ）
+    """
+    if not admin_dm_room_id:
+        logger.warning(
+            "_notify_zoom_delivery_failure: admin_dm_room_id not configured, skipping"
+        )
+        return
+
+    message = (
+        "[info][title]🚨 Zoom議事録の送信に失敗しましたウル[/title]\n"
+        f"会議タイトル: {title}\n"
+        f"送信先ルーム: {target_room_id}\n"
+        f"会議ID: {meeting_id}\n"
+        f"エラー: {error_detail}\n"
+        "[hr]\n"
+        "議事録はデータベースに保存されているウル。\n"
+        "管理画面から確認・手動送信をお願いしたいウル🐺\n"
+        "[/info]"
+    )
+
+    try:
+        from infra.chatwork_api import send_chatwork_message
+        sent = send_chatwork_message(admin_dm_room_id, message)
+        if sent:
+            logger.info(
+                "Zoom delivery failure notified to admin: meeting_id=%s", meeting_id
+            )
+        else:
+            logger.error(
+                "Admin notification send rejected: meeting_id=%s", meeting_id
+            )
+    except Exception as notify_err:
+        # 管理者通知失敗はログのみ（二次失敗でスタックしない）
+        logger.error(
+            "Admin notification error: %s (meeting_id=%s)",
+            type(notify_err).__name__,
+            meeting_id,
+        )
+
+
 def _get_webhook_secret_for_account(zoom_account_id: str | None) -> str | None:
     """
     Zoomの account_id に対応する webhook_secret_token をDBから取得する。
@@ -214,16 +274,38 @@ def zoom_webhook():
                         print(f"✅ Zoom議事録は既に処理済み（二重送信防止）: {result.data.get('meeting_id', 'unknown')}")
                     else:
                         room_id = (result.data or {}).get("room_id") or DEFAULT_ADMIN_DM_ROOM_ID
-                        print(f"✅ Zoom議事録生成完了: {result.data.get('meeting_id', 'unknown')} → room={room_id}")
+                        _meeting_id = (result.data or {}).get("meeting_id", "unknown")
+                        _title = (result.data or {}).get("title", "（タイトル不明）")
+                        print(f"✅ Zoom議事録生成完了: {_meeting_id} → room={room_id}")
                         try:
                             sent = send_chatwork_message(room_id, result.message)
                             if sent:
                                 print(f"✅ ChatWork送信完了: room={room_id}")
                             else:
-                                print(f"⚠️ ChatWork送信失敗（API拒否 room={room_id}）。議事録はDB保存済み")
+                                # send_chatwork_message内部でリトライ済み（3回）でも失敗
+                                print(
+                                    f"❌ ChatWork送信失敗（リトライ後・API拒否）: room={room_id}"
+                                    " 議事録はDB保存済み"
+                                )
+                                _notify_zoom_delivery_failure(
+                                    meeting_id=_meeting_id,
+                                    title=_title,
+                                    target_room_id=str(room_id),
+                                    error_detail="ChatWork API がリトライ3回後も送信を拒否",
+                                    admin_dm_room_id=DEFAULT_ADMIN_DM_ROOM_ID,
+                                )
                         except Exception as send_err:
-                            # ChatWork送信失敗は致命的ではない（議事録生成はDB保存済み）
-                            print(f"⚠️ ChatWork送信失敗（議事録はDB保存済み）: {type(send_err).__name__}")
+                            # ChatWork送信例外（議事録はDB保存済み）
+                            print(
+                                f"❌ ChatWork送信例外（議事録はDB保存済み）: {type(send_err).__name__}"
+                            )
+                            _notify_zoom_delivery_failure(
+                                meeting_id=_meeting_id,
+                                title=_title,
+                                target_room_id=str(room_id),
+                                error_detail=type(send_err).__name__,
+                                admin_dm_room_id=DEFAULT_ADMIN_DM_ROOM_ID,
+                            )
                 else:
                     print(f"⚠️ Zoom議事録生成失敗: {result.message}")
             except Exception as bg_err:

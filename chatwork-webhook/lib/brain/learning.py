@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from contextlib import contextmanager
@@ -713,27 +714,114 @@ class BrainLearning:
         account_id: str,
     ) -> bool:
         """
-        ユーザー嗜好を更新
+        ユーザー嗜好を更新（C-2: asyncコンテキスト対応）
 
-        Args:
-            result: 実行結果
-            context: コンテキスト
-            account_id: アカウントID
+        DB書き込みをasyncio.to_thread()でスレッドプールに委譲し、
+        イベントループをブロックしない。
 
         Returns:
             更新に成功したか
         """
         if not self.pool:
             return False
+        if not self.org_id:
+            return False
+
+        return await asyncio.to_thread(
+            self._update_user_preference_sync, result, account_id
+        )
+
+    def _update_user_preference_sync(
+        self,
+        result: HandlerResult,
+        account_id: str,
+    ) -> bool:
+        """
+        ユーザー嗜好の同期DB書き込み（asyncio.to_thread経由で呼ぶこと）
+
+        Args:
+            result: 実行結果
+            account_id: ChatWorkアカウントID
+
+        Returns:
+            更新に成功したか
+        """
+        import sqlalchemy
 
         try:
-            # Phase AA: ユーザー嗜好の分析と保存
-            # user_preferencesテーブル作成後に実装
-            logger.debug(f"User preference updated: user={account_id}")
+            # 返答の長さからコミュニケーション傾向を推定
+            response_len = len(result.message) if result.message else 0
+            if response_len < 150:
+                response_style = "concise"
+            elif response_len > 600:
+                response_style = "detailed"
+            else:
+                response_style = "balanced"
+
+            # インタラクションの成否を記録
+            interaction_outcome = "success" if result.success else "failure"
+
+            with self._begin_with_org_context() as conn:
+                # 1. feature_usage: インタラクション結果を記録
+                conn.execute(
+                    sqlalchemy.text("""
+                        INSERT INTO user_preferences
+                            (organization_id, user_id, preference_type, preference_key,
+                             preference_value, learned_from, confidence, classification)
+                        SELECT
+                            CAST(:org_id AS uuid), u.id, 'feature_usage', 'interaction_outcome',
+                            CAST(:value AS jsonb), 'auto', :confidence, 'internal'
+                        FROM users u
+                        WHERE u.organization_id = :org_id
+                          AND u.chatwork_account_id = :account_id
+                        ON CONFLICT (organization_id, user_id, preference_type, preference_key)
+                        DO UPDATE SET
+                            preference_value = CAST(:value AS jsonb),
+                            confidence = LEAST(user_preferences.confidence + 0.05, 0.95),
+                            sample_count = user_preferences.sample_count + 1,
+                            updated_at = CURRENT_TIMESTAMP
+                    """),
+                    {
+                        "org_id": self.org_id,
+                        "account_id": account_id,
+                        "value": json.dumps(interaction_outcome, ensure_ascii=False),
+                        "confidence": 0.6,
+                    },
+                )
+
+                # 2. communication: 返答の長さから好みを学習
+                conn.execute(
+                    sqlalchemy.text("""
+                        INSERT INTO user_preferences
+                            (organization_id, user_id, preference_type, preference_key,
+                             preference_value, learned_from, confidence, classification)
+                        SELECT
+                            CAST(:org_id AS uuid), u.id, 'communication', 'response_length_pref',
+                            CAST(:value AS jsonb), 'auto', :confidence, 'internal'
+                        FROM users u
+                        WHERE u.organization_id = :org_id
+                          AND u.chatwork_account_id = :account_id
+                        ON CONFLICT (organization_id, user_id, preference_type, preference_key)
+                        DO UPDATE SET
+                            preference_value = CAST(:value AS jsonb),
+                            confidence = LEAST(user_preferences.confidence + 0.02, 0.95),
+                            sample_count = user_preferences.sample_count + 1,
+                            updated_at = CURRENT_TIMESTAMP
+                    """),
+                    {
+                        "org_id": self.org_id,
+                        "account_id": account_id,
+                        "value": json.dumps(response_style, ensure_ascii=False),
+                        "confidence": 0.3,
+                    },
+                )
+
+            # CLAUDE.md §9-3: account_id はPIIのためログに出力しない
+            logger.debug("User preference updated: style=%s, outcome=%s", response_style, interaction_outcome)
             return True
 
         except Exception as e:
-            logger.warning(f"Error updating user preference: {type(e).__name__}")
+            logger.warning("Error updating user preference: %s", type(e).__name__)
             return False
 
     def _should_update_preference(self, account_id: str) -> bool:

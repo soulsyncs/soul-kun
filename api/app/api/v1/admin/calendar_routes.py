@@ -357,42 +357,39 @@ async def google_calendar_disconnect(
 
 # サービスアカウント用の設定
 _COMPANY_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID", "ss.calendar.share@gmail.com")
-_SA_KEY_SECRET = "google-docs-sa-key"
+_SA_KEY_SECRET = os.getenv("GOOGLE_SA_KEY_SECRET", "google-docs-sa-key")
+_GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "soulkun-production")
 
 
 def _get_calendar_service():
-    """サービスアカウントでGoogle Calendar APIクライアントを取得する。"""
+    """サービスアカウントでGoogle Calendar APIクライアントを取得する。
+    Secret Manager クライアントライブラリ経由でキーを取得（Cloud Run対応）。
+    """
     import json
-    import tempfile
+    from google.cloud import secretmanager
     from google.oauth2 import service_account
     from googleapiclient.discovery import build
 
-    # GCPシークレットからサービスアカウントキーを取得
+    # Secret Manager クライアントでサービスアカウントキーを取得
     try:
-        import subprocess
-        result = subprocess.run(
-            ["gcloud", "secrets", "versions", "access", "latest",
-             f"--secret={_SA_KEY_SECRET}", "--project=soulkun-production"],
-            capture_output=True, text=True, timeout=10
-        )
-        sa_key_str = result.stdout
+        sm_client = secretmanager.SecretManagerServiceClient()
+        secret_name = f"projects/{_GCP_PROJECT_ID}/secrets/{_SA_KEY_SECRET}/versions/latest"
+        response = sm_client.access_secret_version(request={"name": secret_name})
+        sa_key_str = response.payload.data.decode("utf-8")
+        sa_info = json.loads(sa_key_str)
     except Exception as e:
-        logger.error("SA key fetch failed: %s", e)
+        logger.error("SA key fetch from Secret Manager failed: %s", type(e).__name__)
         raise HTTPException(status_code=503, detail="カレンダー認証情報の取得に失敗しました")
 
     SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
-        f.write(sa_key_str)
-        key_file = f.name
-
     try:
-        credentials = service_account.Credentials.from_service_account_file(
-            key_file, scopes=SCOPES
+        credentials = service_account.Credentials.from_service_account_info(
+            sa_info, scopes=SCOPES
         )
         return build("calendar", "v3", credentials=credentials)
-    finally:
-        import os as _os
-        _os.unlink(key_file)
+    except Exception as e:
+        logger.error("Calendar service build failed: %s", type(e).__name__)
+        raise HTTPException(status_code=503, detail="カレンダー認証の初期化に失敗しました")
 
 
 @router.get(
@@ -442,6 +439,12 @@ async def google_calendar_events(
             description=ev.get("description"),
             html_link=ev.get("htmlLink"),
         ))
+
+    log_audit_event(
+        logger=logger, action="google_calendar_events_accessed",
+        resource_type="integration", resource_id=_COMPANY_CALENDAR_ID,
+        user_id=user.user_id, details={"org_id": user.organization_id, "days": days},
+    )
 
     return GoogleCalendarEventsResponse(
         calendar_id=_COMPANY_CALENDAR_ID,

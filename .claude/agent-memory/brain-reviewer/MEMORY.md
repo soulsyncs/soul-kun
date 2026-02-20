@@ -205,6 +205,27 @@
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
 
+## Phase Z2 ④ Google Calendar ±60分ウィンドウ変更 (2026-02-20, APPROVED)
+
+### 変更: lib/meetings/google_calendar_client.py
+- `DEFAULT_TIME_WINDOW_MINUTES` 30 → 60（コメントに理由追記）
+- `_select_best_match()` に `time_window_minutes: int = DEFAULT_TIME_WINDOW_MINUTES` 引数追加
+- `find_matching_event()` が `_select_best_match` に `time_window_minutes` を渡すよう修正
+- 3コピー同期済み（lib/, chatwork-webhook/lib/, proactive-monitor/lib/ 全てIDENTICAL確認済み）
+
+### テスト: tests/test_google_calendar_client.py
+- 新テスト4件追加（window boundary, score calc, custom window）
+- **注意**: `test_30min_window_misses_event_at_50min` は関数内部のスコア値を直接assert **しておらず**、手計算の算術式をassertするのみ（設計意図の文書化テスト）。機能的には正しい（diff=50 > window=30なのでtime_score=0は正しい）が、回帰テストとしては弱い。
+
+### callers 確認
+- `handlers/zoom_webhook_handler.py` line 191: `client.find_matching_event(zoom_start, zoom_topic=topic)` — time_window_minutesを渡さない（デフォルト60分が使われる）
+- root `handlers/` と `chatwork-webhook/handlers/` 両方IDENTICAL確認済み
+- 本番で明示的なtime_window変更呼び出しはなし（デフォルト値変更のみが実効的な変更）
+
+### ローカルテスト実行結果
+- テスト自体は正しく動作（直接import検証済み）
+- `python3 -m pytest tests/test_google_calendar_client.py` は langfuse/pydantic.v1/Python3.14 問題でCOLLECTION ERRORになる（pre-existing、PRに関係なし）
+
 ## Phase Z1 Zoom transcript_completed 対応 (2026-02-20)
 
 ### 変更概要

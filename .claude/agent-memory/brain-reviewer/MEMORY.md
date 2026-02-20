@@ -196,7 +196,7 @@
 ## routes/ ファイル現状 (2026-02-19確認、Phase 4C完了後)
 
 - `chatwork-webhook/routes/telegram.py`: 226行（Phase 4で分割済み）
-- `chatwork-webhook/routes/zoom.py`: 176行（Phase 5で分割済み）
+- `chatwork-webhook/routes/zoom.py`: 185行（Phase 5で分割済み、Phase Z1で+9行）
 - `chatwork-webhook/routes/scheduled.py`: 存在しない（実装すべきでない）
 - main.pyに残存するルート: `/`(chatwork_webhook) のみ（2236行）
 - Phase 4C: 4デッドルート削除完了（2907→2236行、-671行）
@@ -204,6 +204,28 @@
   - `flush_dm_unavailable_notifications` が import 行（line 58）にのみ残存。削除されたルートでのみ使われていた。未使用 import だが実害なし。
   - `ensure_room_messages_table` が import 行（line 71）にのみ残存。同上。
   - `process_overdue_tasks()` の docstring line 2192: "remind_tasksから呼び出し" は stale（remind_tasksルート削除済み）。実際は独立CFから呼ばれる。
+
+## Phase Z1 Zoom transcript_completed 対応 (2026-02-20)
+
+### 変更概要
+- `recording.transcript_completed` イベント対応（VTT生成完了時に発火）
+- 3.5分待ちリトライ（30s→60s→120s）を削除 → VTT未存在時は `retry=False` で即リターン
+- `webhook_event` ハードコード `"recording.completed"` → `event_type` に修正
+
+### 重要発見: handlers/ ディレクトリが2箇所に存在
+- `handlers/zoom_webhook_handler.py` (rootレベル) — **未更新のまま**
+- `chatwork-webhook/handlers/zoom_webhook_handler.py` — 今回更新済み
+- rootの`handlers/`はchatwork-webhook固有（lib/のような3コピー同期対象ではない）
+- **テストは `sys.path.insert(0, 'chatwork-webhook')` で chatwork-webhook 側を読む** → テスト自体は正しい
+- rootの`handlers/`を実際に使う場所: lib/brain/capabilities/meeting.py が `from handlers.meeting_handler import` で lazy import
+- **根本問題**: rootの `handlers/` はchatwork-webhookのランタイムPYTHONPATH上には「ない」はず（Dockerfileで `/app/chatwork-webhook` がCOPY先）。rootの`handlers/`は開発/テスト環境のartifact。本番は chatwork-webhook/handlers/ のみ使われる。
+
+### WARNING: 残存するハードコード
+- `chatwork-webhook/handlers/zoom_webhook_handler.py` line 81: ログ文字列 `"Zoom webhook: recording.completed meeting_id=%s"` — `recording.transcript_completed` の場合でも同じ文字列でログされる。機能には影響なし（ログの誤解招き）。
+
+### 3コピー同期状態
+- `lib/meetings/zoom_brain_interface.py`: 3コピー全て同一 (PASS)
+- `handlers/zoom_webhook_handler.py`: rootは**意図的に未更新**（chatwork-webhookのみが対象）
 
 ## Phase D-1 dead-comment cleanup (feat/org-chart-drilldown, 2026-02-19)
 

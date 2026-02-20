@@ -308,7 +308,7 @@ export function MemberDetail({ member, onClose }: MemberDetailProps) {
 
       {/* 編集ダイアログ */}
       <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-        <DialogContent className="sm:max-w-[400px]">
+        <DialogContent className="sm:max-w-[400px] max-h-[90dvh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>メンバー情報を編集</DialogTitle>
           </DialogHeader>

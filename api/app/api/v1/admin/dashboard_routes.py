@@ -82,18 +82,17 @@ async def get_dashboard_summary(
     try:
         with pool.connect() as conn:
             # --- KPI: 会話数・平均応答時間・エラー率・コスト ---
-            # 実DB列名: response_time_ms, is_error, cost_usd (latency_ms/success/cost_jpy は存在しない)
             usage_result = conn.execute(
                 text("""
                     SELECT
                         COUNT(*) as total_conversations,
-                        COALESCE(AVG(response_time_ms), 0) as avg_response_time_ms,
+                        COALESCE(AVG(latency_ms), 0) as avg_response_time_ms,
                         CASE
                             WHEN COUNT(*) > 0
-                            THEN COALESCE(SUM(CASE WHEN is_error = TRUE THEN 1 ELSE 0 END)::float / COUNT(*), 0)
+                            THEN COALESCE(SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)::float / COUNT(*), 0)
                             ELSE 0
                         END as error_rate,
-                        COALESCE(SUM(cost_usd), 0) as total_cost
+                        COALESCE(SUM(cost_jpy), 0) as total_cost
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :start_date
@@ -110,7 +109,7 @@ async def get_dashboard_summary(
             # --- 今日のコスト（period問わず常にtodayを返す） ---
             today_cost_result = conn.execute(
                 text("""
-                    SELECT COALESCE(SUM(cost_usd), 0) as cost_today
+                    SELECT COALESCE(SUM(cost_jpy), 0) as cost_today
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :today
@@ -121,13 +120,12 @@ async def get_dashboard_summary(
             cost_today = float(today_cost_row[0]) if today_cost_row else 0.0
 
             # --- 月間予算残 ---
-            # 実DB列名: budget_usd, total_cost_usd (budget_jpy/total_cost_jpy は存在しない)
             current_month = now.strftime("%Y-%m")
             budget_result = conn.execute(
                 text("""
                     SELECT
-                        COALESCE(budget_usd, 0) as budget,
-                        COALESCE(total_cost_usd, 0) as spent
+                        COALESCE(budget_jpy, 0) as budget,
+                        COALESCE(total_cost_jpy, 0) as spent
                     FROM ai_monthly_cost_summary
                     WHERE organization_id = :org_id
                       AND year_month = :year_month

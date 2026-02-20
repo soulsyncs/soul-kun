@@ -183,7 +183,13 @@ export function OrgChartPage() {
 
           {/* Right: Detail panel */}
           {selectedDeptId && (
-            <div className="w-full md:w-80 md:shrink-0 space-y-4">
+            <>
+              {/* スマホ用背景オーバーレイ */}
+              <div
+                className="fixed inset-0 bg-black/40 z-30 md:hidden"
+                onClick={() => { setSelectedDeptId(null); setSelectedMember(null); }}
+              />
+              <div className="fixed bottom-0 left-0 right-0 max-h-[75vh] overflow-y-auto rounded-t-xl bg-background z-40 space-y-4 p-4 md:relative md:bottom-auto md:left-auto md:right-auto md:max-h-none md:overflow-visible md:rounded-none md:z-auto md:p-0 md:w-80 md:shrink-0">
               {/* Department detail */}
               <Card>
                 <CardHeader className="pb-3">
@@ -381,7 +387,8 @@ export function OrgChartPage() {
                   )}
                 </CardContent>
               </Card>
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>

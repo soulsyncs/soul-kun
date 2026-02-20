@@ -211,6 +211,7 @@ export function MembersPage() {
                     </div>
                   ) : (
                     <>
+                      <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow>
@@ -274,6 +275,7 @@ export function MembersPage() {
                           )}
                         </TableBody>
                       </Table>
+                      </div>
 
                       {/* Pagination */}
                       {totalPages > 1 && (

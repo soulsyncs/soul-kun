@@ -77,23 +77,39 @@ async def get_brain_metrics(
             result = conn.execute(
                 text("""
                     SELECT
-                        DATE(created_at) as metric_date,
-                        COUNT(*) as conversations,
-                        COALESCE(AVG(total_time_ms), 0) as avg_latency_ms,
-                        CASE
-                            WHEN COUNT(*) > 0
-                            THEN COALESCE(
-                                SUM(CASE WHEN selected_action = 'error' THEN 1 ELSE 0 END)::float
-                                / COUNT(*), 0
-                            )
-                            ELSE 0
-                        END as error_rate,
-                        0 as cost
-                    FROM brain_decision_logs
-                    WHERE organization_id = :org_id
-                      AND created_at >= :start_date
-                    GROUP BY DATE(created_at)
-                    ORDER BY DATE(created_at) ASC
+                        bdl.metric_date,
+                        bdl.conversations,
+                        bdl.avg_latency_ms,
+                        bdl.error_rate,
+                        COALESCE(al.total_cost, 0) as cost
+                    FROM (
+                        SELECT
+                            DATE(created_at) as metric_date,
+                            COUNT(*) as conversations,
+                            COALESCE(AVG(total_time_ms), 0) as avg_latency_ms,
+                            CASE
+                                WHEN COUNT(*) > 0
+                                THEN COALESCE(
+                                    SUM(CASE WHEN selected_action = 'error' THEN 1 ELSE 0 END)::float
+                                    / COUNT(*), 0
+                                )
+                                ELSE 0
+                            END as error_rate
+                        FROM brain_decision_logs
+                        WHERE organization_id = :org_id
+                          AND created_at >= :start_date
+                        GROUP BY DATE(created_at)
+                    ) bdl
+                    LEFT JOIN (
+                        SELECT
+                            DATE(created_at) as cost_date,
+                            SUM(cost_jpy) as total_cost
+                        FROM ai_usage_logs
+                        WHERE organization_id = :org_id
+                          AND created_at >= :start_date
+                        GROUP BY DATE(created_at)
+                    ) al ON bdl.metric_date = al.cost_date
+                    ORDER BY bdl.metric_date ASC
                 """),
                 {"org_id": organization_id, "start_date": start_date},
             )

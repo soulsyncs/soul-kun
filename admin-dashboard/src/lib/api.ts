@@ -670,18 +670,12 @@ export const api = {
       }>('/admin/drive/sync-status'),
 
     downloadFile: async (documentId: string, fileName: string) => {
-      const authHeaders: Record<string, string> = {};
-      // Re-use bearer token from module scope via a separate fetch call
+      // W-1 fix: Use module-scoped _bearerToken (same as fetchWithAuth)
       const url = `${API_BASE_URL}/admin/drive/files/${documentId}/download`;
       const headers: Record<string, string> = {
         'X-Requested-With': 'XMLHttpRequest',
       };
-      // Access token from sessionStorage
-      try {
-        const saved = sessionStorage.getItem('soulkun_admin_token');
-        if (saved) authHeaders['Authorization'] = `Bearer ${saved}`;
-      } catch { /* ignore */ }
-      Object.assign(headers, authHeaders);
+      if (_bearerToken) headers['Authorization'] = `Bearer ${_bearerToken}`;
 
       const response = await fetch(url, { credentials: 'include', headers });
       if (!response.ok) throw new Error(`Download failed: ${response.status}`);
@@ -709,10 +703,8 @@ export const api = {
       const headers: Record<string, string> = {
         'X-Requested-With': 'XMLHttpRequest',
       };
-      try {
-        const saved = sessionStorage.getItem('soulkun_admin_token');
-        if (saved) headers['Authorization'] = `Bearer ${saved}`;
-      } catch { /* ignore */ }
+      // W-1 fix: Use module-scoped _bearerToken
+      if (_bearerToken) headers['Authorization'] = `Bearer ${_bearerToken}`;
 
       // XHR for upload progress
       return new Promise<{ status: string; message: string; google_drive_file_id: string | null; google_drive_web_view_link: string | null }>((resolve, reject) => {
@@ -727,7 +719,12 @@ export const api = {
         }
         xhr.onload = () => {
           if (xhr.status >= 200 && xhr.status < 300) {
-            resolve(JSON.parse(xhr.responseText));
+            // S-3 fix: Guard against empty responseText (e.g., 204 No Content)
+            try {
+              resolve(xhr.responseText ? JSON.parse(xhr.responseText) : {} as ReturnType<typeof JSON.parse>);
+            } catch {
+              reject(new Error('Invalid JSON response from server'));
+            }
           } else {
             try {
               const err = JSON.parse(xhr.responseText);

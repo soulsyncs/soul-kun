@@ -66,6 +66,16 @@ function formatDate(dateStr: string | null): string {
   });
 }
 
+// W-2 fix: Validate URL scheme before using as href (XSS防止)
+function isSafeUrl(url: string | null | undefined): url is string {
+  if (!url) return false;
+  try {
+    return new URL(url).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 function getFileIcon(fileType: string | null) {
   if (!fileType) return <File className="h-4 w-4 text-muted-foreground" />;
   const t = fileType.toLowerCase();
@@ -497,7 +507,7 @@ export function GoogleDrivePage() {
                           </td>
                           <td className="px-4 py-3">
                             <div className="flex items-center justify-end gap-1">
-                              {file.google_drive_web_view_link && (
+                              {isSafeUrl(file.google_drive_web_view_link) && (
                                 <Button
                                   variant="ghost"
                                   size="sm"

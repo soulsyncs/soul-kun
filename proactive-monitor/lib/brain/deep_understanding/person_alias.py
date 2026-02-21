@@ -484,7 +484,7 @@ class PersonAliasResolver:
 
         if needs_confirmation:
             logger.debug(
-                f"Multiple candidates or low confidence for '{input_name}': "
+                f"Multiple candidates or low confidence for '[PERSON]': "  # §9-4 PIIマスキング
                 f"{len(candidates)} candidates, best confidence={best.confidence:.2f}"
             )
             return PersonResolutionResult(
@@ -497,7 +497,7 @@ class PersonAliasResolver:
             )
 
         logger.info(
-            f"Resolved '{input_name}' → '{best.name}' "
+            f"Resolved '[PERSON]' → '[PERSON]' "  # §9-4 PIIマスキング
             f"(type={best.match_type.value}, confidence={best.confidence:.2f})"
         )
         return PersonResolutionResult(

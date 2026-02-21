@@ -613,6 +613,45 @@
 - LLM 不使用時 return False — ゴミデータをDBに入れない設計は正しい
 - `_should_update_summary` の成功時のみ `_summary_update_times` 更新（失敗時は次回再試行できる設計）
 
+## drive_tool.py パターン (lib/brain/drive_tool.py, feat/google-drive-full-setup, 2026-02-21)
+
+### search_drive_files() 設計確認済み
+- `accessible_classifications` ホワイトリスト検証: `{"public","internal","restricted","confidential"}` のみ許可。
+- f-string SQL は `cls_placeholders`（`:cls0, :cls1` プレースホルダー名のみ）のみ。値は `cls_params` として parameterized → SQLインジェクションなし。
+- RLS: `set_config('app.current_organization_id', :org_id, true)` で設定。`documents` テーブルに `documents_org_isolation` RLS ポリシーあり（`::uuid` キャスト、organization_id は uuid 型）。
+- `organization_id` フィルタ: WHERE 句で `organization_id = :org_id` (EXPLICIT) + RLS の2重ガード。
+- エラーログ: `type(e).__name__` のみ（PII漏洩なし）。エラーレスポンス: `type(e).__name__` のみ → 鉄則#8準拠。
+- `with pool.connect() as conn:` で接続管理正しい（リークなし）。
+- 3コピー同期: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL (PASS)。
+
+### accessible_classifications ハンドラー連携: PR #0221 で修正済み
+- `_brain_handle_drive_search()` が `get_accessible_classifications_for_account()` を `asyncio.to_thread()` 経由で呼び出す実装に更新（2回連続 to_thread = 直列実行、正しい）。
+- `account_id` が None のとき `str(account_id) if account_id else ""` で空文字→先頭ガードで最小権限フォールバック。安全側。
+- `handler_wrappers/external_tool_handlers.py` は chatwork-webhook 固有（proactive-monitor/lib/ にはディレクトリ自体が存在しない）。3コピー同期対象外、bypass_handlers.py と同じパターン。
+
+### WARNING (残存): get_accessible_classifications_for_account() の pool/スキーマ整合
+- SQL: `FROM user_departments ud JOIN users u ON ud.user_id = u.id` で `u.id` を使う。
+- `databases.soulkun.users` に `id` カラムは **存在しない**（`user_id: integer` のみ）。
+- `databases.soulkun_tasks.users` には `id: uuid` が存在 → pool が soulkun_tasks DB を指す場合のみ動作。
+- `search_drive_files()` は soulkun DB の documents テーブルを参照。2つの関数が異なる DB を参照している可能性があり、呼び出し元 `main.get_pool()` がどちらを返すか要確認。
+- エラー時フォールバックは `["public", "internal"]`（安全側）なので CRITICAL でなく WARNING。
+
+### WARNING: format_drive_files() がエラーメッセージをそのまま返す
+- `format_drive_files()` line 196: `result.get('error', ...)` を返す。
+- drive_tool.py の `error` フィールドには `type(e).__name__` のみ含まれる（安全）。
+- ただしハンドラーが error_msg をメッセージに含める (external_tool_handlers.py line 240-241)。エラー内容がユーザーに届く。現状は `type(e).__name__` のみなので許容範囲。
+
+### テストカバレッジ (test_drive_tool.py)
+- 基本パス（正常/空/エラー/max_results/updated_at_none）はカバー済み。
+- **TEST GAP**: `accessible_classifications` の新パラメータに対するテストが0件。
+  - ホワイトリスト拒否テスト（無効な値が除外されるか）なし
+  - デフォルト値適用テスト（None渡し→["public","internal"]になるか）なし
+  - INスコープ絞り込みテスト（["confidential"]渡し→restrictedが返らないか）なし
+
+### documents テーブル確認済みカラム（db_schema.json）
+- organization_id: uuid, classification: character varying, is_searchable: boolean, deleted_at: timestamptz
+- google_drive_web_view_link: text, file_name: character varying, title: character varying, updated_at: timestamptz
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

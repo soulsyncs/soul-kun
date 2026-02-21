@@ -39,7 +39,8 @@ ALTER TABLE supabase_employee_mapping ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY supabase_employee_mapping_org_isolation
     ON supabase_employee_mapping
-    USING (organization_id = current_setting('app.current_organization_id', true));
+    USING (organization_id::text = current_setting('app.current_organization_id', true))
+    WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true));
 
 -- ============================================================
 -- 2. スキル自己評価テーブル
@@ -85,7 +86,8 @@ ALTER TABLE form_employee_skills ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY form_employee_skills_org_isolation
     ON form_employee_skills
-    USING (organization_id = current_setting('app.current_organization_id', true));
+    USING (organization_id::text = current_setting('app.current_organization_id', true))
+    WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true));
 
 -- ============================================================
 -- 3. 稼働スタイルテーブル
@@ -133,7 +135,8 @@ ALTER TABLE form_employee_work_prefs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY form_employee_work_prefs_org_isolation
     ON form_employee_work_prefs
-    USING (organization_id = current_setting('app.current_organization_id', true));
+    USING (organization_id::text = current_setting('app.current_organization_id', true))
+    WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true));
 
 -- ============================================================
 -- 4. 連絡設定テーブル
@@ -181,7 +184,8 @@ ALTER TABLE form_employee_contact_prefs ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY form_employee_contact_prefs_org_isolation
     ON form_employee_contact_prefs
-    USING (organization_id = current_setting('app.current_organization_id', true));
+    USING (organization_id::text = current_setting('app.current_organization_id', true))
+    WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true));
 
 -- =============================================================================
 -- 完了メッセージ

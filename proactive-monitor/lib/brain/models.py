@@ -267,6 +267,16 @@ class PreferenceData:
         }
 
 
+# PersonInfo.to_string() で使用するフォームデータ属性ラベル（モジュール定数）
+_PERSON_FORM_ATTR_LABELS: tuple = (
+    ("スキル（得意）", "得意"),
+    ("稼働スタイル", "稼働"),
+    ("キャパシティ", "余力"),
+    ("連絡可能時間", "連絡可"),
+    ("月間稼働", "月間"),
+)
+
+
 @dataclass
 class PersonInfo:
     """
@@ -330,16 +340,9 @@ class PersonInfo:
         if self.description:
             parts.append(f": {self.description}")
         # フォームから同期したパーソナルデータを表示
-        _ATTR_LABELS = [
-            ("スキル（得意）", "得意"),
-            ("稼働スタイル", "稼働"),
-            ("キャパシティ", "余力"),
-            ("連絡可能時間", "連絡可"),
-            ("月間稼働", "月間"),
-        ]
         attr_parts = [
             f"{label}: {self.attributes[key]}"
-            for key, label in _ATTR_LABELS
+            for key, label in _PERSON_FORM_ATTR_LABELS
             if self.attributes.get(key)
         ]
         if attr_parts:

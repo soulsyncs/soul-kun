@@ -356,8 +356,8 @@ class LongTermMemoryManager:
             logger.error(f"❌ 長期記憶保存失敗: {e}")
             return {
                 "success": False,
-                "message": f"長期記憶の保存中にエラーが発生しました: {str(e)}",
-                "error": str(e),
+                "message": f"長期記憶の保存中にエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください",
+                "error": type(e).__name__,
             }
 
     def get_all(self, memory_type: Optional[str] = None) -> List[Dict[str, Any]]:

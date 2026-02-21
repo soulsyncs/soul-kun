@@ -511,12 +511,43 @@ class TestPersonInfo:
         assert d["role"] == "エンジニア"
         assert d["expertise"] == ["Python", "AI"]
 
+    def test_to_safe_dict_masks_description(self):
+        """to_safe_dict は description を [REDACTED] にマスク"""
+        p = PersonInfo(name="田中", description="2020年入社。営業部のエースで売上1位。")
+        d = p.to_safe_dict()
+        assert d["description"] == "[REDACTED]"
+
+    def test_to_safe_dict_none_description_stays_none(self):
+        """to_safe_dict は None の description を [REDACTED] にしない"""
+        p = PersonInfo(name="田中", description=None)
+        d = p.to_safe_dict()
+        assert d["description"] is None
+
+    def test_to_safe_dict_masks_attributes(self):
+        """to_safe_dict は attributes を [REDACTED] にマスク"""
+        p = PersonInfo(name="田中", attributes={"work_style": "在宅", "availability": "月80h"})
+        d = p.to_safe_dict()
+        assert d["attributes"] == "[REDACTED]"
+
+    def test_to_safe_dict_none_attributes_stays_none(self):
+        """to_safe_dict は None/空の attributes を [REDACTED] にしない"""
+        p = PersonInfo(name="田中", attributes=None)
+        d = p.to_safe_dict()
+        assert d["attributes"] is None
+
     def test_to_dict_still_returns_raw_pii(self):
-        """to_dict は引き続き生の PII を返す（内部ロジック用）"""
-        p = PersonInfo(name="田中太郎", email="tanaka@example.com")
+        """to_dict は引き続き生の PII を返す（内部ロジック用・デバッグ用）"""
+        p = PersonInfo(
+            name="田中太郎",
+            email="tanaka@example.com",
+            description="詳細な個人情報",
+            attributes={"work_style": "在宅"},
+        )
         d = p.to_dict()
         assert d["name"] == "田中太郎"
         assert d["email"] == "tanaka@example.com"
+        assert d["description"] == "詳細な個人情報"
+        assert d["attributes"] == {"work_style": "在宅"}
 
 
 # =============================================================================

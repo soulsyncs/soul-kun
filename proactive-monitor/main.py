@@ -204,7 +204,9 @@ async def _try_cost_budget_alert(pool) -> str:
     """
     月次予算アラート（JST 9:00台に実行）
 
-    今月のAIコストが予算の80%を超えていたら、ChatWorkに通知する。
+    今月のAIコストが予算の80%または100%を超えていたら、ChatWorkに通知する。
+    重複防止: alert_80pct_sent_at / alert_100pct_sent_at が記録済みなら再送しない。
+    翌月は新しいレコードが作られるため、自動的にリセットされる。
     """
     from datetime import timezone, timedelta
     jst_now = datetime.now(timezone(timedelta(hours=9)))
@@ -227,7 +229,8 @@ async def _try_cost_budget_alert(pool) -> str:
             with pool.connect() as conn:
                 result = conn.execute(
                     sa_text("""
-                        SELECT total_cost_jpy, budget_jpy
+                        SELECT total_cost_jpy, budget_jpy,
+                               alert_80pct_sent_at, alert_100pct_sent_at
                         FROM ai_monthly_cost_summary
                         WHERE organization_id = :org_id
                           AND year_month = :year_month
@@ -243,6 +246,8 @@ async def _try_cost_budget_alert(pool) -> str:
 
         total_cost = float(row[0] or 0)
         budget = float(row[1]) if row[1] is not None else None
+        alert_80pct_sent_at = row[2]
+        alert_100pct_sent_at = row[3]
 
         if budget is None or budget <= 0:
             return "skipped_no_budget"
@@ -255,25 +260,86 @@ async def _try_cost_budget_alert(pool) -> str:
             )
             return "ok"
 
-        # 80%超過 → アラート送信
-        jst = timezone(timedelta(hours=9))
-        time_str = jst_now.strftime("%Y-%m-%d %H:%M JST")
-        label = "⚠️ 予算警告" if usage_pct < 100 else "🚨 予算超過"
-        message = (
-            f"[info][title]{label} — 今月のAIコスト[/title]"
-            f"使用率: {usage_pct:.1f}%\n"
-            f"今月のコスト: ¥{total_cost:,.0f}\n"
-            f"月間予算: ¥{budget:,.0f}\n"
-            f"対象月: {year_month}\n"
-            f"検知時刻: {time_str}[/info]"
-        )
+        # 送信が必要なアラートを判定（重複防止）
+        send_80 = usage_pct >= 80 and alert_80pct_sent_at is None
+        send_100 = usage_pct >= 100 and alert_100pct_sent_at is None
 
-        await send_chatwork_message(alert_room_id, message)
-        logger.info(
-            "[CostAlert] Alert sent: %.1f%% (¥%,.0f / ¥%,.0f)",
-            usage_pct, total_cost, budget,
-        )
-        return "sent"
+        if not send_80 and not send_100:
+            logger.info(
+                "[CostAlert] Usage %.1f%% — alerts already sent this month, skipping",
+                usage_pct,
+            )
+            return "already_sent"
+
+        time_str = jst_now.strftime("%Y-%m-%d %H:%M JST")
+        sent_any = False
+
+        # 80%アラート（予算警告）— 100%未満の場合のみ送信（100%超過時は下の重大アラートで対応）
+        if send_80 and usage_pct < 100:
+            message = (
+                f"[info][title]⚠️ 予算警告 — 今月のAIコスト[/title]"
+                f"使用率: {usage_pct:.1f}%\n"
+                f"今月のコスト: ¥{total_cost:,.0f}\n"
+                f"月間予算: ¥{budget:,.0f}\n"
+                f"対象月: {year_month}\n"
+                f"検知時刻: {time_str}[/info]"
+            )
+            await send_chatwork_message(alert_room_id, message)
+
+            def _update_80():
+                with pool.connect() as conn:
+                    conn.execute(
+                        sa_text("""
+                            UPDATE ai_monthly_cost_summary
+                               SET alert_80pct_sent_at = NOW()
+                             WHERE organization_id = :org_id
+                               AND year_month = :year_month
+                        """),
+                        {"org_id": org_id, "year_month": year_month},
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_update_80)
+            logger.info(
+                "[CostAlert] 80%% alert sent: %.1f%% (¥%,.0f / ¥%,.0f)",
+                usage_pct, total_cost, budget,
+            )
+            sent_any = True
+
+        # 100%アラート（予算超過）
+        if send_100:
+            message = (
+                f"[info][title]🚨 予算超過 — 今月のAIコスト[/title]"
+                f"使用率: {usage_pct:.1f}%\n"
+                f"今月のコスト: ¥{total_cost:,.0f}\n"
+                f"月間予算: ¥{budget:,.0f}\n"
+                f"対象月: {year_month}\n"
+                f"検知時刻: {time_str}[/info]"
+            )
+            await send_chatwork_message(alert_room_id, message)
+
+            def _update_100():
+                with pool.connect() as conn:
+                    conn.execute(
+                        sa_text("""
+                            UPDATE ai_monthly_cost_summary
+                               SET alert_80pct_sent_at = COALESCE(alert_80pct_sent_at, NOW()),
+                                   alert_100pct_sent_at = NOW()
+                             WHERE organization_id = :org_id
+                               AND year_month = :year_month
+                        """),
+                        {"org_id": org_id, "year_month": year_month},
+                    )
+                    conn.commit()
+
+            await asyncio.to_thread(_update_100)
+            logger.info(
+                "[CostAlert] 100%% alert sent: %.1f%% (¥%,.0f / ¥%,.0f)",
+                usage_pct, total_cost, budget,
+            )
+            sent_any = True
+
+        return "sent" if sent_any else "already_sent"
 
     except Exception as e:
         logger.warning("[CostAlert] Failed (non-critical): %s", type(e).__name__)

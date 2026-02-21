@@ -494,9 +494,9 @@ def wrap_multimodal_error(func):
         except Exception as e:
             # 予期せぬエラーはラップ
             raise MultimodalBaseException(
-                message=f"予期せぬエラーが発生したウル: {str(e)}",
+                message=f"予期せぬエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください",
                 error_code="UNEXPECTED_ERROR",
-                details={"original_error": str(e), "error_type": type(e).__name__},
+                details={"error_type": type(e).__name__},
             )
     return wrapper
 
@@ -513,9 +513,9 @@ def wrap_sync_multimodal_error(func):
             raise
         except Exception as e:
             raise MultimodalBaseException(
-                message=f"予期せぬエラーが発生したウル: {str(e)}",
+                message=f"予期せぬエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください",
                 error_code="UNEXPECTED_ERROR",
-                details={"original_error": str(e), "error_type": type(e).__name__},
+                details={"error_type": type(e).__name__},
             )
     return wrapper
 

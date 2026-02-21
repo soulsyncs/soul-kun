@@ -11601,7 +11601,9 @@
       "fallback_success_count": "integer",
       "error_count": "integer",
       "created_at": "timestamp with time zone",
-      "updated_at": "timestamp with time zone"
+      "updated_at": "timestamp with time zone",
+      "alert_80pct_sent_at": "timestamp with time zone",
+      "alert_100pct_sent_at": "timestamp with time zone"
     },
     "ai_organization_settings": {
       "id": "uuid",

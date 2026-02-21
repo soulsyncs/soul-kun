@@ -81,6 +81,7 @@ _GCP_PROJECT_ID = os.getenv("GCP_PROJECT_ID", "soulkun-production")
 def _get_drive_client(writable: bool = False):
     """
     サービスアカウントでGoogle Drive APIクライアントを取得する。
+    Secret Manager呼び出しは同期I/Oのため、呼び出し元でasyncio.to_thread()を使うこと。
 
     Args:
         writable: Trueにすると書き込みスコープ（drive.file）でクライアントを初期化する。
@@ -105,6 +106,162 @@ def _get_drive_client(writable: bool = False):
     except Exception as e:
         logger.error("Drive client init failed: %s", type(e).__name__)
         raise HTTPException(status_code=503, detail="Drive認証の初期化に失敗しました")
+
+
+# =============================================================================
+# 同期DBヘルパー（asyncio.to_thread()用）
+# RLS set_config とクエリは必ず同一コネクション内で実行する（Codex指摘）
+# pool_size との整合: 同時リクエスト数が pool_size を超えないよう注意
+# =============================================================================
+
+def _sync_list_drive_files(
+    pool, org_id: str, q, classification, department_id, page: int, per_page: int,
+):
+    """get_drive_filesのDB処理（同期版）→ asyncio.to_thread()で呼ぶ"""
+    with pool.connect() as conn:
+        conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+            {"org_id": org_id},
+        )
+        where_clauses = [
+            "organization_id = :org_id",
+            "google_drive_file_id IS NOT NULL",
+            "is_active = TRUE",
+        ]
+        params: dict = {"org_id": org_id}
+
+        if q:
+            where_clauses.append("(title ILIKE :q OR file_name ILIKE :q)")
+            params["q"] = f"%{_escape_like(q)}%"
+        if classification:
+            where_clauses.append("classification = :classification")
+            params["classification"] = classification
+        if department_id:
+            where_clauses.append("department_id = CAST(:dept_id AS UUID)")
+            params["dept_id"] = department_id
+
+        # where_clausesの全要素は固定文字列のみ。ユーザー入力は全てバインドパラメータ経由（SQLインジェクション安全）
+        where_sql = " AND ".join(where_clauses)
+
+        count_row = conn.execute(
+            text(f"SELECT COUNT(*) FROM soulkun.documents WHERE {where_sql}"),
+            params,
+        ).fetchone()
+        total = count_row[0] if count_row else 0
+
+        offset = (page - 1) * per_page
+        params["limit"] = per_page
+        params["offset"] = offset
+
+        rows = conn.execute(
+            text(f"""
+                SELECT
+                    id::text,
+                    title,
+                    file_name,
+                    file_type,
+                    file_size_bytes,
+                    classification,
+                    category,
+                    google_drive_file_id,
+                    google_drive_web_view_link,
+                    google_drive_last_modified::text,
+                    processing_status,
+                    updated_at::text
+                FROM soulkun.documents
+                WHERE {where_sql}
+                ORDER BY google_drive_last_modified DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            """),
+            params,
+        ).fetchall()
+
+    return rows, total
+
+
+def _sync_get_drive_sync_status(pool, org_id: str):
+    """get_drive_sync_statusのDB処理（同期版）→ asyncio.to_thread()で呼ぶ"""
+    with pool.connect() as conn:
+        conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+            {"org_id": org_id},
+        )
+        row = conn.execute(
+            text("""
+                SELECT
+                    COUNT(*) AS total_files,
+                    MAX(updated_at)::text AS last_synced_at,
+                    COUNT(*) FILTER (WHERE processing_status = 'failed') AS failed_count
+                FROM soulkun.documents
+                WHERE organization_id = :org_id
+                  AND google_drive_file_id IS NOT NULL
+                  AND is_active = TRUE
+            """),
+            {"org_id": org_id},
+        ).fetchone()
+    return row
+
+
+def _sync_get_drive_file_info(pool, org_id: str, document_id: str):
+    """download_drive_fileのDB処理（同期版）→ asyncio.to_thread()で呼ぶ"""
+    with pool.connect() as conn:
+        conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+            {"org_id": org_id},
+        )
+        row = conn.execute(
+            text("""
+                SELECT google_drive_file_id, file_name, file_type
+                FROM soulkun.documents
+                WHERE id = CAST(:doc_id AS UUID)
+                  AND organization_id = :org_id
+                  AND is_active = TRUE
+                LIMIT 1
+            """),
+            {"doc_id": document_id, "org_id": org_id},
+        ).fetchone()
+    return row
+
+
+def _sync_record_drive_upload(
+    pool, org_id: str, original_name: str, ext: str, content_size: int,
+    classification: str, drive_file_id: str, web_view_link, user_id: str,
+):
+    """upload_drive_fileのDB処理（同期版）→ asyncio.to_thread()で呼ぶ"""
+    with pool.connect() as conn:
+        conn.execute(
+            text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+            {"org_id": org_id},
+        )
+        row = conn.execute(
+            text("""
+                INSERT INTO soulkun.documents (
+                    organization_id, title, file_name, file_type,
+                    file_size_bytes, classification, google_drive_file_id,
+                    google_drive_web_view_link, processing_status, is_active,
+                    created_by, updated_by
+                ) VALUES (
+                    CAST(:org_id AS UUID), :title, :file_name, :file_type,
+                    :file_size, :classification, :drive_file_id,
+                    :web_view_link, 'sync_pending', TRUE,
+                    CAST(:user_id AS UUID), CAST(:user_id AS UUID)
+                )
+                RETURNING id::text
+            """),
+            {
+                "org_id": org_id,
+                "title": original_name.rsplit(".", 1)[0] if "." in original_name else original_name,
+                "file_name": original_name,
+                "file_type": ext,
+                "file_size": content_size,
+                "classification": classification,
+                "drive_file_id": drive_file_id,
+                "web_view_link": web_view_link,
+                "user_id": user_id,
+            },
+        ).fetchone()
+        conn.commit()
+    return row[0] if row else None
 
 
 # =============================================================================
@@ -134,108 +291,49 @@ async def get_drive_files(
         raise HTTPException(status_code=400, detail="classificationの値が不正です")
 
     try:
-        with pool.connect() as conn:
-            conn.execute(
-                text("SELECT set_config('app.current_organization_id', :org_id, true)"),
-                {"org_id": organization_id},
-            )
-
-            # 動的WHERE条件の構築
-            where_clauses = [
-                "organization_id = :org_id",
-                "google_drive_file_id IS NOT NULL",
-                "is_active = TRUE",
-            ]
-            params: dict = {"org_id": organization_id}
-
-            if q:
-                where_clauses.append("(title ILIKE :q OR file_name ILIKE :q)")
-                params["q"] = f"%{_escape_like(q)}%"
-
-            if classification:
-                where_clauses.append("classification = :classification")
-                params["classification"] = classification
-
-            if department_id:
-                where_clauses.append("department_id = CAST(:dept_id AS UUID)")
-                params["dept_id"] = department_id
-
-            where_sql = " AND ".join(where_clauses)
-
-            # 総件数取得
-            count_row = conn.execute(
-                text(f"SELECT COUNT(*) FROM soulkun.documents WHERE {where_sql}"),
-                params,
-            ).fetchone()
-            total = count_row[0] if count_row else 0
-
-            # 一覧取得
-            offset = (page - 1) * per_page
-            params["limit"] = per_page
-            params["offset"] = offset
-
-            rows = conn.execute(
-                text(f"""
-                    SELECT
-                        id::text,
-                        title,
-                        file_name,
-                        file_type,
-                        file_size_bytes,
-                        classification,
-                        category,
-                        google_drive_file_id,
-                        google_drive_web_view_link,
-                        google_drive_last_modified::text,
-                        processing_status,
-                        updated_at::text
-                    FROM soulkun.documents
-                    WHERE {where_sql}
-                    ORDER BY google_drive_last_modified DESC NULLS LAST
-                    LIMIT :limit OFFSET :offset
-                """),
-                params,
-            ).fetchall()
-
-        files = [
-            DriveFileItem(
-                id=row[0],
-                title=row[1],
-                file_name=row[2],
-                file_type=row[3],
-                file_size_bytes=row[4],
-                classification=row[5],
-                category=row[6],
-                google_drive_file_id=row[7],
-                google_drive_web_view_link=row[8],
-                google_drive_last_modified=row[9],
-                processing_status=row[10],
-                updated_at=row[11],
-            )
-            for row in rows
-        ]
-
-        log_audit_event(
-            logger=logger,
-            action="drive_files_listed",
-            resource_type="drive",
-            resource_id="files",
-            user_id=user.user_id,
-            details={"org_id": organization_id, "total": total},
+        rows, total = await asyncio.to_thread(
+            _sync_list_drive_files,
+            pool, organization_id, q, classification, department_id, page, per_page,
         )
-
-        return DriveFilesResponse(
-            files=files,
-            total=total,
-            page=page,
-            per_page=per_page,
-        )
-
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Drive files list error")
         raise HTTPException(status_code=500, detail="ファイル一覧の取得に失敗しました")
+
+    files = [
+        DriveFileItem(
+            id=row[0],
+            title=row[1],
+            file_name=row[2],
+            file_type=row[3],
+            file_size_bytes=row[4],
+            classification=row[5],
+            category=row[6],
+            google_drive_file_id=row[7],
+            google_drive_web_view_link=row[8],
+            google_drive_last_modified=row[9],
+            processing_status=row[10],
+            updated_at=row[11],
+        )
+        for row in rows
+    ]
+
+    log_audit_event(
+        logger=logger,
+        action="drive_files_listed",
+        resource_type="drive",
+        resource_id="files",
+        user_id=user.user_id,
+        details={"org_id": organization_id, "total": total},
+    )
+
+    return DriveFilesResponse(
+        files=files,
+        total=total,
+        page=page,
+        per_page=per_page,
+    )
 
 
 # =============================================================================
@@ -255,39 +353,21 @@ async def get_drive_sync_status(
     pool = get_db_pool()
 
     try:
-        with pool.connect() as conn:
-            conn.execute(
-                text("SELECT set_config('app.current_organization_id', :org_id, true)"),
-                {"org_id": organization_id},
-            )
-            row = conn.execute(
-                text("""
-                    SELECT
-                        COUNT(*) AS total_files,
-                        MAX(updated_at)::text AS last_synced_at,
-                        COUNT(*) FILTER (WHERE processing_status = 'failed') AS failed_count
-                    FROM soulkun.documents
-                    WHERE organization_id = :org_id
-                      AND google_drive_file_id IS NOT NULL
-                      AND is_active = TRUE
-                """),
-                {"org_id": organization_id},
-            ).fetchone()
-
-        if not row:
-            return DriveSyncStatusResponse()
-
-        return DriveSyncStatusResponse(
-            total_files=row[0] or 0,
-            last_synced_at=row[1],
-            failed_count=row[2] or 0,
-        )
-
+        row = await asyncio.to_thread(_sync_get_drive_sync_status, pool, organization_id)
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Drive sync status error")
         raise HTTPException(status_code=500, detail="同期状態の取得に失敗しました")
+
+    if not row:
+        return DriveSyncStatusResponse()
+
+    return DriveSyncStatusResponse(
+        total_files=row[0] or 0,
+        last_synced_at=row[1],
+        failed_count=row[2] or 0,
+    )
 
 
 # =============================================================================
@@ -317,23 +397,9 @@ async def download_drive_file(
         "md": "text/markdown",
         "csv": "text/csv",
     }
+
     try:
-        with pool.connect() as conn:
-            conn.execute(
-                text("SELECT set_config('app.current_organization_id', :org_id, true)"),
-                {"org_id": organization_id},
-            )
-            row = conn.execute(
-                text("""
-                    SELECT google_drive_file_id, file_name, file_type
-                    FROM soulkun.documents
-                    WHERE id = CAST(:doc_id AS UUID)
-                      AND organization_id = :org_id
-                      AND is_active = TRUE
-                    LIMIT 1
-                """),
-                {"doc_id": document_id, "org_id": organization_id},
-            ).fetchone()
+        row = await asyncio.to_thread(_sync_get_drive_file_info, pool, organization_id, document_id)
     except Exception:
         logger.exception("Drive download DB lookup error")
         raise HTTPException(status_code=500, detail="ファイル情報の取得に失敗しました")
@@ -344,9 +410,9 @@ async def download_drive_file(
     drive_file_id, file_name, file_type = row[0], row[1], row[2]
     mime_type = _EXT_TO_MIME.get((file_type or "").lower(), "application/octet-stream")
 
-    # Drive APIでダウンロード（download_fileはasync）
+    # Drive APIでダウンロード（_get_drive_clientは同期I/Oのためto_thread経由）
     try:
-        drive_client = _get_drive_client()
+        drive_client = await asyncio.to_thread(_get_drive_client)
         content: bytes = await drive_client.download_file(drive_file_id)
     except HTTPException:
         raise
@@ -411,9 +477,9 @@ async def upload_drive_file(
             detail=f"許可されていないファイル形式です。対応形式: {', '.join(sorted(_ALLOWED_EXTENSIONS))}",
         )
 
-    # MIMEタイプバリデーション
+    # MIMEタイプバリデーション（Content-Type未指定も拒否）
     content_type = file.content_type or ""
-    if content_type and content_type not in _ALLOWED_MIME_TYPES:
+    if not content_type or content_type not in _ALLOWED_MIME_TYPES:
         raise HTTPException(status_code=400, detail="許可されていないファイル種別です")
 
     # ファイルサイズバリデーション（20MB上限）
@@ -429,9 +495,9 @@ async def upload_drive_file(
     # アップロード先フォルダID決定
     target_folder = folder_id or _UPLOAD_FOLDER_ID or None
 
-    # Drive APIでアップロード（書き込みスコープが必要）
+    # Drive APIでアップロード（_get_drive_clientは同期I/Oのためto_thread経由）
     try:
-        drive_client = _get_drive_client(writable=True)
+        drive_client = await asyncio.to_thread(_get_drive_client, True)
         drive_file = await drive_client.upload_file(
             file_name=original_name,
             mime_type=content_type or "application/octet-stream",
@@ -446,59 +512,12 @@ async def upload_drive_file(
 
     # documentsテーブルに記録
     pool = get_db_pool()
-    document_id: Optional[str] = None
     try:
-        with pool.connect() as conn:
-            conn.execute(
-                text("SELECT set_config('app.current_organization_id', :org_id, true)"),
-                {"org_id": organization_id},
-            )
-            row = conn.execute(
-                text("""
-                    INSERT INTO soulkun.documents (
-                        organization_id,
-                        title,
-                        file_name,
-                        file_type,
-                        file_size_bytes,
-                        classification,
-                        google_drive_file_id,
-                        google_drive_web_view_link,
-                        processing_status,
-                        is_active,
-                        created_by,
-                        updated_by
-                    ) VALUES (
-                        CAST(:org_id AS UUID),
-                        :title,
-                        :file_name,
-                        :file_type,
-                        :file_size,
-                        :classification,
-                        :drive_file_id,
-                        :web_view_link,
-                        'sync_pending',
-                        TRUE,
-                        CAST(:user_id AS UUID),
-                        CAST(:user_id AS UUID)
-                    )
-                    RETURNING id::text
-                """),
-                {
-                    "org_id": organization_id,
-                    "title": original_name.rsplit(".", 1)[0] if "." in original_name else original_name,
-                    "file_name": original_name,
-                    "file_type": ext,
-                    "file_size": len(content),
-                    "classification": classification,
-                    "drive_file_id": drive_file.id,
-                    "web_view_link": drive_file.web_view_link,
-                    "user_id": user.user_id,
-                },
-            ).fetchone()
-            conn.commit()
-            document_id = row[0] if row else None
-
+        document_id = await asyncio.to_thread(
+            _sync_record_drive_upload,
+            pool, organization_id, original_name, ext, len(content),
+            classification, drive_file.id, drive_file.web_view_link, user.user_id,
+        )
     except Exception:
         logger.exception("Drive upload DB record error")
         # Drive側にアップロード済みなのでエラーは警告のみ（後でウォッチャーが拾う）

@@ -1,96 +1,78 @@
-# Google Drive Admin API レビュー結果 (2026-02-21)
+# Google Drive Admin API レビュー結果
 
 ## 対象ファイル
-- `api/app/api/v1/admin/drive_routes.py` (新規)
-- `api/app/schemas/admin.py` (DriveFileItem/DriveFilesResponse/DriveSyncStatusResponse/DriveUploadResponse 追加)
+- `api/app/api/v1/admin/drive_routes.py`
+- `api/app/schemas/admin.py` (DriveFileItem/DriveFilesResponse/DriveSyncStatusResponse/DriveUploadResponse)
 - `lib/google_drive.py` (upload_file メソッド追加)
 
-## CRITICAL 発見事項
+---
 
-### C-1: `lib/google_drive.py` OAuth スコープが `drive.readonly`（アップロード不可）
-- 全コンストラクタ（4パターン全て）が `'https://www.googleapis.com/auth/drive.readonly'` を使用
-- `upload_file()` は `files().create()` を呼ぶが、readonly スコープでは 403 forbidden になる
-- 本番でアップロードは必ず失敗する
-- 修正: `'https://www.googleapis.com/auth/drive'` (フルアクセス) または `'https://www.googleapis.com/auth/drive.file'`（自分が作成したファイルのみ）に変更が必要
-- **注意**: drive.readonly を変更するとダウンロード用クライアント（sync watcherなど）の認証スコープも変わる。`_get_drive_client()` が upload/download 両方に使われているため。
+## 初回レビュー (2026-02-21) — 旧コード（同期 pool.connect() 直呼び出し版）
 
-### C-2: `drive_routes.py` line 309: `mime_type` カラムが `documents` テーブルに存在しない
-- SELECT: `google_drive_file_id, file_name, mime_type, file_type` — `mime_type` は db_schema.json に存在しない
-- db_schema.json の documents テーブル: id, organization_id, title, description, file_path, file_type, file_size, classification, category, department_id, is_active, created/updated_at, created_by, updated_by, file_name, file_size_bytes, file_hash, google_drive_file_id, google_drive_folder_path, google_drive_web_view_link, google_drive_last_modified, processing_status, file_url, metadata, current_version, processing_error, processed_at, total_chunks, total_pages, deleted_at, is_searchable
-- `mime_type` カラムなし。ダウンロードエンドポイントが本番で `column "mime_type" does not exist` エラーになる
-- 修正: `file_type` のみ使用してMIMEタイプを推定するか、`file_url` や `metadata` から取得する
+### 修正済みの CRITICAL（現在は解決）
+- C-1: `lib/google_drive.py` OAuth スコープが `drive.readonly` — `writable` パラメータ追加で修正済み
+- C-2: `drive_routes.py` SELECT で `mime_type` カラムを参照 — `file_type` のみに修正済み
+- W-4: Content-Disposition が RFC 5987 非準拠 — `filename*=UTF-8''` エンコーディングに修正済み
 
-### C-3: upload INSERT が `conn.commit()` を使っているが SQLAlchemy Core の `with pool.connect()` はautocommit/rollbackをwith文で制御
-- `pool.connect()` の `with` ブロックでは明示的 commit が必要 → `conn.commit()` は正しい
-- ただし Drive へのアップロード成功後にDBがエラーになった場合の処理（line 477-480）で
-  `except` が DBエラーを飲み込んで `document_id=None` のまま `log_audit_event` と `DriveUploadResponse` を返す
-  → Drive にファイルがあるがDBには記録なし、かつ audit ログは成功扱い → データ不整合
-  → ただしコメントに「ウォッチャーが後で拾う」とあり、設計的な選択。CRITICAL 扱いにはしなかったが要確認。
+---
 
-## WARNING 発見事項
+## 2回目レビュー (2026-02-22) — asyncio.to_thread() リファクタリング版
 
-### W-1: `async def` 関数内で同期 `pool.connect()` を直接呼び出している（チェックリスト#6）
-- `get_drive_files`, `get_drive_sync_status`, `download_drive_file`, `upload_drive_file` — 全て `async def` だが `pool.connect()` は同期ブロッキング呼び出し
-- admin dashboard は §1-1 例外として許容されているが、CLAUDE.md 22項目チェック #6 違反
-- 他の admin routes (`brain_routes.py`, `dashboard_routes.py` など) も同じパターン — PRE-EXISTING
+### 変更内容
+- async 関数内の同期 `pool.connect()` を 4 つの同期ヘルパー関数に切り出し
+- 各ヘルパーを `asyncio.to_thread()` で呼び出すように変更
+- `_get_drive_client()` も `asyncio.to_thread()` 経由に変更
+- RLS `set_config` とクエリを同一コネクション内に統合
 
-### W-2: `details={"org_id": organization_id}` を audit log に記録（鉄則#8相当）
-- `get_drive_files` line 217: `details={"org_id": organization_id, "total": total}`
-- `download_drive_file` line 347: `details={"org_id": organization_id}`
-- `upload_drive_file` line 488: `details={"org_id": organization_id, "classification": classification}`
-- organization_id (UUID) が audit_logs テーブルの details フィールドに記録される
-- 鉄則#8「エラーに機密情報を含めない」の audit log 版。UUID は疑似匿名だが、他のadmin routesとの整合性確認が必要
-- 他の admin routes でも同パターン確認 → PRE-EXISTING
+### CRITICAL: なし
 
-### W-3: `upload_drive_file` でファイルサイズが HTTP 413 エラーメッセージに露出
-- line 398-400: `detail=f"ファイルサイズが上限（20MB）を超えています（{len(content) // 1024 // 1024}MB）"`
-- ファイルサイズ（MB）をユーザーに返すのは UX 上は合理的。鉄則#8の「内部パス・ユーザーID」ではないため SUGGESTION レベル
+### WARNING (3件)
 
-### W-4: Content-Disposition ヘッダーの ASCII 以外のファイル名（RFC 5987非準拠）
-- line 353: `f'attachment; filename="{safe_name}"'` で safe_name に日本語が含まれる場合、RFC 2183 違反
-- `\n` と `"` のみ除去だが URL エンコードなし
-- ブラウザ依存で文字化けする可能性
-- 修正: `filename*=UTF-8''` エンコーディング使用（RFC 5987）または `urllib.parse.quote(safe_name)`
+#### W-1: 動的 WHERE 句の f-string 組み立て（将来の安全性リスク）
+- `_sync_list_drive_files` の `where_clauses` を `" AND ".join()` で組み立て、`text(f"... WHERE {where_sql}")` で使用
+- 現在は `where_clauses` の全要素がハードコード固定文字列 + ユーザー入力はバインドパラメータ → SQLインジェクションなし
+- ただし将来誰かが `where_clauses.append(f"title = '{user_input}'")` を追加すると即座に脆弱になる
+- 推奨: コメントで「where_clauses に直接ユーザー入力を入れてはいけない」旨を明記
 
-### W-5: `_get_drive_client()` が毎回 Secret Manager を呼び出す（キャッシュなし）
-- `download_drive_file` と `upload_drive_file` それぞれでモジュールレベルのキャッシュなし
-- Secret Manager API 呼び出しはレイテンシが高い（~200ms）
-- TTL 付きキャッシュが望ましい（鉄則#6: デフォルト5分）
+#### W-2: Drive アップロード後 DB 記録失敗時の孤立ファイル
+- Drive にファイルが存在するが DB に記録がない状態が発生しうる
+- コメントに「ウォッチャーが後で拾う」とあるが、watch-google-drive の実際の動作確認が必要
+- `drive_file.id` を WARNING ログに直接記録している（内部ID漏洩は軽微）
+- 監査ログ `drive_file_uploaded_db_failed` は記録されるので追跡可能
 
-### W-6: `DriveFileItem.title` が `Optional[str]` でなく `str` — Null の場合に検証エラー
-- db_schema.json: `documents.title = character varying`（nullable: 不明）
-- documents テーブルに title が NULL で入っている行がある場合、Pydantic バリデーションエラーになる
-- `Optional[str]` が安全
+#### W-5: MIME チェックが空文字の場合スキップされる
+- `if content_type and content_type not in _ALLOWED_MIME_TYPES:` — `content_type=""` ならチェックスキップ
+- 拡張子チェック（`_ALLOWED_EXTENSIONS`）は必ず実行されるため完全バイパスではないが、セキュリティ上の抜け穴
 
-## SUGGESTION 発見事項
+### SUGGESTION (4件)
+- S-1: `_EXT_TO_MIME` 辞書が関数本体内に定義（毎回再作成）→ モジュールレベルに移動推奨
+- S-2: `urllib.parse` の import が関数本体内（line 423）→ モジュール先頭に移動推奨
+- S-3: `sync_pinecone_metadata` 内の `PineconeClient()` のテナント分離確認（`org_id` は明示的に渡している）
+- S-4: `log_audit_event` の `details` に `org_id` UUID を含めるのは他 admin routes と一貫したパターン（問題なし）
 
-### S-1: `documents` テーブルの INSERT に `mime_type` カラムがないため、ダウンロード時に content_type を推定できない
-- アップロード時に mime_type を保存したい場合、`metadata` JSONB に入れるか `file_url` 代用
-- 現在は `file_type` (拡張子) からクライアント側で推定するしかない
+### 正常確認済み項目
+- 全エンドポイント認証: require_admin(Level 5+) / require_editor(Level 6+) — OK
+- organization_id フィルタ: 全 4 ヘルパーに明示的フィルタあり — OK
+- RLS set_config: 同一コネクション内で先行実行 — OK
+- パラメータ化 SQL: バインドパラメータ使用 — OK
+- 監査ログ: 全エンドポイントで log_audit_event() — OK
+- ページネーション: per_page 最大 100 件 — OK
+- エラーメッセージ: type(e).__name__ のみ — OK
+- トランザクション外 API 呼び出し: Drive API は DB クローズ後に呼び出し — OK
+- asyncio.to_thread(): 全同期ヘルパーに適用 — OK
+- writable スコープ: _get_drive_client(writable=True) でアップロード用スコープ切り替え — OK
+- file_type のみ SELECT: mime_type カラム不在に対応済み — OK
+- RFC 5987 Content-Disposition: filename*=UTF-8'' 形式 — OK
+- _sync_record_drive_upload の conn.commit(): set_config(is_local=true) + commit でRLSリセット正しい — OK
 
-### S-2: `_UPLOAD_FOLDER_ID` が空文字の場合、`target_folder = None` になりルートにアップロード
-- Drive のルートフォルダに誰でも見られる可能性。`GOOGLE_DRIVE_UPLOAD_FOLDER_ID` 未設定時の警告ログを出すべき
+## db_schema.json documents テーブル確認結果
+- organization_id: uuid 型 → INSERT の CAST(:org_id AS UUID) 正しい、SELECT の = :org_id も自動キャストで動作
+- department_id: uuid 型 → WHERE department_id = CAST(:dept_id AS UUID) 正しい
+- file_size_bytes: bigint — INSERT で使用している（file_size と両方存在するが問題なし）
+- mime_type: 存在しない（修正済み）
 
-### S-3: `DriveFilesResponse.total` フィールド名（`total`）が他のスキーマ（`total_count`）と不統一
-- `MembersListResponse.total_count`, `BrainLogsResponse.total_count` など他は `total_count`
-- 命名の統一が望ましい（breaking changeになるが設計段階なので今のうちに直す）
-
-### S-4: テストがない
-- `drive_routes.py` に対するユニットテスト/統合テストが確認できなかった
-- 特に C-1(スコープ)、C-2(mime_typeカラム)は実行時エラーになるためテストで事前検出すべきだった
-
-## db_schema.json 確認結果（documents テーブル）
-確認済みカラム一覧（存在する）:
-- id, organization_id, title, description, file_path, file_type, file_size, classification, category
-- department_id, is_active, created_at, updated_at, created_by, updated_by
-- file_name, file_size_bytes, file_hash
-- google_drive_file_id, google_drive_folder_path, google_drive_web_view_link, google_drive_last_modified
-- processing_status, file_url, metadata, current_version, processing_error, processed_at
-- total_chunks, total_pages, deleted_at, is_searchable
-
-存在しないカラム（コードで参照）:
-- `mime_type` — 存在しない！（C-2）
-
-## 3コピー同期
-- `lib/google_drive.py` の `upload_file` 追加 → `chatwork-webhook/lib/google_drive.py` と `proactive-monitor/lib/google_drive.py` も同期が必要
-- `drive_routes.py` は `api/` にのみ存在（lib/ でないため同期不要）
+## drive_routes.py の asyncio パターン（確認済み）
+- `_get_drive_client()`: 同期関数（Secret Manager 同期 I/O）→ asyncio.to_thread() 経由 OK
+- `drive_client.download_file()`: async def → FastAPI のイベントループで直接 await OK
+- `drive_client.upload_file()`: async def → FastAPI のイベントループで直接 await OK
+- パターン: `await asyncio.to_thread(同期初期化)` → `await async_method()` は正しい組み合わせ

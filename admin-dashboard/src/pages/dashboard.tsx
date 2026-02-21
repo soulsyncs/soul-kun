@@ -20,7 +20,7 @@ import {
 } from 'recharts';
 import { format, parseISO } from 'date-fns';
 import { api } from '@/lib/api';
-import type { DashboardSummaryResponse, BrainMetricsResponse, GoalStatsResponse, TaskOverviewStats } from '@/types/api';
+import type { DashboardSummaryResponse, BrainMetricsResponse, GoalStatsResponse, TaskOverviewStats, AlertSummary, InsightSummary } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { KpiCard } from '@/components/dashboard/kpi-card';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -38,6 +38,7 @@ import {
   Target,
   Flame,
   AlertOctagon,
+  X,
 } from 'lucide-react';
 
 type Period = 'today' | '7d' | '30d';
@@ -72,6 +73,8 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
 
 export function DashboardPage() {
   const [period, setPeriod] = useState<Period>('7d');
+  const [selectedAlert, setSelectedAlert] = useState<AlertSummary | null>(null);
+  const [selectedInsight, setSelectedInsight] = useState<InsightSummary | null>(null);
 
   const { data: summaryData, isLoading: summaryLoading, isError: summaryError } =
     useQuery<DashboardSummaryResponse>({
@@ -455,42 +458,69 @@ export function DashboardPage() {
             <CardHeader>
               <CardTitle>
                 最近のアラート
-                <InfoTooltip text="システムが検知した異常や注意が必要な事象の一覧です" />
+                <InfoTooltip text="システムが検知した異常や注意が必要な事象の一覧です。行をクリックすると詳細が確認できます" />
               </CardTitle>
             </CardHeader>
             <CardContent>
               {alerts.length === 0 ? (
                 <p className="text-sm text-muted-foreground">最近のアラートはありません</p>
               ) : (
-                <div className="space-y-3">
-                  {alerts.map((alert) => (
-                    <div
-                      key={alert.id}
-                      className="flex items-start gap-3 rounded-lg border p-3"
-                    >
-                      <Badge
-                        variant={
-                          alert.severity === 'critical'
-                            ? 'destructive'
-                            : 'secondary'
-                        }
-                        className="mt-0.5"
+                <div className={selectedAlert ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-2'}>
+                  <div className="space-y-2">
+                    {alerts.map((alert) => (
+                      <button
+                        key={alert.id}
+                        onClick={() => setSelectedAlert(selectedAlert?.id === alert.id ? null : alert)}
+                        className={`w-full text-left flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/40 ${
+                          selectedAlert?.id === alert.id ? 'ring-2 ring-primary bg-muted/30' : ''
+                        }`}
                       >
-                        {SEVERITY_LABELS[alert.severity] ?? alert.severity}
-                      </Badge>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium">{ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {alert.message}
-                        </p>
-                      </div>
-                      {alert.is_resolved && (
-                        <Badge variant="secondary" className="text-green-600">
-                          解決済み
+                        <Badge
+                          variant={alert.severity === 'critical' ? 'destructive' : 'secondary'}
+                          className="mt-0.5 shrink-0"
+                        >
+                          {SEVERITY_LABELS[alert.severity] ?? alert.severity}
                         </Badge>
-                      )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}</p>
+                          <p className="text-xs text-muted-foreground truncate">{alert.message}</p>
+                        </div>
+                        {alert.is_resolved && (
+                          <Badge variant="secondary" className="text-green-600 shrink-0">解決済み</Badge>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                  {selectedAlert && (
+                    <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold">{ALERT_TYPE_LABELS[selectedAlert.alert_type] ?? selectedAlert.alert_type}</p>
+                        <button
+                          onClick={() => setSelectedAlert(null)}
+                          className="text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge variant={selectedAlert.severity === 'critical' ? 'destructive' : 'secondary'}>
+                          {SEVERITY_LABELS[selectedAlert.severity] ?? selectedAlert.severity}
+                        </Badge>
+                        {selectedAlert.is_resolved ? (
+                          <Badge variant="secondary" className="text-green-600">解決済み</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-orange-600 border-orange-400">未解決</Badge>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">詳細メッセージ</p>
+                        <p className="text-sm leading-relaxed">{selectedAlert.message}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {format(parseISO(selectedAlert.created_at), 'yyyy/M/d HH:mm')}
+                      </p>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </CardContent>
@@ -501,7 +531,7 @@ export function DashboardPage() {
             <CardHeader>
               <CardTitle>
                 最近のインサイト
-                <InfoTooltip text="ソウルくんが自動的に発見した傾向や改善提案です" />
+                <InfoTooltip text="ソウルくんが自動的に発見した傾向や改善提案です。行をクリックすると全文が確認できます" />
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -510,24 +540,50 @@ export function DashboardPage() {
                   最近のインサイトはありません
                 </p>
               ) : (
-                <div className="space-y-3">
-                  {insights.map((insight) => (
-                    <div
-                      key={insight.id}
-                      className="rounded-lg border p-3"
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <Badge variant="secondary">{insight.insight_type}</Badge>
+                <div className={selectedInsight ? 'grid grid-cols-1 sm:grid-cols-2 gap-3' : 'space-y-2'}>
+                  <div className="space-y-2">
+                    {insights.map((insight) => (
+                      <button
+                        key={insight.id}
+                        onClick={() => setSelectedInsight(selectedInsight?.id === insight.id ? null : insight)}
+                        className={`w-full text-left rounded-lg border p-3 transition-colors hover:bg-muted/40 ${
+                          selectedInsight?.id === insight.id ? 'ring-2 ring-primary bg-muted/30' : ''
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <Badge variant="secondary">{insight.insight_type}</Badge>
+                          <span className="text-xs text-muted-foreground">
+                            {format(parseISO(insight.created_at), 'M/d HH:mm')}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium">{insight.title}</p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{insight.summary}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {selectedInsight && (
+                    <div className="rounded-lg border bg-muted/20 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold">{selectedInsight.title}</p>
+                        <button
+                          onClick={() => setSelectedInsight(null)}
+                          className="text-muted-foreground hover:text-foreground shrink-0"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">{selectedInsight.insight_type}</Badge>
                         <span className="text-xs text-muted-foreground">
-                          {format(parseISO(insight.created_at), 'M/d HH:mm')}
+                          {format(parseISO(selectedInsight.created_at), 'yyyy/M/d HH:mm')}
                         </span>
                       </div>
-                      <p className="text-sm font-medium">{insight.title}</p>
-                      <p className="text-xs text-muted-foreground line-clamp-2">
-                        {insight.summary}
-                      </p>
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1">詳細</p>
+                        <p className="text-sm leading-relaxed">{selectedInsight.summary}</p>
+                      </div>
                     </div>
-                  ))}
+                  )}
                 </div>
               )}
             </CardContent>

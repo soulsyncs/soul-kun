@@ -328,6 +328,54 @@ class PineconeClient:
 
         return total_upserted
 
+    async def update_metadata_batch(
+        self,
+        organization_id: str,
+        updates: list[dict],
+    ) -> int:
+        """
+        ベクターのメタデータのみをバッチ更新（ベクター値の再アップロード不要）
+
+        Pinecone SDK v5+ の index.update() を使用して、
+        既存ベクターのメタデータだけを効率的に更新する。
+        部署変更・機密区分変更時のメタデータ同期に使用する。
+
+        Args:
+            organization_id: 組織ID
+            updates: メタデータ更新リスト
+                [{"id": "pinecone_id", "metadata": {"classification": "internal", "department_id": "..."}}]
+
+        Returns:
+            更新されたベクター数
+
+        Note:
+            ベクター値は変更しない。失敗したIDは個別にスキップしてログに残す。
+        """
+        loop = asyncio.get_event_loop()
+        namespace = self.get_namespace(organization_id)
+        updated_count = 0
+
+        for item in updates:
+            vector_id = item.get("id")
+            metadata = item.get("metadata", {})
+            if not vector_id or not metadata:
+                continue
+            try:
+                await loop.run_in_executor(
+                    None,
+                    lambda vid=vector_id, meta=metadata: self.index.update(
+                        id=vid,
+                        set_metadata=meta,
+                        namespace=namespace,
+                    )
+                )
+                updated_count += 1
+            except Exception as e:
+                logger.warning(f"Pinecone metadata update skipped for {vector_id}: {type(e).__name__}")
+
+        logger.info(f"Pinecone metadata updated: {updated_count}/{len(updates)} vectors (org={organization_id})")
+        return updated_count
+
     async def delete_vectors(
         self,
         organization_id: str,

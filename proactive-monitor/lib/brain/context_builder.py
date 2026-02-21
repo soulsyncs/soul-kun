@@ -171,6 +171,9 @@ class LLMContext:
     # === Task 7: 感情コンテキスト ===
     emotion_context: str = ""
 
+    # === Phase 3.5: 組織関係コンテキスト ===
+    org_relationships: str = ""
+
     # === メタ情報 ===
     current_datetime: datetime = field(default_factory=lambda: datetime.now(JST))
     organization_id: str = ""
@@ -247,6 +250,10 @@ class LLMContext:
         if self.emotion_context:
             sections.append(self.emotion_context)
 
+        # Phase 3.5: 組織関係コンテキスト
+        if self.org_relationships:
+            sections.append(f"【組織関係情報】\n{self.org_relationships}")
+
         # 現在日時
         sections.append(f"【現在日時】\n{self.current_datetime.strftime('%Y年%m月%d日 %H:%M')}")
 
@@ -277,6 +284,7 @@ class ContextBuilder:
         phase2e_learning=None,
         outcome_learning=None,
         emotion_reader=None,
+        org_graph=None,
     ):
         """
         Args:
@@ -287,6 +295,7 @@ class ContextBuilder:
             phase2e_learning: Phase2ELearningインスタンス（学習基盤）
             outcome_learning: Phase 2F OutcomeLearningインスタンス
             emotion_reader: EmotionReaderインスタンス（Task 7: 感情分析）
+            org_graph: OrganizationGraphインスタンス（Phase 3.5: 組織関係RAG）
         """
         self.pool = pool
         self.memory_access = memory_access
@@ -295,6 +304,7 @@ class ContextBuilder:
         self.phase2e_learning = phase2e_learning
         self.outcome_learning = outcome_learning
         self.emotion_reader = emotion_reader
+        self.org_graph = org_graph
 
     async def build(
         self,
@@ -341,10 +351,11 @@ class ContextBuilder:
         # v10.79: session_stateを先に順次実行し、コネクション返却後にgather実行
         session_state = await _safe(self._get_session_state(user_id, room_id), "session_state")
 
-        # 3タスクを並行実行:
+        # 4タスクを並行実行:
         # - 2つの非DBタスク（Firestore/LLM API）
         # - 1つのDB統合タスク（9クエリを1コネクションで直列実行）
-        # 重要: gather内の messages/emotion は非DBタスクであること。
+        # - 1つの組織グラフタスク（Phase 3.5: キャッシュ参照 or 初回のみDB）
+        # 重要: gather内の messages/emotion/org_graph は非DBタスクであること。
         # DBを使うタスクを追加する場合は _fetch_all_db_data に統合すること。
         results = await asyncio.gather(
             _safe(self._get_recent_messages(user_id, room_id, organization_id), "messages", default=[]),
@@ -353,6 +364,7 @@ class ContextBuilder:
                 user_id, room_id, organization_id, message,
                 sender_name, phase2e_learnings_prefetched,
             ), "db_data", default={}, timeout=20.0),  # v10.79: 15→20 (DB_POOL_TIMEOUT=15の結果をキャッチするため、3AI合議)
+            _safe(self._fetch_org_graph_data(), "org_graph", default=""),
             return_exceptions=True,
         )
 
@@ -366,6 +378,7 @@ class ContextBuilder:
         recent_messages = _unpack(results[0], [])
         emotion_context = _unpack(results[1], "")
         db_data = _unpack(results[2], {})
+        org_relationships = _unpack(results[3], "")
         ceo_teachings = db_data.get("ceo_teachings", [])
 
         # DB統合結果を展開
@@ -396,6 +409,7 @@ class ContextBuilder:
             phase2e_learnings=phase2e_learnings,
             outcome_patterns=outcome_patterns,
             emotion_context=emotion_context,
+            org_relationships=org_relationships,
             current_datetime=datetime.now(JST),
             organization_id=organization_id,
             room_id=room_id,
@@ -1234,6 +1248,65 @@ class ContextBuilder:
             "name": sender_name or "ユーザー",
             "role": "",
         }
+
+    async def _fetch_org_graph_data(self) -> str:
+        """
+        組織グラフデータをLLMプロンプト用文字列に変換（Phase 3.5）
+
+        - 初回リクエスト時にキャッシュが空なら load_from_db() を呼ぶ（遅延初期化）
+        - DBにデータがない場合は空文字を返す（graceful degradation）
+        """
+        if not self.org_graph:
+            return ""
+
+        # 遅延初期化: キャッシュが空かつ未ロードなら一括読み込み（W-3: 重複ロード防止）
+        if not self.org_graph._person_cache and not self.org_graph._load_attempted:
+            await self.org_graph.load_from_db()
+
+        # DBにデータなし or 読み込み失敗
+        if not self.org_graph._person_cache:
+            return ""
+
+        lines = []
+
+        # 影響力トップ5人物
+        top_persons = self.org_graph.get_top_persons_by_influence(limit=5)
+        if top_persons:
+            lines.append("主要人物（影響力順）:")
+            for p in top_persons:
+                desc = p.name
+                if p.role:
+                    desc += f"（{p.role}）"
+                attrs = []
+                if p.expertise_areas:
+                    attrs.append(f"専門: {', '.join(p.expertise_areas[:2])}")
+                if p.influence_score >= 0.7:
+                    attrs.append("影響力: 高")
+                if p.communication_style and p.communication_style.value != "casual":
+                    attrs.append(f"スタイル: {p.communication_style.value}")
+                if attrs:
+                    desc += " / " + " / ".join(attrs)
+                lines.append(f"- {desc}")
+
+        # 主要な関係性（強度0.7以上、最大5件）
+        strong_rels = sorted(
+            [r for r in self.org_graph._relationship_cache.values() if r.strength >= 0.7],
+            key=lambda r: r.strength,
+            reverse=True,
+        )[:5]
+        if strong_rels:
+            lines.append("主要な関係性:")
+            for rel in strong_rels:
+                a = self.org_graph._person_cache.get(rel.person_a_id)
+                b = self.org_graph._person_cache.get(rel.person_b_id)
+                a_name = a.name if a else rel.person_a_id
+                b_name = b.name if b else rel.person_b_id
+                lines.append(
+                    f"- {a_name} —[{rel.relationship_type.value}]→ {b_name}"
+                    f"（強度: {rel.strength:.1f}）"
+                )
+
+        return "\n".join(lines) if lines else ""
 
     def _get_company_values(self) -> str:
         """会社の価値観（MVV）を取得"""

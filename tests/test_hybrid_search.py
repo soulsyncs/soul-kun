@@ -532,3 +532,65 @@ class TestHybridSearch:
             assert result.total_count == 0
             assert result.vector_count == 0
             assert result.keyword_count == 0
+
+
+# =============================================================================
+# アクセス制御フィルタのテスト
+# =============================================================================
+
+
+class TestAccessControlFilter:
+    """Pinecone部署フィルタのテスト"""
+
+    @pytest.mark.asyncio
+    async def test_vector_search_uses_access_control_when_classifications_given(
+        self, searcher_full, mock_pinecone, mock_embedding
+    ):
+        """accessible_classifications が渡されると search_with_access_control を使う"""
+        mock_pinecone.search_with_access_control = AsyncMock(return_value=Mock(results=[]))
+        mock_pinecone.search = AsyncMock(return_value=Mock(results=[]))
+
+        await searcher_full._vector_search(
+            "テスト",
+            accessible_classifications=["public", "internal"],
+            accessible_department_ids=["dept-1"],
+        )
+
+        mock_pinecone.search_with_access_control.assert_called_once()
+        mock_pinecone.search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_vector_search_uses_plain_search_when_no_classifications(
+        self, searcher_full, mock_pinecone, mock_embedding
+    ):
+        """accessible_classifications が None のときは従来の search を使う（後方互換）"""
+        mock_pinecone.search_with_access_control = AsyncMock(return_value=Mock(results=[]))
+        mock_pinecone.search = AsyncMock(return_value=Mock(results=[]))
+
+        await searcher_full._vector_search("テスト", accessible_classifications=None)
+
+        mock_pinecone.search.assert_called_once()
+        mock_pinecone.search_with_access_control.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_search_passes_department_ids_to_vector_search(
+        self, searcher_full, mock_pool, mock_pinecone, mock_embedding
+    ):
+        """search() から _vector_search() へ accessible_department_ids が伝わる"""
+        mock_pinecone.search_with_access_control = AsyncMock(return_value=Mock(results=[]))
+        conn = mock_pool.connect.return_value
+        knowledge_result = MagicMock()
+        knowledge_result.fetchall.return_value = []
+        chunks_result = MagicMock()
+        chunks_result.fetchall.return_value = []
+        conn.execute.side_effect = [knowledge_result, chunks_result]
+
+        await searcher_full.search(
+            "テスト",
+            accessible_department_ids=["dept-1", "dept-2"],
+            accessible_classifications=["public", "internal", "confidential"],
+        )
+
+        call_kwargs = mock_pinecone.search_with_access_control.call_args
+        assert call_kwargs.kwargs.get("accessible_department_ids") == ["dept-1", "dept-2"]
+        assert "confidential" in call_kwargs.kwargs.get("accessible_classifications", [])

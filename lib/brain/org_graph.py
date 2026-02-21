@@ -371,6 +371,7 @@ class OrganizationGraph:
         self._person_cache: Dict[str, PersonNode] = {}
         self._relationship_cache: Dict[str, PersonRelationship] = {}
         self._cache_timestamp: Optional[datetime] = None
+        self._load_attempted: bool = False  # Phase 3.5: 重複ロード防止フラグ
 
         # インタラクションバッファ
         self._interaction_buffer: List[Interaction] = []
@@ -709,8 +710,8 @@ class OrganizationGraph:
                                     "strength": relationship.strength,
                                     "trust": relationship.trust_level,
                                     "bidir": relationship.bidirectional,
-                                    "count": relationship.interaction_count,
-                                    "ctx": _json.dumps(relationship.context or {}),
+                                    "count": relationship.observed_interactions,
+                                    "ctx": _json.dumps({"notes": relationship.notes} if relationship.notes else {}),
                                 },
                             )
                             conn.commit()
@@ -1353,6 +1354,159 @@ class OrganizationGraph:
         self._cache_timestamp = None
 
         logger.debug("[OrganizationGraph] Cache cleared")
+
+    # =========================================================================
+    # Phase 3.5: 一括読み込み（DBスタブ解消）
+    # =========================================================================
+
+    async def load_from_db(self) -> None:
+        """
+        DBから全ノード・関係を一括読み込みしてキャッシュを初期化
+
+        起動時または最初のリクエスト時に1回呼び出す。
+        失敗しても graceful degradation（空キャッシュのまま続行）。
+        """
+        if not self.pool:
+            return
+
+        try:
+            from sqlalchemy import text as sa_text
+
+            def _sync_fetch():
+                with self.pool.connect() as conn:
+                    # W-1: RLS set_config（アプリレベルフィルタとの二重防御）
+                    conn.execute(
+                        sa_text(
+                            "SELECT set_config('app.current_organization_id', :org_id, true)"
+                        ),
+                        {"org_id": self.organization_id},
+                    )
+
+                    persons = conn.execute(
+                        sa_text("""
+                            SELECT id, person_id, name, department_id, role,
+                                   influence_score, expertise_areas,
+                                   communication_style, total_interactions,
+                                   avg_response_time_hours, activity_level,
+                                   created_at, updated_at
+                            FROM brain_person_nodes
+                            WHERE organization_id = :org_id::uuid
+                            ORDER BY influence_score DESC NULLS LAST
+                            LIMIT 100
+                        """),
+                        {"org_id": self.organization_id},
+                    ).mappings().all()
+
+                    relationships = conn.execute(
+                        sa_text("""
+                            SELECT id, person_a_id, person_b_id, relationship_type,
+                                   strength, trust_level, bidirectional,
+                                   interaction_count,
+                                   created_at, updated_at
+                            FROM brain_relationships
+                            WHERE organization_id = :org_id::uuid
+                            LIMIT 200
+                        """),
+                        {"org_id": self.organization_id},
+                    ).mappings().all()
+
+                    return list(persons), list(relationships)
+
+            persons_rows, rel_rows = await asyncio.to_thread(_sync_fetch)
+
+            # キャッシュに格納（人物ノード）
+            for row in persons_rows:
+                try:
+                    comm_style_val = row["communication_style"] or "casual"
+                    try:
+                        comm_style = CommunicationStyle(comm_style_val)
+                    except ValueError:
+                        comm_style = CommunicationStyle.CASUAL
+
+                    person = PersonNode(
+                        id=str(row["id"]),
+                        organization_id=self.organization_id,
+                        person_id=row["person_id"],
+                        name=row["name"] or "",
+                        department_id=row["department_id"],
+                        role=row["role"],
+                        influence_score=float(row["influence_score"] or INFLUENCE_SCORE_DEFAULT),
+                        expertise_areas=row["expertise_areas"] or [],
+                        communication_style=comm_style,
+                        total_interactions=int(row["total_interactions"] or 0),
+                        avg_response_time_hours=(
+                            float(row["avg_response_time_hours"])
+                            if row["avg_response_time_hours"] else None
+                        ),
+                        activity_level=float(row["activity_level"] or 0.5),
+                        created_at=row["created_at"] or datetime.now(),
+                        updated_at=row["updated_at"] or datetime.now(),
+                    )
+                    self._person_cache[row["person_id"]] = person
+                except Exception as row_e:
+                    logger.warning(
+                        "[OrganizationGraph] Error parsing person row: %s", type(row_e).__name__
+                    )
+
+            # キャッシュに格納（関係）
+            for row in rel_rows:
+                try:
+                    rel_type_val = row["relationship_type"] or "collaborates_with"
+                    try:
+                        rel_type = RelationshipType(rel_type_val)
+                    except ValueError:
+                        rel_type = RelationshipType.COLLABORATES_WITH
+
+                    rel = PersonRelationship(
+                        id=str(row["id"]),
+                        organization_id=self.organization_id,
+                        person_a_id=row["person_a_id"],
+                        person_b_id=row["person_b_id"],
+                        relationship_type=rel_type,
+                        strength=float(row["strength"] or RELATIONSHIP_STRENGTH_DEFAULT),
+                        trust_level=float(row["trust_level"] or TRUST_LEVEL_DEFAULT),
+                        bidirectional=bool(row["bidirectional"] or False),
+                        observed_interactions=int(row["interaction_count"] or 0),
+                        created_at=row["created_at"] or datetime.now(),
+                        updated_at=row["updated_at"] or datetime.now(),
+                    )
+                    key = f"{row['person_a_id']}:{row['person_b_id']}"
+                    self._relationship_cache[key] = rel
+                except Exception as row_e:
+                    logger.warning(
+                        "[OrganizationGraph] Error parsing relationship row: %s", type(row_e).__name__
+                    )
+
+            self._cache_timestamp = datetime.now()
+            self._load_attempted = True
+            logger.info(
+                "[OrganizationGraph] load_from_db: %d persons, %d relationships loaded",
+                len(persons_rows), len(rel_rows),
+            )
+
+        except Exception as e:
+            self._load_attempted = True  # 失敗してもリトライしない（graceful degradation）
+            logger.warning("[OrganizationGraph] load_from_db failed (graceful): %s", type(e).__name__)
+
+    # =========================================================================
+    # Phase 3.5: コンテキスト生成用ヘルパー
+    # =========================================================================
+
+    def get_top_persons_by_influence(self, limit: int = 5) -> List[PersonNode]:
+        """影響力スコアが高い人物をキャッシュから返す"""
+        persons = sorted(
+            self._person_cache.values(),
+            key=lambda p: p.influence_score,
+            reverse=True,
+        )
+        return persons[:limit]
+
+    def get_cached_relationships_for_person(self, person_id: str) -> List[PersonRelationship]:
+        """特定人物の関係をキャッシュから返す（同期版・Phase 3.5 context_builder用）"""
+        return [
+            rel for rel in self._relationship_cache.values()
+            if rel.person_a_id == person_id or rel.person_b_id == person_id
+        ]
 
 
 # =============================================================================

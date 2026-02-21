@@ -233,6 +233,13 @@ class InitializationMixin:
             pool=pool,
         )
 
+        # Phase 3.5: 組織グラフ（RAG統合用）
+        from lib.brain.org_graph import create_organization_graph
+        self.org_graph = create_organization_graph(
+            pool=pool,
+            organization_id=org_id,
+        )
+
         # v10.50.0: LLM Brain（LLM常駐型脳 - 25章）
         self.llm_brain: Optional[LLMBrain] = None
         self.llm_guardian: Optional[GuardianLayer] = None
@@ -362,6 +369,7 @@ class InitializationMixin:
                 phase2e_learning=self.learning.phase2e_learning,
                 outcome_learning=self.outcome_learning,
                 emotion_reader=self.emotion_reader,
+                org_graph=self.org_graph,
             )
             logger.info(
                 "🧠 [DIAG] LLMBrain init: SUCCESS model=%s, provider=%s",

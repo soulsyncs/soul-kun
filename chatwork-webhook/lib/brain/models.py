@@ -314,7 +314,11 @@ class PersonInfo:
     attributes: Dict[str, Any] = field(default_factory=dict)  # 汎用属性
 
     def to_dict(self) -> Dict[str, Any]:
-        """辞書形式に変換"""
+        """辞書形式に変換（PIIを含む完全版）
+
+        注意: ログや外部出力には使わないこと。
+        ログ・監査など外部出力には to_safe_dict() を使うこと（CLAUDE.md §9-4）。
+        """
         return {
             "person_id": self.person_id,
             "user_id": self.user_id,
@@ -325,6 +329,31 @@ class PersonInfo:
             "role": self.role,
             "position": self.position,
             "email": self.email,
+            "expertise": self.expertise,
+            "responsibilities": self.responsibilities,
+            "attributes": self.attributes,
+        }
+
+    def to_safe_dict(self) -> Dict[str, Any]:
+        """PIIをマスキングした安全な辞書形式に変換（ログ・外部出力用）
+
+        CLAUDE.md §9-4「思考過程のPIIマスキング」に準拠。
+        - name  → [PERSON]
+        - email → [EMAIL]
+
+        注意: LLMへの入力・内部ロジックには to_dict() を使うこと。
+        このメソッドはログ記録・監査・デバッグ情報の出力専用。
+        """
+        return {
+            "person_id": self.person_id,
+            "user_id": self.user_id,
+            "chatwork_account_id": self.chatwork_account_id,
+            "name": "[PERSON]" if self.name else "",
+            "description": self.description,
+            "department": self.department,
+            "role": self.role,
+            "position": self.position,
+            "email": "[EMAIL]" if self.email else None,
             "expertise": self.expertise,
             "responsibilities": self.responsibilities,
             "attributes": self.attributes,
@@ -899,7 +928,8 @@ class BrainContext:
             "user_preferences": safe_to_dict(self.user_preferences) if self.user_preferences else None,
             "sender_name": self.sender_name,
             "sender_account_id": self.sender_account_id,
-            "person_info": safe_to_dict(self.person_info),
+            # PIIマスキング: person_info はログ出力のため to_safe_dict() を使用（CLAUDE.md §9-4）
+            "person_info": [p.to_safe_dict() for p in self.person_info] if isinstance(self.person_info, list) else safe_to_dict(self.person_info),
             "recent_tasks": safe_to_dict(self.recent_tasks),
             "active_goals": safe_to_dict(self.active_goals),
             "goal_session": safe_to_dict(self.goal_session) if self.goal_session else None,

@@ -470,6 +470,54 @@ class TestPersonInfo:
         p = PersonInfo(person_id="p-123")
         assert p.id == "p-123"
 
+    # --- to_safe_dict PII マスキング ---
+
+    def test_to_safe_dict_masks_name(self):
+        """to_safe_dict は name を [PERSON] にマスク"""
+        p = PersonInfo(name="田中太郎", department="営業部")
+        d = p.to_safe_dict()
+        assert d["name"] == "[PERSON]"
+        assert d["department"] == "営業部"
+
+    def test_to_safe_dict_masks_email(self):
+        """to_safe_dict は email を [EMAIL] にマスク"""
+        p = PersonInfo(name="田中", email="tanaka@example.com")
+        d = p.to_safe_dict()
+        assert d["email"] == "[EMAIL]"
+
+    def test_to_safe_dict_empty_name_stays_empty(self):
+        """to_safe_dict は空の name を [PERSON] にしない"""
+        p = PersonInfo(name="")
+        d = p.to_safe_dict()
+        assert d["name"] == ""
+
+    def test_to_safe_dict_none_email_stays_none(self):
+        """to_safe_dict は None の email を [EMAIL] にしない"""
+        p = PersonInfo(name="田中", email=None)
+        d = p.to_safe_dict()
+        assert d["email"] is None
+
+    def test_to_safe_dict_preserves_non_pii(self):
+        """to_safe_dict は PII 以外のフィールドを変更しない"""
+        p = PersonInfo(
+            person_id="p-1",
+            department="開発部",
+            role="エンジニア",
+            expertise=["Python", "AI"],
+        )
+        d = p.to_safe_dict()
+        assert d["person_id"] == "p-1"
+        assert d["department"] == "開発部"
+        assert d["role"] == "エンジニア"
+        assert d["expertise"] == ["Python", "AI"]
+
+    def test_to_dict_still_returns_raw_pii(self):
+        """to_dict は引き続き生の PII を返す（内部ロジック用）"""
+        p = PersonInfo(name="田中太郎", email="tanaka@example.com")
+        d = p.to_dict()
+        assert d["name"] == "田中太郎"
+        assert d["email"] == "tanaka@example.com"
+
 
 # =============================================================================
 # TaskInfo テスト (lines 437, 442-445)

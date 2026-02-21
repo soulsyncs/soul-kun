@@ -17,6 +17,7 @@ import {
   CheckSquare,
   Lightbulb,
   Video,
+  CalendarDays,
   Zap,
   BookOpen,
   Settings,
@@ -46,6 +47,7 @@ const navigation = [
   { name: 'AI脳分析', href: '/brain', icon: Brain },
   { name: 'インサイト', href: '/insights', icon: Lightbulb },
   { name: 'ミーティング', href: '/meetings', icon: Video },
+  { name: 'カレンダー', href: '/calendar', icon: CalendarDays },
   // 運用
   { name: 'プロアクティブ', href: '/proactive', icon: Zap },
   { name: 'CEO教え', href: '/teachings', icon: BookOpen },

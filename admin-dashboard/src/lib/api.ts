@@ -622,4 +622,124 @@ export const api = {
         total: number;
       }>(`/admin/integrations/google-calendar/events?days=${days}`),
   },
+
+  // ===== Google Drive管理 =====
+  drive: {
+    getFiles: (params?: {
+      q?: string;
+      classification?: string;
+      department_id?: string;
+      page?: number;
+      per_page?: number;
+    }) => {
+      const searchParams = new URLSearchParams();
+      if (params?.q) searchParams.set('q', params.q);
+      if (params?.classification) searchParams.set('classification', params.classification);
+      if (params?.department_id) searchParams.set('department_id', params.department_id);
+      if (params?.page) searchParams.set('page', String(params.page));
+      if (params?.per_page) searchParams.set('per_page', String(params.per_page));
+      const qs = searchParams.toString();
+      return fetchWithAuth<{
+        status: string;
+        files: Array<{
+          id: string;
+          title: string | null;
+          file_name: string | null;
+          file_type: string | null;
+          file_size_bytes: number | null;
+          classification: string;
+          category: string | null;
+          google_drive_file_id: string | null;
+          google_drive_web_view_link: string | null;
+          google_drive_last_modified: string | null;
+          processing_status: string | null;
+          updated_at: string | null;
+        }>;
+        total: number;
+        page: number;
+        per_page: number;
+      }>(`/admin/drive/files${qs ? `?${qs}` : ''}`);
+    },
+
+    getSyncStatus: () =>
+      fetchWithAuth<{
+        status: string;
+        total_files: number;
+        last_synced_at: string | null;
+        failed_count: number;
+      }>('/admin/drive/sync-status'),
+
+    downloadFile: async (documentId: string, fileName: string) => {
+      const authHeaders: Record<string, string> = {};
+      // Re-use bearer token from module scope via a separate fetch call
+      const url = `${API_BASE_URL}/admin/drive/files/${documentId}/download`;
+      const headers: Record<string, string> = {
+        'X-Requested-With': 'XMLHttpRequest',
+      };
+      // Access token from sessionStorage
+      try {
+        const saved = sessionStorage.getItem('soulkun_admin_token');
+        if (saved) authHeaders['Authorization'] = `Bearer ${saved}`;
+      } catch { /* ignore */ }
+      Object.assign(headers, authHeaders);
+
+      const response = await fetch(url, { credentials: 'include', headers });
+      if (!response.ok) throw new Error(`Download failed: ${response.status}`);
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = fileName || 'download';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    },
+
+    uploadFile: async (
+      file: File,
+      classification: string,
+      onProgress?: (pct: number) => void
+    ) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('classification', classification);
+
+      const url = `${API_BASE_URL}/admin/drive/upload`;
+      const headers: Record<string, string> = {
+        'X-Requested-With': 'XMLHttpRequest',
+      };
+      try {
+        const saved = sessionStorage.getItem('soulkun_admin_token');
+        if (saved) headers['Authorization'] = `Bearer ${saved}`;
+      } catch { /* ignore */ }
+
+      // XHR for upload progress
+      return new Promise<{ status: string; message: string; google_drive_file_id: string | null; google_drive_web_view_link: string | null }>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', url);
+        Object.entries(headers).forEach(([k, v]) => xhr.setRequestHeader(k, v));
+        xhr.withCredentials = true;
+        if (onProgress) {
+          xhr.upload.addEventListener('progress', (e) => {
+            if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+          });
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve(JSON.parse(xhr.responseText));
+          } else {
+            try {
+              const err = JSON.parse(xhr.responseText);
+              reject(new Error(err?.detail?.error_message || err?.detail || `Upload failed: ${xhr.status}`));
+            } catch {
+              reject(new Error(`Upload failed: ${xhr.status}`));
+            }
+          }
+        };
+        xhr.onerror = () => reject(new Error('Network error during upload'));
+        xhr.send(formData);
+      });
+    },
+  },
 };

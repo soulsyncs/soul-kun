@@ -162,12 +162,32 @@ class TaskExtractionResult:
     total_unassigned: int = 0
 
 
-def build_task_extraction_prompt(minutes_text: str, meeting_title: str) -> str:
-    """タスク抽出用プロンプトを構築"""
-    return (
-        f"以下の会議「{meeting_title}」の議事録からタスクを抽出してください。\n\n"
-        f"<meeting_minutes>\n{minutes_text}\n</meeting_minutes>"
-    )
+def build_task_extraction_prompt(
+    minutes_text: str,
+    meeting_title: str,
+    speaker_context: Optional[str] = None,
+) -> str:
+    """タスク抽出用プロンプトを構築。
+
+    speaker_context が渡された場合は匿名化された発言記録を参考情報として添付する。
+    これにより「話者1: 私が対応します」といった発言から担当者を特定できる。
+    speaker_context には実名は含まれず、「話者1」「話者2」等の匿名ラベルのみ使用。
+    """
+    base = f"以下の会議「{meeting_title}」の議事録からタスクを抽出してください。\n\n"
+
+    if speaker_context:
+        base += (
+            "【参考: 会議の発言記録（誰が担当を申し出たかを特定するための参考情報）】\n"
+            "下記の「話者1」「話者2」は参加者の匿名表記です。\n"
+            "タスクの担当者を特定する際、誰が「対応します」「やります」「担当します」等と\n"
+            "発言したかを参照してください。担当者フィールドには「話者1」等の匿名ラベルで記入してください。\n"
+            "<speaker_transcript>\n"
+            f"{speaker_context}\n"
+            "</speaker_transcript>\n\n"
+        )
+
+    base += f"<meeting_minutes>\n{minutes_text}\n</meeting_minutes>"
+    return base
 
 
 def parse_task_extraction_response(response: str) -> List[ExtractedTask]:
@@ -222,6 +242,8 @@ async def extract_and_create_tasks(
     get_ai_response_func: Optional[Callable] = None,
     chatwork_client=None,
     name_resolver: Optional[Callable] = None,
+    speaker_context: Optional[str] = None,
+    speaker_reverse_map: Optional[Dict[str, str]] = None,
 ) -> TaskExtractionResult:
     """
     議事録からタスクを抽出し、ChatWorkタスクを作成する。
@@ -247,7 +269,7 @@ async def extract_and_create_tasks(
         return result
 
     # Step 1: LLMでタスク抽出
-    prompt = build_task_extraction_prompt(minutes_text, meeting_title)
+    prompt = build_task_extraction_prompt(minutes_text, meeting_title, speaker_context)
 
     try:
         if asyncio.iscoroutinefunction(get_ai_response_func):
@@ -271,6 +293,14 @@ async def extract_and_create_tasks(
     tasks = parse_task_extraction_response(response)
     # 上限制限（ChatWork API rate limit防止）
     tasks = tasks[:MAX_TASKS_PER_EXTRACTION]
+
+    # 話者ラベル逆変換（「話者1」→ 実名）
+    # speaker_reverse_mapが渡された場合のみ実行（後方互換: Noneのとき何もしない）
+    if speaker_reverse_map:
+        for task in tasks:
+            if task.assignee_name and task.assignee_name in speaker_reverse_map:
+                task.assignee_name = speaker_reverse_map[task.assignee_name]
+
     result.tasks = tasks
     result.total_extracted = len(tasks)
 

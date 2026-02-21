@@ -105,6 +105,15 @@
 - `_connect_with_org_context()` の finally は try/except なし → finally 内の NULL set_config が失敗した場合 TypeError が伝播する（pre-existing）
 - 詳細: `topics/memory_layer_rls_patterns.md`
 
+## lib/meetings/ architecture patterns (confirmed 2026-02-21 proposal review)
+
+- `vtt_parser.py`: `parse_vtt()` correctly extracts `speaker` field from "Name: text" VTT format. `VTTTranscript.speakers` returns unique speaker list. Speaker IS preserved in VTTSegment objects but discarded downstream.
+- `transcript_sanitizer.py`: `TranscriptSanitizer` does NOT strip speaker names. Patterns are: credit card, Japanese address, employee ID, my number, phone, email etc. Speaker names are NOT in the PII pattern list. They are discarded because `speakers_json=None` and `raw_transcript=None` are passed to `save_transcript()` (hard-coded in zoom_brain_interface.py line 248-249, not via sanitizer setting).
+- `zoom_brain_interface.py`: `_save_minutes_to_memory()` exists at line 459 (NOT 468 as proposal claimed). Saves: title, meeting_id, room_id, document_url, duration_seconds, task_count. Does NOT save: transcript text, speaker names.
+- `google_meet_brain_interface.py`: `_save_minutes_to_memory()` exists at line 551 (NOT 621 as proposal claimed). Saves: title, meeting_id, room_id, drive_url, task_count. Confirmed working pattern.
+- `BrainMemoryEnhancement` (__init__.py): exposes `find_episodes_by_keywords()` (line 217). Does NOT expose `find_episodes_by_time_range()` or `find_similar_episodes()` as public methods. These exist ONLY in `EpisodeRepository` (episode_repository.py lines 472, 537) as lower-level `find_by_time_range()` and `find_similar()`.
+- Proposal's claim that "find_episodes_by_time_range(), find_similar_episodes() are existing and working" is MISLEADING. They exist in the repository layer but are NOT exposed in the public facade (BrainMemoryEnhancement). Any caller must go through EpisodeRepository directly, bypassing the organization_id safety wrapper.
+
 ## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
 
 - `--all` flag only scans `lib/`, `chatwork-webhook/lib/`, `proactive-monitor/lib/` — NOT `api/` or `cost-report/`

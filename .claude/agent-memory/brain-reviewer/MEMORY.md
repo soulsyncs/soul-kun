@@ -110,9 +110,27 @@
 - `vtt_parser.py`: `parse_vtt()` correctly extracts `speaker` field from "Name: text" VTT format. `VTTTranscript.speakers` returns unique speaker list. Speaker IS preserved in VTTSegment objects but discarded downstream.
 - `transcript_sanitizer.py`: `TranscriptSanitizer` does NOT strip speaker names. Patterns are: credit card, Japanese address, employee ID, my number, phone, email etc. Speaker names are NOT in the PII pattern list. They are discarded because `speakers_json=None` and `raw_transcript=None` are passed to `save_transcript()` (hard-coded in zoom_brain_interface.py line 248-249, not via sanitizer setting).
 - `zoom_brain_interface.py`: `_save_minutes_to_memory()` exists at line 459 (NOT 468 as proposal claimed). Saves: title, meeting_id, room_id, document_url, duration_seconds, task_count. Does NOT save: transcript text, speaker names.
-- `google_meet_brain_interface.py`: `_save_minutes_to_memory()` exists at line 551 (NOT 621 as proposal claimed). Saves: title, meeting_id, room_id, drive_url, task_count. Confirmed working pattern.
+- `google_meet_brain_interface.py`: `_save_minutes_to_memory()` exists at line 551 (NOT 621 as proposal claimed). Saves: title, meeting_id, room_id, **drive_url** (NOT document_url), task_count. Confirmed working pattern.
 - `BrainMemoryEnhancement` (__init__.py): exposes `find_episodes_by_keywords()` (line 217). Does NOT expose `find_episodes_by_time_range()` or `find_similar_episodes()` as public methods. These exist ONLY in `EpisodeRepository` (episode_repository.py lines 472, 537) as lower-level `find_by_time_range()` and `find_similar()`.
 - Proposal's claim that "find_episodes_by_time_range(), find_similar_episodes() are existing and working" is MISLEADING. They exist in the repository layer but are NOT exposed in the public facade (BrainMemoryEnhancement). Any caller must go through EpisodeRepository directly, bypassing the organization_id safety wrapper.
+- **NEW (feat/past-meeting-query)**: `find_episodes_by_time_range()` wrapper NOW added to `BrainMemoryEnhancement` (line 353). Delegates to `_episode_repo.find_by_time_range()`. organization_id is stored in `_episode_repo.organization_id` and applied in every query (CAST(:organization_id AS uuid)). PASS.
+
+## feat/past-meeting-query review patterns (2026-02-21)
+
+- **CRITICAL W-1**: `google_meet_brain_interface._save_minutes_to_memory()` stores key as `"drive_url"` but `search_past_meetings()` looks up `details.get("document_url", "")`. Google Meet meetings will always show empty URL. Zoom uses `"document_url"` (correct). Fix: add `details.get("drive_url") or details.get("document_url", "")` in search_past_meetings.
+- **WARNING**: `past_meeting_query` NOT in `handlers/registry.py` (SYSTEM_CAPABILITIES). The LLM Brain reads SYSTEM_CAPABILITIES to decide which tool to call. Without a registry entry, the LLM cannot route to this handler. The handler is wired in `get_capability_handlers()` correctly, but the LLM won't know to call it. Must add to registry.py.
+- **WARNING**: `find_episodes_by_time_range()` return type is `List` (bare) instead of `List[Episode]` — weak type annotation. EpisodeRepository returns `List[Episode]`.
+- **WARNING**: `handle_past_meeting_query()` has no try/except. If `pool.connect()` or DB query fails, exception propagates to `execute_tool` node which does have an outer try/except (logs error + returns failure state). Not a crash, but no graceful fallback message to user.
+- **SUGGESTION**: `%-m` and `%-d` strftime format (no-pad) works on Linux (Cloud Run) and macOS. Tested OK on this machine (macOS Python 3.14).
+- **SUGGESTION**: `List` return type in `BrainMemoryEnhancement.find_episodes_by_time_range()` should be `List[Episode]`.
+- **3-copy sync**: All 6 changed files are IDENTICAL across lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/. PASS.
+- **org_id isolation**: `EpisodeRepository.__init__` stores `organization_id` and applies `CAST(:organization_id AS uuid)` in every query. `BrainMemoryEnhancement(org_id)` is initialized with `org_id` from handler. PASS.
+- **async correctness**: `pool.connect()` is sync, called inside `_search_sync()` which is wrapped in `asyncio.to_thread()`. PASS.
+- **PII in logs**: `logger.info("Past meeting search: query_len=%d, found=%d, desc=%s", ...)` — query content NOT logged, only its length. PASS.
+- **Brain architecture**: Feature goes through capability_bridge → Brain decision → handler. PASS (no bypass).
+- **NO_CONFIRMATION_ACTIONS**: `past_meeting_query` added correctly (read-only, low risk). PASS.
+- **RISK_LEVELS**: `"past_meeting_query": "low"` added. PASS.
+- **EpisodeType**: Both zoom and google_meet save with `EpisodeType.INTERACTION`, and search also filters by `EpisodeType.INTERACTION`. Match confirmed. PASS.
 
 ## validate_sql_columns.sh coverage gap (confirmed Phase 3 review)
 
@@ -613,11 +631,20 @@
 - LLM 不使用時 return False — ゴミデータをDBに入れない設計は正しい
 - `_should_update_summary` の成功時のみ `_summary_update_times` 更新（失敗時は次回再試行できる設計）
 
+## Speaker attribution (話者識別) patterns (confirmed 2026-02-21)
+
+- `zoom_brain_interface.py` Step 10: speaker_map (実名→話者N) + reverse_map (話者N→実名) はメモリのみ。DBに保存しない。
+- `seg.text` は sanitized_text でなく生VTTテキスト。PII除去前テキストが speaker_context 経由でLLMに送られる（WARNING）。
+- `google_meet_brain_interface.py`: 自動文字起こし/Whisperともに話者情報なし → speaker attribution 適用不要（技術的不可）。
+- 3コピー同期: task_extractor.py / zoom_brain_interface.py 全てIDENTICAL (PASS)。
+- 詳細: `topics/speaker_attribution_review.md`
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614
 - `topics/admin_dashboard_frontend.md`: admin-dashboard フロントエンドレビューパターン (Phase A-1 通貨表示バグ修正等)
 - `topics/phase_b2_audit_db_write.md`: Phase B-2 監査ログDB永続保存 詳細レビュー結果
+- `topics/speaker_attribution_review.md`: Speaker attribution 話者識別 詳細レビュー (2026-02-21)
 
 ## fix/currency-display-jpy ブランチ フェーズ別サマリー
 

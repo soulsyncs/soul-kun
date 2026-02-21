@@ -10,6 +10,16 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
 
+# Python 3.14 + langfuse 非互換対策: importより前にモックを注入
+# langfuse は pydantic v1 を使っており Python 3.14 で起動時クラッシュする
+_langfuse_mock = MagicMock()
+_langfuse_mock.decorators.observe = lambda *a, **kw: (lambda f: f)
+_langfuse_mock.decorators.langfuse_context = MagicMock()
+sys.modules.setdefault("langfuse", _langfuse_mock)
+sys.modules.setdefault("langfuse.decorators", _langfuse_mock.decorators)
+sys.modules.setdefault("langfuse.client", MagicMock())
+sys.modules.setdefault("langfuse.api", MagicMock())
+
 # プロジェクトルートをパスに追加
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)

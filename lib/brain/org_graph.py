@@ -710,8 +710,8 @@ class OrganizationGraph:
                                     "strength": relationship.strength,
                                     "trust": relationship.trust_level,
                                     "bidir": relationship.bidirectional,
-                                    "count": relationship.interaction_count,
-                                    "ctx": _json.dumps(relationship.context or {}),
+                                    "count": relationship.observed_interactions,
+                                    "ctx": _json.dumps({"notes": relationship.notes} if relationship.notes else {}),
                                 },
                             )
                             conn.commit()
@@ -1374,6 +1374,14 @@ class OrganizationGraph:
 
             def _sync_fetch():
                 with self.pool.connect() as conn:
+                    # W-1: RLS set_config（アプリレベルフィルタとの二重防御）
+                    conn.execute(
+                        sa_text(
+                            "SELECT set_config('app.current_organization_id', :org_id, true)"
+                        ),
+                        {"org_id": self.organization_id},
+                    )
+
                     persons = conn.execute(
                         sa_text("""
                             SELECT id, person_id, name, department_id, role,

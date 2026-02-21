@@ -1111,3 +1111,115 @@ class TestOrganizationGraphIntegration:
         assert rel is not None
         assert rel.observed_interactions == 5
         assert rel.strength > RELATIONSHIP_STRENGTH_DEFAULT
+
+
+# =============================================================================
+# W-2: 公開API メソッドのテスト（get_strong_relationships / get_person_by_id / is_cache_loaded）
+# PR #672 で追加した3つの公開メソッドの単体テスト
+# =============================================================================
+
+class TestPublicCacheAPI:
+    """W-2対応で追加した公開APIメソッドのテスト"""
+
+    @pytest.mark.anyio
+    async def test_is_cache_loaded_initially_false(self):
+        """初期状態: キャッシュは空でロード未試行 → False を返す"""
+        graph = OrganizationGraph(organization_id="org1")
+        assert graph.is_cache_loaded() is False
+
+    @pytest.mark.anyio
+    async def test_is_cache_loaded_after_upsert(self):
+        """人物を追加するとキャッシュに入る → True を返す"""
+        graph = OrganizationGraph(organization_id="org1")
+        await graph.upsert_person(PersonNode(person_id="p1", name="テスト太郎"))
+        assert graph.is_cache_loaded() is True
+
+    @pytest.mark.anyio
+    async def test_get_person_by_id_returns_node(self):
+        """登録済み人物IDでPersonNodeが返る"""
+        graph = OrganizationGraph(organization_id="org1")
+        person = PersonNode(person_id="p1", name="テスト太郎", influence_score=0.8)
+        await graph.upsert_person(person)
+
+        result = graph.get_person_by_id("p1")
+        assert result is not None
+        assert result.person_id == "p1"
+
+    @pytest.mark.anyio
+    async def test_get_person_by_id_returns_none_for_unknown(self):
+        """未登録IDはNoneを返す"""
+        graph = OrganizationGraph(organization_id="org1")
+        assert graph.get_person_by_id("nonexistent") is None
+
+    @pytest.mark.anyio
+    async def test_get_strong_relationships_filters_by_strength(self):
+        """min_strength以上の関係だけが返る"""
+        graph = OrganizationGraph(organization_id="org1")
+        # 強い関係（strength=0.9）
+        strong = PersonRelationship(
+            person_a_id="p1", person_b_id="p2",
+            relationship_type=RelationshipType.COLLABORATES_WITH,
+            strength=0.9,
+        )
+        # 弱い関係（strength=0.3）
+        weak = PersonRelationship(
+            person_a_id="p1", person_b_id="p3",
+            relationship_type=RelationshipType.COLLABORATES_WITH,
+            strength=0.3,
+        )
+        await graph.upsert_relationship(strong)
+        await graph.upsert_relationship(weak)
+
+        results = graph.get_strong_relationships(min_strength=0.7, limit=10)
+        strengths = [r.strength for r in results]
+        assert all(s >= 0.7 for s in strengths)
+        assert 0.9 in strengths
+        assert 0.3 not in strengths
+
+    @pytest.mark.anyio
+    async def test_get_strong_relationships_respects_limit(self):
+        """limitパラメータで件数が制限される"""
+        graph = OrganizationGraph(organization_id="org1")
+        # 3件の強い関係を追加
+        for i in range(3):
+            rel = PersonRelationship(
+                person_a_id=f"p{i}",
+                person_b_id="hub",
+                relationship_type=RelationshipType.COLLABORATES_WITH,
+                strength=0.8,
+            )
+            await graph.upsert_relationship(rel)
+
+        results = graph.get_strong_relationships(min_strength=0.5, limit=2)
+        assert len(results) <= 2
+
+    @pytest.mark.anyio
+    async def test_get_strong_relationships_sorted_descending(self):
+        """返り値は強度の降順にソートされる"""
+        graph = OrganizationGraph(organization_id="org1")
+        for strength in [0.7, 0.9, 0.8]:
+            rel = PersonRelationship(
+                person_a_id=f"p_s{int(strength*10)}",
+                person_b_id="hub",
+                relationship_type=RelationshipType.COLLABORATES_WITH,
+                strength=strength,
+            )
+            await graph.upsert_relationship(rel)
+
+        results = graph.get_strong_relationships(min_strength=0.5, limit=10)
+        strengths = [r.strength for r in results]
+        assert strengths == sorted(strengths, reverse=True)
+
+    @pytest.mark.anyio
+    async def test_get_strong_relationships_empty_when_none_qualify(self):
+        """min_strengthを超える関係がゼロの場合は空リストを返す"""
+        graph = OrganizationGraph(organization_id="org1")
+        rel = PersonRelationship(
+            person_a_id="p1", person_b_id="p2",
+            relationship_type=RelationshipType.COLLABORATES_WITH,
+            strength=0.3,
+        )
+        await graph.upsert_relationship(rel)
+
+        results = graph.get_strong_relationships(min_strength=0.9, limit=10)
+        assert results == []

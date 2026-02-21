@@ -282,7 +282,7 @@ class PersonAliasResolver:
         # 3. スペースを除去
         normalized = SPACE_PATTERN.sub('', normalized)
 
-        logger.debug(f"Normalized name: '{name}' → '{normalized}'")
+        logger.debug("Normalized name: '[PERSON]' → '[PERSON]'")  # §9-4 PIIマスキング
         return normalized.strip()
 
     def remove_honorific(self, name: str) -> str:
@@ -335,7 +335,7 @@ class PersonAliasResolver:
             # 名前（残りの文字）
             aliases.append(base_name[2:])
 
-        logger.debug(f"Generated aliases for '{base_name}': {aliases}")
+        logger.debug(f"Generated aliases for '[PERSON]': count={len(aliases)}")  # §9-4 PIIマスキング
         return aliases
 
     # =========================================================================
@@ -462,7 +462,7 @@ class PersonAliasResolver:
         """解決結果を構築"""
         if not candidates:
             # 候補なし → 確認必要
-            logger.debug(f"No candidates found for '{input_name}'")
+            logger.debug("No candidates found for '[PERSON]'")  # §9-4 PIIマスキング
             return PersonResolutionResult(
                 input_name=input_name,
                 resolved_to=None,
@@ -484,7 +484,7 @@ class PersonAliasResolver:
 
         if needs_confirmation:
             logger.debug(
-                f"Multiple candidates or low confidence for '{input_name}': "
+                f"Multiple candidates or low confidence for '[PERSON]': "  # §9-4 PIIマスキング
                 f"{len(candidates)} candidates, best confidence={best.confidence:.2f}"
             )
             return PersonResolutionResult(
@@ -497,7 +497,7 @@ class PersonAliasResolver:
             )
 
         logger.info(
-            f"Resolved '{input_name}' → '{best.name}' "
+            f"Resolved '[PERSON]' → '[PERSON]' "  # §9-4 PIIマスキング
             f"(type={best.match_type.value}, confidence={best.confidence:.2f})"
         )
         return PersonResolutionResult(

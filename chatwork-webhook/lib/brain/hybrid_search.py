@@ -260,6 +260,8 @@ class HybridSearcher:
         self,
         query: str,
         top_k: int = DEFAULT_TOP_K,
+        accessible_department_ids: Optional[List[str]] = None,
+        accessible_classifications: Optional[List[str]] = None,
     ) -> HybridSearchResponse:
         """
         ハイブリッド検索を実行
@@ -267,6 +269,8 @@ class HybridSearcher:
         Args:
             query: 検索クエリ
             top_k: 返す結果数
+            accessible_department_ids: アクセス可能な部署IDリスト（None=フィルタなし, []=全てブロック）
+            accessible_classifications: アクセス可能な機密区分リスト（None=フィルタなし）
 
         Returns:
             HybridSearchResponse
@@ -281,7 +285,12 @@ class HybridSearcher:
         query = query.strip()[:MAX_QUERY_LENGTH]
 
         # ベクトル検索とキーワード検索を並列実行
-        vector_task = self._vector_search(query, top_k=top_k * 2)
+        vector_task = self._vector_search(
+            query,
+            top_k=top_k * 2,
+            accessible_department_ids=accessible_department_ids,
+            accessible_classifications=accessible_classifications,
+        )
         keyword_task = self._keyword_search(query, limit=top_k * 2)
 
         try:
@@ -330,12 +339,19 @@ class HybridSearcher:
         self,
         query: str,
         top_k: int = 10,
+        accessible_department_ids: Optional[List[str]] = None,
+        accessible_classifications: Optional[List[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Pineconeベクトル検索
 
         クエリをEmbeddingに変換し、Pineconeで類似度検索する。
+        accessible_classifications が指定された場合はアクセス制御フィルタを適用する。
         pinecone_client または embedding_client がない場合は空リストを返す。
+
+        Note（フェイルセーフ）:
+            accessible_department_ids=[] の場合、confidential文書は0件になる。
+            None の場合は部署フィルタなし（後方互換）。
         """
         if not self.pinecone_client or not self.embedding_client:
             return []
@@ -345,12 +361,23 @@ class HybridSearcher:
             embedding_result = await self.embedding_client.embed_query(query)
             query_vector = embedding_result.vector
 
-            # Pinecone検索
-            response = await self.pinecone_client.search(
-                organization_id=self.org_id,
-                query_vector=query_vector,
-                top_k=top_k,
-            )
+            # Pinecone検索（アクセス制御フィルタの有無で分岐）
+            if accessible_classifications is not None:
+                # アクセス制御あり: 機密区分・部署フィルタを適用
+                response = await self.pinecone_client.search_with_access_control(
+                    organization_id=self.org_id,
+                    query_vector=query_vector,
+                    accessible_classifications=accessible_classifications,
+                    accessible_department_ids=accessible_department_ids,
+                    top_k=top_k,
+                )
+            else:
+                # アクセス制御なし: 従来通り（後方互換）
+                response = await self.pinecone_client.search(
+                    organization_id=self.org_id,
+                    query_vector=query_vector,
+                    top_k=top_k,
+                )
 
             # 最小スコアフィルタ
             results = []

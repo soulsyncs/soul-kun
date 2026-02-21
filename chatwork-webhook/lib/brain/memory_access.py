@@ -28,7 +28,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Any, List, Union
+from typing import Optional, Dict, Any, List, Tuple, Union
 from uuid import UUID
 
 from sqlalchemy import text
@@ -267,6 +267,9 @@ class BrainMemoryAccess:
         Returns:
             Dict: 全ての記憶を含む辞書
         """
+        # Pinecone検索用のアクセス制御パラメータを取得
+        accessible_classifications, accessible_dept_ids = await self._get_access_control_params(user_id)
+
         # 並列で全ての記憶を取得（エラーは個別に処理）
         results = await asyncio.gather(
             self.get_recent_conversation(room_id, user_id),
@@ -275,7 +278,11 @@ class BrainMemoryAccess:
             self.get_person_info(),
             self.get_recent_tasks(user_id),
             self.get_active_goals(user_id),
-            self.get_relevant_knowledge(message) if message else self._empty_list(),
+            self.get_relevant_knowledge(
+                message,
+                accessible_department_ids=accessible_dept_ids,
+                accessible_classifications=accessible_classifications,
+            ) if message else self._empty_list(),
             self.get_recent_insights(),
             return_exceptions=True,
         )
@@ -875,6 +882,8 @@ class BrainMemoryAccess:
         self,
         query: str,
         limit: int = 5,
+        accessible_department_ids: Optional[List[str]] = None,
+        accessible_classifications: Optional[List[str]] = None,
     ) -> List[KnowledgeInfo]:
         """
         クエリに関連する会社知識を取得
@@ -885,6 +894,8 @@ class BrainMemoryAccess:
         Args:
             query: 検索クエリ（ユーザーのメッセージ）
             limit: 最大取得件数
+            accessible_department_ids: アクセス可能な部署IDリスト（Pinecone部署フィルタ用）
+            accessible_classifications: アクセス可能な機密区分リスト（Pinecone機密フィルタ用）
 
         Returns:
             List[KnowledgeInfo]: 会社知識のリスト
@@ -894,7 +905,12 @@ class BrainMemoryAccess:
 
         # ハイブリッド検索が利用可能な場合
         if self.hybrid_searcher:
-            return await self._hybrid_knowledge_search(query, limit)
+            return await self._hybrid_knowledge_search(
+                query,
+                limit,
+                accessible_department_ids=accessible_department_ids,
+                accessible_classifications=accessible_classifications,
+            )
 
         # フォールバック: ILIKEベースの検索
         return await self._ilike_knowledge_search(query, limit)
@@ -903,10 +919,17 @@ class BrainMemoryAccess:
         self,
         query: str,
         limit: int = 5,
+        accessible_department_ids: Optional[List[str]] = None,
+        accessible_classifications: Optional[List[str]] = None,
     ) -> List[KnowledgeInfo]:
         """ハイブリッド検索を使った知識検索"""
         try:
-            response = await self.hybrid_searcher.search(query, top_k=limit)
+            response = await self.hybrid_searcher.search(
+                query,
+                top_k=limit,
+                accessible_department_ids=accessible_department_ids,
+                accessible_classifications=accessible_classifications,
+            )
 
             return [
                 KnowledgeInfo(
@@ -921,6 +944,74 @@ class BrainMemoryAccess:
         except Exception as e:
             logger.warning("Hybrid search failed, falling back to ILIKE: %s", type(e).__name__)
             return await self._ilike_knowledge_search(query, limit)
+
+    async def _get_access_control_params(
+        self,
+        chatwork_account_id: str,
+    ) -> Tuple[Optional[List[str]], Optional[List[str]]]:
+        """
+        Pinecone検索に使用するアクセス制御パラメータを取得する
+
+        Returns:
+            (accessible_classifications, accessible_department_ids)
+            エラー時は (None, None) を返し後方互換挙動（フィルタなし）にフォールバック
+        """
+        if not self.pool or not chatwork_account_id:
+            return None, None
+
+        try:
+            from lib.brain.drive_tool import get_accessible_classifications_for_account
+
+            # 機密区分リストを取得（chatwork_account_id → role_level → classifications）
+            classifications = await asyncio.to_thread(
+                get_accessible_classifications_for_account,
+                self.pool,
+                chatwork_account_id,
+                self.org_id,
+            )
+
+            # confidentialアクセス可能な場合のみ部署IDも取得
+            dept_ids: Optional[List[str]] = None
+            if "confidential" in classifications:
+                dept_ids = await self._get_accessible_dept_ids(chatwork_account_id)
+
+            return classifications, dept_ids
+
+        except Exception as e:
+            logger.warning("Failed to get access control params: %s", type(e).__name__)
+            return None, None
+
+    async def _get_accessible_dept_ids(
+        self,
+        chatwork_account_id: str,
+    ) -> Optional[List[str]]:
+        """
+        ユーザーのアクセス可能な部署IDリストをDBから取得する
+
+        confidentialドキュメントの部署フィルタに使用する。
+        エラー時は None を返し（フィルタなしにフォールバック）。
+        """
+        try:
+            def _sync() -> List[str]:
+                with self.pool.connect() as conn:
+                    result = conn.execute(
+                        text("""
+                            SELECT ud.department_id::text
+                            FROM user_departments ud
+                            JOIN users u ON ud.user_id = u.id
+                            WHERE u.chatwork_account_id = :account_id
+                              AND u.organization_id = CAST(:org_id AS uuid)
+                              AND ud.ended_at IS NULL
+                        """),
+                        {"account_id": str(chatwork_account_id), "org_id": self.org_id},
+                    )
+                    return [row[0] for row in result.fetchall()]
+
+            return await asyncio.to_thread(_sync)
+
+        except Exception as e:
+            logger.warning("Failed to get accessible dept IDs: %s", type(e).__name__)
+            return None
 
     async def _ilike_knowledge_search(
         self,

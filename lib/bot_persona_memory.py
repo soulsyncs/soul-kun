@@ -535,8 +535,8 @@ class BotPersonaMemoryManager:
             logger.error(f"Bot persona save error: {e}")
             return {
                 "success": False,
-                "message": f"設定の保存中にエラーが発生したウル: {str(e)}",
-                "error": str(e),
+                "message": f"設定の保存中にエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください",
+                "error": type(e).__name__,
             }
 
     def get(self, key: str) -> Optional[str]:
@@ -758,8 +758,8 @@ def save_bot_persona(
                 logger.error(f"❌ 長期記憶へのリダイレクト失敗: {e}")
                 return {
                     "success": False,
-                    "message": f"保存中にエラーが発生したウル: {str(e)}",
-                    "error": str(e),
+                    "message": f"保存中にエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください",
+                    "error": type(e).__name__,
                 }
         else:
             # user_id がない場合は保存拒否のみ

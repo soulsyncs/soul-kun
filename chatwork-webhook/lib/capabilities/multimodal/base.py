@@ -188,7 +188,7 @@ class VisionAPIClient:
             raise VisionAPITimeoutError(model=model, timeout_seconds=self._timeout_seconds)
         except httpx.HTTPError as e:
             raise VisionAPIError(
-                message=f"Vision API HTTP error: {str(e)}",
+                message=f"Vision API HTTP error ({type(e).__name__})",
                 model=model,
                 original_error=e,
             )
@@ -196,7 +196,7 @@ class VisionAPIClient:
             raise
         except Exception as e:
             raise VisionAPIError(
-                message=f"Vision API error: {str(e)}",
+                message=f"Vision API error ({type(e).__name__})",
                 model=model,
                 original_error=e,
             )

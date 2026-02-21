@@ -192,7 +192,7 @@ class WhisperAPIClient:
             )
         except httpx.HTTPError as e:
             raise WhisperAPIError(
-                message=f"Whisper API HTTP error: {str(e)}",
+                message=f"Whisper API HTTP error ({type(e).__name__})",
                 model=self._model,
                 original_error=e,
             )
@@ -200,7 +200,7 @@ class WhisperAPIClient:
             raise
         except Exception as e:
             raise WhisperAPIError(
-                message=f"Whisper API error: {str(e)}",
+                message=f"Whisper API error ({type(e).__name__})",
                 model=self._model,
                 original_error=e,
             )
@@ -406,16 +406,16 @@ class AudioProcessor(BaseMultimodalProcessor):
             metadata = self._complete_processing_metadata(
                 metadata,
                 success=False,
-                error_message=str(e),
+                error_message=type(e).__name__,
                 error_code="AUDIO_PROCESSING_ERROR",
             )
             self._log_processing_complete(
                 success=False,
                 processing_time_ms=metadata.processing_time_ms,
-                details={"error": str(e)},
+                details={"error": type(e).__name__},
             )
             raise AudioProcessingError(
-                message=f"音声処理中にエラーが発生したウル: {str(e)}"
+                message=f"音声処理中にエラーが発生しました（{type(e).__name__}）。管理者にお問い合わせください"
             )
 
     def validate(self, input_data: MultimodalInput) -> None:

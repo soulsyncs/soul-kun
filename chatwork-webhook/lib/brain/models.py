@@ -338,25 +338,28 @@ class PersonInfo:
         """PIIをマスキングした安全な辞書形式に変換（ログ・外部出力用）
 
         CLAUDE.md §9-4「思考過程のPIIマスキング」に準拠。
-        - name  → [PERSON]
-        - email → [EMAIL]
+        - name        → [PERSON]
+        - email       → [EMAIL]
+        - description → [REDACTED]（個人の経歴・説明文）
+        - attributes  → [REDACTED]（稼働スタイル・余力などフォームデータ）
 
         注意: LLMへの入力・内部ロジックには to_dict() を使うこと。
-        このメソッドはログ記録・監査・デバッグ情報の出力専用。
+        デバッグ時も to_dict() を使えば生の値を確認できる。
+        このメソッドはログ記録・監査・外部出力専用。
         """
         return {
             "person_id": self.person_id,
             "user_id": self.user_id,
             "chatwork_account_id": self.chatwork_account_id,
             "name": "[PERSON]" if self.name else "",
-            "description": self.description,
+            "description": "[REDACTED]" if self.description else None,
             "department": self.department,
             "role": self.role,
             "position": self.position,
             "email": "[EMAIL]" if self.email else None,
             "expertise": self.expertise,
             "responsibilities": self.responsibilities,
-            "attributes": self.attributes,
+            "attributes": "[REDACTED]" if self.attributes else None,
         }
 
     def to_string(self) -> str:

@@ -709,6 +709,43 @@
 - テストカバレッジ: CreateTeachingRequest/TeachingMutationResponse の直接ユニットテストなし — SUGGESTION
 - ceo_teachings.category に DB CHECK 制約あり (phase2d_ceo_learning.sql) — バックエンドバリデーションとの二重防御でよい
 
+## Phase 4-A zoom_routes.py GET /chatwork-rooms レビュー (feat/admin-google-drive, 2026-02-21)
+
+### スキーマ重要事実（確定）
+- `lib/config.py`: `DB_NAME` default = `"soulkun_tasks"` (NOT soulkun)
+- `soulkun_tasks.room_monitoring_settings`: カラムは `id, organization_id, room_id, room_name, is_enabled, last_message_id, created_at, updated_at`。**`chatwork_room_id` カラムが存在しない**（`room_id` のみ）
+- `soulkun.room_monitoring_settings`: カラムは `id, chatwork_room_id(NOT NULL), room_name, monitoring_type, created_at, updated_at, created_by, notes, organization_id`。`is_enabled` が**存在しない**。`chatwork_room_id` がある。
+- db_schema.json の flat section `"room_monitoring_settings"` は `chatwork_room_id` と `is_enabled` 両方ある（soulkun と soulkun_tasks のマージ表示と推測）
+
+### C-1 修正済み (PASS)
+- `AND is_enabled = TRUE` 削除 — soulkun.room_monitoring_settings には is_enabled なし → 削除は正しい
+- **ただし**: `get_db_pool()` は `DB_NAME=soulkun_tasks` がデフォルト。soulkun_tasks.room_monitoring_settings には `chatwork_room_id` がなく `room_id` のみ。接続DBがsoulkun_tasksの場合、`SELECT chatwork_room_id FROM room_monitoring_settings` はカラム不在エラーになる可能性がある
+- 本番環境で `DB_NAME=soulkun` が設定されているなら問題なし。要確認事項として残る（SUGGESTION）
+
+### W-1 修正済み (PASS)
+- `logger.exception("...", organization_id=organization_id)` → `logger.error("chatwork rooms fetch failed: %s", type(e).__name__)` に変更
+- org_id がログに出なくなった。他エンドポイントと一貫したパターン — PASS
+
+### WARNING issues (残存)
+- **W-2 (監査ログなし)**: zoom_routes.py の全エンドポイントに `log_audit_event` 呼び出しなし
+  - GET /chatwork-rooms は読み取りのみで SUGGESTION 扱いでもよいが、zoom configs/accounts の書き込みエンドポイントには audit log 必須（鉄則#3）
+
+### PASS items
+- org_id フィルタ: `WHERE organization_id = CAST(:org_id AS uuid)` あり
+- RLS型キャスト: `CAST(:org_id AS uuid)` — room_monitoring_settings.organization_id は uuid 型（正しい）
+- 認証: `require_admin` (Level 5+) — PASS
+- リソースリーク: `with pool.connect() as conn:` — PASS
+- PII in response: room_id と room_name のみ — PASS
+- SQL injection: パラメータ化 — PASS
+- LIMIT 200: ページネーション対応 — PASS
+- N+1: 単一 SELECT クエリ — PASS
+- async blocking: `async def` + 同期 pool.connect() は admin dashboard §1-1 例外として pre-existing パターン — PASS
+
+### db_schema.json の zoom テーブル状況
+- `zoom_meeting_configs`: db_schema.json に存在しない（新規テーブル、Phase 4-A 新設）
+- `zoom_accounts`: db_schema.json に存在しない（新規テーブル）
+- db_schema.json は全テーブルを網羅していない可能性あり（特に新規作成テーブル）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

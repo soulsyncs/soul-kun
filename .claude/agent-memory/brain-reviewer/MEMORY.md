@@ -624,11 +624,17 @@
 - `with pool.connect() as conn:` で接続管理正しい（リークなし）。
 - 3コピー同期: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL (PASS)。
 
-### WARNING: accessible_classifications がハンドラー呼び出し元から渡されていない
-- `chatwork-webhook/lib/brain/handler_wrappers/external_tool_handlers.py` の `_brain_handle_drive_search()` が `accessible_classifications` を渡していない。
-- 結果: 常にデフォルト `["public", "internal"]` が使用される。権限レベルの高いユーザー（restricted/confidential対象）でも制限付き結果しか見えない。
-- ハードコードデフォルトは「安全側（最小権限）」なので CRITICAL にはならないが、高権限ユーザーにとって機能不全になるリスク。
-- 修正: `context.role_level` を参照して classifications リストを動的生成する必要がある。
+### accessible_classifications ハンドラー連携: PR #0221 で修正済み
+- `_brain_handle_drive_search()` が `get_accessible_classifications_for_account()` を `asyncio.to_thread()` 経由で呼び出す実装に更新（2回連続 to_thread = 直列実行、正しい）。
+- `account_id` が None のとき `str(account_id) if account_id else ""` で空文字→先頭ガードで最小権限フォールバック。安全側。
+- `handler_wrappers/external_tool_handlers.py` は chatwork-webhook 固有（proactive-monitor/lib/ にはディレクトリ自体が存在しない）。3コピー同期対象外、bypass_handlers.py と同じパターン。
+
+### WARNING (残存): get_accessible_classifications_for_account() の pool/スキーマ整合
+- SQL: `FROM user_departments ud JOIN users u ON ud.user_id = u.id` で `u.id` を使う。
+- `databases.soulkun.users` に `id` カラムは **存在しない**（`user_id: integer` のみ）。
+- `databases.soulkun_tasks.users` には `id: uuid` が存在 → pool が soulkun_tasks DB を指す場合のみ動作。
+- `search_drive_files()` は soulkun DB の documents テーブルを参照。2つの関数が異なる DB を参照している可能性があり、呼び出し元 `main.get_pool()` がどちらを返すか要確認。
+- エラー時フォールバックは `["public", "internal"]`（安全側）なので CRITICAL でなく WARNING。
 
 ### WARNING: format_drive_files() がエラーメッセージをそのまま返す
 - `format_drive_files()` line 196: `result.get('error', ...)` を返す。

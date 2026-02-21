@@ -44,3 +44,6 @@ python-jose[cryptography]>=3.3.0,<4.0
 
 # Rate Limiting
 slowapi>=0.1.9
+
+# File Upload (FastAPI multipart/form-data support)
+python-multipart>=0.0.9

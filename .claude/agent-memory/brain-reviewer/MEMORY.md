@@ -746,6 +746,17 @@
 - `zoom_accounts`: db_schema.json に存在しない（新規テーブル）
 - db_schema.json は全テーブルを網羅していない可能性あり（特に新規作成テーブル）
 
+## guardian.py Phase 2C リファクタリング (2026-02-21, PASS)
+
+- `GuardianActionType` (Enum) と `GuardianActionResult` (@dataclass) を末尾(旧1002行)→先頭(logger直後、54行目)に移動
+- `-> "GuardianActionResult"` のフォワードリファレンス文字列 → `-> GuardianActionResult` に修正(前方定義になったため)
+- 末尾の重複定義セクション削除
+- **全項目 PASS**: AST構文OK、22件テストPASS、3コピー同期IDENTICAL
+- 呼び出し元: `lib/brain/authorization_gate.py` が `GuardianActionResult/GuardianActionType` を `from .guardian import` — import パス変更なし、問題なし
+- `lib/brain/__init__.py` lines 180-181/653-654: lazy import エントリも変更なし（モジュールパスは同じ `lib.brain.guardian`）
+- フォワードリファレンス文字列の残存: ゼロ（全て解消済み）
+- ロジック変更なし（純粋な定義順変更のみ）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

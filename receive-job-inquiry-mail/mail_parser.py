@@ -7,6 +7,7 @@ mail_parser.py - 求人問い合わせメール解析モジュール
 import re
 import base64
 import email
+import email.message
 from email.header import decode_header
 from dataclasses import dataclass
 from typing import Optional

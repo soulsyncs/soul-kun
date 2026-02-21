@@ -1010,34 +1010,30 @@ class OrganizationGraph:
 
                 def _sync_flush_interactions():
                     with self.pool.connect() as conn:
-                        # バッチINSERT（100件チャンク）
+                        # バッチINSERT（100件チャンク）— executemanyパターン（C-2: 鉄則#9準拠）
+                        insert_sql = sa_text(
+                            "INSERT INTO brain_interactions"
+                            " (organization_id, from_person_id,"
+                            " to_person_id, interaction_type,"
+                            " sentiment, room_id)"
+                            " VALUES (:org_id::uuid, :from_id,"
+                            " :to_id, :type,"
+                            " :sentiment, :room_id)"
+                        )
                         for i in range(0, len(entries), 100):
                             chunk = entries[i:i + 100]
-                            values_clauses = []
-                            params = {}
-                            for j, interaction in enumerate(chunk):
-                                key = f"_{j}"
-                                values_clauses.append(
-                                    f"(:org_id{key}::uuid, :from_id{key},"
-                                    f" :to_id{key}, :type{key},"
-                                    f" :sentiment{key}, :room_id{key})"
-                                )
-                                params[f"org_id{key}"] = self.organization_id
-                                params[f"from_id{key}"] = interaction.from_person_id
-                                params[f"to_id{key}"] = interaction.to_person_id
-                                params[f"type{key}"] = interaction.interaction_type.value
-                                params[f"sentiment{key}"] = getattr(interaction, "sentiment", 0.0)
-                                params[f"room_id{key}"] = getattr(interaction, "room_id", None)
-                            conn.execute(
-                                sa_text(
-                                    "INSERT INTO brain_interactions"
-                                    " (organization_id, from_person_id,"
-                                    " to_person_id, interaction_type,"
-                                    " sentiment, room_id)"
-                                    " VALUES " + ", ".join(values_clauses)
-                                ),
-                                params,
-                            )
+                            rows = [
+                                {
+                                    "org_id": self.organization_id,
+                                    "from_id": interaction.from_person_id,
+                                    "to_id": interaction.to_person_id,
+                                    "type": interaction.interaction_type.value,
+                                    "sentiment": getattr(interaction, "sentiment", 0.0),
+                                    "room_id": getattr(interaction, "room_id", None),
+                                }
+                                for interaction in chunk
+                            ]
+                            conn.execute(insert_sql, rows)
                         conn.commit()
 
                 await asyncio.to_thread(_sync_flush_interactions)

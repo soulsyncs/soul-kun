@@ -141,6 +141,42 @@ class TestBuildPrompt:
         assert "<meeting_minutes>" in prompt
         assert "</meeting_minutes>" in prompt
 
+    # --- 話者識別（speaker attribution）テスト ---
+
+    def test_no_speaker_context_backward_compat(self):
+        """speaker_contextなしは後方互換（既存動作と同じ）"""
+        prompt = build_task_extraction_prompt("議事録", "MTG")
+        assert "speaker_transcript" not in prompt
+        assert "<meeting_minutes>" in prompt
+
+    def test_none_speaker_context_backward_compat(self):
+        """speaker_context=Noneは後方互換"""
+        prompt = build_task_extraction_prompt("議事録", "MTG", None)
+        assert "speaker_transcript" not in prompt
+
+    def test_with_speaker_context_adds_transcript_section(self):
+        """speaker_contextが渡されると発言記録セクションが追加される"""
+        ctx = "話者1: 私が対応します\n話者2: ありがとうございます"
+        prompt = build_task_extraction_prompt("議事録テキスト", "週次会議", ctx)
+        assert "<speaker_transcript>" in prompt
+        assert "</speaker_transcript>" in prompt
+        assert "話者1: 私が対応します" in prompt
+
+    def test_speaker_context_contains_anon_labels(self):
+        """speaker_contextは匿名ラベルのみ含む（実名なし）"""
+        ctx = "話者1: わかりました\n話者2: 対応します"
+        prompt = build_task_extraction_prompt("議事録", "MTG", ctx)
+        assert "話者1" in prompt
+        assert "話者2" in prompt
+
+    def test_speaker_context_and_minutes_both_included(self):
+        """speaker_contextあり時も議事録は必ず含まれる"""
+        ctx = "話者1: 対応します"
+        prompt = build_task_extraction_prompt("重要なタスクがある", "MTG", ctx)
+        assert "<meeting_minutes>" in prompt
+        assert "重要なタスクがある" in prompt
+        assert "<speaker_transcript>" in prompt
+
 
 # ============================================================
 # parse_task_extraction_response tests
@@ -483,6 +519,67 @@ class TestExtractAndCreateTasks:
         )
 
         assert result.total_extracted == 1
+
+
+# ============================================================
+# 話者識別（speaker attribution）統合テスト
+# ============================================================
+
+
+class TestSpeakerAttribution:
+    """話者逆変換ロジックのテスト（extract_and_create_tasks の speaker_reverse_map）"""
+
+    @pytest.mark.asyncio
+    async def test_speaker_reverse_map_converts_assignee(self):
+        """LLMが「話者1」で返したassigneeを実名に逆変換する"""
+        mock_ai = AsyncMock(
+            return_value='[{"task": "資料作成", "assignee": "話者1", "deadline_hint": "来週"}]'
+        )
+        reverse_map = {"話者1": "田中", "話者2": "山田"}
+        result = await extract_and_create_tasks(
+            minutes_text="田中が資料を作成することになった",
+            meeting_title="週次MTG",
+            room_id="123",
+            organization_id="org_test",
+            get_ai_response_func=mock_ai,
+            speaker_reverse_map=reverse_map,
+        )
+        assert result.total_extracted == 1
+        # 「話者1」→「田中」に逆変換されていること
+        assert result.tasks[0].assignee_name == "田中"
+
+    @pytest.mark.asyncio
+    async def test_no_reverse_map_keeps_assignee_as_is(self):
+        """speaker_reverse_mapなしの場合、assigneeはそのまま（後方互換）"""
+        mock_ai = AsyncMock(
+            return_value='[{"task": "確認", "assignee": "田中", "deadline_hint": "なし"}]'
+        )
+        result = await extract_and_create_tasks(
+            minutes_text="田中が確認する",
+            meeting_title="MTG",
+            room_id="123",
+            organization_id="org_test",
+            get_ai_response_func=mock_ai,
+        )
+        assert result.tasks[0].assignee_name == "田中"
+
+    @pytest.mark.asyncio
+    async def test_unknown_speaker_label_kept_as_is(self):
+        """逆変換マップにないラベルはそのまま残す"""
+        mock_ai = AsyncMock(
+            return_value='[{"task": "対応", "assignee": "話者99", "deadline_hint": "なし"}]'
+        )
+        reverse_map = {"話者1": "田中"}
+        result = await extract_and_create_tasks(
+            minutes_text="誰かが対応する",
+            meeting_title="MTG",
+            room_id="123",
+            organization_id="org_test",
+            get_ai_response_func=mock_ai,
+            speaker_reverse_map=reverse_map,
+        )
+        # 「話者99」はマップにないのでそのまま
+        assert result.tasks[0].assignee_name == "話者99"
 
 
 # ============================================================

@@ -79,6 +79,33 @@
 - confirmation loop: confirmed operations NOT audit-logged via normal path (execute_tool node bypassed)
 - `ORGANIZATION_UUID_TO_SLUG` hardcoded mapping in proactive.py (tech debt, Phase 4B TODO)
 
+## person_alias.py PII修正パターン (W-4, コミット76ba868, 2026-02-21)
+
+- 3箇所のDEBUG logをマスキング: normalize_name / generate_aliases / No candidates found
+- **残存PIIログ（今回スコープ外）**:
+  - line 487: `logger.debug(f"Multiple candidates or low confidence for '{input_name}': ...")` → DEBUG, 次スプリント対応
+  - line 500: `logger.info(f"Resolved '{input_name}' → '{best.name}' ...")` → **INFO レベル = 本番ログに出る可能性あり。WARNING扱い**
+- 3コピー同期: PASS (lib/ chatwork-webhook/lib/ proactive-monitor/lib/ 全て一致確認済み)
+- テスト: test_person_alias.py に normalize/generate_aliases のテストあり、ログ出力テストはなし
+
+## org_graph.py 公開API化パターン (W-2, コミット b43b51f, 2026-02-21)
+
+- 追加した3公開メソッド: `get_strong_relationships(min_strength, limit)`, `get_person_by_id(person_id)`, `is_cache_loaded()`
+- `is_cache_loaded()` = `bool(self._person_cache) or self._load_attempted` → 旧コードの条件と論理等価(4ケース全PASS確認)
+- context_builder.py の「DBデータなし判定」変更: `not _person_cache` → `not get_top_persons_by_influence(limit=1)` → 等価
+- **テストカバレッジ欠如**: test_brain_org_graph.py / test_org_graph_load.py / test_context_builder_org.py に3メソッドのテストゼロ → SUGGESTION
+- 3コピー同期: PASS
+
+## _flush_interaction_buffer executemany パターン (C-2, コミット 70a4cbf, 2026-02-21)
+
+- 旧コード: VALUES句をf-string連結 (`"VALUES " + ", ".join(values_clauses)`) + 動的プレースホルダー名 → SQLエンジン的には安全（値は全てバインドパラメータ）だが可読性・保守性が低い
+- 新コード: `conn.execute(sa_text(single_sql), list_of_dicts)` → SQLAlchemy 2.x のexecutemany相当 → より慣用的でクリーン
+- `brain_interactions.organization_id` は UUID型 → `:org_id::uuid` キャストは正しい (db_schema.json確認済み)
+- pg8000 1.31.5 + SQLAlchemy 2.0.46: text() named params + executemany は互換動作
+- RLS set_config: _flush_interaction_buffer にはなし（pre-existing）。load_from_db() は set_config あり（line 1380）
+- executemany では insert_sql オブジェクトを各チャンクで再利用（`sa_text()` をループ外で定義）→ 正しいパターン
+- 3コピー同期: PASS
+
 ## capability_bridge.py refactor patterns (P10, branch refactor/capability-bridge-split)
 
 - `lib/brain/capabilities/` subpackage: generation.py, google_workspace.py, feedback.py, meeting.py, connection.py

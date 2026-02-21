@@ -153,7 +153,7 @@ if command -v gcloud &>/dev/null; then
       if [[ -z "$deployed_env" ]]; then
         warn "Could not retrieve env vars for $service (gcloud auth required)"
         ENV_VAR_ISSUES=$((ENV_VAR_ISSUES + 1))
-      elif ! echo "$deployed_env" | grep -q "^${var}$"; then
+      elif ! echo "$deployed_env" | tr ';' '\n' | grep -q "^${var}$"; then
         fail "Required env var $var is NOT set in Cloud Run service: $service"
         ENV_VAR_ISSUES=$((ENV_VAR_ISSUES + 1))
       fi

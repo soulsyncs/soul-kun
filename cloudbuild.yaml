@@ -22,6 +22,7 @@ substitutions:
   _REGION: asia-northeast1
   _SERVICE: chatwork-webhook
   _REPO: cloud-run
+  _TAG: ""  # gcloud builds submit 時に --substitutions=_TAG=<sha> で指定。GitHub trigger では ${_TAG} を使用
 
 steps:
   # =============================================================================
@@ -126,7 +127,7 @@ steps:
       - '-f'
       - 'chatwork-webhook/Dockerfile'
       - '-t'
-      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA'
+      - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}'
       - '-t'
       - '${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:latest'
       - '.'
@@ -150,7 +151,7 @@ steps:
       - 'run'
       - 'deploy'
       - '${_SERVICE}'
-      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA'
+      - '--image=${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}'
       - '--region=${_REGION}'
       - '--memory=1024Mi'
       - '--cpu=1'
@@ -208,9 +209,9 @@ steps:
         echo "✅ chatwork-webhook Cloud Run デプロイ完了"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        echo "コミット: $COMMIT_SHA"
+        echo "コミット: ${_TAG}"
         echo "ブランチ: $BRANCH_NAME"
-        echo "イメージ: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:$COMMIT_SHA"
+        echo "イメージ: ${_REGION}-docker.pkg.dev/$PROJECT_ID/${_REPO}/${_SERVICE}:${_TAG}"
         echo ""
         echo "品質チェック:"
         echo "  ✅ SQLカラム検証"

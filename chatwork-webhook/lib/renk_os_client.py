@@ -157,3 +157,76 @@ class RenkOsClient:
         if not data:
             return None
         return data.get("summary", {}).get("overall_fill_rate")
+
+    def get_hiring_forecast(self) -> Optional[dict]:
+        """
+        今後30日・60日以内に終了する案件の予測を返す（先読み採用用）。
+
+        戻り値の例:
+        {
+            "ending_within_30_days": [
+                {
+                    "project_name": "○○株式会社 事務",
+                    "client_name": "○○株式会社",
+                    "end_date": "2026-03-15",
+                    "days_until_end": 21,
+                    "assigned_count": 3,
+                    "required_count": 3
+                }
+            ],
+            "ending_within_60_days": [...],
+            "needs_urgent_action": True
+        }
+
+        取得失敗時は None を返す。
+        """
+        data = self.get_staffing_summary()
+        if not data:
+            return None
+        return data.get("forecast")
+
+    def format_forecast_chatwork_message(self) -> Optional[str]:
+        """
+        先読み採用アラート用の ChatWork メッセージを生成して返す。
+        予測データがない・終了案件がない場合は None を返す。
+        """
+        data = self.get_staffing_summary()
+        if not data:
+            return None
+
+        forecast = data.get("forecast", {})
+        urgent = forecast.get("ending_within_30_days", [])
+        soon = forecast.get("ending_within_60_days", [])
+
+        if not urgent and not soon:
+            return None  # 終了予定案件なし → 通知不要
+
+        lines = ["📅【先読み採用アラート】今後終了する案件があります"]
+        lines.append("")
+
+        summary = data.get("summary", {})
+        fill_rate = summary.get("overall_fill_rate")
+        if fill_rate is not None:
+            lines.append(f"現在の充足率: {int(fill_rate)}%")
+        lines.append("")
+
+        if urgent:
+            lines.append(f"🔴 30日以内に終了（{len(urgent)}件）→ 今すぐ採用活動を開始してください")
+            for p in urgent:
+                lines.append(
+                    f"  ・{p.get('project_name','不明')}（{p.get('client_name','不明')}）"
+                    f" → {p.get('end_date','')} 終了（あと{p.get('days_until_end','?')}日）"
+                    f" 現在{p.get('assigned_count',0)}人/{p.get('required_count',0)}人"
+                )
+
+        if soon:
+            lines.append("")
+            lines.append(f"🟡 31〜60日以内に終了（{len(soon)}件）→ 採用計画を立ててください")
+            for p in soon:
+                lines.append(
+                    f"  ・{p.get('project_name','不明')}（{p.get('client_name','不明')}）"
+                    f" → {p.get('end_date','')} 終了（あと{p.get('days_until_end','?')}日）"
+                    f" 現在{p.get('assigned_count',0)}人/{p.get('required_count',0)}人"
+                )
+
+        return "\n".join(lines)

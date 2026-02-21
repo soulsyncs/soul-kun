@@ -259,6 +259,52 @@ def health():
     return jsonify({"status": "ok", "service": "receive-job-inquiry-mail"}), 200
 
 
+@app.route("/weekly-forecast", methods=["POST"])
+def weekly_forecast():
+    """
+    先読み採用アラートを ChatWork に投稿するエンドポイント。
+
+    Cloud Scheduler から毎週月曜朝9時に呼び出される想定。
+    Re:nk OS から「今後30〜60日以内に終了する案件」を取得して
+    ChatWork の求人グループに週次レポートとして投稿する。
+
+    【セキュリティ】
+    - Cloud Run は --no-allow-unauthenticated でデプロイ済み
+    - Cloud Scheduler の OIDC 認証で保護
+    """
+    try:
+        room_id = RECRUIT_CHATWORK_ROOM_ID
+        if not room_id:
+            logger.error("RECRUIT_CHATWORK_ROOM_ID が設定されていません")
+            return jsonify({"error": "RECRUIT_CHATWORK_ROOM_ID 未設定"}), 500
+
+        # Re:nk OS から先読み予測を取得
+        try:
+            renk = RenkOsClient()
+            message = renk.format_forecast_chatwork_message()
+        except Exception as e:
+            logger.error(f"Re:nk OS 先読み取得失敗: {e}")
+            return jsonify({"error": "Re:nk OS 接続失敗"}), 500
+
+        if message is None:
+            logger.info("終了予定案件なし → 先読みアラートをスキップ")
+            return jsonify({"status": "skipped", "reason": "終了予定案件なし"}), 200
+
+        # ChatWork に投稿
+        cw = _get_chatwork_client()
+        if cw is None:
+            return jsonify({"error": "ChatWork 初期化失敗"}), 500
+
+        cw.send_message(int(room_id), message)
+        logger.info("先読み採用アラートを ChatWork に投稿しました")
+
+        return jsonify({"status": "posted"}), 200
+
+    except Exception as e:
+        logger.error(f"weekly-forecast エラー: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
 # =============================================================================
 # 内部処理: 採否判断付き ChatWork メッセージ生成
 # =============================================================================

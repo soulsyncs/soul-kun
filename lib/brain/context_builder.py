@@ -1259,12 +1259,12 @@ class ContextBuilder:
         if not self.org_graph:
             return ""
 
-        # 遅延初期化: キャッシュが空かつ未ロードなら一括読み込み（W-3: 重複ロード防止）
-        if not self.org_graph._person_cache and not self.org_graph._load_attempted:
+        # 遅延初期化: キャッシュが空かつ未ロードなら一括読み込み（W-2: 公開APIで確認）
+        if not self.org_graph.is_cache_loaded():
             await self.org_graph.load_from_db()
 
         # DBにデータなし or 読み込み失敗
-        if not self.org_graph._person_cache:
+        if not self.org_graph.get_top_persons_by_influence(limit=1):
             return ""
 
         lines = []
@@ -1288,17 +1288,13 @@ class ContextBuilder:
                     desc += " / " + " / ".join(attrs)
                 lines.append(f"- {desc}")
 
-        # 主要な関係性（強度0.7以上、最大5件）
-        strong_rels = sorted(
-            [r for r in self.org_graph._relationship_cache.values() if r.strength >= 0.7],
-            key=lambda r: r.strength,
-            reverse=True,
-        )[:5]
+        # 主要な関係性（強度0.7以上、最大5件）（W-2: 公開APIで取得）
+        strong_rels = self.org_graph.get_strong_relationships(min_strength=0.7, limit=5)
         if strong_rels:
             lines.append("主要な関係性:")
             for rel in strong_rels:
-                a = self.org_graph._person_cache.get(rel.person_a_id)
-                b = self.org_graph._person_cache.get(rel.person_b_id)
+                a = self.org_graph.get_person_by_id(rel.person_a_id)
+                b = self.org_graph.get_person_by_id(rel.person_b_id)
                 a_name = a.name if a else rel.person_a_id
                 b_name = b.name if b else rel.person_b_id
                 lines.append(

@@ -1508,6 +1508,25 @@ class OrganizationGraph:
             if rel.person_a_id == person_id or rel.person_b_id == person_id
         ]
 
+    def get_strong_relationships(
+        self, min_strength: float = 0.7, limit: int = 5
+    ) -> List[PersonRelationship]:
+        """一定強度以上の関係をソート済みで返す（W-2: context_builder用公開API）"""
+        strong_rels = sorted(
+            [r for r in self._relationship_cache.values() if r.strength >= min_strength],
+            key=lambda r: r.strength,
+            reverse=True,
+        )
+        return strong_rels[:limit]
+
+    def get_person_by_id(self, person_id: str) -> Optional[PersonNode]:
+        """キャッシュから人物を取得（W-2: context_builder用公開API）"""
+        return self._person_cache.get(person_id)
+
+    def is_cache_loaded(self) -> bool:
+        """キャッシュのロード状態を返す（W-2: context_builder用公開API）"""
+        return bool(self._person_cache) or self._load_attempted
+
 
 # =============================================================================
 # ファクトリ関数

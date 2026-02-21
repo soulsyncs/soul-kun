@@ -414,6 +414,27 @@ class MemberDetailResponse(BaseModel):
     updated_at: Optional[dt.datetime] = Field(None, description="更新日時")
 
 
+class CreateMemberRequest(BaseModel):
+    """メンバー新規作成リクエスト"""
+
+    name: str = Field(..., min_length=1, max_length=100, description="名前（必須）")
+    email: Optional[str] = Field(None, max_length=200, description="メールアドレス")
+    chatwork_account_id: Optional[str] = Field(
+        None, max_length=50, description="ChatWorkアカウントID"
+    )
+    role: Optional[str] = Field(None, max_length=50, description="役割")
+    department_id: Optional[str] = Field(
+        None,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="所属部署ID（UUID）",
+    )
+    role_id: Optional[str] = Field(
+        None,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+        description="ロールID（UUID）",
+    )
+
+
 class UpdateMemberRequest(BaseModel):
     """メンバー更新リクエスト"""
 

@@ -26,6 +26,7 @@ import type {
   UpdateDepartmentRequest,
   UpdateMemberRequest,
   UpdateMemberDepartmentsRequest,
+  CreateMemberRequest,
   EmergencyStopStatusResponse,
   EmergencyStopActionResponse,
 } from '@/types/api';
@@ -244,6 +245,17 @@ export const api = {
           body: JSON.stringify(data),
         }
       ),
+
+    create: (data: CreateMemberRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>('/admin/members', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    delete: (userId: string) =>
+      fetchWithAuth<DepartmentMutationResponse>(`/admin/members/${userId}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Department / Org Chart endpoints

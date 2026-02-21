@@ -6,10 +6,10 @@
  */
 
 import { useState, useDeferredValue } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format, parseISO } from 'date-fns';
 import { api } from '@/lib/api';
-import type { MembersListResponse, MemberDetailResponse, KeyPersonScore } from '@/types/api';
+import type { MembersListResponse, MemberDetailResponse, KeyPersonScore, CreateMemberRequest } from '@/types/api';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -20,10 +20,19 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Search, ChevronLeft, ChevronRight, RefreshCw, Users, X, Star, TrendingUp, TrendingDown, Minus, Download } from 'lucide-react';
+import { Search, ChevronLeft, ChevronRight, RefreshCw, Users, X, Star, TrendingUp, TrendingDown, Minus, Download, Plus, Pencil, Trash2 } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { downloadCSV } from '@/lib/utils';
 
@@ -82,12 +91,56 @@ function KeymanRow({ person, rank }: { person: KeyPersonScore; rank: number }) {
 
 type TabType = 'list' | 'keymen';
 
+const EMPTY_ADD_FORM = { name: '', email: '', chatwork_account_id: '' };
+
 export function MembersPage() {
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<TabType>('list');
   const [search, setSearch] = useState('');
   const debouncedSearch = useDeferredValue(search);
   const [offset, setOffset] = useState(0);
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
+
+  // Dialog states
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addForm, setAddForm] = useState(EMPTY_ADD_FORM);
+  const [showEditDialog, setShowEditDialog] = useState(false);
+  const [editForm, setEditForm] = useState(EMPTY_ADD_FORM);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const addMutation = useMutation({
+    mutationFn: (data: CreateMemberRequest) => api.members.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setShowAddDialog(false);
+      setAddForm(EMPTY_ADD_FORM);
+      setMutationError(null);
+    },
+    onError: (err: Error) => setMutationError(err.message ?? '追加に失敗しました'),
+  });
+
+  const editMutation = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: typeof editForm }) =>
+      api.members.update(id, { name: data.name, email: data.email || undefined, chatwork_account_id: data.chatwork_account_id || undefined }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setShowEditDialog(false);
+      setMutationError(null);
+    },
+    onError: (err: Error) => setMutationError(err.message ?? '更新に失敗しました'),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => api.members.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['members'] });
+      setShowDeleteConfirm(false);
+      setSelectedUserId(null);
+      setMutationError(null);
+    },
+    onError: (err: Error) => setMutationError(err.message ?? '削除に失敗しました'),
+  });
 
   const { data, isLoading, isError, refetch } = useQuery<MembersListResponse>({
     queryKey: ['members', debouncedSearch, offset],
@@ -162,14 +215,23 @@ export function MembersPage() {
               {totalCount}名のメンバーが登録されています
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => activeTab === 'list' ? refetch() : refetchKeymen()}
-          >
-            <RefreshCw className="mr-1 h-4 w-4" />
-            更新
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => { setAddForm(EMPTY_ADD_FORM); setMutationError(null); setShowAddDialog(true); }}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              メンバー追加
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => activeTab === 'list' ? refetch() : refetchKeymen()}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              更新
+            </Button>
+          </div>
         </div>
 
         {/* Tab selector */}
@@ -436,6 +498,36 @@ export function MembersPage() {
                             </div>
                           </div>
                         )}
+
+                        {/* Actions */}
+                        <div className="flex gap-2 pt-2 border-t">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => {
+                              setEditForm({
+                                name: detailData.name ?? '',
+                                email: detailData.email ?? '',
+                                chatwork_account_id: detailData.chatwork_account_id ?? '',
+                              });
+                              setMutationError(null);
+                              setShowEditDialog(true);
+                            }}
+                          >
+                            <Pencil className="h-3 w-3 mr-1" />
+                            編集
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            className="flex-1"
+                            onClick={() => { setMutationError(null); setShowDeleteConfirm(true); }}
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            削除
+                          </Button>
+                        </div>
                       </div>
                     ) : null}
                   </CardContent>
@@ -513,6 +605,132 @@ export function MembersPage() {
           </Card>
         )}
       </div>
+
+      {/* ===== Add Member Dialog ===== */}
+      <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) setMutationError(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>メンバー追加</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {mutationError && showAddDialog && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">{mutationError}</p>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="add-name">名前 <span className="text-destructive">*</span></Label>
+              <Input
+                id="add-name"
+                value={addForm.name}
+                onChange={(e) => setAddForm((f) => ({ ...f, name: e.target.value }))}
+                placeholder="例：田中 太郎"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-email">メールアドレス</Label>
+              <Input
+                id="add-email"
+                type="email"
+                value={addForm.email}
+                onChange={(e) => setAddForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="例：tanaka@example.com"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="add-cwid">ChatWork ID</Label>
+              <Input
+                id="add-cwid"
+                value={addForm.chatwork_account_id}
+                onChange={(e) => setAddForm((f) => ({ ...f, chatwork_account_id: e.target.value }))}
+                placeholder="例：1234567"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>キャンセル</Button>
+            <Button
+              onClick={() => addMutation.mutate({ name: addForm.name, email: addForm.email || undefined, chatwork_account_id: addForm.chatwork_account_id || undefined })}
+              disabled={!addForm.name.trim() || addMutation.isPending}
+            >
+              {addMutation.isPending ? '追加中...' : '追加する'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Edit Member Dialog ===== */}
+      <Dialog open={showEditDialog} onOpenChange={(open) => { setShowEditDialog(open); if (!open) setMutationError(null); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>メンバー編集</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {mutationError && showEditDialog && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">{mutationError}</p>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-name">名前 <span className="text-destructive">*</span></Label>
+              <Input
+                id="edit-name"
+                value={editForm.name}
+                onChange={(e) => setEditForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-email">メールアドレス</Label>
+              <Input
+                id="edit-email"
+                type="email"
+                value={editForm.email}
+                onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-cwid">ChatWork ID</Label>
+              <Input
+                id="edit-cwid"
+                value={editForm.chatwork_account_id}
+                onChange={(e) => setEditForm((f) => ({ ...f, chatwork_account_id: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowEditDialog(false)}>キャンセル</Button>
+            <Button
+              onClick={() => selectedUserId && editMutation.mutate({ id: selectedUserId, data: editForm })}
+              disabled={!editForm.name.trim() || editMutation.isPending}
+            >
+              {editMutation.isPending ? '保存中...' : '保存する'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== Delete Confirm Dialog ===== */}
+      <Dialog open={showDeleteConfirm} onOpenChange={(open) => { setShowDeleteConfirm(open); if (!open) setMutationError(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>メンバーを削除しますか？</DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            {mutationError && showDeleteConfirm && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">{mutationError}</p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              「{detailData?.name}」を無効化します。この操作は管理者（レベル6）のみ実行できます。
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>キャンセル</Button>
+            <Button
+              variant="destructive"
+              onClick={() => selectedUserId && deleteMutation.mutate(selectedUserId)}
+              disabled={deleteMutation.isPending}
+            >
+              {deleteMutation.isPending ? '削除中...' : '削除する'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

@@ -290,6 +290,15 @@ export interface UpdateDepartmentRequest {
   display_order?: number;
 }
 
+export interface CreateMemberRequest {
+  name: string;
+  email?: string;
+  chatwork_account_id?: string;
+  role?: string;
+  department_id?: string;
+  role_id?: string;
+}
+
 export interface UpdateMemberRequest {
   name?: string;
   email?: string;

@@ -344,6 +344,44 @@ def _build_screened_message(
 
 
 # =============================================================================
+# 内部処理: 採否判断付き ChatWork メッセージ生成
+# =============================================================================
+
+def _build_screened_message(
+    inquiry,
+    is_hiring_needed: bool,
+    understaffed_projects: list,
+    fill_rate: Optional[float],
+) -> str:
+    """
+    採否判断の結果を先頭に付加した ChatWork 投稿メッセージを生成する。
+
+    採用ニーズあり → 🔥【優先対応】
+    採用充足中    → 📋【確認待ち】
+    """
+    base_message = format_chatwork_message(inquiry)
+
+    if is_hiring_needed:
+        header_lines = ["🔥【優先対応】採用ニーズが確認されました"]
+        if understaffed_projects:
+            # 不足案件を最大3件まで表示
+            names = "、".join(
+                p.get("project_name", "不明") for p in understaffed_projects[:3]
+            )
+            header_lines.append(f"人員不足の案件: {names}")
+        if fill_rate is not None:
+            header_lines.append(f"現在の充足率: {int(fill_rate)}%")
+    else:
+        header_lines = ["📋【確認待ち】現在は採用充足中です"]
+        if fill_rate is not None:
+            header_lines.append(f"現在の充足率: {int(fill_rate)}%（不足案件なし）")
+        header_lines.append("採用ニーズが発生した際に再度ご検討ください。")
+
+    header = "\n".join(header_lines)
+    return f"{header}\n{'-' * 30}\n{base_message}"
+
+
+# =============================================================================
 # 内部処理: 新着メールを取得して ChatWork に投稿
 # =============================================================================
 

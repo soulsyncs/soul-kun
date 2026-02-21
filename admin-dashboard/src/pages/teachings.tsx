@@ -4,23 +4,34 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   BookOpen,
   RefreshCw,
   AlertTriangle,
   BarChart3,
   Gauge,
+  Plus,
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/app-layout';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useTeachingsList, useTeachingConflicts, useTeachingUsageStats } from '@/hooks/use-teachings';
 import { api } from '@/lib/api';
-import type { TeachingPenetrationResponse } from '@/types/api';
+import type { TeachingPenetrationResponse, CreateTeachingRequest, TeachingCategoryValue } from '@/types/api';
+import { TEACHING_CATEGORIES } from '@/types/api';
 
 type TabView = 'teachings' | 'conflicts' | 'stats' | 'penetration';
 
@@ -30,9 +41,27 @@ const STATUS_COLORS: Record<string, 'default' | 'secondary' | 'destructive' | 'o
   rejected: 'destructive',
 };
 
+const EMPTY_TEACHING_FORM: { statement: string; category: TeachingCategoryValue | ''; subcategory: string; priority: string } =
+  { statement: '', category: '', subcategory: '', priority: '' };
+
 export function TeachingsPage() {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<TabView>('teachings');
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [addForm, setAddForm] = useState(EMPTY_TEACHING_FORM);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+
+  const addMutation = useMutation({
+    mutationFn: (data: CreateTeachingRequest) => api.teachings.create(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['teachings'] });
+      setShowAddDialog(false);
+      setAddForm(EMPTY_TEACHING_FORM);
+      setMutationError(null);
+    },
+    onError: (err: Error) => setMutationError(err.message ?? '登録に失敗しました'),
+  });
 
   const { data: teachingsData, isLoading: teachingsLoading, refetch: refetchTeachings } = useTeachingsList({
     category: categoryFilter,
@@ -64,19 +93,28 @@ export function TeachingsPage() {
               代表の教え・方針の管理と利用状況
             </p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              refetchTeachings();
-              refetchConflicts();
-              refetchUsage();
-              refetchPenetration();
-            }}
-          >
-            <RefreshCw className="mr-1 h-4 w-4" />
-            更新
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              onClick={() => { setAddForm(EMPTY_TEACHING_FORM); setMutationError(null); setShowAddDialog(true); }}
+            >
+              <Plus className="mr-1 h-4 w-4" />
+              教えを追加
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                refetchTeachings();
+                refetchConflicts();
+                refetchUsage();
+                refetchPenetration();
+              }}
+            >
+              <RefreshCw className="mr-1 h-4 w-4" />
+              更新
+            </Button>
+          </div>
         </div>
 
         {/* Tab navigation */}
@@ -448,6 +486,85 @@ export function TeachingsPage() {
           </div>
         )}
       </div>
+
+      {/* ===== Add Teaching Dialog ===== */}
+      <Dialog open={showAddDialog} onOpenChange={(open) => { setShowAddDialog(open); if (!open) setMutationError(null); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>教えを追加（代表/CFOのみ）</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {mutationError && (
+              <p className="text-sm text-destructive bg-destructive/10 px-3 py-2 rounded">{mutationError}</p>
+            )}
+            <div className="space-y-1.5">
+              <Label htmlFor="t-statement">教えの本文 <span className="text-destructive">*</span></Label>
+              <textarea
+                id="t-statement"
+                value={addForm.statement}
+                onChange={(e) => setAddForm((f) => ({ ...f, statement: e.target.value }))}
+                placeholder="例：スタッフには常に感謝の言葉を伝える"
+                rows={4}
+                className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="t-category">カテゴリ <span className="text-destructive">*</span></Label>
+              <select
+                id="t-category"
+                value={addForm.category}
+                onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value as TeachingCategoryValue }))}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              >
+                <option value="">カテゴリを選択...</option>
+                {TEACHING_CATEGORIES.map((cat) => (
+                  <option key={cat.value} value={cat.value}>{cat.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="t-subcategory">サブカテゴリ</Label>
+                <Input
+                  id="t-subcategory"
+                  value={addForm.subcategory}
+                  onChange={(e) => setAddForm((f) => ({ ...f, subcategory: e.target.value }))}
+                  placeholder="例：コミュニケーション"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="t-priority">優先度 (1〜10)</Label>
+                <Input
+                  id="t-priority"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={addForm.priority}
+                  onChange={(e) => setAddForm((f) => ({ ...f, priority: e.target.value }))}
+                  placeholder="1=最高"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAddDialog(false)}>キャンセル</Button>
+            <Button
+              onClick={() => {
+                if (!addForm.category) return;
+                addMutation.mutate({
+                  statement: addForm.statement,
+                  category: addForm.category as TeachingCategoryValue,
+                  subcategory: addForm.subcategory || undefined,
+                  priority: addForm.priority ? Number(addForm.priority) : undefined,
+                });
+              }}
+              disabled={!addForm.statement.trim() || !addForm.category || addMutation.isPending}
+            >
+              {addMutation.isPending ? '登録中...' : '登録する'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

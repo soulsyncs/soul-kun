@@ -749,6 +749,36 @@ class ProactiveStatsResponse(BaseModel):
 # =============================================
 
 
+TEACHING_CATEGORY_VALUES = (
+    "mvv_mission", "mvv_vision", "mvv_values",
+    "choice_theory", "sdt", "servant", "psych_safety",
+    "biz_sales", "biz_hr", "biz_accounting", "biz_general",
+    "culture", "communication", "staff_guidance", "other",
+)
+
+
+class CreateTeachingRequest(BaseModel):
+    """CEO教え新規作成リクエスト"""
+
+    statement: str = Field(..., min_length=1, max_length=2000, description="教えの本文（必須）")
+    category: str = Field(..., description="カテゴリ（必須）。有効値: " + "/".join(TEACHING_CATEGORY_VALUES))
+    subcategory: Optional[str] = Field(None, max_length=100, description="サブカテゴリ（任意）")
+    priority: Optional[int] = Field(None, ge=1, le=10, description="優先度 1〜10（1が最高）")
+    reasoning: Optional[str] = Field(None, max_length=2000, description="理由・根拠（任意）")
+
+    def model_post_init(self, __context: object) -> None:
+        if self.category not in TEACHING_CATEGORY_VALUES:
+            raise ValueError(f"categoryは次のいずれかである必要があります: {', '.join(TEACHING_CATEGORY_VALUES)}")
+
+
+class TeachingMutationResponse(BaseModel):
+    """教え操作レスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    teaching_id: str = Field(..., description="教えID")
+    message: str = Field(..., description="メッセージ")
+
+
 class TeachingSummary(BaseModel):
     """CEO教えサマリー"""
 

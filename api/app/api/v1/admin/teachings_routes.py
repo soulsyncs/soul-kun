@@ -12,10 +12,19 @@ from sqlalchemy import text
 from lib.db import get_db_pool
 from lib.logging import log_audit_event
 
+import uuid as _uuid
+
+from fastapi import Body
+from app.schemas.admin import (
+    CreateTeachingRequest,
+    TeachingMutationResponse,
+)
+
 from .deps import (
     DEFAULT_ORG_ID,
     logger,
     require_admin,
+    require_editor,
     UserContext,
 )
 
@@ -238,7 +247,7 @@ async def get_teaching_usage_stats(
 async def get_teaching_penetration(
     user: UserContext = Depends(require_admin),
 ):
-    organization_id = user.organization_id
+    organization_id = user.organization_id or DEFAULT_ORG_ID
     try:
         pool = get_db_pool()
         with pool.connect() as conn:
@@ -335,6 +344,75 @@ async def get_teaching_penetration(
         raise
     except Exception as e:
         logger.exception("Get teaching penetration error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+@router.post(
+    "/teachings",
+    responses={
+        403: {"description": "権限不足"},
+        500: {"description": "サーバーエラー"},
+    },
+    summary="CEO教え新規作成",
+    description="新しいCEO教えを登録する。Level 6（代表/CFO）のみ。",
+)
+async def create_teaching(
+    body: CreateTeachingRequest = Body(...),
+    user: UserContext = Depends(require_editor),
+):
+
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    new_id = str(_uuid.uuid4())
+
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            conn.execute(
+                text("""
+                    INSERT INTO ceo_teachings
+                        (id, organization_id, ceo_user_id,
+                         statement, reasoning, category, subcategory, priority,
+                         validation_status, is_active,
+                         created_at, updated_at)
+                    VALUES
+                        (CAST(:id AS uuid), CAST(:org_id AS uuid), CAST(:ceo_uid AS uuid),
+                         :statement, :reasoning, :category, :subcategory, :priority,
+                         'pending', TRUE,
+                         NOW(), NOW())
+                """),
+                {
+                    "id": new_id,
+                    "org_id": organization_id,
+                    "ceo_uid": user.user_id,
+                    "statement": body.statement,
+                    "reasoning": body.reasoning,
+                    "category": body.category,
+                    "subcategory": body.subcategory,
+                    "priority": body.priority,
+                },
+            )
+            conn.commit()
+
+        log_audit_event(
+            logger=logger, action="create_teaching",
+            resource_type="teachings", resource_id=new_id,
+            user_id=user.user_id,
+            details={"category": body.category},
+        )
+
+        return TeachingMutationResponse(
+            status="success",
+            message="教えを登録しました",
+            teaching_id=new_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Create teaching error", organization_id=organization_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},

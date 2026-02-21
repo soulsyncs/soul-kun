@@ -462,6 +462,12 @@ export const api = {
 
     getPenetration: () =>
       fetchWithAuth<import('@/types/api').TeachingPenetrationResponse>('/admin/teachings/penetration'),
+
+    create: (data: import('@/types/api').CreateTeachingRequest) =>
+      fetchWithAuth<import('@/types/api').TeachingMutationResponse>('/admin/teachings', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
 
   // Phase 4: System Health

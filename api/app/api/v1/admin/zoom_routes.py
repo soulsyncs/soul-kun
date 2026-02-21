@@ -15,6 +15,9 @@ Zoom議事録の送信先設定と複数アカウントを一元管理する。
     PUT  /admin/zoom/accounts/{id}  - アカウント更新
     DELETE /admin/zoom/accounts/{id} - アカウント削除
 
+エンドポイント（補助）:
+    GET  /admin/zoom/chatwork-rooms - ChatWorkルーム一覧（プルダウン用）
+
 セキュリティ:
     - Level 5以上（管理部/取締役/代表）のみアクセス可。
       書き込み（POST/PUT/DELETE）も同レベルで許可する。
@@ -611,4 +614,49 @@ async def delete_zoom_account(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="アカウントの削除に失敗しました",
+        )
+
+
+@router.get(
+    "/zoom/chatwork-rooms",
+    summary="ChatWorkルーム一覧取得（プルダウン用）",
+    description="Zoom送信先選択用に監視中のChatWorkルーム一覧を取得（Level 5+）。",
+)
+async def get_chatwork_rooms(
+    user: UserContext = Depends(require_admin),
+):
+    """room_monitoring_settings から有効なルーム一覧を返す"""
+    organization_id = user.organization_id or DEFAULT_ORG_ID
+    try:
+        pool = get_db_pool()
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    SELECT DISTINCT chatwork_room_id, room_name
+                    FROM room_monitoring_settings
+                    WHERE organization_id = CAST(:org_id AS uuid)
+                      AND is_enabled = TRUE
+                      AND chatwork_room_id IS NOT NULL
+                    ORDER BY room_name NULLS LAST, chatwork_room_id
+                    LIMIT 200
+                """),
+                {"org_id": organization_id},
+            )
+            rows = result.mappings().fetchall()
+
+        return {
+            "status": "ok",
+            "rooms": [
+                {
+                    "room_id": str(row["chatwork_room_id"]),
+                    "room_name": row["room_name"] or str(row["chatwork_room_id"]),
+                }
+                for row in rows
+            ],
+        }
+    except Exception:
+        logger.exception("chatwork rooms fetch failed", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="ルーム一覧の取得に失敗しました",
         )

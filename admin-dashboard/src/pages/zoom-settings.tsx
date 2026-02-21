@@ -66,6 +66,14 @@ function AddConfigForm({ onSuccess }: { onSuccess: () => void }) {
   const [roomName, setRoomName] = useState('');
   const [error, setError] = useState('');
 
+  // ChatWorkルーム一覧（プルダウン用）
+  const { data: roomsData } = useQuery({
+    queryKey: ['chatwork-rooms'],
+    queryFn: () => api.zoomSettings.getChatworkRooms(),
+    staleTime: 5 * 60 * 1000, // 5分キャッシュ
+  });
+  const rooms = roomsData?.rooms ?? [];
+
   const mutation = useMutation({
     mutationFn: (data: { meeting_name_pattern: string; chatwork_room_id: string; room_name?: string }) =>
       api.zoomSettings.createConfig(data),
@@ -87,16 +95,17 @@ function AddConfigForm({ onSuccess }: { onSuccess: () => void }) {
       setError('会議名キーワードとChatWorkルームIDは必須です');
       return;
     }
+    const selectedRoom = rooms.find((r) => r.room_id === roomId);
     mutation.mutate({
       meeting_name_pattern: pattern.trim(),
       chatwork_room_id: roomId.trim(),
-      room_name: roomName.trim() || undefined,
+      room_name: selectedRoom?.room_name || roomName.trim() || undefined,
     });
   };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
             会議名キーワード <span className="text-destructive">*</span>
@@ -111,30 +120,35 @@ function AddConfigForm({ onSuccess }: { onSuccess: () => void }) {
         </div>
         <div>
           <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            ChatWorkルームID <span className="text-destructive">*</span>
+            議事録送信先ルーム <span className="text-destructive">*</span>
           </label>
-          <input
-            type="text"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-            placeholder="例: 417892193"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <p className="mt-1 text-xs text-muted-foreground">
-            📍 ChatWorkでルームを開いたときのURL末尾の数字です（例: #!rid<strong>417892193</strong>）
-          </p>
-        </div>
-        <div>
-          <label className="mb-1 block text-xs font-medium text-muted-foreground">
-            ルーム名（メモ用・省略可）
-          </label>
-          <input
-            type="text"
-            value={roomName}
-            onChange={(e) => setRoomName(e.target.value)}
-            placeholder="例: 営業チームルーム"
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
-          />
+          {rooms.length > 0 ? (
+            <select
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="">ルームを選択...</option>
+              {rooms.map((room) => (
+                <option key={room.room_id} value={room.room_id}>
+                  {room.room_name}（ID: {room.room_id}）
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={roomId}
+              onChange={(e) => setRoomId(e.target.value)}
+              placeholder="例: 417892193"
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          )}
+          {rooms.length === 0 && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              📍 ChatWorkでルームを開いたときのURL末尾の数字です（例: #!rid<strong>417892193</strong>）
+            </p>
+          )}
         </div>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}

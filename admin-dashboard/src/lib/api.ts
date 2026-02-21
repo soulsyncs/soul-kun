@@ -549,6 +549,12 @@ export const api = {
       fetchWithAuth<{ status: string }>(`/admin/zoom/configs/${id}`, {
         method: 'DELETE',
       }),
+
+    getChatworkRooms: () =>
+      fetchWithAuth<{
+        status: string;
+        rooms: Array<{ room_id: string; room_name: string }>;
+      }>('/admin/zoom/chatwork-rooms'),
   },
 
   // ===== Zoomアカウント管理（複数アカウント対応） =====

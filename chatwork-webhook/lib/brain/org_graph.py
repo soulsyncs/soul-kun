@@ -1010,34 +1010,30 @@ class OrganizationGraph:
 
                 def _sync_flush_interactions():
                     with self.pool.connect() as conn:
-                        # バッチINSERT（100件チャンク）
+                        # バッチINSERT（100件チャンク）— executemanyパターン（C-2: 鉄則#9準拠）
+                        insert_sql = sa_text(
+                            "INSERT INTO brain_interactions"
+                            " (organization_id, from_person_id,"
+                            " to_person_id, interaction_type,"
+                            " sentiment, room_id)"
+                            " VALUES (:org_id::uuid, :from_id,"
+                            " :to_id, :type,"
+                            " :sentiment, :room_id)"
+                        )
                         for i in range(0, len(entries), 100):
                             chunk = entries[i:i + 100]
-                            values_clauses = []
-                            params = {}
-                            for j, interaction in enumerate(chunk):
-                                key = f"_{j}"
-                                values_clauses.append(
-                                    f"(:org_id{key}::uuid, :from_id{key},"
-                                    f" :to_id{key}, :type{key},"
-                                    f" :sentiment{key}, :room_id{key})"
-                                )
-                                params[f"org_id{key}"] = self.organization_id
-                                params[f"from_id{key}"] = interaction.from_person_id
-                                params[f"to_id{key}"] = interaction.to_person_id
-                                params[f"type{key}"] = interaction.interaction_type.value
-                                params[f"sentiment{key}"] = getattr(interaction, "sentiment", 0.0)
-                                params[f"room_id{key}"] = getattr(interaction, "room_id", None)
-                            conn.execute(
-                                sa_text(
-                                    "INSERT INTO brain_interactions"
-                                    " (organization_id, from_person_id,"
-                                    " to_person_id, interaction_type,"
-                                    " sentiment, room_id)"
-                                    " VALUES " + ", ".join(values_clauses)
-                                ),
-                                params,
-                            )
+                            rows = [
+                                {
+                                    "org_id": self.organization_id,
+                                    "from_id": interaction.from_person_id,
+                                    "to_id": interaction.to_person_id,
+                                    "type": interaction.interaction_type.value,
+                                    "sentiment": getattr(interaction, "sentiment", 0.0),
+                                    "room_id": getattr(interaction, "room_id", None),
+                                }
+                                for interaction in chunk
+                            ]
+                            conn.execute(insert_sql, rows)
                         conn.commit()
 
                 await asyncio.to_thread(_sync_flush_interactions)
@@ -1507,6 +1503,25 @@ class OrganizationGraph:
             rel for rel in self._relationship_cache.values()
             if rel.person_a_id == person_id or rel.person_b_id == person_id
         ]
+
+    def get_strong_relationships(
+        self, min_strength: float = 0.7, limit: int = 5
+    ) -> List[PersonRelationship]:
+        """一定強度以上の関係をソート済みで返す（W-2: context_builder用公開API）"""
+        strong_rels = sorted(
+            [r for r in self._relationship_cache.values() if r.strength >= min_strength],
+            key=lambda r: r.strength,
+            reverse=True,
+        )
+        return strong_rels[:limit]
+
+    def get_person_by_id(self, person_id: str) -> Optional[PersonNode]:
+        """キャッシュから人物を取得（W-2: context_builder用公開API）"""
+        return self._person_cache.get(person_id)
+
+    def is_cache_loaded(self) -> bool:
+        """キャッシュのロード状態を返す（W-2: context_builder用公開API）"""
+        return bool(self._person_cache) or self._load_attempted
 
 
 # =============================================================================

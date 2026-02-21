@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from lib.brain.drive_tool import (
     search_drive_files,
     format_drive_files,
+    get_accessible_classifications_for_account,
     DEFAULT_MAX_FILES,
     MAX_ALLOWED_FILES,
 )
@@ -286,6 +287,61 @@ class TestSearchDriveFiles:
         assert "public" in search_call_params
         assert "restricted" in search_call_params
         assert "invalid_level" not in search_call_params
+
+
+class TestGetAccessibleClassificationsForAccount:
+    """get_accessible_classifications_for_account のテスト"""
+
+    def _make_pool(self, role_level):
+        """モックプールを生成する（role_level を返す）"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = (role_level,)
+        return pool
+
+    def test_level1_2_returns_public_internal(self):
+        """権限レベル1-2（一般社員）は public/internal のみ"""
+        pool = self._make_pool(2)
+        result = get_accessible_classifications_for_account(pool, "12345678", "org-123")
+        assert result == ["public", "internal"]
+
+    def test_level3_4_returns_restricted(self):
+        """権限レベル3-4（リーダー/幹部）は restricted まで見える"""
+        pool = self._make_pool(4)
+        result = get_accessible_classifications_for_account(pool, "12345678", "org-123")
+        assert result == ["public", "internal", "restricted"]
+
+    def test_level5_6_returns_confidential(self):
+        """権限レベル5-6（管理部/代表）は confidential まで見える"""
+        pool = self._make_pool(6)
+        result = get_accessible_classifications_for_account(pool, "12345678", "org-123")
+        assert result == ["public", "internal", "restricted", "confidential"]
+
+    def test_user_not_found_returns_default(self):
+        """ユーザーが見つからない場合はデフォルト（最小権限）を返す"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchone.return_value = None
+        result = get_accessible_classifications_for_account(pool, "99999999", "org-123")
+        assert result == ["public", "internal"]
+
+    def test_empty_account_id_returns_default(self):
+        """account_idが空の場合はデフォルトを返す（DB呼び出しなし）"""
+        pool = MagicMock()
+        result = get_accessible_classifications_for_account(pool, "", "org-123")
+        assert result == ["public", "internal"]
+        pool.connect.assert_not_called()
+
+    def test_db_error_returns_default(self):
+        """DB接続エラー時も最小権限でフォールバック"""
+        pool = MagicMock()
+        pool.connect.side_effect = Exception("DB Error")
+        result = get_accessible_classifications_for_account(pool, "12345678", "org-123")
+        assert result == ["public", "internal"]
 
 
 class TestFormatDriveFiles:

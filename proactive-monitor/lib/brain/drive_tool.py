@@ -182,6 +182,64 @@ def search_drive_files(
     }
 
 
+def get_accessible_classifications_for_account(
+    pool: Any,
+    chatwork_account_id: str,
+    organization_id: str,
+) -> List[str]:
+    """
+    ChatWorkアカウントIDから閲覧可能なドライブ機密区分リストを返す（同期版）
+
+    users → user_departments → roles を1クエリで結合し、
+    最大権限レベルから機密区分リストを決定する。
+
+    権限レベル → 機密区分マッピング（CLAUDE.md §8準拠）:
+    - Level 1-2 (業務委託/一般社員): ["public", "internal"]
+    - Level 3-4 (リーダー/幹部):     ["public", "internal", "restricted"]
+    - Level 5-6 (管理部/代表):       ["public", "internal", "restricted", "confidential"]
+
+    Args:
+        pool: SQLAlchemy コネクションプール
+        chatwork_account_id: ChatWorkアカウントID（文字列）
+        organization_id: 組織ID（ユーザー絞り込みに使用）
+
+    Returns:
+        閲覧可能な機密区分リスト（エラー・未登録時は最小権限 ["public", "internal"]）
+    """
+    if not chatwork_account_id or not organization_id:
+        return ["public", "internal"]
+
+    try:
+        from sqlalchemy import text as sa_text
+
+        with pool.connect() as conn:
+            result = conn.execute(
+                sa_text("""
+                    SELECT COALESCE(MAX(r.level), 2) AS max_level
+                    FROM user_departments ud
+                    JOIN users u ON ud.user_id = u.id
+                    JOIN roles r ON ud.role_id = r.id
+                    WHERE u.chatwork_account_id = :account_id
+                      AND u.organization_id = :org_id
+                      AND ud.ended_at IS NULL
+                """),
+                {"account_id": str(chatwork_account_id), "org_id": organization_id},
+            )
+            row = result.fetchone()
+            role_level = row[0] if row and row[0] else 2
+
+        if role_level >= 5:
+            return ["public", "internal", "restricted", "confidential"]
+        elif role_level >= 3:
+            return ["public", "internal", "restricted"]
+        else:
+            return ["public", "internal"]
+
+    except Exception as e:
+        logger.error("get_accessible_classifications error: %s", type(e).__name__)
+        return ["public", "internal"]
+
+
 def format_drive_files(result: Dict[str, Any]) -> str:
     """
     ドライブファイル検索結果をBrainが合成回答に使える形式にフォーマットする。

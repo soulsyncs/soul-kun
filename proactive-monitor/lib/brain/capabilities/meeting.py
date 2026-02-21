@@ -145,3 +145,70 @@ async def handle_google_meet_minutes(
         get_ai_response_func=llm_caller,
         chatwork_client=chatwork_client,
     )
+
+
+async def handle_past_meeting_query(
+    pool,
+    org_id: str,
+    room_id: str,
+    account_id: str,
+    sender_name: str,
+    params: Dict[str, Any],
+    **kwargs,
+) -> HandlerResult:
+    """
+    過去会議質問ハンドラー — PastMeetingBrainInterfaceに委譲
+
+    「先月の会議は？」「採用会議の議事録どこ？」などの質問に対して
+    brain_episodesを検索し、会議タイトル・日付・GoogleドキュメントURLを返す。
+
+    Args:
+        pool: DBコネクションプール
+        org_id: 組織ID（鉄則#1）
+        room_id: ChatWorkルームID
+        account_id: ユーザーアカウントID
+        sender_name: 送信者名
+        params: パラメータ（original_message: ユーザーの質問テキスト）
+
+    Returns:
+        HandlerResult
+    """
+    import asyncio
+
+    from lib.brain.memory_enhancement import BrainMemoryEnhancement
+    from lib.meetings.past_meeting_interface import (
+        format_meeting_list_message,
+        search_past_meetings,
+    )
+
+    query = params.get("original_message", "")
+    memory = BrainMemoryEnhancement(org_id)
+
+    def _search_sync():
+        with pool.connect() as conn:
+            return search_past_meetings(
+                memory_enhancement=memory,
+                conn=conn,
+                organization_id=org_id,
+                query=query,
+            )
+
+    try:
+        search_result = await asyncio.to_thread(_search_sync)
+    except Exception as e:
+        logger.error("past_meeting_query failed: %s", type(e).__name__)
+        return HandlerResult(
+            success=False,
+            message="会議の検索中にエラーが発生しました。しばらくしてから再度お試しください。",
+        )
+
+    message = format_meeting_list_message(search_result)
+
+    return HandlerResult(
+        success=True,
+        message=message,
+        data={
+            "total_found": search_result.total_found,
+            "query_description": search_result.query_description,
+        },
+    )

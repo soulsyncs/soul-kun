@@ -54,6 +54,7 @@ NO_CONFIRMATION_ACTIONS: Set[str] = {
     "small_talk",            # 雑談
     "thanks",                # お礼
     "goodbye",               # 別れの挨拶
+    "past_meeting_query",    # 過去会議質問（読み取りのみ・低リスク）
 }
 
 # =============================================================================
@@ -483,6 +484,8 @@ RISK_LEVELS: Dict[str, str] = {
     "delete": "high",
     "remove": "high",
     "send_all": "high",
+    # 機能②: 過去会議質問（読み取りのみ・低リスク）
+    "past_meeting_query": "low",
 }
 
 # 確認が必要なリスクレベル

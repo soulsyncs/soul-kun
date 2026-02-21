@@ -350,6 +350,37 @@ class BrainMemoryEnhancement:
         """
         return self._episode_repo.delete_forgotten(conn)
 
+    def find_episodes_by_time_range(
+        self,
+        conn: Connection,
+        start: datetime,
+        end: datetime,
+        user_id: Optional[str] = None,
+        episode_type: Optional[EpisodeType] = None,
+        limit: int = MAX_RECALL_COUNT,
+    ) -> List[Episode]:
+        """時間範囲でエピソードを検索（過去会議検索で使用）
+
+        Args:
+            conn: DB接続
+            start: 開始日時
+            end: 終了日時
+            user_id: ユーザーID（None=組織全体）
+            episode_type: エピソードタイプ（None=全タイプ）
+            limit: 最大件数
+
+        Returns:
+            エピソードリスト
+        """
+        return self._episode_repo.find_by_time_range(
+            conn=conn,
+            start=start,
+            end=end,
+            user_id=user_id,
+            episode_type=episode_type,
+            limit=limit,
+        )
+
     # ========================================================================
     # 知識グラフ
     # ========================================================================

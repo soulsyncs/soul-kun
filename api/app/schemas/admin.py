@@ -1178,3 +1178,14 @@ class DriveUploadResponse(BaseModel):
     document_id: Optional[str] = None
     google_drive_file_id: Optional[str] = None
     google_drive_web_view_link: Optional[str] = None
+
+
+class PineconeSyncResponse(BaseModel):
+    """Pinecone メタデータ同期結果"""
+
+    status: str = "success"
+    message: str
+    org_id: str
+    total_chunks_checked: int = 0
+    updated_count: int = 0
+    error_count: int = 0

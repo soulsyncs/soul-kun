@@ -38,6 +38,7 @@ from app.schemas.admin import (
     DriveFileItem,
     DriveSyncStatusResponse,
     DriveUploadResponse,
+    PineconeSyncResponse,
 )
 
 router = APIRouter()
@@ -531,3 +532,66 @@ async def upload_drive_file(
         google_drive_file_id=drive_file.id,
         google_drive_web_view_link=drive_file.web_view_link,
     )
+
+
+# =============================================================================
+# Pinecone メタデータ同期
+# =============================================================================
+
+
+@router.post(
+    "/sync-pinecone-metadata",
+    response_model=PineconeSyncResponse,
+    summary="Pineconeメタデータ同期",
+    description="DBのdocument_chunksとPineconeのメタデータ（機密区分・部署ID）を同期する。Level 5以上のみ実行可能。",
+)
+async def sync_pinecone_metadata(
+    user=Depends(require_admin),
+):
+    """
+    DBとPineconeのメタデータ（classification, department_id）を全件同期する。
+
+    用途:
+    - Google Driveでファイルが別フォルダに移動した後の手動同期
+    - 定期的なデータ整合性確認
+    - Cloud Schedulerからの自動実行
+
+    セキュリティ: require_admin (Level 5以上のみ)
+    """
+    organization_id = user.organization_id
+
+    try:
+        from lib.pinecone_client import PineconeClient
+        from lib.pinecone_metadata_sync import sync_all_pinecone_metadata
+
+        pool = get_db_pool()
+        pinecone_client = PineconeClient()
+
+        result = await sync_all_pinecone_metadata(pool, organization_id, pinecone_client)
+
+        log_audit_event(
+            logger=logger,
+            action="pinecone_metadata_sync",
+            resource_type="pinecone",
+            resource_id="all",
+            user_id=user.user_id,
+            details={
+                "org_id": organization_id,
+                "total_checked": result.total_chunks_checked,
+                "updated": result.updated_count,
+                "errors": result.error_count,
+            },
+        )
+
+        return PineconeSyncResponse(
+            status="success" if result.success else "partial_failure",
+            message=f"{result.updated_count}/{result.total_chunks_checked} チャンクを同期しました",
+            org_id=organization_id,
+            total_chunks_checked=result.total_chunks_checked,
+            updated_count=result.updated_count,
+            error_count=result.error_count,
+        )
+
+    except Exception as e:
+        logger.error("Pinecone sync endpoint error (org=%s): %s", organization_id, type(e).__name__)
+        raise HTTPException(status_code=500, detail="Pineconeメタデータ同期に失敗しました")

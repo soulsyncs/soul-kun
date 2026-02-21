@@ -165,24 +165,34 @@ class GoogleDriveClient:
         self,
         service_account_file: Optional[str] = None,
         service_account_info: Optional[dict] = None,
+        writable: bool = False,
     ):
         """
         Args:
             service_account_file: サービスアカウントJSONファイルのパス
             service_account_info: サービスアカウント情報の辞書（Secret Manager等から取得時）
+            writable: Trueにするとdrive.fileスコープ（書き込み可）でクライアントを初期化する。
+                      アップロード機能を使う場合はTrueにすること。
         """
         self.settings = get_settings()
+
+        # スコープ選択: 通常は読み取り専用、管理画面アップロード時は書き込み許可
+        scopes = (
+            ['https://www.googleapis.com/auth/drive.file']
+            if writable
+            else ['https://www.googleapis.com/auth/drive.readonly']
+        )
 
         # 認証情報の取得
         if service_account_info:
             credentials = service_account.Credentials.from_service_account_info(
                 service_account_info,
-                scopes=['https://www.googleapis.com/auth/drive.readonly']
+                scopes=scopes
             )
         elif service_account_file:
             credentials = service_account.Credentials.from_service_account_file(
                 service_account_file,
-                scopes=['https://www.googleapis.com/auth/drive.readonly']
+                scopes=scopes
             )
         else:
             # 環境変数からパスを取得
@@ -190,13 +200,13 @@ class GoogleDriveClient:
             if sa_path:
                 credentials = service_account.Credentials.from_service_account_file(
                     sa_path,
-                    scopes=['https://www.googleapis.com/auth/drive.readonly']
+                    scopes=scopes
                 )
             else:
                 # Application Default Credentials を使用
                 from google.auth import default
                 credentials, _ = default(
-                    scopes=['https://www.googleapis.com/auth/drive.readonly']
+                    scopes=scopes
                 )
 
         self.service = build('drive', 'v3', credentials=credentials)
@@ -483,6 +493,66 @@ class GoogleDriveClient:
             page_token = response.get('nextPageToken')
             if not page_token:
                 break
+
+    async def upload_file(
+        self,
+        *,
+        file_name: str,
+        mime_type: str,
+        content: bytes,
+        folder_id: Optional[str] = None,
+    ) -> "DriveFile":
+        """
+        ファイルをGoogle Driveにアップロードする。
+
+        Args:
+            file_name: アップロード後のファイル名
+            mime_type: ファイルのMIMEタイプ
+            content: ファイルのバイナリデータ
+            folder_id: アップロード先フォルダID（省略時はルート）
+
+        Returns:
+            DriveFile: アップロードされたファイル情報
+
+        Raises:
+            HttpError: Drive API エラー
+        """
+        import io
+        from googleapiclient.http import MediaIoBaseUpload
+
+        loop = asyncio.get_event_loop()
+
+        file_metadata: dict = {"name": file_name}
+        if folder_id:
+            file_metadata["parents"] = [folder_id]
+
+        media = MediaIoBaseUpload(
+            io.BytesIO(content),
+            mimetype=mime_type,
+            resumable=False,
+        )
+
+        result = await loop.run_in_executor(
+            None,
+            lambda: self.service.files().create(
+                body=file_metadata,
+                media_body=media,
+                fields="id,name,mimeType,size,modifiedTime,createdTime,parents,webViewLink",
+            ).execute(),
+        )
+
+        return DriveFile(
+            id=result["id"],
+            name=result["name"],
+            mime_type=result.get("mimeType", mime_type),
+            size=int(result.get("size", len(content))),
+            modified_time=result.get("modifiedTime"),
+            created_time=result.get("createdTime"),
+            parents=result.get("parents", [folder_id] if folder_id else []),
+            web_view_link=result.get("webViewLink"),
+            trashed=False,
+            folder_path=[],
+        )
 
     # ================================================================
     # ユーティリティ

@@ -929,7 +929,8 @@ class BrainContext:
             "sender_name": self.sender_name,
             "sender_account_id": self.sender_account_id,
             # PIIマスキング: person_info はログ出力のため to_safe_dict() を使用（CLAUDE.md §9-4）
-            "person_info": [p.to_safe_dict() for p in self.person_info] if isinstance(self.person_info, list) else safe_to_dict(self.person_info),
+            # dict型混在に対応: PersonInfoオブジェクトならto_safe_dict()、dictならそのまま
+            "person_info": [p.to_safe_dict() if hasattr(p, "to_safe_dict") else (p if isinstance(p, dict) else safe_to_dict(p)) for p in self.person_info] if isinstance(self.person_info, list) else safe_to_dict(self.person_info),
             "recent_tasks": safe_to_dict(self.recent_tasks),
             "active_goals": safe_to_dict(self.active_goals),
             "goal_session": safe_to_dict(self.goal_session) if self.goal_session else None,

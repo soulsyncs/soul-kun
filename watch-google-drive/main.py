@@ -540,6 +540,7 @@ class DatabaseOperations:
                         total_pages = :pages,
                         processing_error = :error,
                         processed_at = CASE WHEN :status = 'completed' THEN NOW() ELSE processed_at END,
+                        is_searchable = CASE WHEN :status = 'completed' THEN TRUE ELSE is_searchable END,
                         updated_at = NOW()
                     WHERE id = :id
                 """),

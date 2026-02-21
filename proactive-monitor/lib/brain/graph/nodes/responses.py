@@ -192,7 +192,9 @@ def make_text_response(brain: "SoulkunBrain"):
     """テキスト応答のみ（Tool呼び出しなし）のレスポンス生成"""
 
     async def text_response(state: BrainGraphState) -> dict:
-        from lib.brain.core import _safe_confidence_to_dict
+        from lib.brain.core import _safe_confidence_to_dict, _extract_confidence_value
+        from lib.brain.constants import SAVE_DECISION_LOGS
+        from lib.brain.models import DecisionResult
 
         llm_result = state["llm_result"]
         start_time = state["start_time"]
@@ -215,14 +217,32 @@ def make_text_response(brain: "SoulkunBrain"):
                 total_time_ms=brain._elapsed_ms(start_time),
             )
 
-            # 記憶更新（fire-and-forget）
             minimal_result = HandlerResult(success=True, message=text_msg)
+
+            # 記憶更新（fire-and-forget）
             brain._fire_and_forget(
                 brain.memory_manager.update_memory_safely(
                     state["message"], minimal_result, state["context"],
                     state["room_id"], state["account_id"], state["sender_name"],
                 )
             )
+
+            # 判断ログ記録（テキスト応答も記録 — Fix: text_responseはログがなかった）
+            if SAVE_DECISION_LOGS:
+                _decision = DecisionResult(
+                    action="llm_text_response",
+                    params={},
+                    confidence=_extract_confidence_value(
+                        llm_result.confidence, "text_response:log"
+                    ),
+                    needs_confirmation=False,
+                )
+                brain._fire_and_forget(
+                    brain.memory_manager.log_decision_safely(
+                        state["message"], None, _decision, minimal_result,
+                        state["room_id"], state["account_id"],
+                    )
+                )
 
             return {"response": response}
         except Exception as e:

@@ -415,13 +415,18 @@ class BrainLearning:
             return True
 
         try:
+            # LLM Brainパスではunderstandingがない場合がある（None許容）
+            _intent = understanding.intent if understanding is not None else "llm_brain"
+            _conf = understanding.intent_confidence if understanding is not None else (decision.confidence if decision else 0.0)
+            _entities = understanding.entities if understanding is not None else {}
+
             log_entry = DecisionLogEntry(
                 room_id=room_id,
                 user_id=account_id,
                 user_message=message,
-                understanding_intent=understanding.intent,
-                understanding_confidence=understanding.intent_confidence,
-                understanding_entities=understanding.entities,
+                understanding_intent=_intent,
+                understanding_confidence=_conf,
+                understanding_entities=_entities,
                 understanding_time_ms=understanding_time_ms,
                 selected_action=decision.action,
                 action_params=decision.params,
@@ -442,7 +447,7 @@ class BrainLearning:
                 await self._flush_decision_logs()
 
             logger.debug(
-                f"Decision logged: intent={understanding.intent}, "
+                f"Decision logged: intent={_intent}, "
                 f"action={decision.action}, "
                 f"confidence={decision.confidence:.2f}, "
                 f"success={result.success}"

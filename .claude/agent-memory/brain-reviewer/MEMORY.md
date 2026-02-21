@@ -652,6 +652,100 @@
 - organization_id: uuid, classification: character varying, is_searchable: boolean, deleted_at: timestamptz
 - google_drive_web_view_link: text, file_name: character varying, title: character varying, updated_at: timestamptz
 
+## Phase 2 form_employee tables migration (2026-02-21, reviewed)
+
+### Migration: migrations/20260221_form_employee_tables.sql
+- 4 new tables: supabase_employee_mapping, form_employee_skills, form_employee_work_prefs, form_employee_contact_prefs
+- organization_id type: CHARACTER VARYING(255) — matching employees table pattern
+- **WARNING (RLS型キャスト)**: All 4 RLS policies use bare `organization_id = current_setting(...)` WITHOUT `::text` cast.
+  - Project's established pattern for VARCHAR org_id tables: `organization_id::text = current_setting(...)` (see migrations/20260209_runtime_tables_add_org_id.sql, 20260210_phase_c_meeting_tables.sql, 20260217_emergency_stop.sql, 20260216_google_oauth_tokens.sql)
+  - PostgreSQL allows VARCHAR = TEXT comparison natively (no runtime error), but inconsistent with project convention and documented RLS safety rule (CLAUDE.md §3-2 #7)
+  - FIX: Add `::text` cast: `organization_id::text = current_setting('app.current_organization_id', true)`
+- **WARNING (WITH CHECK 句なし)**: All 4 RLS policies use `USING` only, no `WITH CHECK`. Without WITH CHECK, INSERT/UPDATE operations are not filtered by RLS. The USING clause alone only applies to SELECT/DELETE.
+  - For INSERT/UPDATE tenant isolation, must add: `WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true))`
+- **PASS**: Rollback script exists (20260221_form_employee_tables_rollback.sql). 3-copy sync N/A (migration file).
+- **PASS**: Indexes on organization_id and employee_id for all 4 tables.
+- **PASS**: UNIQUE constraints on (employee_id, organization_id) for all 4 tables.
+
+### PersonInfo.to_string() extension (models.py)
+- _ATTR_LABELS tuple format: (lookup_key, display_label) e.g. ("スキル（得意）", "得意")
+- supabase-sync writes person_attributes with full-label keys: "スキル（得意）", "稼働スタイル", "キャパシティ", "月間稼働", "連絡可能時間"
+- `for key, label in _ATTR_LABELS` correctly maps tuple[0]→key and tuple[1]→abbreviated display label. FUNCTIONAL PASS.
+- **WARNING (PII)**: attributes dict may contain personal preference data (skills, work style, hobbies). to_string() feeds LLM context — this is by design, but note attributes can include 'hobbies' TEXT which isn't included in _ATTR_LABELS filter. Only 5 safe operational keys are shown. OK.
+- **SUGGESTION**: _ATTR_LABELS defined inside method body on every call. Should be module-level constant.
+- 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all IDENTICAL (PASS verified).
+
+## Phase 3-B create_teaching (feat/admin-google-drive, 未コミット 2026-02-21)
+
+### 変更ファイル (未コミット)
+- `api/app/schemas/admin.py`: TEACHING_CATEGORY_VALUES, CreateTeachingRequest, TeachingMutationResponse 追加
+- `api/app/api/v1/admin/teachings_routes.py`: POST /teachings (create_teaching) 追加, W-1修正
+- `admin-dashboard/src/types/api.ts`: TEACHING_CATEGORIES 定数 + TeachingCategoryValue 型追加
+- `admin-dashboard/src/pages/teachings.tsx`: 「教えを追加」ダイアログ (select dropdown)
+
+### C-1 (PASS): TeachingMutationResponse 正しく使用
+- `TeachingMutationResponse(status, teaching_id, message)` — フィールド正しい
+- DepartmentMutationResponse は teachings_routes.py で一切参照されていない
+
+### W-1 (PASS): organization_id フォールバック修正済み
+- `get_teaching_penetration` (line 250): `user.organization_id or DEFAULT_ORG_ID` — PASS
+- `create_teaching` (line 367): `user.organization_id or DEFAULT_ORG_ID` — PASS
+- **REGRESSION (SUGGESTION)**: 既存3関数 (get_teachings_list/conflicts/usage_stats) が `or DEFAULT_ORG_ID or DEFAULT_ORG_ID` に変化 (二重 or は論理的に同一、バグではない)
+
+### W-2 (PASS): category バリデーション
+- `model_post_init` で ValueError → Pydantic v2 ValidationError に変換 — 動作確認済み
+- `TEACHING_CATEGORY_VALUES` (15値) が DB CHECK constraint と完全一致 — 確認済み
+- フロントエンドは `<select>` プルダウン (自由テキスト入力不可) — PASS
+- `__get_validators__` メソッドは Pydantic v2 では完全無視 (IGNORED) — 副作用なし (SUGGESTION: 削除)
+
+### その他確認項目
+- SQL インジェクション: where_sql は静的な条件キーワードのみ。値は `:category` 等でパラメータ化 — PASS
+- 監査ログ: 全5エンドポイントに `log_audit_event` あり — PASS
+- エラーレスポンス: "内部エラーが発生しました" のみ — PASS (鉄則#8)
+- CAST: `CAST(:org_id AS uuid)`, `CAST(:id AS uuid)`, `CAST(:ceo_uid AS uuid)` — ceo_teachings の各列は UUID 型、正しい
+- conn.commit(): create_teaching の INSERT 後にあり — PASS
+- org_id フィルタ: 全 SELECT に `organization_id = :org_id` あり — PASS
+- ページネーション: limit le=200, 件数上限あり — PASS
+- テストカバレッジ: CreateTeachingRequest/TeachingMutationResponse の直接ユニットテストなし — SUGGESTION
+- ceo_teachings.category に DB CHECK 制約あり (phase2d_ceo_learning.sql) — バックエンドバリデーションとの二重防御でよい
+
+## Phase 4-A zoom_routes.py GET /chatwork-rooms レビュー (feat/admin-google-drive, 2026-02-21)
+
+### スキーマ重要事実（確定）
+- `lib/config.py`: `DB_NAME` default = `"soulkun_tasks"` (NOT soulkun)
+- `soulkun_tasks.room_monitoring_settings`: カラムは `id, organization_id, room_id, room_name, is_enabled, last_message_id, created_at, updated_at`。**`chatwork_room_id` カラムが存在しない**（`room_id` のみ）
+- `soulkun.room_monitoring_settings`: カラムは `id, chatwork_room_id(NOT NULL), room_name, monitoring_type, created_at, updated_at, created_by, notes, organization_id`。`is_enabled` が**存在しない**。`chatwork_room_id` がある。
+- db_schema.json の flat section `"room_monitoring_settings"` は `chatwork_room_id` と `is_enabled` 両方ある（soulkun と soulkun_tasks のマージ表示と推測）
+
+### C-1 修正済み (PASS)
+- `AND is_enabled = TRUE` 削除 — soulkun.room_monitoring_settings には is_enabled なし → 削除は正しい
+- **ただし**: `get_db_pool()` は `DB_NAME=soulkun_tasks` がデフォルト。soulkun_tasks.room_monitoring_settings には `chatwork_room_id` がなく `room_id` のみ。接続DBがsoulkun_tasksの場合、`SELECT chatwork_room_id FROM room_monitoring_settings` はカラム不在エラーになる可能性がある
+- 本番環境で `DB_NAME=soulkun` が設定されているなら問題なし。要確認事項として残る（SUGGESTION）
+
+### W-1 修正済み (PASS)
+- `logger.exception("...", organization_id=organization_id)` → `logger.error("chatwork rooms fetch failed: %s", type(e).__name__)` に変更
+- org_id がログに出なくなった。他エンドポイントと一貫したパターン — PASS
+
+### WARNING issues (残存)
+- **W-2 (監査ログなし)**: zoom_routes.py の全エンドポイントに `log_audit_event` 呼び出しなし
+  - GET /chatwork-rooms は読み取りのみで SUGGESTION 扱いでもよいが、zoom configs/accounts の書き込みエンドポイントには audit log 必須（鉄則#3）
+
+### PASS items
+- org_id フィルタ: `WHERE organization_id = CAST(:org_id AS uuid)` あり
+- RLS型キャスト: `CAST(:org_id AS uuid)` — room_monitoring_settings.organization_id は uuid 型（正しい）
+- 認証: `require_admin` (Level 5+) — PASS
+- リソースリーク: `with pool.connect() as conn:` — PASS
+- PII in response: room_id と room_name のみ — PASS
+- SQL injection: パラメータ化 — PASS
+- LIMIT 200: ページネーション対応 — PASS
+- N+1: 単一 SELECT クエリ — PASS
+- async blocking: `async def` + 同期 pool.connect() は admin dashboard §1-1 例外として pre-existing パターン — PASS
+
+### db_schema.json の zoom テーブル状況
+- `zoom_meeting_configs`: db_schema.json に存在しない（新規テーブル、Phase 4-A 新設）
+- `zoom_accounts`: db_schema.json に存在しない（新規テーブル）
+- db_schema.json は全テーブルを網羅していない可能性あり（特に新規作成テーブル）
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

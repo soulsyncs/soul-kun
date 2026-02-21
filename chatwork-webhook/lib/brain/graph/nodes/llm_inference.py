@@ -6,8 +6,10 @@ Claude API + Function Calling でメッセージを処理。
 意図理解・Tool選択・テキスト応答生成を行う。
 """
 
+import asyncio
 import logging
 import time
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -16,6 +18,33 @@ if TYPE_CHECKING:
 from lib.brain.graph.state import BrainGraphState
 
 logger = logging.getLogger(__name__)
+
+
+async def _log_llm_usage(pool, org_id: str, model_id: str,
+                          input_tokens: int, output_tokens: int,
+                          room_id: str, user_id: str) -> None:
+    """LLM API利用ログをai_usage_logsに記録（非同期 + asyncio.to_thread）"""
+    try:
+        from lib.brain.model_orchestrator.usage_logger import UsageLogger
+        from lib.brain.model_orchestrator.constants import Tier
+
+        def _sync():
+            ul = UsageLogger(pool=pool, organization_id=org_id)
+            ul.log_usage(
+                model_id=model_id,
+                task_type="llm_brain_inference",
+                tier=Tier.PREMIUM,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_jpy=Decimal("0"),  # TODO: 実コスト計算（model_orchestrator統合後）
+                latency_ms=0,
+                success=True,
+                room_id=room_id,
+                user_id=user_id,
+            )
+        await asyncio.to_thread(_sync)
+    except Exception as e:
+        logger.warning("[llm_inference] ai_usage_logs記録失敗: %s", type(e).__name__)
 
 
 def make_llm_inference(brain: "SoulkunBrain"):
@@ -54,6 +83,20 @@ def make_llm_inference(brain: "SoulkunBrain"):
                 llm_result.text_response is not None,
                 confidence_value,
             )
+
+            # ai_usage_logs記録（LLM Brain はOrchestrator経由しないため直接記録）
+            if llm_result.input_tokens or llm_result.output_tokens:
+                brain._fire_and_forget(
+                    _log_llm_usage(
+                        pool=brain.pool,
+                        org_id=brain.org_id,
+                        model_id=getattr(brain.llm_brain, "model", "openai/gpt-5.2"),
+                        input_tokens=llm_result.input_tokens,
+                        output_tokens=llm_result.output_tokens,
+                        room_id=state.get("room_id", ""),
+                        user_id=state.get("account_id", ""),
+                    )
+                )
 
             return {
                 "llm_result": llm_result,

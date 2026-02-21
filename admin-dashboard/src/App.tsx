@@ -62,6 +62,9 @@ const ZoomSettingsPage = lazy(() =>
 const GoogleDrivePage = lazy(() =>
   import('@/pages/google-drive').then((m) => ({ default: m.GoogleDrivePage }))
 );
+const CalendarPage = lazy(() =>
+  import('@/pages/calendar').then((m) => ({ default: m.CalendarPage }))
+);
 
 // Loading fallback
 function PageLoader() {
@@ -212,6 +215,12 @@ const googleDriveRoute = new Route({
   component: () => <ProtectedRoute component={GoogleDrivePage} />,
 });
 
+const calendarRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/calendar',
+  component: () => <ProtectedRoute component={CalendarPage} />,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
@@ -231,6 +240,7 @@ const routeTree = rootRoute.addChildren([
   morningRoute,
   zoomSettingsRoute,
   googleDriveRoute,
+  calendarRoute,
 ]);
 
 const router = new Router({ routeTree });

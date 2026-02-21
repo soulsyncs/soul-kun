@@ -26,6 +26,7 @@ import type {
   UpdateDepartmentRequest,
   UpdateMemberRequest,
   UpdateMemberDepartmentsRequest,
+  CreateMemberRequest,
   EmergencyStopStatusResponse,
   EmergencyStopActionResponse,
 } from '@/types/api';
@@ -244,6 +245,17 @@ export const api = {
           body: JSON.stringify(data),
         }
       ),
+
+    create: (data: CreateMemberRequest) =>
+      fetchWithAuth<DepartmentMutationResponse>('/admin/members', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+
+    delete: (userId: string) =>
+      fetchWithAuth<DepartmentMutationResponse>(`/admin/members/${userId}`, {
+        method: 'DELETE',
+      }),
   },
 
   // Department / Org Chart endpoints
@@ -450,6 +462,12 @@ export const api = {
 
     getPenetration: () =>
       fetchWithAuth<import('@/types/api').TeachingPenetrationResponse>('/admin/teachings/penetration'),
+
+    create: (data: import('@/types/api').CreateTeachingRequest) =>
+      fetchWithAuth<import('@/types/api').TeachingMutationResponse>('/admin/teachings', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
   },
 
   // Phase 4: System Health
@@ -531,6 +549,12 @@ export const api = {
       fetchWithAuth<{ status: string }>(`/admin/zoom/configs/${id}`, {
         method: 'DELETE',
       }),
+
+    getChatworkRooms: () =>
+      fetchWithAuth<{
+        status: string;
+        rooms: Array<{ room_id: string; room_name: string }>;
+      }>('/admin/zoom/chatwork-rooms'),
   },
 
   // ===== Zoomアカウント管理（複数アカウント対応） =====

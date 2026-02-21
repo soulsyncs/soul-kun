@@ -1,13 +1,15 @@
 """
-Admin Dashboard - Members List/Detail Endpoints
+Admin Dashboard - Members List/Detail/CRUD Endpoints
 
 メンバー一覧取得、メンバー詳細取得、キーマン発見。
+Phase 3追加: メンバー新規作成(POST)・更新(PUT)・論理削除(DELETE)
 """
 
+import uuid
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, status
 from sqlalchemy import text
 
 from lib.db import get_db_pool
@@ -17,12 +19,16 @@ from .deps import (
     _escape_like,
     logger,
     require_admin,
+    require_editor,
     UserContext,
 )
 from app.schemas.admin import (
     MembersListResponse,
     MemberResponse,
     AdminErrorResponse,
+    CreateMemberRequest,
+    UpdateMemberRequest,
+    DepartmentMutationResponse,
 )
 
 router = APIRouter()
@@ -464,6 +470,298 @@ async def get_keymen(
         raise
     except Exception as e:
         logger.exception("Get keymen error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+# =============================================================================
+# Phase 3: メンバーCRUD（新規作成・更新・論理削除）
+# =============================================================================
+
+
+@router.post(
+    "/members",
+    response_model=DepartmentMutationResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        400: {"model": AdminErrorResponse, "description": "バリデーションエラー"},
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+        409: {"model": AdminErrorResponse, "description": "既に存在するアカウントID"},
+        500: {"model": AdminErrorResponse, "description": "サーバーエラー"},
+    },
+    summary="メンバー新規作成",
+    description="新しいメンバーを組織に追加する。Level 5（管理部/取締役）以上が必要。削除（soft delete）は誤操作防止のため Level 6 のみ。",
+)
+async def create_member(
+    body: CreateMemberRequest = Body(...),
+    user: UserContext = Depends(require_admin),
+):
+    """新しいメンバーを users テーブルに追加する"""
+    organization_id = user.organization_id
+    pool = get_db_pool()
+
+    try:
+        new_user_id = str(uuid.uuid4())
+
+        with pool.connect() as conn:
+            # chatwork_account_id 重複チェック
+            if body.chatwork_account_id:
+                dup = conn.execute(
+                    text("""
+                        SELECT id FROM users
+                        WHERE chatwork_account_id = :cw_id
+                          AND organization_id = :org_id
+                        LIMIT 1
+                    """),
+                    {"cw_id": body.chatwork_account_id, "org_id": organization_id},
+                ).fetchone()
+                if dup:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "status": "failed",
+                            "error_code": "DUPLICATE_CHATWORK_ID",
+                            "error_message": "このChatWorkアカウントIDは既に登録されています",
+                        },
+                    )
+
+            # ユーザー作成
+            conn.execute(
+                text("""
+                    INSERT INTO users
+                        (id, organization_id, name, email,
+                         chatwork_account_id, role, is_active,
+                         created_at, updated_at)
+                    VALUES
+                        (CAST(:uid AS uuid), :org_id, :name, :email,
+                         :cw_id, :role, TRUE,
+                         NOW(), NOW())
+                """),
+                {
+                    "uid": new_user_id,
+                    "org_id": organization_id,
+                    "name": body.name,
+                    "email": body.email,
+                    "cw_id": body.chatwork_account_id,
+                    "role": body.role,
+                },
+            )
+
+            # 部署・ロール割り当て（任意）
+            if body.department_id and body.role_id:
+                conn.execute(
+                    text("""
+                        INSERT INTO user_departments
+                            (user_id, department_id, role_id,
+                             is_primary, organization_id,
+                             created_at, updated_at)
+                        VALUES
+                            (CAST(:uid AS uuid), CAST(:dept_id AS uuid),
+                             CAST(:role_id AS uuid),
+                             TRUE, :org_id,
+                             NOW(), NOW())
+                        ON CONFLICT DO NOTHING
+                    """),
+                    {
+                        "uid": new_user_id,
+                        "dept_id": body.department_id,
+                        "role_id": body.role_id,
+                        "org_id": organization_id,
+                    },
+                )
+
+            conn.commit()
+
+        log_audit_event(
+            logger=logger, action="create_member",
+            resource_type="member", resource_id=new_user_id,
+            user_id=user.user_id,
+            details={"dept_id": body.department_id},
+        )
+
+        return DepartmentMutationResponse(
+            status="success",
+            message=f"メンバー「{body.name}」を追加しました",
+            id=new_user_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Create member error", organization_id=organization_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+@router.put(
+    "/members/{user_id}",
+    response_model=DepartmentMutationResponse,
+    responses={
+        403: {"model": AdminErrorResponse, "description": "権限不足"},
+        404: {"model": AdminErrorResponse, "description": "メンバーが見つからない"},
+        500: {"model": AdminErrorResponse, "description": "サーバーエラー"},
+    },
+    summary="メンバー情報更新",
+    description="メンバーの名前・メール・ChatWorkID等を更新する。Level 5以上が必要。",
+)
+async def update_member(
+    user_id: str = Path(
+        ...,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    ),
+    body: UpdateMemberRequest = Body(...),
+    user: UserContext = Depends(require_admin),
+):
+    """メンバー情報を更新する（提供されたフィールドのみ）"""
+    organization_id = user.organization_id
+    pool = get_db_pool()
+
+    try:
+        with pool.connect() as conn:
+            # 存在確認
+            row = conn.execute(
+                text("SELECT id FROM users WHERE id = CAST(:uid AS uuid) AND organization_id = :org_id"),
+                {"uid": user_id, "org_id": organization_id},
+            ).fetchone()
+            if not row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"status": "failed", "error_code": "MEMBER_NOT_FOUND", "error_message": "指定されたメンバーが見つかりません"},
+                )
+
+            # chatwork_account_id 重複チェック（別ユーザーへの上書きを防ぐ）
+            if body.chatwork_account_id is not None:
+                dup = conn.execute(
+                    text("""
+                        SELECT id FROM users
+                        WHERE chatwork_account_id = :cw_id
+                          AND organization_id = :org_id
+                          AND id != CAST(:uid AS uuid)
+                        LIMIT 1
+                    """),
+                    {"cw_id": body.chatwork_account_id, "org_id": organization_id, "uid": user_id},
+                ).fetchone()
+                if dup:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "status": "failed",
+                            "error_code": "DUPLICATE_CHATWORK_ID",
+                            "error_message": "このChatWorkアカウントIDは既に別のメンバーが使用しています",
+                        },
+                    )
+
+            # 更新フィールドを動的に構築
+            updates = {}
+            if body.name is not None:
+                updates["name"] = body.name
+            if body.email is not None:
+                updates["email"] = body.email
+            if body.chatwork_account_id is not None:
+                updates["chatwork_account_id"] = body.chatwork_account_id
+
+            if updates:
+                set_clause = ", ".join(f"{k} = :{k}" for k in updates)
+                updates["uid"] = user_id
+                updates["org_id"] = organization_id
+                conn.execute(
+                    text(f"""
+                        UPDATE users SET {set_clause}, updated_at = NOW()
+                        WHERE id = CAST(:uid AS uuid)
+                          AND organization_id = :org_id
+                    """),
+                    updates,
+                )
+
+            conn.commit()
+
+        log_audit_event(
+            logger=logger, action="update_member",
+            resource_type="member", resource_id=user_id,
+            user_id=user.user_id,
+            details={"fields": list(updates.keys()) if updates else []},
+        )
+
+        return DepartmentMutationResponse(
+            status="success",
+            message="メンバー情報を更新しました",
+            id=user_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Update member error", organization_id=organization_id, target_user_id=user_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},
+        )
+
+
+@router.delete(
+    "/members/{user_id}",
+    response_model=DepartmentMutationResponse,
+    responses={
+        403: {"model": AdminErrorResponse, "description": "権限不足（Level 6のみ）"},
+        404: {"model": AdminErrorResponse, "description": "メンバーが見つからない"},
+        500: {"model": AdminErrorResponse, "description": "サーバーエラー"},
+    },
+    summary="メンバー削除（論理削除）",
+    description="メンバーを論理削除（is_active=FALSE）する。Level 6（代表/CFO）のみ。",
+)
+async def delete_member(
+    user_id: str = Path(
+        ...,
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    ),
+    user: UserContext = Depends(require_editor),
+):
+    """メンバーを論理削除する（物理削除は行わない）"""
+    organization_id = user.organization_id
+    pool = get_db_pool()
+
+    try:
+        with pool.connect() as conn:
+            result = conn.execute(
+                text("""
+                    UPDATE users
+                    SET is_active = FALSE, updated_at = NOW()
+                    WHERE id = CAST(:uid AS uuid)
+                      AND organization_id = :org_id
+                      AND is_active = TRUE
+                """),
+                {"uid": user_id, "org_id": organization_id},
+            )
+
+            if result.rowcount == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"status": "failed", "error_code": "MEMBER_NOT_FOUND", "error_message": "指定されたメンバーが見つかりません（または既に削除済み）"},
+                )
+
+            conn.commit()
+
+        log_audit_event(
+            logger=logger, action="delete_member",
+            resource_type="member", resource_id=user_id,
+            user_id=user.user_id,
+            details={"action": "soft_delete"},
+        )
+
+        return DepartmentMutationResponse(
+            status="success",
+            message="メンバーを削除しました",
+            id=user_id,
+        )
+
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("Delete member error", organization_id=organization_id, target_user_id=user_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={"status": "failed", "error_code": "INTERNAL_ERROR", "error_message": "内部エラーが発生しました"},

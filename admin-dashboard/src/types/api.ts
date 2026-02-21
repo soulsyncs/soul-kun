@@ -290,6 +290,15 @@ export interface UpdateDepartmentRequest {
   display_order?: number;
 }
 
+export interface CreateMemberRequest {
+  name: string;
+  email?: string;
+  chatwork_account_id?: string;
+  role?: string;
+  department_id?: string;
+  role_id?: string;
+}
+
 export interface UpdateMemberRequest {
   name?: string;
   email?: string;
@@ -590,6 +599,40 @@ export interface ProactiveStatsResponse {
 // =============================================================================
 // Phase 4: Teachings
 // =============================================================================
+
+export const TEACHING_CATEGORIES = [
+  { value: 'mvv_mission', label: 'MVV（ミッション）' },
+  { value: 'mvv_vision', label: 'MVV（ビジョン）' },
+  { value: 'mvv_values', label: 'MVV（バリューズ）' },
+  { value: 'choice_theory', label: '選択理論' },
+  { value: 'sdt', label: '自己決定理論' },
+  { value: 'servant', label: 'サーバントリーダーシップ' },
+  { value: 'psych_safety', label: '心理的安全性' },
+  { value: 'biz_sales', label: '業務（営業）' },
+  { value: 'biz_hr', label: '業務（人事）' },
+  { value: 'biz_accounting', label: '業務（経理）' },
+  { value: 'biz_general', label: '業務（一般）' },
+  { value: 'culture', label: '組織文化' },
+  { value: 'communication', label: 'コミュニケーション' },
+  { value: 'staff_guidance', label: 'スタッフ指導' },
+  { value: 'other', label: 'その他' },
+] as const;
+
+export type TeachingCategoryValue = typeof TEACHING_CATEGORIES[number]['value'];
+
+export interface CreateTeachingRequest {
+  statement: string;
+  category: TeachingCategoryValue;
+  subcategory?: string;
+  priority?: number;
+  reasoning?: string;
+}
+
+export interface TeachingMutationResponse {
+  status: string;
+  teaching_id: string;
+  message: string;
+}
 
 export interface TeachingSummary {
   id: string;

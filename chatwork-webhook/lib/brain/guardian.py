@@ -52,6 +52,47 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
+# v10.42.0 P0: アクション評価結果（GuardianServiceより先に定義）
+# =============================================================================
+
+
+class GuardianActionType(Enum):
+    """Guardian評価結果タイプ"""
+    APPROVE = "approve"                    # 実行OK
+    BLOCK_AND_SUGGEST = "block_and_suggest"  # 実行ブロック + 代替案
+    FORCE_MODE_SWITCH = "force_mode_switch"  # モード強制遷移
+
+
+@dataclass
+class GuardianActionResult:
+    """
+    Guardian評価結果
+
+    v10.42.0 P0: アクション実行前の価値観評価結果
+    """
+    action_type: GuardianActionType
+    original_action: str
+    blocked_reason: Optional[str] = None
+    ng_pattern_type: Optional[str] = None
+    ng_keyword: Optional[str] = None
+    alternative_message: Optional[str] = None
+    force_mode: Optional[str] = None  # 強制遷移先のモード
+
+    @property
+    def should_block(self) -> bool:
+        """実行をブロックすべきか"""
+        return self.action_type in (
+            GuardianActionType.BLOCK_AND_SUGGEST,
+            GuardianActionType.FORCE_MODE_SWITCH,
+        )
+
+    @property
+    def should_force_mode_switch(self) -> bool:
+        """モード強制遷移すべきか"""
+        return self.action_type == GuardianActionType.FORCE_MODE_SWITCH
+
+
+# =============================================================================
 # 検証基準定数
 # =============================================================================
 
@@ -883,7 +924,7 @@ conflict_type:
         user_message: str,
         action: str,
         context: Optional[Dict[str, Any]] = None,
-    ) -> "GuardianActionResult":
+    ) -> GuardianActionResult:
         """
         アクション実行前に価値観評価を行う
 
@@ -993,43 +1034,3 @@ conflict_type:
             ng_keyword=ng_result.matched_keyword,
         )
 
-
-# =============================================================================
-# v10.42.0 P0: アクション評価結果
-# =============================================================================
-
-
-class GuardianActionType(Enum):
-    """Guardian評価結果タイプ"""
-    APPROVE = "approve"                    # 実行OK
-    BLOCK_AND_SUGGEST = "block_and_suggest"  # 実行ブロック + 代替案
-    FORCE_MODE_SWITCH = "force_mode_switch"  # モード強制遷移
-
-
-@dataclass
-class GuardianActionResult:
-    """
-    Guardian評価結果
-
-    v10.42.0 P0: アクション実行前の価値観評価結果
-    """
-    action_type: GuardianActionType
-    original_action: str
-    blocked_reason: Optional[str] = None
-    ng_pattern_type: Optional[str] = None
-    ng_keyword: Optional[str] = None
-    alternative_message: Optional[str] = None
-    force_mode: Optional[str] = None  # 強制遷移先のモード
-
-    @property
-    def should_block(self) -> bool:
-        """実行をブロックすべきか"""
-        return self.action_type in (
-            GuardianActionType.BLOCK_AND_SUGGEST,
-            GuardianActionType.FORCE_MODE_SWITCH,
-        )
-
-    @property
-    def should_force_mode_switch(self) -> bool:
-        """モード強制遷移すべきか"""
-        return self.action_type == GuardianActionType.FORCE_MODE_SWITCH

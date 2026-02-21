@@ -371,6 +371,7 @@ class OrganizationGraph:
         self._person_cache: Dict[str, PersonNode] = {}
         self._relationship_cache: Dict[str, PersonRelationship] = {}
         self._cache_timestamp: Optional[datetime] = None
+        self._load_attempted: bool = False  # Phase 3.5: 重複ロード防止フラグ
 
         # インタラクションバッファ
         self._interaction_buffer: List[Interaction] = []
@@ -1469,12 +1470,14 @@ class OrganizationGraph:
                     )
 
             self._cache_timestamp = datetime.now()
+            self._load_attempted = True
             logger.info(
                 "[OrganizationGraph] load_from_db: %d persons, %d relationships loaded",
                 len(persons_rows), len(rel_rows),
             )
 
         except Exception as e:
+            self._load_attempted = True  # 失敗してもリトライしない（graceful degradation）
             logger.warning("[OrganizationGraph] load_from_db failed (graceful): %s", type(e).__name__)
 
     # =========================================================================
@@ -1490,8 +1493,8 @@ class OrganizationGraph:
         )
         return persons[:limit]
 
-    def get_relationships_for_person(self, person_id: str) -> List[PersonRelationship]:
-        """特定人物の関係をキャッシュから返す"""
+    def get_cached_relationships_for_person(self, person_id: str) -> List[PersonRelationship]:
+        """特定人物の関係をキャッシュから返す（同期版・Phase 3.5 context_builder用）"""
         return [
             rel for rel in self._relationship_cache.values()
             if rel.person_a_id == person_id or rel.person_b_id == person_id

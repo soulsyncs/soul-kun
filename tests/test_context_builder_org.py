@@ -114,10 +114,11 @@ class TestFetchOrgGraphData:
         )
         assert "reports_to" in result
 
-    def test_lazy_load_called_when_cache_empty(self):
-        """キャッシュが空なら load_from_db() が呼ばれる"""
+    def test_lazy_load_called_when_cache_empty_and_not_attempted(self):
+        """キャッシュが空かつ未ロードなら load_from_db() が呼ばれる"""
         graph = MagicMock()
         graph._person_cache = {}  # 空キャッシュ
+        graph._load_attempted = False  # 未ロード
         graph.load_from_db = AsyncMock()
 
         # load_from_db 後もキャッシュが空 → 空文字で返る
@@ -132,10 +133,24 @@ class TestFetchOrgGraphData:
         )
         graph.load_from_db.assert_awaited_once()
 
+    def test_lazy_load_not_called_when_already_attempted(self):
+        """ロード済みの場合は load_from_db() を呼ばない（W-3 重複ロード防止）"""
+        graph = MagicMock()
+        graph._person_cache = {}  # キャッシュは空だが
+        graph._load_attempted = True  # 既にロード試みた
+        graph.load_from_db = AsyncMock()
+
+        builder = self._builder(org_graph=graph)
+        asyncio.get_event_loop().run_until_complete(
+            builder._fetch_org_graph_data()
+        )
+        graph.load_from_db.assert_not_awaited()
+
     def test_no_load_when_cache_populated(self):
         """キャッシュが既にある場合は load_from_db() を呼ばない"""
         graph = MagicMock()
         graph._person_cache = {"p1": MagicMock()}  # 既にデータあり
+        graph._load_attempted = False  # ロードはまだ試みていないが
         graph.load_from_db = AsyncMock()
         graph.get_top_persons_by_influence = MagicMock(return_value=[])
         graph._relationship_cache = {}

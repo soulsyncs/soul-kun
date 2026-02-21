@@ -228,12 +228,12 @@ class TestGetRelationshipsForPerson:
     def test_returns_all_rels_for_person(self):
         """指定人物が a または b のどちらにいても返す"""
         graph = self._make_graph_with_rels()
-        rels = graph.get_relationships_for_person("p1")
+        rels = graph.get_cached_relationships_for_person("p1")
         # p1 は rel1(a側) と rel2(b側) に出現
         assert len(rels) == 2
 
     def test_no_match_returns_empty(self):
         """関係のない人物には空リスト"""
         graph = self._make_graph_with_rels()
-        rels = graph.get_relationships_for_person("p_unknown")
+        rels = graph.get_cached_relationships_for_person("p_unknown")
         assert rels == []

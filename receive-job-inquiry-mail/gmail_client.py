@@ -4,23 +4,26 @@ gmail_client.py - Gmail API クライアント
 Gmail watch() + Pub/Sub 連携で届いた通知をもとに
 新着メールを取得する。
 
-【前提条件】
-  - Cloud Run サービスアカウントに以下の権限が必要:
-    * Gmail API（Domain-wide delegation で対象メールボックスへのアクセス）
-    * または gmail.readonly スコープの OAuth2 認証
-  - Secret Manager に "gmail-service-account-json" を保存済み
+【認証方式】
+  通常のGmailアカウント（Google Workspace なし）対応。
+  OAuth2 リフレッシュトークンを Secret Manager に保存して使用する。
+  ※ リフレッシュトークンは初回セットアップ時に1回だけ取得（setup.md参照）
+
+【Secret Manager に保存するシークレット】
+  - gmail-oauth-refresh-token  : リフレッシュトークン
+  - gmail-oauth-client-id      : OAuthクライアントID
+  - gmail-oauth-client-secret  : OAuthクライアントシークレット
 """
 import base64
-import json
 import logging
-import os
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 # Google API が利用可能な場合のみ import
 try:
-    from google.oauth2 import service_account
+    from google.oauth2.credentials import Credentials
+    from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     GOOGLE_API_AVAILABLE = True
@@ -31,19 +34,19 @@ except ImportError:
 
 class GmailClient:
     """
-    Gmail API クライアント。
-    サービスアカウント + Domain-wide delegation を使用する。
+    Gmail API クライアント（OAuth2 リフレッシュトークン認証）。
+    通常のGmailアカウント（Google Workspace 不要）で動作する。
     """
 
     SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+    TOKEN_URI = "https://oauth2.googleapis.com/token"
 
-    def __init__(self, impersonated_email: str):
+    def __init__(self, email: str):
         """
         Args:
-            impersonated_email: 監視するGmailアドレス
-                                 (e.g., "recruit@soulsyncs.jp")
+            email: 監視するGmailアドレス（e.g., "master.soulsyncs@gmail.com"）
         """
-        self.email = impersonated_email
+        self.email = email
         self._service = None
 
         if not GOOGLE_API_AVAILABLE:
@@ -52,28 +55,44 @@ class GmailClient:
                 "requirements.txt を確認してください。"
             )
 
+    def _get_credentials(self) -> Credentials:
+        """
+        Secret Manager から OAuth2 認証情報を取得する。
+        リフレッシュトークンを使ってアクセストークンを自動更新する。
+        """
+        from lib.secrets import get_secret_cached
+
+        refresh_token = get_secret_cached("gmail-oauth-refresh-token")
+        client_id = get_secret_cached("gmail-oauth-client-id")
+        client_secret = get_secret_cached("gmail-oauth-client-secret")
+
+        creds = Credentials(
+            token=None,  # アクセストークンは自動取得
+            refresh_token=refresh_token,
+            token_uri=self.TOKEN_URI,
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=self.SCOPES,
+        )
+
+        # アクセストークンを取得（リフレッシュトークンから自動生成）
+        if not creds.valid:
+            creds.refresh(Request())
+
+        return creds
+
     def _get_service(self):
         """Gmail API サービスを初期化（遅延初期化）"""
         if self._service is not None:
             return self._service
 
-        # Secret Manager からサービスアカウントキーを取得
         try:
-            from lib.secrets import get_secret_cached
-            sa_json = get_secret_cached("gmail-service-account-json")
-            sa_info = json.loads(sa_json)
+            creds = self._get_credentials()
         except Exception as e:
-            logger.error(f"サービスアカウントキー取得失敗: {e}")
+            logger.error(f"Gmail OAuth2認証失敗: {e}")
             raise
 
-        creds = service_account.Credentials.from_service_account_info(
-            sa_info,
-            scopes=self.SCOPES,
-        )
-        # Domain-wide delegation で指定メールボックスに成り代わる
-        delegated_creds = creds.with_subject(self.email)
-
-        self._service = build("gmail", "v1", credentials=delegated_creds)
+        self._service = build("gmail", "v1", credentials=creds)
         return self._service
 
     def get_new_messages_since(self, history_id: str) -> List[bytes]:
@@ -90,7 +109,6 @@ class GmailClient:
         service = self._get_service()
 
         try:
-            # history API で新着メッセージIDを取得
             history_response = service.users().history().list(
                 userId="me",
                 startHistoryId=history_id,
@@ -141,12 +159,6 @@ class GmailClient:
     def _fetch_raw_message(self, message_id: str) -> Optional[bytes]:
         """
         指定IDのメールを RFC 2822 形式のバイト列で取得する。
-
-        Args:
-            message_id: Gmail メッセージID
-
-        Returns:
-            生のメールバイト列、取得失敗時は None
         """
         service = self._get_service()
 
@@ -168,13 +180,6 @@ class GmailClient:
         """
         Gmail watch() を設定する（初回セットアップ時のみ実行）。
         Gmail は7日ごとに再設定が必要（Cloud Scheduler で自動化推奨）。
-
-        Args:
-            topic_name: Pub/Sub トピック名
-                         (e.g., "projects/my-project/topics/gmail-job-inquiry")
-
-        Returns:
-            watch() の結果 {"historyId": "xxx", "expiration": "xxx"}
         """
         service = self._get_service()
 

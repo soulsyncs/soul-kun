@@ -1000,7 +1000,7 @@ class BrainMemoryAccess:
                             FROM user_departments ud
                             JOIN users u ON ud.user_id = u.id
                             WHERE u.chatwork_account_id = :account_id
-                              AND u.organization_id = CAST(:org_id AS uuid)
+                              AND u.organization_id = :org_id
                               AND ud.ended_at IS NULL
                         """),
                         {"account_id": str(chatwork_account_id), "org_id": self.org_id},

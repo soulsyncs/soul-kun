@@ -16,6 +16,16 @@
 
 ---
 
+## 3回目レビュー (2026-02-22) — P2: W-5 MIMEバイパスバグ修正確認
+
+### 変更内容
+- `if content_type and content_type not in _ALLOWED_MIME_TYPES:` → `if not content_type or content_type not in _ALLOWED_MIME_TYPES:`
+- W-5 (MIMEバイパス) が正しく修正された
+
+### PASS: 問題なし（W-5修正PASS、他の点は下記2回目レビュー確認済み）
+
+---
+
 ## 2回目レビュー (2026-02-22) — asyncio.to_thread() リファクタリング版
 
 ### 変更内容

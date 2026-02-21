@@ -25,13 +25,13 @@ class TestBrainContextIntegrity:
     """BrainContextの型整合性テスト"""
 
     def test_person_info_is_object_not_dict(self):
-        """person_infoにはPersonInfoオブジェクトが入ること"""
+        """person_infoにはPersonInfoオブジェクトが入ること（to_dict()はPIIマスキング済み）"""
         ctx = BrainContext()
         ctx.person_info = [PersonInfo(name="田中")]
 
-        # to_dict()がエラーなく動作すること
+        # to_dict()がエラーなく動作し、PIIマスキング（to_safe_dict）が適用されること
         result = ctx.to_dict()
-        assert result["person_info"][0]["name"] == "田中"
+        assert result["person_info"][0]["name"] == "[PERSON]"
 
     def test_person_info_dict_should_not_break_to_dict(self):
         """person_infoに辞書が入ってもto_dict()が動作すること（後方互換）"""
@@ -284,7 +284,7 @@ class TestTypeSafetyIntegration:
         assert result["items"][0]["goal_id"] == "1"
 
     def test_brain_context_to_dict_uses_type_safety(self):
-        """BrainContext.to_dict()がtype_safety.safe_to_dictを使用すること"""
+        """BrainContext.to_dict()がPIIマスキング（to_safe_dict）を使用すること（CLAUDE.md §9-4）"""
         ctx = BrainContext()
         ctx.person_info = [PersonInfo(name="田中")]
         ctx.recent_tasks = [TaskInfo(task_id="1", body="test")]
@@ -293,8 +293,8 @@ class TestTypeSafetyIntegration:
 
         result = ctx.to_dict()
 
-        # dataclassが正しく辞書化されること
-        assert result["person_info"][0]["name"] == "田中"
+        # person_info は to_safe_dict() でPIIマスキングされること（Task③ §9-4対応）
+        assert result["person_info"][0]["name"] == "[PERSON]"
         assert result["recent_tasks"][0]["task_id"] == "1"
         assert result["active_goals"][0]["goal_id"] == "g1"
         assert result["timestamp"] == "2026-02-07T00:00:00"

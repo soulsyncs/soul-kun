@@ -613,6 +613,39 @@
 - LLM 不使用時 return False — ゴミデータをDBに入れない設計は正しい
 - `_should_update_summary` の成功時のみ `_summary_update_times` 更新（失敗時は次回再試行できる設計）
 
+## drive_tool.py パターン (lib/brain/drive_tool.py, feat/google-drive-full-setup, 2026-02-21)
+
+### search_drive_files() 設計確認済み
+- `accessible_classifications` ホワイトリスト検証: `{"public","internal","restricted","confidential"}` のみ許可。
+- f-string SQL は `cls_placeholders`（`:cls0, :cls1` プレースホルダー名のみ）のみ。値は `cls_params` として parameterized → SQLインジェクションなし。
+- RLS: `set_config('app.current_organization_id', :org_id, true)` で設定。`documents` テーブルに `documents_org_isolation` RLS ポリシーあり（`::uuid` キャスト、organization_id は uuid 型）。
+- `organization_id` フィルタ: WHERE 句で `organization_id = :org_id` (EXPLICIT) + RLS の2重ガード。
+- エラーログ: `type(e).__name__` のみ（PII漏洩なし）。エラーレスポンス: `type(e).__name__` のみ → 鉄則#8準拠。
+- `with pool.connect() as conn:` で接続管理正しい（リークなし）。
+- 3コピー同期: lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL (PASS)。
+
+### WARNING: accessible_classifications がハンドラー呼び出し元から渡されていない
+- `chatwork-webhook/lib/brain/handler_wrappers/external_tool_handlers.py` の `_brain_handle_drive_search()` が `accessible_classifications` を渡していない。
+- 結果: 常にデフォルト `["public", "internal"]` が使用される。権限レベルの高いユーザー（restricted/confidential対象）でも制限付き結果しか見えない。
+- ハードコードデフォルトは「安全側（最小権限）」なので CRITICAL にはならないが、高権限ユーザーにとって機能不全になるリスク。
+- 修正: `context.role_level` を参照して classifications リストを動的生成する必要がある。
+
+### WARNING: format_drive_files() がエラーメッセージをそのまま返す
+- `format_drive_files()` line 196: `result.get('error', ...)` を返す。
+- drive_tool.py の `error` フィールドには `type(e).__name__` のみ含まれる（安全）。
+- ただしハンドラーが error_msg をメッセージに含める (external_tool_handlers.py line 240-241)。エラー内容がユーザーに届く。現状は `type(e).__name__` のみなので許容範囲。
+
+### テストカバレッジ (test_drive_tool.py)
+- 基本パス（正常/空/エラー/max_results/updated_at_none）はカバー済み。
+- **TEST GAP**: `accessible_classifications` の新パラメータに対するテストが0件。
+  - ホワイトリスト拒否テスト（無効な値が除外されるか）なし
+  - デフォルト値適用テスト（None渡し→["public","internal"]になるか）なし
+  - INスコープ絞り込みテスト（["confidential"]渡し→restrictedが返らないか）なし
+
+### documents テーブル確認済みカラム（db_schema.json）
+- organization_id: uuid, classification: character varying, is_searchable: boolean, deleted_at: timestamptz
+- google_drive_web_view_link: text, file_name: character varying, title: character varying, updated_at: timestamptz
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

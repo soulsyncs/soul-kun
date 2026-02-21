@@ -180,7 +180,11 @@ async def _brain_handle_drive_search(params, room_id, account_id, sender_name, c
     try:
         import asyncio
         import sys
-        from lib.brain.drive_tool import search_drive_files, format_drive_files
+        from lib.brain.drive_tool import (
+            search_drive_files,
+            format_drive_files,
+            get_accessible_classifications_for_account,
+        )
 
         main = sys.modules.get('main')
         if not main:
@@ -215,6 +219,15 @@ async def _brain_handle_drive_search(params, room_id, account_id, sender_name, c
         query = params.get("query", "")
         max_results = params.get("max_results", 10)
 
+        # 送信者の権限レベルから閲覧可能な機密区分を取得
+        # CLAUDE.md §3-2 #6: sync I/Oをasyncでブロックしないようにオフロード
+        accessible_classifications = await asyncio.to_thread(
+            get_accessible_classifications_for_account,
+            pool,
+            str(account_id) if account_id else "",
+            org_id,
+        )
+
         # CLAUDE.md §3-2 #6: sync I/Oをasyncでブロックしないようにオフロード
         result = await asyncio.to_thread(
             search_drive_files,
@@ -222,6 +235,7 @@ async def _brain_handle_drive_search(params, room_id, account_id, sender_name, c
             organization_id=org_id,
             query=query if query else None,
             max_results=max_results,
+            accessible_classifications=accessible_classifications,
         )
 
         if not result.get("success"):

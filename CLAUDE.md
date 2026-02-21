@@ -534,3 +534,27 @@ Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ### Subagentのメモリ管理
 
 **Subagentは作業完了前に必ずメモリを更新すること。メモリ更新なしでの作業完了は禁止。**
+
+---
+
+## 18. 会話開始時・終了時のルール（鉄則）
+
+### 会話開始時に必ず行うこと
+
+1. `/Users/kikubookair/.claude/projects/-Users-kikubookair-soul-kun/memory/MEMORY.md` を読んで文脈を把握する
+2. `/Users/kikubookair/quick-topics/PROGRESS.md` を読んで全プロジェクトの現在地を確認する
+3. 確認した内容をもとに「ソウルくんの今日の作業」を判断する
+
+### 作業終了時に必ず行うこと
+
+1. `MEMORY.md` に今回の作業結果・新しく判明した重要事項を追記する
+2. 古くなった情報は削除または更新する
+3. `/Users/kikubookair/quick-topics/PROGRESS.md` の該当プロジェクト行を更新する
+4. ファイル先頭の「最終更新」日付を書き換える
+
+### MEMORY.mdに書くべき内容
+
+- 完了した作業・決定したこと
+- 次回に引き継ぐべき注意事項
+- よく使うファイルのパス・コマンド
+- 失敗した方法（同じ失敗を繰り返さないため）

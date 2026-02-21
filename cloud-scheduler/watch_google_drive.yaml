@@ -1,17 +1,28 @@
 # Cloud Scheduler: Googleドライブ監視ジョブ
 # 5分ごとにGoogleドライブの変更を監視し、ソウルくんのナレッジDBに反映
 #
-# デプロイ方法:
+# ================================================================
+# 現在の稼働状況（2026-02-21 設定済み・本番稼働中）
+# ================================================================
+#
+# ジョブ名: watch-google-drive-soulsyncs
+# スケジュール: 5分ごと（Asia/Tokyo）
+# ターゲット: Cloud Run（watch-google-drive）
+# 状態: ENABLED
+#
+# 再作成コマンド（既存ジョブを削除して再作成する場合）:
+#   gcloud scheduler jobs delete watch-google-drive-soulsyncs --location=asia-northeast1 --project=soulkun-production
 #   gcloud scheduler jobs create http watch-google-drive-soulsyncs \
 #     --location=asia-northeast1 \
 #     --schedule="*/5 * * * *" \
 #     --time-zone="Asia/Tokyo" \
-#     --uri="https://asia-northeast1-soulkun-production.cloudfunctions.net/watch_google_drive" \
+#     --uri="https://watch-google-drive-tzu7ftekzq-an.a.run.app" \
 #     --http-method=POST \
 #     --headers="Content-Type=application/json" \
-#     --message-body='{"organization_id":"5f98365f-e7c5-4f48-9918-7fe9aabae5df","root_folder_id":"YOUR_ROOT_FOLDER_ID"}' \
-#     --oidc-service-account-email="scheduler-sa@soulkun-production.iam.gserviceaccount.com" \
-#     --attempt-deadline=540s
+#     --message-body='{"organization_id":"org_soulsyncs","root_folder_id":"1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp"}' \
+#     --oidc-service-account-email="scheduler-invoker@soulkun-production.iam.gserviceaccount.com" \
+#     --attempt-deadline=540s \
+#     --project=soulkun-production
 
 name: watch-google-drive-soulsyncs
 description: "Googleドライブの変更を監視してソウルくんのナレッジDBに反映（5分ごと）"
@@ -20,20 +31,20 @@ description: "Googleドライブの変更を監視してソウルくんのナレ
 schedule: "*/5 * * * *"
 timeZone: Asia/Tokyo
 
-# ターゲット設定
+# ターゲット設定（Cloud Run）
 target:
   type: http
-  uri: https://asia-northeast1-soulkun-production.cloudfunctions.net/watch_google_drive
+  uri: https://watch-google-drive-tzu7ftekzq-an.a.run.app
   httpMethod: POST
   headers:
     Content-Type: application/json
   body: |
     {
-      "organization_id": "5f98365f-e7c5-4f48-9918-7fe9aabae5df",
-      "root_folder_id": "YOUR_ROOT_FOLDER_ID"
+      "organization_id": "org_soulsyncs",
+      "root_folder_id": "1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp"
     }
   oidcToken:
-    serviceAccountEmail: scheduler-sa@soulkun-production.iam.gserviceaccount.com
+    serviceAccountEmail: scheduler-invoker@soulkun-production.iam.gserviceaccount.com
 
 # リトライ設定
 retryConfig:
@@ -42,34 +53,56 @@ retryConfig:
   maxBackoffDuration: 300s
   maxDoublings: 3
 
-# 重複実行防止
-# Cloud Functionsの最大タイムアウト（9分）に合わせる
+# タイムアウト設定
 attemptDeadline: 540s
 
 # ================================================================
-# セットアップ手順
+# セットアップ完了時の確認コマンド
 # ================================================================
 #
-# 1. サービスアカウントの作成
-#    gcloud iam service-accounts create scheduler-sa \
-#      --display-name="Cloud Scheduler Service Account"
+# ジョブ確認:
+#   gcloud scheduler jobs list --project=soulkun-production --location=asia-northeast1 | grep watch
 #
-# 2. Cloud Functions呼び出し権限を付与
-#    gcloud projects add-iam-policy-binding soulkun-production \
-#      --member="serviceAccount:scheduler-sa@soulkun-production.iam.gserviceaccount.com" \
-#      --role="roles/cloudfunctions.invoker"
+# 手動実行テスト:
+#   gcloud scheduler jobs run watch-google-drive-soulsyncs \
+#     --location=asia-northeast1 --project=soulkun-production
 #
-# 3. Googleドライブのルートフォルダを設定
-#    - Googleドライブで「ソウルくん用フォルダ」を作成
-#    - フォルダIDを取得（URLの末尾: https://drive.google.com/drive/folders/FOLDER_ID）
-#    - このファイルの YOUR_ROOT_FOLDER_ID を置き換え
+# 実行ログ確認:
+#   gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="watch-google-drive"' \
+#     --project=soulkun-production --limit=10
 #
-# 4. サービスアカウントにGoogleドライブへのアクセス権を付与
-#    - Cloud Functions用のサービスアカウントのメールアドレスを取得
-#    - Googleドライブでルートフォルダを右クリック → 共有
-#    - サービスアカウントのメールアドレスを追加（閲覧者権限）
+# ================================================================
+# 権限設定（設定済み）
+# ================================================================
 #
-# 5. Cloud Schedulerジョブを作成
-#    上記のデプロイコマンドを実行
+# scheduler-invoker@soulkun-production.iam.gserviceaccount.com に
+# watch-google-drive Cloud Runサービスの roles/run.invoker を付与済み
+#
+# 再付与が必要な場合:
+#   gcloud run services add-iam-policy-binding watch-google-drive \
+#     --region=asia-northeast1 \
+#     --member="serviceAccount:scheduler-invoker@soulkun-production.iam.gserviceaccount.com" \
+#     --role="roles/run.invoker" \
+#     --project=soulkun-production
+#
+# ================================================================
+# Googleドライブ フォルダ構造（命名規則）
+# ================================================================
+#
+# ルートフォルダID: 1Bw03U0rmjnkAYeFQDEFB75EsouNaOysp
+#
+# 推奨フォルダ構造:
+#   📁 ソウルくん用フォルダ（ルート）
+#   ├── 📁 全社共有          ← classification: public（全員が見られる）
+#   │   └── 📁 会社紹介・MVV
+#   ├── 📁 社員限定          ← classification: internal（社員のみ）
+#   │   ├── 📁 業務マニュアル
+#   │   └── 📁 就業規則
+#   ├── 📁 役員限定          ← classification: restricted（役員のみ）
+#   └── 📁 部署別            ← classification: confidential（各部署のみ）
+#       ├── 📁 営業部
+#       └── 📁 総務部
+#
+# 注意: フォルダ名に上記キーワードが含まれないとデフォルト（社員限定）になる
 #
 # ================================================================

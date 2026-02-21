@@ -34,6 +34,7 @@ def search_drive_files(
     organization_id: str,
     query: Optional[str] = None,
     max_results: int = DEFAULT_MAX_FILES,
+    accessible_classifications: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     Googleドライブのファイルを名前で検索する。
@@ -46,6 +47,8 @@ def search_drive_files(
         organization_id: 組織ID
         query: 検索クエリ（ファイル名の部分一致）。省略時は最近更新されたファイル。
         max_results: 最大取得件数
+        accessible_classifications: アクセス可能な機密区分リスト。
+            省略時は["public", "internal"]（一般社員レベル）。
 
     Returns:
         dict: {
@@ -73,6 +76,19 @@ def search_drive_files(
             "file_count": 0,
         }
 
+    # accessible_classificationsのホワイトリスト検証（SQLインジェクション対策）
+    _VALID_CLASSIFICATIONS = {"public", "internal", "restricted", "confidential"}
+    if accessible_classifications is None:
+        accessible_classifications = ["public", "internal"]
+    else:
+        accessible_classifications = [
+            c for c in accessible_classifications if c in _VALID_CLASSIFICATIONS
+        ] or ["public", "internal"]
+
+    # parameterized IN句を構築（プレースホルダーのみ生成）
+    cls_params = {f"cls{i}": c for i, c in enumerate(accessible_classifications)}
+    cls_placeholders = ", ".join(f":cls{i}" for i in range(len(accessible_classifications)))
+
     try:
         from sqlalchemy import text as sa_text
 
@@ -89,13 +105,14 @@ def search_drive_files(
                 # ファイル名検索（LIKE）
                 search_query = f"%{query.strip()}%"
                 rows = conn.execute(
-                    sa_text("""
+                    sa_text(f"""
                         SELECT file_name, title, google_drive_web_view_link,
                                updated_at, classification
                         FROM documents
                         WHERE organization_id = :org_id
                           AND is_searchable = TRUE
                           AND deleted_at IS NULL
+                          AND classification IN ({cls_placeholders})
                           AND (
                               file_name ILIKE :q
                               OR title ILIKE :q
@@ -103,22 +120,24 @@ def search_drive_files(
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT :limit
                     """),
-                    {"org_id": organization_id, "q": search_query, "limit": max_results},
+                    {"org_id": organization_id, "q": search_query, "limit": max_results,
+                     **cls_params},
                 ).fetchall()
             else:
                 # クエリなし → 最近更新されたファイル一覧
                 rows = conn.execute(
-                    sa_text("""
+                    sa_text(f"""
                         SELECT file_name, title, google_drive_web_view_link,
                                updated_at, classification
                         FROM documents
                         WHERE organization_id = :org_id
                           AND is_searchable = TRUE
                           AND deleted_at IS NULL
+                          AND classification IN ({cls_placeholders})
                         ORDER BY updated_at DESC NULLS LAST
                         LIMIT :limit
                     """),
-                    {"org_id": organization_id, "limit": max_results},
+                    {"org_id": organization_id, "limit": max_results, **cls_params},
                 ).fetchall()
 
     except Exception as e:

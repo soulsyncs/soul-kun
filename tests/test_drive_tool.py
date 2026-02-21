@@ -197,6 +197,96 @@ class TestSearchDriveFiles:
         # パラメータにorg_idが含まれていること
         assert "org-secure-123" in str(first_call_params)
 
+    def test_accessible_classifications_default_is_public_internal(self):
+        """accessible_classifications=Noneの場合、['public', 'internal']がデフォルト"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        search_drive_files(
+            pool=pool,
+            organization_id="org-123",
+            query="test",
+            accessible_classifications=None,
+        )
+
+        # 2回目のexecuteがSELECTクエリ、paramsに cls0/cls1 が含まれること
+        calls = mock_conn.execute.call_args_list
+        search_call_params = str(calls[1])
+        assert "cls0" in search_call_params
+        assert "cls1" in search_call_params
+        assert "public" in search_call_params
+        assert "internal" in search_call_params
+
+    def test_accessible_classifications_invalid_values_filtered(self):
+        """ホワイトリスト外の分類値は除外される（SQLインジェクション対策）"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        # 無効な値を渡す
+        search_drive_files(
+            pool=pool,
+            organization_id="org-123",
+            query="test",
+            accessible_classifications=["super_secret", "admin", "'; DROP TABLE documents;--"],
+        )
+
+        # 全て無効 → デフォルト ['public', 'internal'] にフォールバック
+        calls = mock_conn.execute.call_args_list
+        search_call_params = str(calls[1])
+        assert "super_secret" not in search_call_params
+        assert "DROP TABLE" not in search_call_params
+        assert "public" in search_call_params
+        assert "internal" in search_call_params
+
+    def test_accessible_classifications_valid_values_accepted(self):
+        """有効な分類値（restricted, confidential等）は受け入れられる"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        search_drive_files(
+            pool=pool,
+            organization_id="org-123",
+            query="test",
+            accessible_classifications=["public", "internal", "restricted", "confidential"],
+        )
+
+        # 4つ全て有効 → cls0〜cls3 が渡される
+        calls = mock_conn.execute.call_args_list
+        search_call_params = str(calls[1])
+        assert "restricted" in search_call_params
+        assert "confidential" in search_call_params
+
+    def test_accessible_classifications_mixed_valid_invalid(self):
+        """有効・無効が混在する場合、有効なものだけが残る"""
+        pool = MagicMock()
+        mock_conn = MagicMock()
+        pool.connect.return_value.__enter__ = MagicMock(return_value=mock_conn)
+        pool.connect.return_value.__exit__ = MagicMock(return_value=False)
+        mock_conn.execute.return_value.fetchall.return_value = []
+
+        search_drive_files(
+            pool=pool,
+            organization_id="org-123",
+            query="test",
+            accessible_classifications=["public", "invalid_level", "restricted"],
+        )
+
+        # "public" と "restricted" は残り、"invalid_level" は除外
+        calls = mock_conn.execute.call_args_list
+        search_call_params = str(calls[1])
+        assert "public" in search_call_params
+        assert "restricted" in search_call_params
+        assert "invalid_level" not in search_call_params
+
 
 class TestFormatDriveFiles:
     """format_drive_files のテスト"""

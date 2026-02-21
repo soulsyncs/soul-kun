@@ -652,6 +652,29 @@
 - organization_id: uuid, classification: character varying, is_searchable: boolean, deleted_at: timestamptz
 - google_drive_web_view_link: text, file_name: character varying, title: character varying, updated_at: timestamptz
 
+## Phase 2 form_employee tables migration (2026-02-21, reviewed)
+
+### Migration: migrations/20260221_form_employee_tables.sql
+- 4 new tables: supabase_employee_mapping, form_employee_skills, form_employee_work_prefs, form_employee_contact_prefs
+- organization_id type: CHARACTER VARYING(255) — matching employees table pattern
+- **WARNING (RLS型キャスト)**: All 4 RLS policies use bare `organization_id = current_setting(...)` WITHOUT `::text` cast.
+  - Project's established pattern for VARCHAR org_id tables: `organization_id::text = current_setting(...)` (see migrations/20260209_runtime_tables_add_org_id.sql, 20260210_phase_c_meeting_tables.sql, 20260217_emergency_stop.sql, 20260216_google_oauth_tokens.sql)
+  - PostgreSQL allows VARCHAR = TEXT comparison natively (no runtime error), but inconsistent with project convention and documented RLS safety rule (CLAUDE.md §3-2 #7)
+  - FIX: Add `::text` cast: `organization_id::text = current_setting('app.current_organization_id', true)`
+- **WARNING (WITH CHECK 句なし)**: All 4 RLS policies use `USING` only, no `WITH CHECK`. Without WITH CHECK, INSERT/UPDATE operations are not filtered by RLS. The USING clause alone only applies to SELECT/DELETE.
+  - For INSERT/UPDATE tenant isolation, must add: `WITH CHECK (organization_id::text = current_setting('app.current_organization_id', true))`
+- **PASS**: Rollback script exists (20260221_form_employee_tables_rollback.sql). 3-copy sync N/A (migration file).
+- **PASS**: Indexes on organization_id and employee_id for all 4 tables.
+- **PASS**: UNIQUE constraints on (employee_id, organization_id) for all 4 tables.
+
+### PersonInfo.to_string() extension (models.py)
+- _ATTR_LABELS tuple format: (lookup_key, display_label) e.g. ("スキル（得意）", "得意")
+- supabase-sync writes person_attributes with full-label keys: "スキル（得意）", "稼働スタイル", "キャパシティ", "月間稼働", "連絡可能時間"
+- `for key, label in _ATTR_LABELS` correctly maps tuple[0]→key and tuple[1]→abbreviated display label. FUNCTIONAL PASS.
+- **WARNING (PII)**: attributes dict may contain personal preference data (skills, work style, hobbies). to_string() feeds LLM context — this is by design, but note attributes can include 'hobbies' TEXT which isn't included in _ATTR_LABELS filter. Only 5 safe operational keys are shown. OK.
+- **SUGGESTION**: _ATTR_LABELS defined inside method body on every call. Should be module-level constant.
+- 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all IDENTICAL (PASS verified).
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

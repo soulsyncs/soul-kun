@@ -51,6 +51,7 @@ from lib.brain.capabilities import (
     handle_google_meet_minutes,
     handle_image_generation,
     handle_meeting_transcription,
+    handle_past_meeting_query,
     handle_read_presentation,
     handle_read_spreadsheet,
     handle_video_generation,
@@ -95,6 +96,9 @@ DEFAULT_FEATURE_FLAGS = {
     "ENABLE_ZOOM_MEETING_MINUTES": True,  # Phase C Case C: 有効化済み (2026-02-13)
     # Google Meet Minutes (Phase C MVP0 Google Meet対応)
     "ENABLE_GOOGLE_MEET_MINUTES": False,  # Phase C MVP0: 実装済み、OAuth Drive権限確認後に有効化
+
+    # Past Meeting Query (機能②: 過去会議質問)
+    "ENABLE_PAST_MEETING_QUERY": True,  # 機能②: 「先月の会議は？」への回答
 }
 
 
@@ -365,6 +369,10 @@ class CapabilityBridge:
         # Google Meet Minutes (Phase C MVP0 Google Meet対応)
         if self.feature_flags.get("ENABLE_GOOGLE_MEET_MINUTES", False):
             handlers["google_meet_minutes"] = self._handle_google_meet_minutes
+
+        # Past Meeting Query（機能②: 過去会議質問）
+        if self.feature_flags.get("ENABLE_PAST_MEETING_QUERY", False):
+            handlers["past_meeting_query"] = self._handle_past_meeting_query
 
         # Connection Query（v10.44.0: DM可能な相手一覧）
         # Feature Flag不要（常に有効）
@@ -657,6 +665,29 @@ class CapabilityBridge:
             sender_name=sender_name,
             params=params,
             llm_caller=self.llm_caller,
+            **kwargs,
+        )
+
+    # =========================================================================
+    # Past Meeting Query（機能②: 過去会議質問）
+    # =========================================================================
+
+    async def _handle_past_meeting_query(
+        self,
+        room_id: str,
+        account_id: str,
+        sender_name: str,
+        params: Dict[str, Any],
+        **kwargs,
+    ) -> HandlerResult:
+        """過去会議質問ハンドラー — capabilities/meeting.py に委譲"""
+        return await handle_past_meeting_query(
+            pool=self.pool,
+            org_id=self.org_id,
+            room_id=room_id,
+            account_id=account_id,
+            sender_name=sender_name,
+            params=params,
             **kwargs,
         )
 

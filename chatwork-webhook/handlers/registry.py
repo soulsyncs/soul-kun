@@ -1355,6 +1355,49 @@ SYSTEM_CAPABILITIES: Dict[str, Dict[str, Any]] = {
     },
 
     # =========================================================================
+    # 過去会議質問（機能②）
+    # =========================================================================
+    "past_meeting_query": {
+        "name": "過去会議検索",
+        "description": "過去の会議を検索する。「先月の会議は？」「採用会議の議事録どこ？」「今月のZoom会議の数は？」などの質問に対して、brain_episodesを検索して会議タイトル・日付・議事録リンクを返す。",
+        "category": "meeting",
+        "enabled": True,
+        "trigger_examples": [
+            "先月の会議は？",
+            "採用会議の議事録どこ？",
+            "今月のZoom会議を教えて",
+            "先週の会議でどんな決定があった？",
+            "1月の会議を探して",
+        ],
+        "params_schema": {
+            "original_message": {
+                "type": "string",
+                "description": "ユーザーの元の質問テキスト（時間表現を含む）",
+                "required": True,
+            },
+        },
+        "handler": "past_meeting_query",
+        "requires_confirmation": False,
+        "required_data": ["sender_account_id", "room_id"],
+        "brain_metadata": {
+            "decision_keywords": {
+                "primary": ["過去の会議", "先月の会議", "今月の会議", "議事録どこ", "会議を探して"],
+                "secondary": ["会議", "Zoom会議", "議事録", "ミーティング"],
+                "negative": ["今すぐZoom", "Zoomを開始", "タスク登録", "目標"],
+            },
+            "intent_keywords": {
+                "primary": ["先月の会議", "今月の会議", "過去の会議", "議事録を探して", "会議を検索"],
+                "secondary": ["会議", "ミーティング", "議事録", "先週", "先月", "今月"],
+                "modifiers": ["教えて", "見せて", "探して", "どこ", "いつ", "ある？"],
+                "negative": ["今から", "これから", "予定", "スケジュール"],
+                "confidence_boost": 0.8,
+            },
+            "risk_level": "low",
+            "priority": 3,
+        },
+    },
+
+    # =========================================================================
     # 外部検索（Step A: 手足を与える）
     # =========================================================================
     "web_search": {
@@ -1758,6 +1801,7 @@ HANDLER_ALIASES: Dict[str, str] = {
     "handle_general_chat": "general_conversation",
     "handle_api_limitation": "api_limitation",
     "handle_zoom_meeting_minutes": "zoom_meeting_minutes",
+    "handle_past_meeting_query": "past_meeting_query",
 }
 
 

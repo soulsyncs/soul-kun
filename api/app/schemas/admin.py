@@ -1076,3 +1076,54 @@ class BudgetUpdateResponse(BaseModel):
     status: str = Field("success", description="ステータス")
     year_month: str = Field(..., description="更新された年月")
     budget_jpy: float = Field(..., description="設定された予算（円）")
+
+
+# =============================================================================
+# Google Drive 管理
+# =============================================================================
+
+
+class DriveFileItem(BaseModel):
+    """Google Driveファイル1件"""
+
+    id: str = Field(..., description="ドキュメントUUID")
+    title: Optional[str] = Field(None, description="ファイルタイトル")
+    file_name: Optional[str] = None
+    file_type: Optional[str] = None
+    file_size_bytes: Optional[int] = None
+    classification: str = Field(..., description="機密区分: public/internal/restricted/confidential")
+    category: Optional[str] = None
+    google_drive_file_id: Optional[str] = None
+    google_drive_web_view_link: Optional[str] = None
+    google_drive_last_modified: Optional[str] = None
+    processing_status: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class DriveFilesResponse(BaseModel):
+    """Google Driveファイル一覧"""
+
+    status: str = "success"
+    files: List[DriveFileItem] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    per_page: int = 20
+
+
+class DriveSyncStatusResponse(BaseModel):
+    """Drive同期状態"""
+
+    status: str = "success"
+    total_files: int = 0
+    last_synced_at: Optional[str] = None
+    failed_count: int = 0
+
+
+class DriveUploadResponse(BaseModel):
+    """ファイルアップロード結果"""
+
+    status: str = "success"
+    message: str = "アップロードが完了しました"
+    document_id: Optional[str] = None
+    google_drive_file_id: Optional[str] = None
+    google_drive_web_view_link: Optional[str] = None

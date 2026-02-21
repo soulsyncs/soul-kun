@@ -657,6 +657,7 @@
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614
 - `topics/admin_dashboard_frontend.md`: admin-dashboard フロントエンドレビューパターン (Phase A-1 通貨表示バグ修正等)
 - `topics/phase_b2_audit_db_write.md`: Phase B-2 監査ログDB永続保存 詳細レビュー結果
+- `topics/drive_routes_review.md`: Google Drive Admin API (drive_routes.py) レビュー結果 (2026-02-21) — C-1: drive.readonly スコープでアップロード不可、C-2: mime_type カラム不存在
 
 ## fix/currency-display-jpy ブランチ フェーズ別サマリー
 

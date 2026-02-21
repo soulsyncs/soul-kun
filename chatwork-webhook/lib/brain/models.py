@@ -321,7 +321,7 @@ class PersonInfo:
         }
 
     def to_string(self) -> str:
-        """表示用文字列を生成"""
+        """表示用文字列を生成（フォームデータの属性も含む）"""
         parts = [self.name]
         if self.department:
             parts.append(f"({self.department})")
@@ -329,6 +329,21 @@ class PersonInfo:
             parts.append(f"[{self.role or self.position}]")
         if self.description:
             parts.append(f": {self.description}")
+        # フォームから同期したパーソナルデータを表示
+        _ATTR_LABELS = [
+            ("スキル（得意）", "得意"),
+            ("稼働スタイル", "稼働"),
+            ("キャパシティ", "余力"),
+            ("連絡可能時間", "連絡可"),
+            ("月間稼働", "月間"),
+        ]
+        attr_parts = [
+            f"{label}: {self.attributes[key]}"
+            for key, label in _ATTR_LABELS
+            if self.attributes.get(key)
+        ]
+        if attr_parts:
+            parts.append(f" | {'; '.join(attr_parts)}")
         return "".join(parts)
 
     # 後方互換性のためのプロパティ

@@ -757,6 +757,66 @@
 - フォワードリファレンス文字列の残存: ゼロ（全て解消済み）
 - ロジック変更なし（純粋な定義順変更のみ）
 
+## Phase 3.5 org_graph / context_builder / initialization レビュー (2026-02-21)
+
+### 変更ファイル
+- `lib/brain/org_graph.py`: `load_from_db()`, `get_top_persons_by_influence()`, `get_relationships_for_person()` 追加
+- `lib/brain/context_builder.py`: `__init__` に `org_graph=None` 追加、`LLMContext` に `org_relationships: str = ""` 追加、`_fetch_org_graph_data()` 追加、`build()` の gather を 4 タスクに拡張
+- `lib/brain/core/initialization.py`: `self.org_graph = create_organization_graph(...)` + `ContextBuilder(org_graph=self.org_graph)` 追加
+
+### CRITICAL issues (2件)
+
+**C-1: PersonRelationship フィールド名不一致 → AttributeError (org_graph.py line 712)**
+- `upsert_relationship()` が `relationship.interaction_count` を参照 → `PersonRelationship` に `interaction_count` フィールドなし（`observed_interactions` が正しい）
+- `relationship.context` を参照 → `PersonRelationship` に `context` フィールドなし（`notes` が正しい）
+- `_json.dumps(relationship.context or {})` → notes は Optional[str]、dict ではないので `{}` フォールバックも型が合わない
+- 実行パスは `enable_auto_learn=True` 時の `upsert_relationship()` 呼び出し → AttributeError クラッシュ
+
+**C-2: _flush_interaction_buffer で動的SQL構築 (org_graph.py lines 1019-1036)**
+- `values_clauses.append(f"(:org_id{key}::uuid, :from_id{key}, ...")` でVALUES句を文字列結合
+- `" VALUES " + ", ".join(values_clauses)` で最終SQL文字列を組み立て
+- 値は `:param_N` でパラメータ化されているが SQL 構造自体が動的生成 → 鉄則#9「SQLはパラメータ化」の精神に反する（テーブル名・カラム名・プレースホルダー名が動的）
+- SQLAlchemy `text()` に渡す SQL 文字列が動的 → CWE-89 パターンではないが規約違反
+
+### WARNING issues (4件)
+
+**W-1: brain_person_nodes / brain_relationships に RLS + set_config なし**
+- `load_from_db()`, `get_person()`, `upsert_person()`, `upsert_relationship()`, `_flush_interaction_buffer()` が pool.connect() 直接呼び出し
+- set_config('app.current_organization_id', ...) がない → RLS テーブルにアクセスする場合テナント設定が伝わらない
+- ただし各クエリに `WHERE organization_id = :org_id::uuid` が明示的にある → アプリレベル隔離は機能している
+- RLS テーブルかどうかは db_schema.json に rls_enabled フィールドがないため断定不可 (WARNING 扱い)
+
+**W-2: _fetch_org_graph_data がプライベートキャッシュに直接アクセス**
+- `self.org_graph._person_cache`, `self.org_graph._relationship_cache` を context_builder.py line 1263, 1293 で直接参照
+- プライベート属性(_prefix)の外部参照 → カプセル化違反。org_graph の内部実装変更時に context_builder が壊れる
+
+**W-3: load_from_db の重複実行ガードなし**
+- `if not self.org_graph._person_cache: await self.org_graph.load_from_db()` (context_builder.py line 1263-1264)
+- 複数の並行リクエストが同時に `_person_cache == {}` を確認 → 複数の `load_from_db()` が並行実行される可能性（初回リクエスト集中時）
+- 2回目以降はキャッシュヒットするので安全だが、初回は重複DB読み込みが発生
+
+**W-4: org_graph.py line 524 でname (PII) をINFO相当ログに記録**
+- `logger.debug(f"[OrganizationGraph] Person upserted: id={person.person_id}, name={person.name}")`
+- DEBUG レベルなので prod では問題ないが、prod の log level が DEBUG に設定された場合に人名が漏洩
+
+### INFO / SUGGESTION (3件)
+
+**S-1: load_from_db のキャッシュTTL検証なし**
+- `_cache_timestamp` は `load_from_db()` 後に設定されるが、TTL切れを確認するロジックがない
+- `GRAPH_CACHE_TTL = 300` 定数はあるが使われていない (dead constant)
+- キャッシュは永続（プロセス再起動まで更新されない）
+
+**S-2: get_relationships_for_person が sync/async 2重定義**
+- `async def get_relationships_for_person` (line 734) と `def get_relationships_for_person` (line 1493) が同名で共存
+- 呼び出し元 `_fetch_org_graph_data` は line 1493 の sync 版を参照（await なし）— 問題ないが混乱を招く
+
+**S-3: initialization.py の org_graph 初期化はデフォルト enable_auto_learn=True**
+- 自動学習 (auto_learn) が有効だと upsert_relationship → C-1 の AttributeError が実行時に発生する
+- org_graph は直接 `enable_auto_learn=False` を渡すことで回避可能 (ただし未実施)
+
+### 3コピー同期: PASS (lib/ / chatwork-webhook/lib/ / proactive-monitor/lib/ 全て IDENTICAL)
+### db_schema.json 確認: brain_person_nodes / brain_relationships / brain_interactions すべてスキーマ存在確認済み
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

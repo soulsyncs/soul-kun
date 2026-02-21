@@ -1259,8 +1259,8 @@ class ContextBuilder:
         if not self.org_graph:
             return ""
 
-        # 遅延初期化: キャッシュが空なら一括読み込み
-        if not self.org_graph._person_cache:
+        # 遅延初期化: キャッシュが空かつ未ロードなら一括読み込み（W-3: 重複ロード防止）
+        if not self.org_graph._person_cache and not self.org_graph._load_attempted:
             await self.org_graph.load_from_db()
 
         # DBにデータなし or 読み込み失敗

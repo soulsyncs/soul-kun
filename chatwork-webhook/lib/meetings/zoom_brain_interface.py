@@ -300,6 +300,35 @@ class ZoomBrainInterface:
                     logger.warning("Google Docs publish failed: %s", type(e).__name__)
 
             # Step 10: タスク自動抽出＆ChatWork作成
+            # 話者匿名化マッピングを構築（PIIゼロ設計）
+            # CLAUDE.md §3-2 #8準拠: LLMには実名を送らず「話者1」「話者2」で送信。
+            # 処理後に逆変換して実名に戻す。DBには保存しない（処理中のメモリのみ）。
+            speakers = vtt_transcript.speakers
+            speaker_map: Dict[str, str] = {}
+            reverse_map: Dict[str, str] = {}
+            for idx, real_name in enumerate(speakers):
+                anon_label = f"話者{idx + 1}"
+                speaker_map[real_name] = anon_label
+                reverse_map[anon_label] = real_name
+
+            # 匿名化された発言コンテキスト（誰が何を言ったかをLLMに伝える参考情報）
+            # brain-reviewer W-1 修正: seg.text はPII除去前のためサニタイズを適用。
+            # 話者ラベルは匿名名（話者1/2/3）に変換済み。
+            speaker_context_lines = []
+            for seg in vtt_transcript.segments:
+                if seg.speaker and seg.speaker in speaker_map:
+                    speaker_context_lines.append(
+                        f"{speaker_map[seg.speaker]}: {seg.text}"
+                    )
+                elif seg.text:
+                    speaker_context_lines.append(seg.text)
+            if speaker_context_lines:
+                raw_speaker_ctx = "\n".join(speaker_context_lines)
+                # sanitized_textと同じサニタイザーでPIIを除去
+                speaker_context, _ = self.sanitizer.sanitize(raw_speaker_ctx)
+            else:
+                speaker_context = None
+
             task_result: Optional[TaskExtractionResult] = None
             if minutes and get_ai_response_func:
                 try:
@@ -311,6 +340,8 @@ class ZoomBrainInterface:
                         get_ai_response_func=get_ai_response_func,
                         chatwork_client=chatwork_client,
                         name_resolver=self._build_name_resolver(),
+                        speaker_context=speaker_context,
+                        speaker_reverse_map=reverse_map,
                     )
                     if task_result and task_result.total_extracted > 0:
                         logger.info(

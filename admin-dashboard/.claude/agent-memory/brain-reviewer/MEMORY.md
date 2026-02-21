@@ -108,3 +108,64 @@ Only the following CLAUDE.md rules directly apply to this scope:
 - chatwork-webhook/routes/zoom.py (full rewrite with multi-account support)
 - admin-dashboard/src/pages/zoom-settings.tsx (full rewrite with tabs)
 - admin-dashboard/src/lib/api.ts (zoomAccounts section)
+
+## Files reviewed on 2026-02-21 (Members CRUD review)
+- api/app/api/v1/admin/members_routes.py (POST/PUT/DELETE追加)
+- admin-dashboard/src/pages/members.tsx (AddDialog/EditDialog/DeleteDialog追加)
+
+### Members CRUD: 修正確認済み (2026-02-21 再レビューでPASS)
+- C-1 修正済み: 行546-548の `x or ""` パターン除去済み。`body.email`/`body.chatwork_account_id`/`body.role` をそのまま渡す
+- C-2 解決済み: POST/PUT=require_admin(Level5+)、DELETE=require_editor(Level6+) は意図的設計。
+  description に「削除は誤操作防止のため Level 6 のみ」と明記済み。設計として合理的（PASS）
+- W-3 修正済み: PUT の chatwork_account_id 重複チェック追加済み(行636-656)。org_id+自己除外フィルタ正しい
+
+### Members CRUD: known design gaps (残存 WARNING — 将来対応)
+- UpdateMemberRequest のフィールド (employment_type/avatar_url/evaluation/skills等8件) が
+  PUT /members/{user_id} の実装で完全に無視されている。スキーマと実装が乖離。
+- audit_log details に uid/org_id キー名が混入 (行669-670でdict追加後に list(updates.keys()) を呼ぶ)。
+  値ではないのでPIIリスクゼロだが冗長。SUGGESTION レベル。
+- members.tsx の削除ボタンは Level5 ユーザーにも表示 → API 403 でユーザーが混乱する。
+
+### members.tsx: CRUD UX patterns (confirmed safe)
+- useMutation + useQueryClient.invalidateQueries(['members']) — 正しいパターン
+- mutationError は3ダイアログで共有 (共通stateだが onOpenChange でリセット済み)
+- editForm に selectedUserId が null の場合の guard: `selectedUserId && editMutation.mutate(...)` — 安全
+
+## Files reviewed on 2026-02-21 (Phase 3-B Teachings CRUD review)
+- api/app/schemas/admin.py (CreateTeachingRequest 追加)
+- api/app/api/v1/admin/teachings_routes.py (POST /teachings 追加)
+- admin-dashboard/src/pages/teachings.tsx (AddDialog追加)
+
+### Teachings CRUD: FAIL — C-1・W-2 修正必須
+
+**C-1 (CRITICAL): DepartmentMutationResponse フィールドミスマッチ**
+- teachings_routes.py 行406-410: `DepartmentMutationResponse(id=new_id, ...)` が誤り
+- `DepartmentMutationResponse` の必須フィールドは `department_id`（not `id`）
+- INSERT 成功後に Pydantic ValidationError → 500 返却。ユーザー再送で重複 INSERT 発生
+- 修正案A: `department_id=new_id` に変更（フィールド名流用）
+- 修正案B: `CreateTeachingResponse(teaching_id=new_id, ...)` 専用クラス作成（推奨）
+
+**W-1 (WARNING): POST の organization_id に or DEFAULT_ORG_ID がない**
+- teachings_routes.py 行367: `organization_id = user.organization_id`（フォールバックなし）
+- 他の全 GET エンドポイントは `user.organization_id or DEFAULT_ORG_ID` — 不整合
+
+**W-2 (WARNING): category が DB CHECK 制約と不整合**
+- phase2d_ceo_learning.sql 行97-109: `chk_ceo_teachings_category` で13種の英語値のみ許可
+  （mvv_mission, mvv_values, choice_theory, sdt, servant, psych_safety,
+   biz_sales, biz_hr, biz_accounting, biz_general, culture, communication, staff_guidance, other）
+- CreateTeachingRequest.category は自由記述（max_length=100 のみ）
+- UI プレースホルダーが「組織文化、営業戦略」等の日本語を示しており全入力が CHECK 違反
+- 修正: Literal 型バリデーション追加 OR DB CHECK 制約を削除して自由カテゴリを許可
+
+### ceo_teachings テーブルの型情報（確認済み）
+- organization_id: UUID NOT NULL → INSERT の CAST(:org_id AS uuid) は正しい
+- RLS ポリシー: `::uuid` キャスト（20260208_rls_expansion.sql）— UUID 型と一致、OK
+- category: VARCHAR(50) + CHECK 制約（13種の英語値のみ）
+- subcategory: VARCHAR(50)（任意）
+- ceo_user_id: UUID — 管理者 user_id を渡すのは現在のシングルテナントでは許容
+
+### DepartmentMutationResponse 流用パターン（注意）
+- members, departments, teachings の POST/PUT/DELETE で DepartmentMutationResponse を流用
+- フィールドは `status`, `department_id`（必須）, `message` の3つ
+- teachings で `id=new_id` と書くと CRITICAL バグ（department_id が必須なのに未指定）
+- 将来の各エンドポイント専用レスポンス型作成を推奨

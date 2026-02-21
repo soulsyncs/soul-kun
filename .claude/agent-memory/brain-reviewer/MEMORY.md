@@ -675,6 +675,40 @@
 - **SUGGESTION**: _ATTR_LABELS defined inside method body on every call. Should be module-level constant.
 - 3-copy sync: lib/, chatwork-webhook/lib/, proactive-monitor/lib/ all IDENTICAL (PASS verified).
 
+## Phase 3-B create_teaching (feat/admin-google-drive, 未コミット 2026-02-21)
+
+### 変更ファイル (未コミット)
+- `api/app/schemas/admin.py`: TEACHING_CATEGORY_VALUES, CreateTeachingRequest, TeachingMutationResponse 追加
+- `api/app/api/v1/admin/teachings_routes.py`: POST /teachings (create_teaching) 追加, W-1修正
+- `admin-dashboard/src/types/api.ts`: TEACHING_CATEGORIES 定数 + TeachingCategoryValue 型追加
+- `admin-dashboard/src/pages/teachings.tsx`: 「教えを追加」ダイアログ (select dropdown)
+
+### C-1 (PASS): TeachingMutationResponse 正しく使用
+- `TeachingMutationResponse(status, teaching_id, message)` — フィールド正しい
+- DepartmentMutationResponse は teachings_routes.py で一切参照されていない
+
+### W-1 (PASS): organization_id フォールバック修正済み
+- `get_teaching_penetration` (line 250): `user.organization_id or DEFAULT_ORG_ID` — PASS
+- `create_teaching` (line 367): `user.organization_id or DEFAULT_ORG_ID` — PASS
+- **REGRESSION (SUGGESTION)**: 既存3関数 (get_teachings_list/conflicts/usage_stats) が `or DEFAULT_ORG_ID or DEFAULT_ORG_ID` に変化 (二重 or は論理的に同一、バグではない)
+
+### W-2 (PASS): category バリデーション
+- `model_post_init` で ValueError → Pydantic v2 ValidationError に変換 — 動作確認済み
+- `TEACHING_CATEGORY_VALUES` (15値) が DB CHECK constraint と完全一致 — 確認済み
+- フロントエンドは `<select>` プルダウン (自由テキスト入力不可) — PASS
+- `__get_validators__` メソッドは Pydantic v2 では完全無視 (IGNORED) — 副作用なし (SUGGESTION: 削除)
+
+### その他確認項目
+- SQL インジェクション: where_sql は静的な条件キーワードのみ。値は `:category` 等でパラメータ化 — PASS
+- 監査ログ: 全5エンドポイントに `log_audit_event` あり — PASS
+- エラーレスポンス: "内部エラーが発生しました" のみ — PASS (鉄則#8)
+- CAST: `CAST(:org_id AS uuid)`, `CAST(:id AS uuid)`, `CAST(:ceo_uid AS uuid)` — ceo_teachings の各列は UUID 型、正しい
+- conn.commit(): create_teaching の INSERT 後にあり — PASS
+- org_id フィルタ: 全 SELECT に `organization_id = :org_id` あり — PASS
+- ページネーション: limit le=200, 件数上限あり — PASS
+- テストカバレッジ: CreateTeachingRequest/TeachingMutationResponse の直接ユニットテストなし — SUGGESTION
+- ceo_teachings.category に DB CHECK 制約あり (phase2d_ceo_learning.sql) — バックエンドバリデーションとの二重防御でよい
+
 ## Topic files index
 
 - `topics/proactive_py_history.md`: Full Codex/Gemini cross-validation findings pre-PR #614

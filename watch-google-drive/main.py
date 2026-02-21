@@ -66,6 +66,7 @@ from lib.google_drive import (
     DriveFile,
     DriveChange,
     FolderMapper,
+    GOOGLE_APPS_FILE_TYPE_MAP,
 )
 from lib.document_processor import (
     DocumentProcessor,
@@ -692,10 +693,16 @@ async def process_file(
             logger.info(f"変更なし: {file.name}")
             return {"status": "skipped", "reason": "ファイル内容に変更なし", "unmatched_folder": unmatched_folder}
 
+        # Google Apps ネイティブ形式（Docs/Sheets/Slides）は拡張子がないため
+        # MIMEタイプから適切なfile_typeを決定する
+        file_type_for_processor = GOOGLE_APPS_FILE_TYPE_MAP.get(
+            file.mime_type, file.file_extension
+        )
+
         # テキスト抽出とチャンク分割（品質フィルタリング適用 v10.13.2）
         extracted_doc, chunks, excluded_chunks = doc_processor.process_with_quality_filter(
             file_content,
-            file.file_extension
+            file_type_for_processor,
         )
 
         # 品質レポートをログ出力
@@ -744,9 +751,9 @@ async def process_file(
             # 新規登録
             document_id = db_ops.create_document(
                 organization_id=organization_id,
-                title=file.name.rsplit('.', 1)[0],
+                title=file.name.rsplit('.', 1)[0] if '.' in file.name else file.name,
                 file_name=file.name,
-                file_type=file.file_extension,
+                file_type=file_type_for_processor,
                 file_size_bytes=file.size or len(file_content),
                 file_hash=file_hash,
                 category=permissions["category"],
@@ -813,7 +820,7 @@ async def process_file(
                     "document_id": document_id,
                     "version": new_version,
                     "chunk_index": i,
-                    "title": file.name.rsplit('.', 1)[0],
+                    "title": file.name.rsplit('.', 1)[0] if '.' in file.name else file.name,
                     "category": permissions["category"],
                     "classification": permissions["classification"],
                     "department_id": permissions["department_id"] or "",

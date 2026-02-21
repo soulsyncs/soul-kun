@@ -77,12 +77,8 @@ class DriveFile:
 
     @property
     def is_supported_type(self) -> bool:
-        """サポートされているファイル形式かどうか"""
-        supported_extensions = {
-            'pdf', 'docx', 'doc', 'txt', 'md',
-            'html', 'htm', 'xlsx', 'xls', 'pptx', 'ppt'
-        }
-        return self.file_extension in supported_extensions
+        """サポートされているファイル形式かどうか（MIMEタイプで判定）"""
+        return self.mime_type in SUPPORTED_MIME_TYPES
 
 
 @dataclass
@@ -124,6 +120,24 @@ SUPPORTED_MIME_TYPES = {
     'application/vnd.ms-excel',  # .xls
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',  # .pptx
     'application/vnd.ms-powerpoint',  # .ppt
+    # Google Apps ネイティブ形式（export APIでテキスト変換）
+    'application/vnd.google-apps.document',      # Google Docs
+    'application/vnd.google-apps.spreadsheet',   # Google Sheets
+    'application/vnd.google-apps.presentation',  # Google Slides
+}
+
+# Google Apps ネイティブ形式 → エクスポート先 MIME タイプ
+GOOGLE_APPS_EXPORT_MAP = {
+    'application/vnd.google-apps.document': 'text/plain',
+    'application/vnd.google-apps.spreadsheet': 'text/csv',
+    'application/vnd.google-apps.presentation': 'text/plain',
+}
+
+# Google Apps ネイティブ形式 → DocumentProcessor で使う file_type 文字列
+GOOGLE_APPS_FILE_TYPE_MAP = {
+    'application/vnd.google-apps.document': 'txt',
+    'application/vnd.google-apps.spreadsheet': 'txt',
+    'application/vnd.google-apps.presentation': 'txt',
 }
 
 # 除外するファイル名パターン
@@ -397,9 +411,34 @@ class GoogleDriveClient:
                 return None
             raise
 
+    async def export_file(self, file_id: str, export_mime_type: str) -> bytes:
+        """
+        Google Apps ネイティブファイルをエクスポート
+
+        Args:
+            file_id: GoogleドライブのファイルID
+            export_mime_type: エクスポート先 MIME タイプ（例: 'text/plain'）
+
+        Returns:
+            エクスポートされたファイルのバイナリデータ
+        """
+        loop = asyncio.get_event_loop()
+        request = self.service.files().export_media(
+            fileId=file_id,
+            mimeType=export_mime_type,
+        )
+        buffer = io.BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            status, done = await loop.run_in_executor(None, downloader.next_chunk)
+            if status:
+                logger.debug(f"Export progress: {int(status.progress() * 100)}%")
+        return buffer.getvalue()
+
     async def download_file(self, file_id: str) -> bytes:
         """
-        ファイルをダウンロード
+        ファイルをダウンロード（Google Apps ネイティブ形式はエクスポートAPIを使用）
 
         Args:
             file_id: GoogleドライブのファイルID
@@ -413,15 +452,25 @@ class GoogleDriveClient:
         """
         loop = asyncio.get_event_loop()
 
-        # ファイル情報を取得してサイズをチェック
+        # ファイル情報を取得
         file_info = await self.get_file(file_id)
+
+        # Google Apps ネイティブ形式はエクスポートAPIを使用
+        if file_info and file_info.mime_type in GOOGLE_APPS_EXPORT_MAP:
+            export_mime = GOOGLE_APPS_EXPORT_MAP[file_info.mime_type]
+            logger.info(
+                f"Google Apps export: {file_info.name} "
+                f"({file_info.mime_type} → {export_mime})"
+            )
+            return await self.export_file(file_id, export_mime)
+
+        # 通常ファイル: サイズチェックしてダウンロード
         if file_info and file_info.size and file_info.size > MAX_FILE_SIZE:
             raise ValueError(
                 f"ファイルサイズが大きすぎます: {file_info.size} bytes "
                 f"(最大: {MAX_FILE_SIZE} bytes)"
             )
 
-        # ダウンロード
         request = self.service.files().get_media(fileId=file_id)
         buffer = io.BytesIO()
 
@@ -526,11 +575,8 @@ class GoogleDriveClient:
             if pattern(file.name):
                 return True, f"除外パターンに一致: {file.name}"
 
-        # MIMEタイプチェック
+        # MIMEタイプチェック（Google Apps ネイティブ形式も含む）
         if file.mime_type not in SUPPORTED_MIME_TYPES:
-            # Google Docs形式は将来対応
-            if file.mime_type.startswith('application/vnd.google-apps'):
-                return True, f"Google Docs形式は未対応: {file.mime_type}"
             return True, f"サポートされていないファイル形式: {file.mime_type}"
 
         # ファイルサイズチェック
@@ -838,6 +884,8 @@ __all__ = [
     'FolderMapper',
     'FolderMappingConfig',
     'SUPPORTED_MIME_TYPES',
+    'GOOGLE_APPS_EXPORT_MAP',
+    'GOOGLE_APPS_FILE_TYPE_MAP',
     'MAX_FILE_SIZE',
     'DEPARTMENT_MAPPING_AVAILABLE',
 ]

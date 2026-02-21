@@ -274,14 +274,23 @@ class TestDriveFile:
 
         assert file.is_supported_type is False
 
-    def test_is_supported_type_no_extension(self):
-        """is_supported_type プロパティ: 拡張子なし（非サポート）"""
+    def test_is_supported_type_no_extension_but_plain_text(self):
+        """is_supported_type プロパティ: 拡張子なしでも text/plain は対応"""
         file = DriveFile(
             id="1", name="README", mime_type="text/plain",
             size=100, modified_time=None, created_time=None,
             parents=[], web_view_link=None
         )
+        # MIMEタイプで判定するため text/plain は対応済み
+        assert file.is_supported_type is True
 
+    def test_is_supported_type_unknown_mime(self):
+        """is_supported_type プロパティ: 未対応のMIMEタイプは False"""
+        file = DriveFile(
+            id="1", name="binary.bin", mime_type="application/octet-stream",
+            size=100, modified_time=None, created_time=None,
+            parents=[], web_view_link=None
+        )
         assert file.is_supported_type is False
 
 
@@ -981,18 +990,41 @@ class TestGoogleDriveClientShouldSkipFile:
         assert should_skip is True
         assert "サポートされていないファイル形式" in reason
 
-    def test_should_skip_google_docs_format(self, client):
-        """Google Docs形式は未対応のためスキップ"""
+    def test_should_not_skip_google_docs_format(self, client):
+        """Google Docs形式はエクスポートAPIで対応済み — スキップしない"""
         file = DriveFile(
-            id="1", name="Google Doc", mime_type="application/vnd.google-apps.document",
+            id="1", name="社内規則", mime_type="application/vnd.google-apps.document",
             size=None, modified_time=None, created_time=None,
             parents=[], web_view_link=None
         )
 
         should_skip, reason = client.should_skip_file(file)
 
-        assert should_skip is True
-        assert "Google Docs形式は未対応" in reason
+        assert should_skip is False
+
+    def test_should_not_skip_google_sheets_format(self, client):
+        """Google Sheets形式はエクスポートAPIで対応済み — スキップしない"""
+        file = DriveFile(
+            id="1", name="業務データ", mime_type="application/vnd.google-apps.spreadsheet",
+            size=None, modified_time=None, created_time=None,
+            parents=[], web_view_link=None
+        )
+
+        should_skip, reason = client.should_skip_file(file)
+
+        assert should_skip is False
+
+    def test_should_not_skip_google_slides_format(self, client):
+        """Google Slides形式はエクスポートAPIで対応済み — スキップしない"""
+        file = DriveFile(
+            id="1", name="プレゼン", mime_type="application/vnd.google-apps.presentation",
+            size=None, modified_time=None, created_time=None,
+            parents=[], web_view_link=None
+        )
+
+        should_skip, reason = client.should_skip_file(file)
+
+        assert should_skip is False
 
     def test_should_skip_large_file(self, client):
         """大きすぎるファイルはスキップ"""

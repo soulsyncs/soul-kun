@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from lib.chatwork import ChatworkClient
 from lib.secrets import get_secret_cached
+from lib.renk_os_client import RenkOsClient
 
 from gmail_client import GmailClient
 from mail_parser import parse_raw_email, format_chatwork_message
@@ -259,13 +260,51 @@ def health():
 
 
 # =============================================================================
+# 内部処理: 採否判断付き ChatWork メッセージ生成
+# =============================================================================
+
+def _build_screened_message(
+    inquiry,
+    is_hiring_needed: bool,
+    understaffed_projects: list,
+    fill_rate: Optional[float],
+) -> str:
+    """
+    採否判断の結果を先頭に付加した ChatWork 投稿メッセージを生成する。
+
+    採用ニーズあり → 🔥【優先対応】
+    採用充足中    → 📋【確認待ち】
+    """
+    base_message = format_chatwork_message(inquiry)
+
+    if is_hiring_needed:
+        header_lines = ["🔥【優先対応】採用ニーズが確認されました"]
+        if understaffed_projects:
+            # 不足案件を最大3件まで表示
+            names = "、".join(
+                p.get("project_name", "不明") for p in understaffed_projects[:3]
+            )
+            header_lines.append(f"人員不足の案件: {names}")
+        if fill_rate is not None:
+            header_lines.append(f"現在の充足率: {int(fill_rate)}%")
+    else:
+        header_lines = ["📋【確認待ち】現在は採用充足中です"]
+        if fill_rate is not None:
+            header_lines.append(f"現在の充足率: {int(fill_rate)}%（不足案件なし）")
+        header_lines.append("採用ニーズが発生した際に再度ご検討ください。")
+
+    header = "\n".join(header_lines)
+    return f"{header}\n{'-' * 30}\n{base_message}"
+
+
+# =============================================================================
 # 内部処理: 新着メールを取得して ChatWork に投稿
 # =============================================================================
 
 def _process_new_emails(history_id: str, email_address: str) -> int:
     """
     Gmail history API で新着メールを取得し、
-    求人問い合わせであれば ChatWork に投稿する。
+    求人問い合わせであれば採否判断付きで ChatWork に投稿する。
     処理したメール数を返す。
     """
     room_id = RECRUIT_CHATWORK_ROOM_ID
@@ -288,6 +327,31 @@ def _process_new_emails(history_id: str, email_address: str) -> int:
     if cw is None:
         return 0
 
+    # ── AI スクリーニング: Re:nk OS から採用状況を取得（ループ前に1回だけ）──
+    try:
+        renk = RenkOsClient()
+        staffing = renk.get_staffing_summary()
+        if staffing:
+            is_hiring = renk.is_hiring_needed()
+            understaffed = renk.get_understaffed_projects()
+            fill_rate = renk.get_fill_rate()
+            logger.info(
+                f"Re:nk OS 採用状況: 採用必要={is_hiring}, "
+                f"充足率={fill_rate}%, 不足案件数={len(understaffed)}"
+            )
+        else:
+            # データ取得失敗時は「採用必要」として扱う（見逃し防止）
+            is_hiring = True
+            understaffed = []
+            fill_rate = None
+            logger.warning("Re:nk OS データ取得失敗 → 採用必要として扱います")
+    except Exception as e:
+        # 例外時も「採用必要」として安全側に倒す（Re:nk OSの障害で通知を止めない）
+        is_hiring = True
+        understaffed = []
+        fill_rate = None
+        logger.warning(f"Re:nk OS 呼び出し例外 → 採用必要として扱います: {e}")
+
     processed = 0
     for raw_bytes in new_messages:
         try:
@@ -296,11 +360,15 @@ def _process_new_emails(history_id: str, email_address: str) -> int:
                 logger.info("スキップ（求人問い合わせでない）")
                 continue
 
-            message = format_chatwork_message(inquiry)
+            # 採否判断付きメッセージを生成して投稿
+            message = _build_screened_message(
+                inquiry, is_hiring, understaffed, fill_rate
+            )
             cw.send_message(int(room_id), message)
+            # 個人情報はログに残さない（氏名・職種はマスキング）
             logger.info(
-                f"ChatWork投稿完了: {inquiry.platform} / "
-                f"{inquiry.applicant_name} / {inquiry.job_title}"
+                f"ChatWork投稿完了 [{'優先' if is_hiring else '確認待ち'}]: "
+                f"platform={inquiry.platform}"
             )
             processed += 1
 

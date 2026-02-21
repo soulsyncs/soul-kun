@@ -635,8 +635,6 @@ async def get_chatwork_rooms(
                     SELECT DISTINCT chatwork_room_id, room_name
                     FROM room_monitoring_settings
                     WHERE organization_id = CAST(:org_id AS uuid)
-                      AND is_enabled = TRUE
-                      AND chatwork_room_id IS NOT NULL
                     ORDER BY room_name NULLS LAST, chatwork_room_id
                     LIMIT 200
                 """),
@@ -654,8 +652,8 @@ async def get_chatwork_rooms(
                 for row in rows
             ],
         }
-    except Exception:
-        logger.exception("chatwork rooms fetch failed", organization_id=organization_id)
+    except Exception as e:
+        logger.error("chatwork rooms fetch failed: %s", type(e).__name__)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="ルーム一覧の取得に失敗しました",

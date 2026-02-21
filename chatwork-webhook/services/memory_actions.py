@@ -153,6 +153,10 @@ def handle_save_memory(params, room_id, account_id, sender_name, context=None):
         """属性を処理（管理者なら即時保存、それ以外は提案）"""
         if not person or not attr_value:
             return False
+        # 敬称（さん/くん等）を除去して正規化。保存名と削除時の検索名を統一するため
+        person = normalize_person_name(person) or person
+        if not person.strip():  # 正規化後に空になった場合（例: 「さん」のみ入力）はスキップ
+            return False
         if person.lower() in [bn.lower() for bn in BOT_NAME_PATTERNS]:
             print(f"   → スキップ: ボット名パターンに一致")
             return False
@@ -332,6 +336,9 @@ def handle_delete_memory(params, room_id, account_id, sender_name, context=None)
         return "🤔 誰の記憶を削除すればいいかわからなかったウル..."
     
     target_persons = matched if matched else persons
+    # 入力名を正規化してから名前解決（「テストかわさん」→「テストかわ」でDB検索）
+    # resolve_person_name内部でも正規化を呼ぶが、ここで先に行うことでDBの正規化済み名と一致させる
+    target_persons = [normalize_person_name(p) or p for p in target_persons]
     resolved_persons = [resolve_person_name(p) for p in target_persons]
     
     deleted = []

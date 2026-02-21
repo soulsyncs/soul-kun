@@ -219,7 +219,7 @@ class TestGetDriveFiles:
         defaults.update(kwargs)
         user = defaults.pop("user", MockUser())
         with patch.object(_drive_mod, "get_db_pool", return_value=pool):
-            return asyncio.get_event_loop().run_until_complete(
+            return asyncio.run(
                 _drive_mod.get_drive_files(user=user, **defaults)
             )
 
@@ -289,7 +289,7 @@ class TestGetDriveSyncStatus:
         pool.connect.return_value.__exit__ = MagicMock(return_value=None)
         conn_setup(conn)
         with patch.object(_drive_mod, "get_db_pool", return_value=pool):
-            return asyncio.get_event_loop().run_until_complete(
+            return asyncio.run(
                 _drive_mod.get_drive_sync_status(user=MockUser())
             )
 
@@ -333,7 +333,7 @@ class TestDownloadDriveFile:
         pool.connect.return_value.__exit__ = MagicMock(return_value=None)
         conn_setup(conn)
         with patch.object(_drive_mod, "get_db_pool", return_value=pool):
-            return asyncio.get_event_loop().run_until_complete(
+            return asyncio.run(
                 _drive_mod.download_drive_file(
                     document_id=doc_id or str(uuid.uuid4()),
                     user=MockUser(),
@@ -381,7 +381,7 @@ class TestUploadDriveFileValidation:
         mock_file.content_type = content_type
         mock_file.read = AsyncMock(return_value=content)
 
-        return asyncio.get_event_loop().run_until_complete(
+        return asyncio.run(
             _drive_mod.upload_drive_file(
                 file=mock_file,
                 classification=classification,

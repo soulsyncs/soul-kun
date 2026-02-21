@@ -9,6 +9,7 @@ pytest-mock==3.12.0
 
 # FastAPIテスト
 httpx==0.26.0
+python-multipart>=0.0.5
 
 # モック
 responses==0.24.1

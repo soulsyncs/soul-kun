@@ -64,6 +64,14 @@
   - Vision AI bypass type: `IMAGE_ANALYSIS = "image_analysis"` in integration.py
   - bypass_handlers.py is chatwork-webhook ONLY (not root lib/)
 
+## ToolExecutor パターン (TASK-11, 2026-02-22)
+
+- `lib/brain/tool_executor.py`: ToolCall → DecisionResult 変換アダプター。ステートレス。
+- `ToolExecutionOutcome.result` 型アノテーションが `ExecutionResult` だが実際は `HandlerResult` (WARNING)。動作は正常（型強制なし）。
+- 未使用インポート: `field`, `Dict`, `Optional` (SUGGESTION)
+- `brain._execute()` は `-> HandlerResult` を返す (core/pipeline.py line 96 確認)
+- 詳細: `topics/tool_executor_review_task11.md`
+
 ## Known open issues (pre-existing, not introduced by any reviewed PR)
 
 - `lib/brain/episodic_memory.py` `save_episode()`: **FIXED** in Task A implementation — now has set_config RLS context, 3-copy sync done, error handling with rollback+invalidate. See episodic_memory.py review below.

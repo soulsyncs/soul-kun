@@ -15,13 +15,13 @@ API 登録不要・scraping 不要・Indeed の公式 RSS 仕様に準拠。
 """
 
 import logging
-import re
 import urllib.parse
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 
+import defusedxml.ElementTree as ET  # XXE 攻撃を防ぐ安全な XML パーサー
+from defusedxml import DefusedXmlException
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,19 @@ SEARCH_QUERIES = [
 # Indeed Japan RSS のベース URL
 _INDEED_RSS_BASE = "https://www.indeed.co.jp/rss"
 
-# XML 名前空間（Indeed 独自タグ）
+# Indeed 独自 XML 名前空間（仕様変更に備えてフォールバック付きで使用）
 _NS = "https://www.indeed.com/about/rss"
+
+
+def _find_ns(item: ET.Element, tag: str) -> Optional[ET.Element]:
+    """
+    名前空間付きタグを検索し、見つからない場合はフォールバックで
+    名前空間なしのタグも検索する（Indeed RSS の仕様変更に対応）。
+    """
+    result = item.find(f"{{{_NS}}}{tag}")
+    if result is None:
+        result = item.find(tag)
+    return result
 
 # 1回のリクエストで取得する最大件数
 _MAX_RESULTS_PER_QUERY = 25
@@ -117,7 +128,8 @@ def _fetch_indeed_rss(query: str, location: str, limit: int = _MAX_RESULTS_PER_Q
             logger.warning(f"Indeed RSS 取得失敗 (status={resp.status_code}): {query}")
             return []
 
-        root = ET.fromstring(resp.text)
+        # resp.content（bytes）を渡すことで XML 宣言の encoding 指定と競合しない
+        root = ET.fromstring(resp.content)
         channel = root.find("channel")
         if channel is None:
             logger.warning(f"Indeed RSS: channel タグが見つかりません: {query}")
@@ -129,12 +141,12 @@ def _fetch_indeed_rss(query: str, location: str, limit: int = _MAX_RESULTS_PER_Q
             if not title:
                 continue
 
-            # Indeed 独自名前空間タグ
-            company_tag = item.find(f"{{{_NS}}}company")
+            # Indeed 独自名前空間タグ（名前空間変更に対応したフォールバック付き）
+            company_tag = _find_ns(item, "company")
             company = (company_tag.text or "").strip() if company_tag is not None else ""
 
-            city_tag = item.find(f"{{{_NS}}}city")
-            state_tag = item.find(f"{{{_NS}}}state")
+            city_tag = _find_ns(item, "city")
+            state_tag = _find_ns(item, "state")
             location_parts = []
             if state_tag is not None and state_tag.text:
                 location_parts.append(state_tag.text.strip())
@@ -142,7 +154,7 @@ def _fetch_indeed_rss(query: str, location: str, limit: int = _MAX_RESULTS_PER_Q
                 location_parts.append(city_tag.text.strip())
             loc = " ".join(location_parts) if location_parts else location
 
-            salary_tag = item.find(f"{{{_NS}}}salary")
+            salary_tag = _find_ns(item, "salary")
             salary = (salary_tag.text or "").strip() if salary_tag is not None else None
             if not salary:
                 salary = None
@@ -159,7 +171,7 @@ def _fetch_indeed_rss(query: str, location: str, limit: int = _MAX_RESULTS_PER_Q
 
         return postings
 
-    except ET.ParseError as e:
+    except (ET.ParseError, DefusedXmlException) as e:
         logger.warning(f"Indeed RSS 解析エラー: {e} (query={query})")
         return []
     except Exception as e:

@@ -7,6 +7,7 @@ LLMの判断をチェックする安全層の機能をテストします。
 設計書: docs/25_llm_native_brain_architecture.md セクション5.3
 """
 
+import asyncio
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from datetime import datetime
@@ -579,3 +580,138 @@ class TestGuardianLayerEdgeCases:
         guardian_result = await guardian_no_teachings.check(result, sample_context)
         # パラメータが空でも安全な操作ならALLOW
         assert guardian_result.action in [GuardianAction.ALLOW, GuardianAction.CONFIRM]
+
+
+# =============================================================================
+# CEO教え違反検出テスト（Phase 2D-3）
+# =============================================================================
+
+
+class TestCEOTeachingViolation:
+    """CEO教え違反検出のテスト（Phase 2D-3実装）"""
+
+    @pytest.fixture
+    def ctx_with_teachings(self):
+        """CEO教え付きのLLMContext（4件：高/高/中/低優先度）"""
+        return LLMContext(
+            organization_id="test-org",
+            user_id="user-123",
+            room_id="room-456",
+            ceo_teachings=[
+                CEOTeaching(content="残業代申請は月末に締め切る", category="経費", priority=9),
+                CEOTeaching(content="個人情報の送信は禁止する", category="セキュリティ", priority=8),
+                CEOTeaching(content="顧客への連絡は事前に確認する", category="コミュニケーション", priority=5),
+                CEOTeaching(content="日報は毎日提出する", category="業務習慣", priority=2),
+            ],
+        )
+
+    @pytest.fixture
+    def ctx_no_teachings(self):
+        return LLMContext(
+            organization_id="test-org",
+            user_id="user-123",
+            room_id="room-456",
+            ceo_teachings=[],
+        )
+
+    def test_high_priority_teaching_violation_blocks(self, ctx_with_teachings):
+        """高優先度（>=8）の教えに2語以上マッチするToolCallはBLOCKされること"""
+        guardian = GuardianLayer()
+        result = LLMBrainResult(
+            output_type="tool_call",
+            tool_calls=[
+                ToolCall(
+                    tool_name="chatwork_task_create",
+                    # 「残業代申請」「月末」の2語が priority=9 の teaching にマッチ
+                    parameters={"body": "残業代申請を月末より前に変更したい"},
+                    reasoning="残業代の月末申請についてタスクを作成します",
+                )
+            ],
+            reasoning="残業代申請を月末に変更するタスクを作ります",
+            confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
+        )
+
+        guardian_result = asyncio.run(guardian.check(result, ctx_with_teachings))
+        assert guardian_result.action == GuardianAction.BLOCK
+        assert guardian_result.priority_level == 4
+
+    def test_medium_priority_teaching_violation_confirms(self, ctx_with_teachings):
+        """中優先度（>=4, <8）の教えにマッチするToolCallはCONFIRMされること"""
+        guardian = GuardianLayer()
+        result = LLMBrainResult(
+            output_type="tool_call",
+            tool_calls=[
+                ToolCall(
+                    tool_name="chatwork_task_create",
+                    # 「顧客」「連絡」→ priority=5 の teaching にマッチ（送信・個人情報は含まない）
+                    parameters={"body": "顧客への連絡確認をお願いします"},
+                    reasoning="顧客連絡タスクを作成します",
+                )
+            ],
+            reasoning="顧客連絡タスクを作成します",
+            confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
+        )
+
+        guardian_result = asyncio.run(guardian.check(result, ctx_with_teachings))
+        assert guardian_result.action == GuardianAction.CONFIRM
+        assert guardian_result.priority_level == 4
+        assert guardian_result.confirmation_question is not None
+
+    def test_low_priority_teaching_allows(self, ctx_with_teachings):
+        """低優先度（<4）の教えにマッチしてもALLOW（スルー）すること"""
+        guardian = GuardianLayer()
+        result = LLMBrainResult(
+            output_type="tool_call",
+            tool_calls=[
+                ToolCall(
+                    tool_name="chatwork_task_create",
+                    # 「日報」→ priority=2 の teaching にマッチするが低優先度
+                    parameters={"body": "日報の提出リマインダー"},
+                    reasoning="日報タスクを作成します",
+                )
+            ],
+            reasoning="日報のタスクを作成します",
+            confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
+        )
+
+        guardian_result = asyncio.run(guardian.check(result, ctx_with_teachings))
+        assert guardian_result.action == GuardianAction.ALLOW
+
+    def test_no_keyword_match_allows(self, ctx_with_teachings):
+        """教えのキーワードとマッチしないToolCallはALLOWされること"""
+        guardian = GuardianLayer()
+        result = LLMBrainResult(
+            output_type="tool_call",
+            tool_calls=[
+                ToolCall(
+                    tool_name="chatwork_task_search",
+                    # 教えのキーワードと無関係
+                    parameters={"keyword": "ミーティング資料"},
+                    reasoning="タスク検索します",
+                )
+            ],
+            reasoning="タスクを検索します",
+            confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
+        )
+
+        guardian_result = asyncio.run(guardian.check(result, ctx_with_teachings))
+        assert guardian_result.action == GuardianAction.ALLOW
+
+    def test_no_teachings_allows(self, ctx_no_teachings):
+        """CEO教えが空の場合はALLOW（学習済みルールのチェックに進む）"""
+        guardian = GuardianLayer()
+        result = LLMBrainResult(
+            output_type="tool_call",
+            tool_calls=[
+                ToolCall(
+                    tool_name="chatwork_task_create",
+                    parameters={"body": "残業代申請タスク"},
+                    reasoning="タスク作成します",
+                )
+            ],
+            reasoning="タスクを作成します",
+            confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
+        )
+
+        guardian_result = asyncio.run(guardian.check(result, ctx_no_teachings))
+        assert guardian_result.action == GuardianAction.ALLOW

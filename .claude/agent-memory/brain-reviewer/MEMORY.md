@@ -11,6 +11,24 @@
 
 - `TestLogAuditAsync`, `TestLogDrivePermissionChange`, `TestLogDriveSyncSummary` (11 tests in `tests/test_audit.py`) fail locally due to missing/misconfigured pytest-asyncio plugin.
 - ALL tests in `tests/test_proactive.py`, `tests/test_proactive_monitor.py` etc. fail locally due to langfuse/pydantic.v1 incompatibility with Python 3.14. Pre-existing.
+- `tests/test_llm_brain_guardian.py`: 13 tests use `@pytest.mark.asyncio` and fail locally (pytest-asyncio not working). Pre-existing. New CEO teaching tests use `asyncio.run()` instead and PASS.
+
+## guardian_layer.py CEOTeaching patterns (PR #686, feat/ceo-teaching-violation-detection)
+
+- **TWO different CEOTeaching classes exist** (dict-vs-object confusion pattern):
+  - `lib/brain/models.py:1343`: `CEOTeaching` with `statement` field (NOT `content`)
+  - `lib/brain/context_builder.py:93`: `CEOTeaching` with `content` field
+  - guardian_layer.py `_check_ceo_teachings()` uses `teaching.content` → uses context_builder version (CORRECT for LLMContext.ceo_teachings)
+  - Tests import from context_builder: `from lib.brain.context_builder import LLMContext, CEOTeaching` → also CORRECT
+  - **NEVER confuse the two**: models.py CEOTeaching has `statement`, context_builder CEOTeaching has `content`
+- **Keyword match false positive risk (WARNING)**:
+  - re.split on Japanese particles leaves verb forms: '確認する', '提出する', '禁止する' etc.
+  - These generic verbs appear in tool reasoning text → false positive CONFIRM/BLOCK
+  - priority>=8 BLOCK with false positive = critical UX failure
+  - Mitigation: CEO operators should set priority carefully; teaching content should use nouns not verbs
+- **No PII in logs**: matched[] contains CEO teaching keywords only (not parameter values). Safe.
+- **3-copy sync**: PASS (all 3 copies identical, confirmed)
+- **Test pattern**: New tests use `asyncio.run(guardian.check(...))` NOT `@pytest.mark.asyncio` — this is correct for this env
 
 ## Review checklist quick notes
 

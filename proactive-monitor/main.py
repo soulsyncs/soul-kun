@@ -436,7 +436,7 @@ def proactive_monitor():
         logger.error(f"[ProactiveMonitor] Error: {e}", exc_info=True)
         return {
             "status": "error",
-            "message": str(e),
+            "message": type(e).__name__,
         }, 500
 
 
@@ -467,4 +467,4 @@ def proactive_monitor_scheduled():
 
     except Exception as e:
         logger.error(f"[ProactiveMonitor] Scheduled execution error: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": type(e).__name__}), 500

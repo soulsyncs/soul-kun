@@ -27,6 +27,7 @@ import {
   X,
   VideoIcon,
   HardDrive,
+  GraduationCap,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -45,6 +46,7 @@ const navigation = [
   { name: 'タスク', href: '/tasks', icon: CheckSquare },
   // 分析
   { name: 'AI脳分析', href: '/brain', icon: Brain },
+  { name: '学習確認', href: '/brain-learning', icon: GraduationCap },
   { name: 'インサイト', href: '/insights', icon: Lightbulb },
   { name: 'ミーティング', href: '/meetings', icon: Video },
   { name: 'カレンダー', href: '/calendar', icon: CalendarDays },

@@ -174,6 +174,53 @@ class BrainLogsResponse(BaseModel):
     limit: int = Field(50, description="リミット")
 
 
+class LearningPatternEntry(BaseModel):
+    """学習パターンエントリ（Human-in-the-loop確認用）
+
+    brain_outcome_patternsから取得。PII不含。
+    """
+
+    id: str = Field(..., description="パターンID")
+    pattern_type: str = Field(..., description="パターン種別")
+    pattern_category: Optional[str] = Field(None, description="カテゴリ")
+    scope: Optional[str] = Field(None, description="スコープ（global/org/user）")
+    sample_count: int = Field(0, description="サンプル数")
+    success_count: int = Field(0, description="成功数")
+    failure_count: int = Field(0, description="失敗数")
+    success_rate: Optional[float] = Field(None, description="成功率（0.0-1.0）")
+    confidence_score: Optional[float] = Field(None, description="信頼度（0.0-1.0）")
+    is_active: bool = Field(True, description="有効フラグ")
+    is_validated: bool = Field(False, description="人間確認済みフラグ")
+    validated_at: Optional[dt.datetime] = Field(None, description="確認日時")
+    created_at: dt.datetime = Field(..., description="作成日時")
+
+
+class LearningPatternsResponse(BaseModel):
+    """学習パターン一覧レスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    patterns: List[LearningPatternEntry] = Field(
+        default_factory=list, description="パターンリスト"
+    )
+    total_count: int = Field(0, description="総件数（未確認のみ）")
+    offset: int = Field(0, description="オフセット")
+    limit: int = Field(50, description="リミット")
+
+
+class ValidatePatternRequest(BaseModel):
+    """パターン確認リクエスト（承認または却下）"""
+
+    approved: bool = Field(..., description="承認: true, 却下: false")
+
+
+class ValidatePatternResponse(BaseModel):
+    """パターン確認レスポンス"""
+
+    status: str = Field("success", description="ステータス")
+    pattern_id: str = Field(..., description="更新したパターンID")
+    approved: bool = Field(..., description="承認結果")
+
+
 # =============================================================================
 # コスト管理
 # =============================================================================

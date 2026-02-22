@@ -65,6 +65,9 @@ const GoogleDrivePage = lazy(() =>
 const CalendarPage = lazy(() =>
   import('@/pages/calendar').then((m) => ({ default: m.CalendarPage }))
 );
+const BrainLearningPage = lazy(() =>
+  import('@/pages/brain-learning').then((m) => ({ default: m.BrainLearningPage }))
+);
 
 // Loading fallback
 function PageLoader() {
@@ -221,6 +224,12 @@ const calendarRoute = new Route({
   component: () => <ProtectedRoute component={CalendarPage} />,
 });
 
+const brainLearningRoute = new Route({
+  getParentRoute: () => rootRoute,
+  path: '/brain-learning',
+  component: () => <ProtectedRoute component={BrainLearningPage} />,
+});
+
 const routeTree = rootRoute.addChildren([
   loginRoute,
   indexRoute,
@@ -229,6 +238,7 @@ const routeTree = rootRoute.addChildren([
   wellnessRoute,
   tasksRoute,
   brainRoute,
+  brainLearningRoute,
   insightsRoute,
   meetingsRoute,
   proactiveRoute,

@@ -11,6 +11,8 @@ import type {
   DashboardSummaryResponse,
   BrainMetricsResponse,
   BrainLogsResponse,
+  LearningPatternsResponse,
+  ValidatePatternResponse,
   CostMonthlyResponse,
   CostDailyResponse,
   CostBreakdownResponse,
@@ -182,6 +184,17 @@ export const api = {
       fetchWithAuth<BrainLogsResponse>('/admin/brain/logs', {
         params: { limit, offset },
       }),
+
+    getLearningPatterns: (unvalidatedOnly = true, limit = 50, offset = 0) =>
+      fetchWithAuth<LearningPatternsResponse>('/admin/brain/learning/patterns', {
+        params: { unvalidated_only: unvalidatedOnly, limit, offset },
+      }),
+
+    validatePattern: (patternId: string, approved: boolean) =>
+      fetchWithAuth<ValidatePatternResponse>(
+        `/admin/brain/learning/patterns/${patternId}/validate`,
+        { method: 'PATCH', body: { approved } },
+      ),
   },
 
   // Cost tracking endpoints

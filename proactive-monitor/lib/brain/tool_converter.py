@@ -437,14 +437,31 @@ class ToolMetadataRegistry:
             return "general"
 
     def _ensure_loaded(self) -> None:
-        """SYSTEM_CAPABILITIESから自動ロード"""
+        """SYSTEM_CAPABILITIES と OPERATION_CAPABILITIES から自動ロード（TASK-14）
+
+        SYSTEM_CAPABILITIES（handlers/registry.py）と
+        OPERATION_CAPABILITIES（lib/brain/operations/registry.py）の両方を
+        ロードする。OPERATION_CAPABILITIES が追加された場合、Brain側の
+        変更なしに自動で認識される（CapabilityContract プラグイン方式）。
+
+        重複キーがある場合は SYSTEM_CAPABILITIES が優先される。
+        """
         if self._loaded:
             return
 
         try:
             from handlers.registry import SYSTEM_CAPABILITIES
 
-            for key, cap in SYSTEM_CAPABILITIES.items():
+            # OPERATION_CAPABILITIES も合わせてロード（TASK-14: MCP統合強化）
+            try:
+                from lib.brain.operations.registry import OPERATION_CAPABILITIES
+                # SYSTEM_CAPABILITIES が OPERATION_CAPABILITIES を内包する場合でも
+                # 重複登録を避けるため、SYSTEM_CAPABILITIES を上書き元として使う
+                merged: Dict[str, Any] = {**OPERATION_CAPABILITIES, **SYSTEM_CAPABILITIES}
+            except ImportError:
+                merged = dict(SYSTEM_CAPABILITIES)
+
+            for key, cap in merged.items():
                 if not cap.get("enabled", True):
                     continue
 

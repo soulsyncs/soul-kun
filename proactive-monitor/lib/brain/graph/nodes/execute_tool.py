@@ -3,7 +3,7 @@
 ノード: Tool実行
 
 GuardianがALLOW/MODIFYしたTool呼び出しを実行。
-AuthorizationGate → BrainExecution の既存実行層を活用。
+ToolExecutor → BrainExecution の既存実行層を活用。
 
 NOTE: context.recent_conversation への追加は新しいリストで行い、
 入力 state の context を直接変更しない。
@@ -18,7 +18,8 @@ if TYPE_CHECKING:
     from lib.brain.core import SoulkunBrain
 
 from lib.brain.graph.state import BrainGraphState
-from lib.brain.models import DecisionResult, ConversationMessage
+from lib.brain.models import ConversationMessage
+from lib.brain.tool_executor import ToolExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -66,26 +67,22 @@ def make_execute_tool(brain: "SoulkunBrain"):
             )
             context.recent_conversation = recent
 
-            # DecisionResultを構築して既存のexecution層に渡す
+            # ToolExecutor に委譲（DecisionResult 変換を分離）
             decision_confidence = _extract_confidence_value(
                 llm_result.confidence,
                 "graph:execute_tool:confidence"
             )
-            decision = DecisionResult(
-                action=tool_call.tool_name,
-                params=tool_call.parameters,
-                confidence=decision_confidence,
-                needs_confirmation=False,  # Guardianで既にチェック済み
-            )
-
             t0 = time.time()
-            result = await brain._execute(
-                decision=decision,
+            outcome = await ToolExecutor(brain).execute(
+                tool_call=tool_call,
                 context=context,
                 room_id=state["room_id"],
                 account_id=state["account_id"],
                 sender_name=state["sender_name"],
+                confidence=decision_confidence,
             )
+            result = outcome.result
+            decision = outcome.decision  # state["decision"] 用（responses.py でログ記録に使用）
             logger.debug(
                 "[graph:execute_tool] DONE t=%.3fs (took %.3fs)",
                 time.time() - start_time, time.time() - t0,

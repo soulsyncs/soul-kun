@@ -448,7 +448,79 @@ class GuardianLayer:
             pass  # CEO教えなし — 学習済みルールのみチェック
         else:
             all_teachings = self.ceo_teachings + context.ceo_teachings
-            # TODO Phase 2D-3: より高度なCEO教え違反検出
+            # Phase 2D-3: CEO教え違反検出
+            # ツール呼び出しのテキスト表現を構築（キーワードマッチ用）
+            tool_text_parts: List[str] = [
+                tool_call.tool_name if tool_call else "",
+                tool_call.reasoning if tool_call else "",
+            ]
+            if tool_call:
+                for v in tool_call.parameters.values():
+                    if isinstance(v, str):
+                        tool_text_parts.append(v)
+                    elif not isinstance(v, (bool, int, float)):
+                        tool_text_parts.append(str(v))
+            tool_text = " ".join(filter(None, tool_text_parts)).lower()
+
+            # 優先度の高い教えから順にチェック
+            sorted_teachings = sorted(
+                all_teachings, key=lambda t: -(t.priority or 0)
+            )
+            for teaching in sorted_teachings:
+                if not teaching.content:
+                    continue
+
+                # 教えのコンテンツから照合語を抽出
+                # 日本語助詞・句読点で分割してキーワードを抽出（2文字以上）
+                candidate_words = [
+                    w for w in re.split(
+                        r'[はをがにのでともからまでよりなどへ\s、。！？・…]',
+                        teaching.content,
+                    )
+                    if len(w) >= 2
+                ]
+                if not candidate_words:
+                    continue
+
+                matched = [w for w in candidate_words if w in tool_text]
+                if not matched:
+                    continue
+
+                stmt_preview = teaching.content[:50]
+                kw_str = "、".join(matched[:3])
+
+                # 優先度 >= 8: BLOCK（重要な禁止事項）
+                if (teaching.priority or 0) >= 8:
+                    logger.warning(
+                        f"[guardian:ceo] BLOCK: matched={matched}, "
+                        f"priority={teaching.priority}, category={teaching.category}"
+                    )
+                    return GuardianResult(
+                        action=GuardianAction.BLOCK,
+                        reason=f"CEO教え違反の可能性: {stmt_preview}",
+                        blocked_reason=(
+                            f"CEOの教え「{stmt_preview}」に反する操作が検出されました。"
+                            f"（検出語: {kw_str}）"
+                        ),
+                        priority_level=4,
+                    )
+
+                # 優先度 >= 4: CONFIRM（確認が必要な事項）
+                if (teaching.priority or 0) >= 4:
+                    logger.info(
+                        f"[guardian:ceo] CONFIRM: matched={matched}, "
+                        f"priority={teaching.priority}, category={teaching.category}"
+                    )
+                    return GuardianResult(
+                        action=GuardianAction.CONFIRM,
+                        reason=f"CEO教え照合: {stmt_preview}",
+                        confirmation_question=(
+                            f"CEOの教え「{stmt_preview}」に関連する操作です。"
+                            f"この操作を実行してよいですか？（検出語: {kw_str}）"
+                        ),
+                        priority_level=4,
+                    )
+            # 低優先度の一致 or 一致なし → スルー
 
         # Phase 2E: 学習済みルールをチェック
         tool_name = tool_call.tool_name if tool_call else ""

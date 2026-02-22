@@ -18,7 +18,11 @@ from lib.brain.graph.builder import (
     create_brain_graph,
 )
 from lib.brain.graph.state import BrainGraphState
-from lib.brain.graph.nodes.state_check import make_state_check, make_route_session
+from lib.brain.graph.nodes.state_check import (
+    make_state_check,
+    make_route_session,
+    make_handle_confirmation_response,
+)
 from lib.brain.graph.nodes.build_context import make_build_context
 from lib.brain.graph.nodes.llm_inference import make_llm_inference
 from lib.brain.graph.nodes.guardian_check import make_guardian_check
@@ -130,7 +134,20 @@ def make_mock_brain():
     brain.observability.log_execution = MagicMock()
     brain._trackable_actions = {"chatwork_task_search", "chatwork_task_create"}
     brain._record_outcome_event = AsyncMock()
+    # handle_confirmation_response で使用
+    brain.llm_state_manager.handle_confirmation_response = AsyncMock(
+        return_value=(False, None)
+    )
     return brain
+
+
+@dataclass
+class MockPendingAction:
+    """テスト用の保留アクション"""
+    tool_name: str = "chatwork_task_create"
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    confidence: float = 0.9
+    confirmation_type: str = "action"
 
 
 def make_base_state(**overrides) -> dict:
@@ -814,3 +831,377 @@ class TestTelemetryDisabled:
         import lib.brain.graph  # noqa: F401
         assert os.environ.get("LANGCHAIN_TRACING_V2") == "false"
         assert os.environ.get("LANGSMITH_TRACING") == "false"
+
+
+# =============================================================================
+# handle_confirmation_response ノードテスト（P0: 確認フロー）
+# =============================================================================
+
+
+class TestHandleConfirmationResponse:
+    @pytest.mark.asyncio
+    async def test_rejection_returns_cancel_message(self):
+        """ユーザーが「いいえ」と答えた場合、キャンセルレスポンスを返す"""
+        brain = make_mock_brain()
+        # approved=False → キャンセル
+        brain.llm_state_manager.handle_confirmation_response.return_value = (False, None)
+
+        node = make_handle_confirmation_response(brain)
+        result = await node(make_base_state())
+
+        resp = result["response"]
+        assert resp.action_taken == "confirmation_cancelled"
+        assert resp.success is True
+
+    @pytest.mark.asyncio
+    async def test_approval_with_expired_pending_action(self):
+        """approved=True だが pending_action=None の場合、期限切れメッセージを返す"""
+        brain = make_mock_brain()
+        # approved=True, pending_action=None → 期限切れ
+        brain.llm_state_manager.handle_confirmation_response.return_value = (True, None)
+
+        node = make_handle_confirmation_response(brain)
+        result = await node(make_base_state())
+
+        resp = result["response"]
+        assert resp.action_taken == "confirmation_expired"
+        assert resp.success is False
+        assert "見つからなかった" in resp.message
+
+    @pytest.mark.asyncio
+    async def test_approval_executes_pending_action(self):
+        """approved=True + pending_action あり → ツール実行して成功レスポンスを返す"""
+        brain = make_mock_brain()
+        pending = MockPendingAction(tool_name="chatwork_task_create")
+        brain.llm_state_manager.handle_confirmation_response.return_value = (True, pending)
+
+        handler_result = HandlerResult(success=True, message="タスクを作成したウル🐺", data={})
+        brain._execute.return_value = handler_result
+
+        node = make_handle_confirmation_response(brain)
+        result = await node(make_base_state())
+
+        resp = result["response"]
+        assert resp.action_taken == "chatwork_task_create"
+        assert resp.success is True
+        assert "タスクを作成したウル" in resp.message
+        brain._execute.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_execution_failure_restores_pending_action(self):
+        """ツール実行失敗時、pending_actionを復元して再試行可能にする"""
+        brain = make_mock_brain()
+        pending = MockPendingAction(tool_name="chatwork_task_create")
+        brain.llm_state_manager.handle_confirmation_response.return_value = (True, pending)
+
+        # _execute が例外を投げる
+        brain._execute.side_effect = RuntimeError("execution failed")
+
+        node = make_handle_confirmation_response(brain)
+        result = await node(make_base_state())
+
+        resp = result["response"]
+        assert resp.action_taken == "confirmation_execution_error"
+        assert resp.success is False
+        assert "再試行" in resp.message
+        # pending_action が復元されていること
+        brain.llm_state_manager.set_pending_action.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_outer_exception_returns_graceful_error(self):
+        """handle_confirmation_response 自体が例外を投げた場合、gracefulエラーを返す"""
+        brain = make_mock_brain()
+        brain.llm_state_manager.handle_confirmation_response.side_effect = RuntimeError("state error")
+
+        node = make_handle_confirmation_response(brain)
+        result = await node(make_base_state())
+
+        resp = result["response"]
+        assert resp.action_taken == "confirmation_error"
+        assert resp.success is False
+
+
+# =============================================================================
+# guardian_check 追加テスト（P0: 緊急停止、P1: ApprovalGateエスカレーション）
+# =============================================================================
+
+
+class TestGuardianCheckEmergencyStop:
+    @pytest.mark.asyncio
+    async def test_emergency_stop_blocks_all_tools(self):
+        """緊急停止がアクティブな場合、全Tool実行をブロックする"""
+        brain = make_mock_brain()
+
+        # emergency_stop_checker を設定
+        from unittest.mock import MagicMock
+        emergency_checker = MagicMock()
+        emergency_checker.is_stopped = MagicMock(return_value=True)
+        brain.emergency_stop_checker = emergency_checker
+
+        state = make_base_state(llm_result=MockLLMResult(), llm_context=MagicMock())
+        node = make_guardian_check(brain)
+        result = await node(state)
+
+        assert result["guardian_action"] == "block"
+        assert result["tool_calls_to_execute"] == []
+        assert "緊急停止" in result["guardian_result"].reason
+
+    @pytest.mark.asyncio
+    async def test_emergency_stop_inactive_proceeds_normally(self):
+        """緊急停止が非アクティブな場合、通常の Guardian チェックに進む"""
+        brain = make_mock_brain()
+
+        # emergency_stop_checker を非停止状態に設定
+        emergency_checker = MagicMock()
+        emergency_checker.is_stopped = MagicMock(return_value=False)
+        brain.emergency_stop_checker = emergency_checker
+
+        guardian_result = MockGuardianResult(action=MockGuardianAction("allow"))
+        brain.llm_guardian.check.return_value = guardian_result
+
+        state = make_base_state(llm_result=MockLLMResult(), llm_context=MagicMock())
+        node = make_guardian_check(brain)
+        result = await node(state)
+
+        # 通常の allow フローに進む
+        assert result["guardian_action"] == "allow"
+        brain.llm_guardian.check.assert_called_once()
+
+
+class TestGuardianCheckApprovalGate:
+    @pytest.mark.asyncio
+    async def test_approval_gate_require_confirmation_escalates(self):
+        """ApprovalLevel.REQUIRE_CONFIRMATION は guardian_action を confirm にエスカレーション"""
+        brain = make_mock_brain()
+        guardian_result = MockGuardianResult(action=MockGuardianAction("allow"))
+        brain.llm_guardian.check.return_value = guardian_result
+
+        from lib.brain.approval_gate import ApprovalLevel
+
+        mock_approval = MagicMock()
+        mock_approval.level = ApprovalLevel.REQUIRE_CONFIRMATION
+
+        with patch("lib.brain.graph.nodes.guardian_check.get_approval_gate") as mock_gate:
+            mock_gate_inst = MagicMock()
+            mock_gate.return_value = mock_gate_inst
+            mock_gate_inst.check.return_value = mock_approval
+
+            state = make_base_state(llm_result=MockLLMResult(), llm_context=MagicMock())
+            node = make_guardian_check(brain)
+            result = await node(state)
+
+        assert result["guardian_action"] == "confirm"
+        assert result["approval_result"] is mock_approval
+
+    @pytest.mark.asyncio
+    async def test_approval_gate_require_double_check_escalates(self):
+        """ApprovalLevel.REQUIRE_DOUBLE_CHECK も confirm にエスカレーション"""
+        brain = make_mock_brain()
+        guardian_result = MockGuardianResult(action=MockGuardianAction("allow"))
+        brain.llm_guardian.check.return_value = guardian_result
+
+        from lib.brain.approval_gate import ApprovalLevel
+
+        mock_approval = MagicMock()
+        mock_approval.level = ApprovalLevel.REQUIRE_DOUBLE_CHECK
+
+        with patch("lib.brain.graph.nodes.guardian_check.get_approval_gate") as mock_gate:
+            mock_gate_inst = MagicMock()
+            mock_gate.return_value = mock_gate_inst
+            mock_gate_inst.check.return_value = mock_approval
+
+            state = make_base_state(llm_result=MockLLMResult(), llm_context=MagicMock())
+            node = make_guardian_check(brain)
+            result = await node(state)
+
+        assert result["guardian_action"] == "confirm"
+
+    @pytest.mark.asyncio
+    async def test_approval_gate_auto_approve_does_not_escalate(self):
+        """ApprovalLevel.AUTO_APPROVE は confirm にエスカレーションしない"""
+        brain = make_mock_brain()
+        guardian_result = MockGuardianResult(action=MockGuardianAction("allow"))
+        brain.llm_guardian.check.return_value = guardian_result
+
+        from lib.brain.approval_gate import ApprovalLevel
+
+        mock_approval = MagicMock()
+        mock_approval.level = ApprovalLevel.AUTO_APPROVE
+
+        with patch("lib.brain.graph.nodes.guardian_check.get_approval_gate") as mock_gate:
+            mock_gate_inst = MagicMock()
+            mock_gate.return_value = mock_gate_inst
+            mock_gate_inst.check.return_value = mock_approval
+
+            state = make_base_state(llm_result=MockLLMResult(), llm_context=MagicMock())
+            node = make_guardian_check(brain)
+            result = await node(state)
+
+        assert result["guardian_action"] == "allow"
+
+
+# =============================================================================
+# synthesize 追加テスト（P2: fallback エッジケース）
+# =============================================================================
+
+
+class TestSynthesizeFallbackEdgeCases:
+    @pytest.mark.asyncio
+    async def test_fallback_when_data_is_none(self):
+        """result.data=None の場合、元のresultをそのまま返す"""
+        brain = make_mock_brain()
+        brain._synthesize_knowledge_answer.return_value = None
+
+        original = HandlerResult(success=True, message="raw", data=None)
+        state = make_base_state(
+            execution_result=original,
+            tool_calls_to_execute=[MockToolCall()],
+        )
+
+        node = make_synthesize_knowledge(brain)
+        result = await node(state)
+
+        assert result["execution_result"].message == "raw"
+
+    @pytest.mark.asyncio
+    async def test_fallback_when_data_is_string(self):
+        """result.data が文字列（非dict）の場合、元のresultをそのまま返す"""
+        brain = make_mock_brain()
+        brain._synthesize_knowledge_answer.return_value = None
+
+        original = HandlerResult(success=True, message="raw", data="string_data")
+        state = make_base_state(
+            execution_result=original,
+            tool_calls_to_execute=[MockToolCall()],
+        )
+
+        node = make_synthesize_knowledge(brain)
+        result = await node(state)
+
+        assert result["execution_result"].message == "raw"
+
+    @pytest.mark.asyncio
+    async def test_fallback_when_formatted_context_is_empty(self):
+        """formatted_context='' の場合、元のresultをそのまま返す"""
+        brain = make_mock_brain()
+        brain._synthesize_knowledge_answer.return_value = None
+
+        original = HandlerResult(
+            success=True, message="raw",
+            data={"formatted_context": ""}
+        )
+        state = make_base_state(
+            execution_result=original,
+            tool_calls_to_execute=[MockToolCall()],
+        )
+
+        node = make_synthesize_knowledge(brain)
+        result = await node(state)
+
+        assert result["execution_result"].message == "raw"
+
+
+# =============================================================================
+# execute_tool 追加テスト（P1/P2: トラッキング・エラーコード）
+# =============================================================================
+
+
+class TestExecuteToolTracking:
+    @pytest.mark.asyncio
+    async def test_non_trackable_action_skips_outcome_recording(self):
+        """trackable_actions に含まれないアクションは outcome_event が記録されない"""
+        brain = make_mock_brain()
+        brain._trackable_actions = {"chatwork_task_search"}  # create は含まない
+
+        handler_result = HandlerResult(success=True, message="OK", data={})
+        brain._execute.return_value = handler_result
+
+        # trackable でないアクションを使用
+        tc = MockToolCall(tool_name="general_conversation")
+        state = make_base_state(
+            tool_calls_to_execute=[tc],
+            llm_result=MockLLMResult(confidence=MockConfidence()),
+        )
+
+        with patch("lib.brain.core._extract_confidence_value", return_value=0.9):
+            node = make_execute_tool(brain)
+            await node(state)
+
+        # _fire_and_forget は監査ログのためだけに呼ばれる（outcome recording は呼ばれない）
+        # outcome recording は _record_outcome_event に依存
+        for call in brain._fire_and_forget.call_args_list:
+            # _record_outcome_event の呼び出しがないことを確認
+            args = call[0] if call[0] else []
+            if args:
+                assert not hasattr(args[0], '__name__') or args[0].__name__ != '_record_outcome_event'
+
+    @pytest.mark.asyncio
+    async def test_execution_failure_logged_in_observability(self):
+        """Tool実行失敗時、observability に success=False で記録される"""
+        brain = make_mock_brain()
+        handler_result = HandlerResult(
+            success=False, message="失敗", data={"error_code": "TASK_NOT_FOUND"}
+        )
+        brain._execute.return_value = handler_result
+
+        tc = MockToolCall()
+        state = make_base_state(
+            tool_calls_to_execute=[tc],
+            llm_result=MockLLMResult(confidence=MockConfidence()),
+        )
+
+        with patch("lib.brain.core._extract_confidence_value", return_value=0.9):
+            node = make_execute_tool(brain)
+            result = await node(state)
+
+        assert result["execution_result"].success is False
+        # observability.log_execution が呼ばれていること
+        brain.observability.log_execution.assert_called_once()
+        call_kwargs = brain.observability.log_execution.call_args
+        # success=False が渡されていること（kwargs または positional args）
+        if call_kwargs.kwargs:
+            assert call_kwargs.kwargs.get("success") is False
+        else:
+            # positional args の場合
+            assert call_kwargs[0][1] is False  # 2番目の引数
+
+
+# =============================================================================
+# build_context 追加テスト（P3: 空ツールリスト）
+# =============================================================================
+
+
+class TestBuildContextEdgeCases:
+    @pytest.mark.asyncio
+    async def test_empty_tools_returns_empty_list(self):
+        """get_tools_for_llm() が空リストを返す場合も正常動作する"""
+        brain = make_mock_brain()
+        mock_ctx = MagicMock()
+        brain.llm_context_builder.build.return_value = mock_ctx
+
+        with patch("lib.brain.graph.nodes.build_context.get_tools_for_llm") as mock_tools:
+            mock_tools.return_value = []
+            node = make_build_context(brain)
+            result = await node(make_base_state())
+
+        assert result["tools"] == []
+        assert result["llm_context"] is mock_ctx
+
+    @pytest.mark.asyncio
+    async def test_multiple_tools_all_returned(self):
+        """複数のツールが全て返される"""
+        brain = make_mock_brain()
+        mock_ctx = MagicMock()
+        brain.llm_context_builder.build.return_value = mock_ctx
+        tools_list = [
+            {"type": "function", "name": "tool_a"},
+            {"type": "function", "name": "tool_b"},
+            {"type": "function", "name": "tool_c"},
+        ]
+
+        with patch("lib.brain.graph.nodes.build_context.get_tools_for_llm") as mock_tools:
+            mock_tools.return_value = tools_list
+            node = make_build_context(brain)
+            result = await node(make_base_state())
+
+        assert len(result["tools"]) == 3

@@ -454,7 +454,7 @@ class MessageProcessingMixin:
     # TASK-13: チャネル統一スキーマ（MessageEnvelope サポート）
     # =========================================================================
 
-    async def process_envelope(self, envelope: "MessageEnvelope") -> "BrainResponse":
+    async def process_envelope(self, envelope: "MessageEnvelope") -> BrainResponse:
         """
         MessageEnvelope を受け取って process_message() に委譲する。
 
@@ -471,8 +471,11 @@ class MessageProcessingMixin:
 
         Returns:
             BrainResponse: 処理結果（process_message() と同一形式）
+
+        NOTE: envelope.organization_id はここでは使用しない。
+        Brain は self.org_id（インスタンス初期化時に設定済み）でテナント分離する。
+        from_channel_message(msg, org_id) の org_id はデバッグ用メタデータ。
         """
-        from lib.channels.base import MessageEnvelope  # 循環import回避
         return await self.process_message(
             message=envelope.message,
             room_id=envelope.room_id,

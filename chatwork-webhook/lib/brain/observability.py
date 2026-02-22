@@ -406,6 +406,11 @@ class BrainObservability:
 
             def _sync_flush():
                 with self.pool.connect() as conn:
+                    # RLS: 背景スレッドの新接続にorg_idをセット（鉄則#7/#9）
+                    conn.execute(
+                        text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+                        {"org_id": self.org_id},
+                    )
                     # PII除去してパラメータ準備
                     prepared = []
                     for log in logs_to_flush:

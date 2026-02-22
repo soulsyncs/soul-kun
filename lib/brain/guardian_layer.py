@@ -39,6 +39,8 @@ from typing import Optional, List, Dict, Any, Deque, Tuple
 from zoneinfo import ZoneInfo
 
 from lib.brain.llm_brain import LLMBrainResult, ToolCall, ConfidenceScores
+# NOTE: context_builder.CEOTeaching (content/priority/category フィールドを持つ簡易版) を使用。
+# models.CEOTeaching (statement/keywords フィールドを持つ完全版) とは別物なので注意。
 from lib.brain.context_builder import LLMContext, CEOTeaching
 
 logger = logging.getLogger(__name__)
@@ -482,7 +484,14 @@ class GuardianLayer:
                 if not candidate_words:
                     continue
 
-                matched = [w for w in candidate_words if w in tool_text]
+                # 汎用動詞（〜する/した/ください等）はBLOCKの誤発動を防ぐため除外
+                _GENERIC_VERB_ENDINGS = ("する", "した", "ください", "する。", "ません")
+                content_words = [
+                    w for w in candidate_words
+                    if not any(w.endswith(e) for e in _GENERIC_VERB_ENDINGS)
+                    or len(w) >= 5  # 5文字以上なら動詞でも具体的な意味があるとみなす
+                ]
+                matched = [w for w in content_words if w in tool_text]
                 if not matched:
                     continue
 
@@ -490,7 +499,8 @@ class GuardianLayer:
                 kw_str = "、".join(matched[:3])
 
                 # 優先度 >= 8: BLOCK（重要な禁止事項）
-                if (teaching.priority or 0) >= 8:
+                # 偽陽性対策: BLOCK は 2語以上マッチした場合のみ発動（1語は汎用語の誤検出を防ぐ）
+                if (teaching.priority or 0) >= 8 and len(matched) >= 2:
                     logger.warning(
                         f"[guardian:ceo] BLOCK: matched={matched}, "
                         f"priority={teaching.priority}, category={teaching.category}"

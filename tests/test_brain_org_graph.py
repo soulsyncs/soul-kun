@@ -1158,13 +1158,21 @@ class TestPublicCacheAPI:
         # 強い関係（strength=0.9）
         strong = PersonRelationship(
             person_a_id="p1", person_b_id="p2",
+<<<<<<< Updated upstream
             relationship_type=RelationshipType.COLLABORATES_WITH,
+=======
+            relationship_type=RelationshipType.COLLEAGUE,
+>>>>>>> Stashed changes
             strength=0.9,
         )
         # 弱い関係（strength=0.3）
         weak = PersonRelationship(
             person_a_id="p1", person_b_id="p3",
+<<<<<<< Updated upstream
             relationship_type=RelationshipType.COLLABORATES_WITH,
+=======
+            relationship_type=RelationshipType.COLLEAGUE,
+>>>>>>> Stashed changes
             strength=0.3,
         )
         await graph.upsert_relationship(strong)
@@ -1185,7 +1193,11 @@ class TestPublicCacheAPI:
             rel = PersonRelationship(
                 person_a_id=f"p{i}",
                 person_b_id="hub",
+<<<<<<< Updated upstream
                 relationship_type=RelationshipType.COLLABORATES_WITH,
+=======
+                relationship_type=RelationshipType.COLLEAGUE,
+>>>>>>> Stashed changes
                 strength=0.8,
             )
             await graph.upsert_relationship(rel)
@@ -1199,9 +1211,15 @@ class TestPublicCacheAPI:
         graph = OrganizationGraph(organization_id="org1")
         for strength in [0.7, 0.9, 0.8]:
             rel = PersonRelationship(
+<<<<<<< Updated upstream
                 person_a_id=f"p_s{int(strength*10)}",
                 person_b_id="hub",
                 relationship_type=RelationshipType.COLLABORATES_WITH,
+=======
+                person_a_id=f"p_{strength}",
+                person_b_id="hub",
+                relationship_type=RelationshipType.COLLEAGUE,
+>>>>>>> Stashed changes
                 strength=strength,
             )
             await graph.upsert_relationship(rel)
@@ -1216,7 +1234,11 @@ class TestPublicCacheAPI:
         graph = OrganizationGraph(organization_id="org1")
         rel = PersonRelationship(
             person_a_id="p1", person_b_id="p2",
+<<<<<<< Updated upstream
             relationship_type=RelationshipType.COLLABORATES_WITH,
+=======
+            relationship_type=RelationshipType.COLLEAGUE,
+>>>>>>> Stashed changes
             strength=0.3,
         )
         await graph.upsert_relationship(rel)

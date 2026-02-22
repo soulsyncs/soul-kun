@@ -615,19 +615,19 @@ class TestCEOTeachingViolation:
         )
 
     def test_high_priority_teaching_violation_blocks(self, ctx_with_teachings):
-        """高優先度（>=8）の教えにマッチするToolCallはBLOCKされること"""
+        """高優先度（>=8）の教えに2語以上マッチするToolCallはBLOCKされること"""
         guardian = GuardianLayer()
         result = LLMBrainResult(
             output_type="tool_call",
             tool_calls=[
                 ToolCall(
                     tool_name="chatwork_task_create",
-                    # 「残業代」という単語が priority=9 の teaching にマッチ
-                    parameters={"body": "残業代の申請を月中に行うこと"},
-                    reasoning="残業代申請タスクを作成します",
+                    # 「残業代申請」「月末」の2語が priority=9 の teaching にマッチ
+                    parameters={"body": "残業代申請を月末より前に変更したい"},
+                    reasoning="残業代の月末申請についてタスクを作成します",
                 )
             ],
-            reasoning="残業代申請のタスクを作ります",
+            reasoning="残業代申請を月末に変更するタスクを作ります",
             confidence=ConfidenceScores(overall=0.85, intent=0.9, parameters=0.8),
         )
 

@@ -64,6 +64,14 @@
   - Vision AI bypass type: `IMAGE_ANALYSIS = "image_analysis"` in integration.py
   - bypass_handlers.py is chatwork-webhook ONLY (not root lib/)
 
+## ToolExecutor パターン (TASK-11, 2026-02-22)
+
+- `lib/brain/tool_executor.py`: ToolCall → DecisionResult 変換アダプター。ステートレス。
+- `ToolExecutionOutcome.result` 型アノテーションが `ExecutionResult` だが実際は `HandlerResult` (WARNING)。動作は正常（型強制なし）。
+- 未使用インポート: `field`, `Dict`, `Optional` (SUGGESTION)
+- `brain._execute()` は `-> HandlerResult` を返す (core/pipeline.py line 96 確認)
+- 詳細: `topics/tool_executor_review_task11.md`
+
 ## Known open issues (pre-existing, not introduced by any reviewed PR)
 
 - `lib/brain/episodic_memory.py` `save_episode()`: **FIXED** in Task A implementation — now has set_config RLS context, 3-copy sync done, error handling with rollback+invalidate. See episodic_memory.py review below.
@@ -184,6 +192,41 @@
 - Rate limit state (`_telegram_rate_limit` dict) moved from main.py to routes/telegram.py module scope. Gunicorn `--workers 1` means single process, so per-module dict is equivalent to original. Behavior unchanged.
 - **CRITICAL test failure**: `tests/test_telegram_webhook.py::TestTelegramRateLimit::test_rate_limit_function_exists` fails because it AST-parses `main.py` and asserts `_check_telegram_rate_limit` and `telegram_webhook` exist there. Both are now in `routes/telegram.py`. Test must be updated to scan `routes/telegram.py` instead (or both files).
 - `test_no_print_statements_in_telegram_webhook` PASSES (it checks main.py, which no longer has the function — no prints = vacuous pass). This is a false-positive — the test now tests nothing.
+
+## TASK-12 Human-in-the-loop 学習パターン確認 (2026-02-22, CONDITIONAL PASS)
+
+- `brain_routes.py` GET /brain/learning/patterns + PATCH /validate 追加
+- **W-1**: f-string SQL（where_clause）。ユーザー入力非混入で安全だが鉄則#9精神に反する
+- **W-2 重要**: `find_applicable_patterns()` が `is_validated` を見ていない。未承認パターンもBrainが使う。ドキュメント「承認→本番反映」は誤解を招く。
+
+## TASK-14 CapabilityContract契約インターフェース (2026-02-22, PASS)
+
+- 変更ファイル: `lib/brain/operations/registry.py`, `lib/brain/operations/__init__.py`, `lib/brain/tool_converter.py`, `tests/test_operation_registry.py`
+- `CapabilityContract(TypedDict, total=False)`: 全フィールドを Optional 扱いにし、必須フィールドはランタイム検証 `validate_capability_contract()` で担保する設計
+- **TypedDict total=False の妥協点**: 静的型チェッカーには全フィールド省略可能に見える。Python 3.11+ の `Required[]`/`NotRequired[]` を使うとより厳密だが現時点では問題なし
+- **W-1 (SUGGESTION)**: `REQUIRED_CAPABILITY_FIELDS: tuple` → `tuple[str, ...]` の方が型アノテーションとして精度が高い
+- **W-2 (WARNING)**: `get_tool_metadata()` は `SYSTEM_CAPABILITIES` のみ参照し `OPERATION_CAPABILITIES` を見ない。`_ensure_loaded()` との不整合。`approval_gate.py` の `_get_risk_level()` が `get_tool_metadata()` 経由なので、将来 `OPERATION_CAPABILITIES` 専用エントリを追加した場合にリスクレベルが正しく返されない。現時点は全エントリが両方に重複存在するため問題なし
+- **W-3 (SUGGESTION)**: `OPERATION_CAPABILITIES` と `SYSTEM_CAPABILITIES` に同じキー（data_aggregate等）が重複存在し description が微妙に異なる。merged後はSYSTEM_CAPABILITIESが優先されるため機能上は問題ないが、2つのレジストリの同期メンテが必要
+- `merged = {**OPERATION_CAPABILITIES, **SYSTEM_CAPABILITIES}` の順序: SYSTEM_CAPABILITIES が後なので優先される = 正しい
+- 3コピー同期: PASS (lib/ chatwork-webhook/lib/ proactive-monitor/lib/ 全て一致)
+- TestCapabilityContract 6テスト: 全PASS。async test 15件の失敗は pre-existing（pytest-asyncio未設定）
+- `validate_capability_contract()` は本番コードから呼ばれていない（テスト/CI専用ユーティリティ）
+
+## TASK-13 MessageEnvelope チャネル統一スキーマ (2026-02-22, CONDITIONAL PASS)
+
+- 変更ファイル: `lib/channels/base.py`, `lib/channels/__init__.py`, `lib/brain/core/message_processing.py`
+- 3コピー同期: PASS（lib/ chatwork-webhook/lib/ proactive-monitor/lib/ 全て一致）
+- Brain バイパスなし: `process_envelope` は `process_message` に完全委譲 → §1「脳がすべて」準拠
+- **W-1（型アノテーション）**: `process_envelope` 戻り値型が `"BrainResponse"` (前方参照文字列) だが `BrainResponse` はモジュール先頭でインポート済み → 不要な文字列リテラル。`-> BrainResponse:` に修正すべき
+- **W-2（envelope.organization_id 未使用）**: `process_message()` は `organization_id` パラメータを持たず `self.org_id` を使う設計。`envelope.organization_id` は委譲時に捨てられる。実害なし（Brainインスタンスが既にorg_idを保持）だが、呼び出し側が「org_idをenvelopeに入れれば渡せる」と誤解する余地あり。コメントか検証追加を推奨
+- **W-3（冗長インポート）**: `process_envelope` 内の `from lib.channels.base import MessageEnvelope` は実行時に使用されない（型チェック用だが型エイリアスとして不使用）。削除すべき
+- **S-1（テストゼロ）**: `MessageEnvelope` + `process_envelope` の新規追加に対しテストなし。`from_channel_message()` と `process_envelope()` の動作確認テスト追加を推奨
+- `MessageEnvelope.organization_id` デフォルト `""` パターン: `id or ""` 禁止パターンとは異なる（コンストラクタのデフォルト値）。問題なし
+- `Optional["ChannelMessage"]` の前方参照: base.py内では `ChannelMessage` は既に定義済みのため文字列リテラル不要だが、`Optional[ChannelMessage]` への変更はSUGGESTION程度
+- **設計良好点**: Brain側がorg_idをインスタンスで保持する既存設計と整合している。channel_adapterの変換層がorg_idを知らなくてよい設計は合理的
+- **W-3**: validate（書き込み）が Level 5 (require_admin)。Brain状態変更なのでLevel 6適切かも。
+- brain_outcome_patterns.organization_id は **UUID型**（VARCHAR ではない）。`:org_id` 暗黙キャストで動作はするが repository.py の `CAST(:organization_id AS uuid)` と不一致（SUGGESTION）
+- 詳細: `topics/task12_human_in_the_loop_review.md`
 
 ## Phase 5 main.py split (feat/phase4-main-split, Zoom, reviewed 2026-02-19)
 

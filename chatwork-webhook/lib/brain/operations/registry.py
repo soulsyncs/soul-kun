@@ -20,9 +20,104 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, TypedDict
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# CapabilityContract — 全Capabilityが満たすべき契約インターフェース（TASK-14）
+# =============================================================================
+
+
+class CapabilityContract(TypedDict, total=False):
+    """
+    Capability定義の標準契約インターフェース
+
+    SYSTEM_CAPABILITIES（handlers/registry.py）と OPERATION_CAPABILITIES の
+    両方がこの契約を満たすことを保証する。
+
+    【必須フィールド】
+    - name:                 機能名（日本語表示）
+    - description:          AIが読む機能説明（意図理解・Tool選択に使われる）
+    - category:             カテゴリ（task/goal/operations/message 等）
+    - enabled:              有効/無効フラグ（False のものはBrainに渡さない）
+    - params_schema:        パラメータスキーマ（各パラメータのtype/required/description）
+    - handler:              ハンドラー名（HANDLERS辞書のキー）
+    - requires_confirmation: 確認ダイアログが必要か
+
+    【任意フィールド】
+    - trigger_examples:     トリガー例（AIの意図理解精度向上）
+    - required_data:        実行に必要なデータソース名のリスト
+    - brain_metadata:       脳アーキテクチャ用メタデータ（risk_level/intent_keywords）
+    - required_level:       必要な権限レベル（1〜6、デフォルト:1）
+
+    【新機能追加手順】
+    1. handlers/xxx_handler.py を作成（ChatWork系）
+       または lib/brain/operations/data_ops.py 等を更新（データ操作系）
+    2. OPERATION_CAPABILITIES または SYSTEM_CAPABILITIES に CapabilityContract を1エントリ追加
+    3. HANDLERS dict に関数を登録
+    4. main.py は変更不要（ToolMetadataRegistry が自動ロード）
+
+    設計書: CLAUDE.md §1（脳がすべて）、§8（権限レベル）
+    """
+    # 必須フィールド（required=True は呼び出し元で validate_capability_contract() を使い保証）
+    name: str
+    description: str
+    category: str
+    enabled: bool
+    params_schema: Dict[str, Any]
+    handler: str
+    requires_confirmation: bool
+    # 任意フィールド
+    trigger_examples: List[str]
+    required_data: List[str]
+    brain_metadata: Dict[str, Any]
+    required_level: int
+
+
+# 必須フィールド一覧（validate_capability_contract() で使用）
+REQUIRED_CAPABILITY_FIELDS: tuple[str, ...] = (
+    "name",
+    "description",
+    "category",
+    "enabled",
+    "params_schema",
+    "handler",
+    "requires_confirmation",
+)
+
+
+def validate_capability_contract(
+    cap_name: str,
+    cap: Dict[str, Any],
+) -> Optional[str]:
+    """
+    Capability定義が CapabilityContract 契約を満たしているか検証する。
+
+    新機能追加時・テストで呼び出して、必須フィールドの漏れを早期に検出する。
+
+    Args:
+        cap_name: Capability名（エラーメッセージ用、例: "data_aggregate"）
+        cap:      Capability定義 dict
+
+    Returns:
+        契約違反がある場合はエラーメッセージ文字列。
+        問題なければ None。
+
+    Example:
+        error = validate_capability_contract("my_new_cap", my_cap_def)
+        if error:
+            raise ValueError(f"Capability契約違反: {error}")
+    """
+    for required_field in REQUIRED_CAPABILITY_FIELDS:
+        if required_field not in cap:
+            return (
+                f"Capability '{cap_name}' は必須フィールド '{required_field}' が不足しています。"
+                f" CapabilityContract の必須フィールド: {REQUIRED_CAPABILITY_FIELDS}"
+            )
+    return None
+
 
 # 操作の制約
 OPERATION_TIMEOUT_SECONDS = 30
@@ -208,10 +303,15 @@ async def execute_operation(
 
 
 # =========================================================================
-# SYSTEM_CAPABILITIESに追加する操作定義（handlers/registry.py形式）
+# OPERATION_CAPABILITIES — データ操作系Capability定義（CapabilityContract準拠）
+#
+# 新しいデータ操作系機能を追加する場合はここに CapabilityContract を追加し、
+# あわせて handlers/registry.py の SYSTEM_CAPABILITIES にも同じエントリを追加する。
+# ToolMetadataRegistry（lib/brain/tool_converter.py）は SYSTEM_CAPABILITIES と
+# OPERATION_CAPABILITIES の両方を自動ロードするため、Brain側は変更不要。
 # =========================================================================
 
-OPERATION_CAPABILITIES: Dict[str, Dict[str, Any]] = {
+OPERATION_CAPABILITIES: Dict[str, CapabilityContract] = {
     # -----------------------------------------------------------------
     # 読み取り系操作（Step C-2 Phase 1）
     # -----------------------------------------------------------------

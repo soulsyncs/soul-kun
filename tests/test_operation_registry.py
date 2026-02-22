@@ -418,6 +418,108 @@ class TestSystemCapabilitiesIntegration:
 
 
 # =====================================================
+# TASK-14: CapabilityContract契約インターフェーステスト
+# =====================================================
+
+
+class TestCapabilityContract:
+    """CapabilityContract契約インターフェースのテスト（TASK-14）"""
+
+    def test_validate_capability_contract_valid(self):
+        """全必須フィールドがある場合はNoneを返す"""
+        validate = _registry_mod.validate_capability_contract
+        valid_cap = {
+            "name": "テスト機能",
+            "description": "テスト用の機能です",
+            "category": "task",
+            "enabled": True,
+            "params_schema": {"query": {"type": "string", "required": True}},
+            "handler": "test_handler",
+            "requires_confirmation": False,
+        }
+        error = validate("test_cap", valid_cap)
+        assert error is None
+
+    def test_validate_capability_contract_missing_required_field(self):
+        """必須フィールドが不足している場合はエラー文字列を返す"""
+        validate = _registry_mod.validate_capability_contract
+        required_fields = _registry_mod.REQUIRED_CAPABILITY_FIELDS
+
+        for missing_field in required_fields:
+            cap = {
+                "name": "テスト機能",
+                "description": "説明",
+                "category": "task",
+                "enabled": True,
+                "params_schema": {},
+                "handler": "test_handler",
+                "requires_confirmation": False,
+            }
+            del cap[missing_field]
+
+            error = validate("test_cap", cap)
+            assert error is not None, f"'{missing_field}' 不足でエラーが発生すべき"
+            assert missing_field in error, f"エラーメッセージに '{missing_field}' が含まれるべき"
+
+    def test_validate_capability_contract_optional_fields_not_required(self):
+        """任意フィールド（trigger_examples等）が省略されても契約OK"""
+        validate = _registry_mod.validate_capability_contract
+        # trigger_examples, required_data, brain_metadata, required_level は任意
+        minimal_cap = {
+            "name": "最小Capability",
+            "description": "最小構成",
+            "category": "general",
+            "enabled": True,
+            "params_schema": {},
+            "handler": "minimal_handler",
+            "requires_confirmation": False,
+        }
+        error = validate("minimal_cap", minimal_cap)
+        assert error is None
+
+    def test_operation_capabilities_all_satisfy_contract(self):
+        """OPERATION_CAPABILITIESの全エントリがCapabilityContract契約を満たす"""
+        validate = _registry_mod.validate_capability_contract
+        caps = _registry_mod.OPERATION_CAPABILITIES
+        for cap_name, cap_def in caps.items():
+            error = validate(cap_name, cap_def)
+            assert error is None, (
+                f"OPERATION_CAPABILITIES['{cap_name}'] の契約違反: {error}"
+            )
+
+    def test_required_capability_fields_constant(self):
+        """REQUIRED_CAPABILITY_FIELDSが7フィールドを含む"""
+        required = _registry_mod.REQUIRED_CAPABILITY_FIELDS
+        assert len(required) == 7
+        assert "name" in required
+        assert "description" in required
+        assert "category" in required
+        assert "enabled" in required
+        assert "params_schema" in required
+        assert "handler" in required
+        assert "requires_confirmation" in required
+
+    def test_tool_metadata_registry_loads_operation_capabilities(self):
+        """ToolMetadataRegistryがOPERATION_CAPABILITIESも自動ロードする"""
+        from unittest.mock import patch
+        from lib.brain.tool_converter import ToolMetadataRegistry
+        from lib.brain.operations.registry import OPERATION_CAPABILITIES
+
+        # SYSTEM_CAPABILITIESにないoperation専用のcapability名を特定
+        # OPERATION_CAPABILITIESのエントリはSYSTEM_CAPABILITIESにも存在するが、
+        # ToolMetadataRegistryが両方をロードすることを確認する
+        registry = ToolMetadataRegistry()
+        all_tools = registry.get_all()
+        tool_names = {t.name for t in all_tools}
+
+        for op_name in OPERATION_CAPABILITIES:
+            if OPERATION_CAPABILITIES[op_name].get("enabled", True):
+                assert op_name in tool_names, (
+                    f"OPERATION_CAPABILITIES['{op_name}'] がToolMetadataRegistryにロードされていない"
+                )
+
+
+# =====================================================
 # データ操作ハンドラーテスト
 # =====================================================
 

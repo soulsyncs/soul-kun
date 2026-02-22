@@ -19,9 +19,15 @@ Created: 2026-02-17
 from lib.brain.operations.registry import (
     OPERATION_CAPABILITIES,
     OperationResult,
+    CapabilityContract,
+    validate_capability_contract,
+    REQUIRED_CAPABILITY_FIELDS,
 )
 
 __all__ = [
     "OPERATION_CAPABILITIES",
     "OperationResult",
+    "CapabilityContract",
+    "validate_capability_contract",
+    "REQUIRED_CAPABILITY_FIELDS",
 ]

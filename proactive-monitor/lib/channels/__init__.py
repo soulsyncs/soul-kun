@@ -11,6 +11,7 @@ from lib.channels.base import (
     ChannelMessage,
     ChannelAdapter,
     SendResult,
+    MessageEnvelope,
 )
 from lib.channels.telegram_adapter import (
     TelegramChannelAdapter,
@@ -20,5 +21,6 @@ __all__ = [
     "ChannelMessage",
     "ChannelAdapter",
     "SendResult",
+    "MessageEnvelope",
     "TelegramChannelAdapter",
 ]

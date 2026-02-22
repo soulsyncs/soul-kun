@@ -106,6 +106,36 @@ export interface BrainLogsResponse {
   limit: number;
 }
 
+export interface LearningPatternEntry {
+  id: string;
+  pattern_type: string;
+  pattern_category: string | null;
+  scope: string | null;
+  sample_count: number;
+  success_count: number;
+  failure_count: number;
+  success_rate: number | null;
+  confidence_score: number | null;
+  is_active: boolean;
+  is_validated: boolean;
+  validated_at: string | null;
+  created_at: string;
+}
+
+export interface LearningPatternsResponse {
+  status: string;
+  patterns: LearningPatternEntry[];
+  total_count: number;
+  offset: number;
+  limit: number;
+}
+
+export interface ValidatePatternResponse {
+  status: string;
+  pattern_id: string;
+  approved: boolean;
+}
+
 // =============================================================================
 // Cost Tracking
 // =============================================================================

@@ -169,3 +169,33 @@ Only the following CLAUDE.md rules directly apply to this scope:
 - フィールドは `status`, `department_id`（必須）, `message` の3つ
 - teachings で `id=new_id` と書くと CRITICAL バグ（department_id が必須なのに未指定）
 - 将来の各エンドポイント専用レスポンス型作成を推奨
+
+## Files reviewed on 2026-02-22 (PR #674 P1-P5 品質改善デプロイ後確認)
+- proactive-monitor/main.py (P5 コストアラート重複防止)
+- lib/brain/models.py (P4 PersonInfo.to_safe_dict)
+- api/app/api/v1/admin/drive_routes.py (P2 async違反修正)
+- lib/bot_persona_memory.py, lib/long_term_memory.py (P3 str(e)修正)
+- receive-job-inquiry-mail/main.py (P3 修正対象外だったが str(e) 残存を確認)
+
+### P1-P5 レビュー結果サマリー
+- **P5 PASS**: `_try_cost_budget_alert()` の alert_80pct_sent_at/alert_100pct_sent_at 参照・重複防止・asyncio.to_thread・トランザクション外CW呼び出し — 全て正しい
+- **P4 PASS**: to_safe_dict() が name→[PERSON], email→[EMAIL], description→[REDACTED], attributes→[REDACTED] — 正しい
+- **P2 PASS**: drive_routes.py は同期DB関数を _sync_* ヘルパーに切り出し、全て asyncio.to_thread() 経由 — async違反なし
+- **P3 PASS(対象ファイル)**: lib/bot_persona_memory.py / lib/long_term_memory.py の str(e) は type(e).__name__ に修正済み
+
+### P3 残存問題（WARNING — 修正漏れ）
+- **proactive-monitor/main.py 行439, 行470**: エラーレスポンスに `"message": str(e)` が残存
+  - 行439: `proactive_monitor()` 関数（/ エンドポイント）
+  - 行470: `proactive_monitor_scheduled()` 関数（/scheduled エンドポイント）
+  - str(e) には DB接続文字列・内部パスが含まれる可能性がある
+  - P3 の修正対象ファイルは bot_persona_memory.py / long_term_memory.py だったが proactive-monitor/main.py は未修正
+- **receive-job-inquiry-mail/main.py 行191**: `/receive` エンドポイントに `"message": str(e)` が残存（pre-existing、P3 スコープ外）
+
+### P5 設計メモ
+- 100%超過時は _update_100 で alert_80pct_sent_at も COALESCE(alert_80pct_sent_at, NOW()) で埋める設計 — 正しい
+- 80%アラートは usage_pct < 100 の場合のみ送信（100%超過時は重大アラートのみ）— 正しい
+- マイグレーション: migrations/phase_p5_cost_alert_dedup.sql（手動適用待ち）
+
+### drive_routes.py: download_file の await パターン（確認済み）
+- _get_drive_client() を asyncio.to_thread() で取得後、drive_client.download_file() を直接 await — GoogleDriveClient.download_file は async def なので正しい
+- upload_file も同様 — GoogleDriveClient.upload_file は async def で正しい

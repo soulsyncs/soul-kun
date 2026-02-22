@@ -142,9 +142,9 @@ INTENT_KEYWORDS: Dict[str, Dict[str, Any]] = {
         "confidence_boost": 0.90,
     },
     "goal_progress_report": {
-        "primary": ["目標進捗", "目標報告"],
-        "secondary": ["目標", "ゴール"],
-        "modifiers": ["進捗", "報告", "どれくらい"],
+        "primary": ["目標進捗", "目標報告", "進捗報告", "売上報告", "実績報告"],
+        "secondary": ["目標", "ゴール", "売上", "実績", "万円", "受注"],
+        "modifiers": ["進捗", "報告", "どれくらい", "売り上げた", "達成した", "稼いだ", "受注した"],
         "negative": ["一覧", "表示", "整理", "設定したい", "立てたい", "登録したい", "作りたい", "新規", "決めたい"],
         "confidence_boost": 0.8,
     },

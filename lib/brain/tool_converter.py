@@ -26,6 +26,8 @@ from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, field
 import logging
 
+from lib.brain.constants import TOOL_REQUIRED_LEVELS
+
 logger = logging.getLogger(__name__)
 
 
@@ -453,7 +455,9 @@ class ToolMetadataRegistry:
                     category=cap.get("category", self.infer_category(key)),
                     risk_level=self.infer_risk_level(key),
                     requires_confirmation=cap.get("requires_confirmation", False),
-                    required_permission_level=cap.get("required_level", 1),
+                    required_permission_level=TOOL_REQUIRED_LEVELS.get(
+                        key, cap.get("required_level", 1)
+                    ),
                 )
                 self.register(metadata)
 

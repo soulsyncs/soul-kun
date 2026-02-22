@@ -30,7 +30,7 @@ jobs:
       - name: GCP認証
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+          credentials_json: '${{ secrets.GCP_CREDENTIALS_JSON }}'
 
       - name: Cloud SQL Proxy インストール
         run: |

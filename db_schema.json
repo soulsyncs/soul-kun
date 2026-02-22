@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-02-10T11:53:08.912341",
+  "generated_at": "2026-02-22T13:54:48.329479",
   "databases": {
     "soulkun.ai_model_registry": {
       "id": {
@@ -4315,6 +4315,88 @@
         "nullable": true
       }
     },
+    "soulkun.person_attributes": {
+      "id": {
+        "type": "integer",
+        "nullable": false
+      },
+      "person_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "attribute_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "attribute_value": {
+        "type": "text",
+        "nullable": true
+      },
+      "source": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp without time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp without time zone",
+        "nullable": true
+      }
+    },
+    "soulkun.person_events": {
+      "id": {
+        "type": "integer",
+        "nullable": false
+      },
+      "person_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "event_description": {
+        "type": "text",
+        "nullable": true
+      },
+      "event_date": {
+        "type": "date",
+        "nullable": true
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp without time zone",
+        "nullable": true
+      }
+    },
+    "soulkun.persons": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "name": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp without time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp without time zone",
+        "nullable": true
+      }
+    },
     "soulkun.polling_status": {
       "id": {
         "type": "integer",
@@ -5010,6 +5092,74 @@
       },
       "created_at": {
         "type": "timestamp without time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.ai_monthly_cost_summary": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "year_month": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "budget_usd": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "total_cost_usd": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "total_requests": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "alert_80pct_sent_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "alert_100pct_sent_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.ai_usage_logs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "response_time_ms": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "is_error": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "cost_usd": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "model_name": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "usage_tier": {
+        "type": "character varying",
         "nullable": true
       }
     },
@@ -5771,6 +5921,36 @@
         "nullable": true
       }
     },
+    "soulkun_tasks.brain_decision_logs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "total_time_ms": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "selected_action": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "decision_confidence": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "cost_usd": {
+        "type": "numeric",
+        "nullable": true
+      }
+    },
     "soulkun_tasks.brain_deployment_logs": {
       "id": {
         "type": "uuid",
@@ -6005,6 +6185,32 @@
         "nullable": false
       },
       "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    },
+    "soulkun_tasks.brain_insights": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "insight_type": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "title": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "summary": {
+        "type": "text",
+        "nullable": true
+      },
+      "created_at": {
         "type": "timestamp with time zone",
         "nullable": false
       }
@@ -6493,6 +6699,170 @@
       "created_at": {
         "type": "timestamp with time zone",
         "nullable": false
+      }
+    },
+    "soulkun_tasks.brain_outcome_events": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "event_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "event_subtype": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "event_timestamp": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "target_account_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "target_room_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "event_details": {
+        "type": "jsonb",
+        "nullable": false
+      },
+      "related_resource_type": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "related_resource_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "outcome_detected": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "outcome_type": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "outcome_detected_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "outcome_details": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "learning_extracted": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "learning_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "pattern_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "context_snapshot": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.brain_outcome_patterns": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "pattern_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "pattern_category": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "scope": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "scope_target_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "pattern_content": {
+        "type": "jsonb",
+        "nullable": false
+      },
+      "sample_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "success_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "failure_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "success_rate": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "confidence_score": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "effectiveness_score": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "last_effectiveness_check": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "is_validated": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "validated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "promoted_to_learning_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "promoted_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
       }
     },
     "soulkun_tasks.brain_performance_metrics": {
@@ -8113,6 +8483,176 @@
         "nullable": true
       }
     },
+    "soulkun_tasks.form_employee_contact_prefs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "employee_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "contact_available_hours": {
+        "type": "text",
+        "nullable": true
+      },
+      "preferred_channel": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "contact_ng": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "communication_style": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "ai_disclosure_level": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "hobbies": {
+        "type": "text",
+        "nullable": true
+      },
+      "source": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "supabase_updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "synced_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.form_employee_skills": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "employee_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "skill_levels": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "top_skills": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "weak_skills": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "preferred_tasks": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "avoided_tasks": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "source": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "supabase_updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "synced_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.form_employee_work_prefs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "employee_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "monthly_hours": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "work_hours": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "work_style": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "work_location": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "capacity": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "urgency_level": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "source": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "supabase_updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "synced_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
     "soulkun_tasks.goal_approval_history": {
       "id": {
         "type": "integer",
@@ -8759,6 +9299,56 @@
         "nullable": true
       }
     },
+    "soulkun_tasks.google_oauth_tokens": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "service_name": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "google_email": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "access_token": {
+        "type": "text",
+        "nullable": false
+      },
+      "refresh_token": {
+        "type": "text",
+        "nullable": false
+      },
+      "token_expiry": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "scopes": {
+        "type": "text",
+        "nullable": true
+      },
+      "connected_by": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "connected_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "nullable": true
+      }
+    },
     "soulkun_tasks.guardian_alerts": {
       "id": {
         "type": "uuid",
@@ -9307,6 +9897,292 @@
         "nullable": true
       }
     },
+    "soulkun_tasks.meeting_consent_logs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "meeting_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "consent_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "consent_method": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "ip_address": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "user_agent": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      }
+    },
+    "soulkun_tasks.meeting_recordings": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "meeting_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "gcs_path": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "file_size_bytes": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "duration_seconds": {
+        "type": "double precision",
+        "nullable": true
+      },
+      "format": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "sample_rate": {
+        "type": "integer",
+        "nullable": true
+      },
+      "channels": {
+        "type": "integer",
+        "nullable": true
+      },
+      "retention_expires_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "is_deleted": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "deleted_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.meeting_room_keywords": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "keyword": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "chatwork_room_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "room_name": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "priority": {
+        "type": "integer",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.meeting_transcripts": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "meeting_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "raw_transcript": {
+        "type": "text",
+        "nullable": true
+      },
+      "sanitized_transcript": {
+        "type": "text",
+        "nullable": true
+      },
+      "segments_json": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "speakers_json": {
+        "type": "jsonb",
+        "nullable": true
+      },
+      "detected_language": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "word_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "confidence": {
+        "type": "double precision",
+        "nullable": true
+      },
+      "retention_expires_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "is_deleted": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "deleted_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.meetings": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "title": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "meeting_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "meeting_date": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "duration_seconds": {
+        "type": "double precision",
+        "nullable": true
+      },
+      "status": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "source": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "source_meeting_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "room_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "created_by": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "brain_approved": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "transcript_sanitized": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "attendees_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "speakers_detected": {
+        "type": "integer",
+        "nullable": true
+      },
+      "document_url": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "document_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "total_tokens_used": {
+        "type": "integer",
+        "nullable": true
+      },
+      "estimated_cost_jpy": {
+        "type": "double precision",
+        "nullable": true
+      },
+      "error_message": {
+        "type": "text",
+        "nullable": true
+      },
+      "error_code": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "version": {
+        "type": "integer",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "deleted_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
     "soulkun_tasks.monthly_records": {
       "id": {
         "type": "integer",
@@ -9522,6 +10398,10 @@
       },
       "user_departments_deleted": {
         "type": "integer",
+        "nullable": true
+      },
+      "request_payload": {
+        "type": "jsonb",
         "nullable": true
       }
     },
@@ -9859,7 +10739,7 @@
         "nullable": true
       },
       "organization_id": {
-        "type": "character varying",
+        "type": "uuid",
         "nullable": true
       }
     },
@@ -10055,7 +10935,7 @@
         "nullable": true
       },
       "organization_id": {
-        "type": "character varying",
+        "type": "uuid",
         "nullable": true
       }
     },
@@ -10077,6 +10957,188 @@
         "nullable": true
       },
       "last_polled_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.proactive_action_logs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "trigger_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "trigger_details": {
+        "type": "jsonb",
+        "nullable": false
+      },
+      "priority": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "message_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "message_text": {
+        "type": "text",
+        "nullable": false
+      },
+      "channel": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "channel_target": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "chatwork_message_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "success": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "error_message": {
+        "type": "text",
+        "nullable": true
+      },
+      "user_responded": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "user_response_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "user_response_positive": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.proactive_cooldowns": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "trigger_type": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "last_sent_at": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "cooldown_until": {
+        "type": "timestamp with time zone",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.proactive_settings": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "user_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "enabled": {
+        "type": "boolean",
+        "nullable": false
+      },
+      "goal_abandoned_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "task_overload_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "emotion_decline_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "question_unanswered_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "goal_achieved_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "task_completed_streak_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "long_absence_enabled": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "goal_abandoned_days": {
+        "type": "integer",
+        "nullable": true
+      },
+      "task_overload_count": {
+        "type": "integer",
+        "nullable": true
+      },
+      "emotion_decline_days": {
+        "type": "integer",
+        "nullable": true
+      },
+      "long_absence_days": {
+        "type": "integer",
+        "nullable": true
+      },
+      "quiet_hours_start": {
+        "type": "time without time zone",
+        "nullable": true
+      },
+      "quiet_hours_end": {
+        "type": "time without time zone",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
         "type": "timestamp with time zone",
         "nullable": true
       }
@@ -10889,6 +11951,36 @@
         "nullable": true
       }
     },
+    "soulkun_tasks.supabase_employee_mapping": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "supabase_employee_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "cloudsql_employee_id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "employee_name": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
     "soulkun_tasks.system_config": {
       "key": {
         "type": "character varying",
@@ -11329,6 +12421,38 @@
       "updated_at": {
         "type": "timestamp with time zone",
         "nullable": true
+      },
+      "employment_type": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "avatar_url": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "evaluation": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "goal_achievement": {
+        "type": "smallint",
+        "nullable": true
+      },
+      "skills": {
+        "type": "text",
+        "nullable": true
+      },
+      "notes": {
+        "type": "text",
+        "nullable": true
+      },
+      "phone": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "birthday": {
+        "type": "date",
+        "nullable": true
       }
     },
     "soulkun_tasks.v_brain_alerts": {
@@ -11415,6 +12539,44 @@
         "nullable": true
       },
       "本日コスト（円）": {
+        "type": "numeric",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.v_proactive_stats": {
+      "organization_id": {
+        "type": "uuid",
+        "nullable": true
+      },
+      "date_jst": {
+        "type": "date",
+        "nullable": true
+      },
+      "trigger_type": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "total_actions": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "successful_actions": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "user_responded": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "positive_responses": {
+        "type": "bigint",
+        "nullable": true
+      },
+      "success_rate": {
+        "type": "numeric",
+        "nullable": true
+      },
+      "response_rate": {
         "type": "numeric",
         "nullable": true
       }
@@ -11560,6 +12722,78 @@
         "type": "character varying",
         "nullable": true
       }
+    },
+    "soulkun_tasks.zoom_accounts": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "account_name": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "zoom_account_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "webhook_secret_token": {
+        "type": "text",
+        "nullable": false
+      },
+      "default_room_id": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
+    },
+    "soulkun_tasks.zoom_meeting_configs": {
+      "id": {
+        "type": "uuid",
+        "nullable": false
+      },
+      "organization_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "meeting_name_pattern": {
+        "type": "text",
+        "nullable": false
+      },
+      "chatwork_room_id": {
+        "type": "character varying",
+        "nullable": false
+      },
+      "room_name": {
+        "type": "character varying",
+        "nullable": true
+      },
+      "is_active": {
+        "type": "boolean",
+        "nullable": true
+      },
+      "created_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      },
+      "updated_at": {
+        "type": "timestamp with time zone",
+        "nullable": true
+      }
     }
   },
   "tables": {
@@ -11582,10 +12816,10 @@
     },
     "ai_monthly_cost_summary": {
       "id": "uuid",
-      "organization_id": "uuid",
+      "organization_id": "character varying",
       "year_month": "character varying",
       "total_cost_jpy": "numeric",
-      "total_requests": "integer",
+      "total_requests": "bigint",
       "total_input_tokens": "bigint",
       "total_output_tokens": "bigint",
       "economy_cost_jpy": "numeric",
@@ -11602,6 +12836,8 @@
       "error_count": "integer",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone",
+      "budget_usd": "numeric",
+      "total_cost_usd": "numeric",
       "alert_80pct_sent_at": "timestamp with time zone",
       "alert_100pct_sent_at": "timestamp with time zone"
     },
@@ -11623,7 +12859,7 @@
     },
     "ai_usage_logs": {
       "id": "uuid",
-      "organization_id": "uuid",
+      "organization_id": "character varying",
       "model_id": "character varying",
       "task_type": "character varying",
       "tier": "character varying",
@@ -11640,7 +12876,12 @@
       "fallback_attempt": "integer",
       "success": "boolean",
       "error_message": "text",
-      "created_at": "timestamp with time zone"
+      "created_at": "timestamp with time zone",
+      "response_time_ms": "numeric",
+      "is_error": "boolean",
+      "cost_usd": "numeric",
+      "model_name": "character varying",
+      "usage_tier": "character varying"
     },
     "announcement_logs": {
       "id": "uuid",
@@ -11826,7 +13067,7 @@
     },
     "brain_decision_logs": {
       "id": "uuid",
-      "organization_id": "uuid",
+      "organization_id": "character varying",
       "room_id": "character varying",
       "user_id": "character varying",
       "user_message": "text",
@@ -11843,9 +13084,10 @@
       "understanding_time_ms": "integer",
       "decision_time_ms": "integer",
       "execution_time_ms": "integer",
-      "total_time_ms": "integer",
+      "total_time_ms": "numeric",
       "created_at": "timestamp with time zone",
-      "classification": "character varying"
+      "classification": "character varying",
+      "cost_usd": "numeric"
     },
     "brain_dialogue_logs": {
       "id": "uuid",
@@ -12141,10 +13383,10 @@
       "completion_notified": "boolean",
       "completed_at": "timestamp without time zone",
       "created_at": "timestamp without time zone",
+      "organization_id": "character varying",
       "id": "integer",
       "updated_at": "timestamp without time zone",
-      "reminder_disabled": "boolean",
-      "organization_id": "character varying"
+      "reminder_disabled": "boolean"
     },
     "deep_understanding_logs": {
       "id": "uuid",
@@ -12629,8 +13871,7 @@
       "version": "integer",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone",
-      "deleted_at": "timestamp with time zone",
-      "dedup_hash": "character varying"
+      "deleted_at": "timestamp with time zone"
     },
     "multimodal_extracted_entities": {
       "id": "uuid",
@@ -12810,6 +14051,31 @@
       "sent_at": "timestamp with time zone",
       "failed_at": "timestamp with time zone",
       "error_message": "text"
+    },
+    "person_attributes": {
+      "id": "integer",
+      "person_id": "integer",
+      "attribute_type": "character varying",
+      "attribute_value": "text",
+      "source": "character varying",
+      "organization_id": "uuid",
+      "created_at": "timestamp without time zone",
+      "updated_at": "timestamp without time zone"
+    },
+    "person_events": {
+      "id": "integer",
+      "person_id": "integer",
+      "event_description": "text",
+      "event_date": "date",
+      "organization_id": "uuid",
+      "created_at": "timestamp without time zone"
+    },
+    "persons": {
+      "id": "integer",
+      "name": "character varying",
+      "organization_id": "uuid",
+      "created_at": "timestamp without time zone",
+      "updated_at": "timestamp without time zone"
     },
     "polling_status": {
       "id": "integer",
@@ -13016,7 +14282,15 @@
       "organization_id": "character varying",
       "chatwork_room_id": "character varying",
       "external_id": "character varying",
-      "is_active": "boolean"
+      "is_active": "boolean",
+      "employment_type": "character varying",
+      "avatar_url": "character varying",
+      "evaluation": "character varying",
+      "goal_achievement": "smallint",
+      "skills": "text",
+      "notes": "text",
+      "phone": "character varying",
+      "birthday": "date"
     },
     "v_multimodal_stats": {
       "organization_id": "uuid",
@@ -13200,6 +14474,14 @@
       "ab_test_id": "uuid",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone"
+    },
+    "brain_insights": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "insight_type": "character varying",
+      "title": "character varying",
+      "summary": "text",
+      "created_at": "timestamp with time zone"
     },
     "brain_learning_logs": {
       "id": "uuid",
@@ -13562,6 +14844,53 @@
       "reason": "text",
       "created_at": "timestamp without time zone"
     },
+    "form_employee_contact_prefs": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "employee_id": "uuid",
+      "contact_available_hours": "text",
+      "preferred_channel": "character varying",
+      "contact_ng": "jsonb",
+      "communication_style": "character varying",
+      "ai_disclosure_level": "character varying",
+      "hobbies": "text",
+      "source": "character varying",
+      "supabase_updated_at": "timestamp with time zone",
+      "synced_at": "timestamp with time zone",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
+    "form_employee_skills": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "employee_id": "uuid",
+      "skill_levels": "jsonb",
+      "top_skills": "jsonb",
+      "weak_skills": "jsonb",
+      "preferred_tasks": "jsonb",
+      "avoided_tasks": "jsonb",
+      "source": "character varying",
+      "supabase_updated_at": "timestamp with time zone",
+      "synced_at": "timestamp with time zone",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
+    "form_employee_work_prefs": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "employee_id": "uuid",
+      "monthly_hours": "character varying",
+      "work_hours": "jsonb",
+      "work_style": "jsonb",
+      "work_location": "character varying",
+      "capacity": "character varying",
+      "urgency_level": "character varying",
+      "source": "character varying",
+      "supabase_updated_at": "timestamp with time zone",
+      "synced_at": "timestamp with time zone",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
     "goal_approval_history": {
       "id": "integer",
       "organization_id": "character varying",
@@ -13706,6 +15035,20 @@
       "created_by": "uuid",
       "updated_by": "uuid"
     },
+    "google_oauth_tokens": {
+      "id": "uuid",
+      "organization_id": "uuid",
+      "service_name": "character varying",
+      "google_email": "character varying",
+      "access_token": "text",
+      "refresh_token": "text",
+      "token_expiry": "timestamp with time zone",
+      "scopes": "text",
+      "connected_by": "uuid",
+      "connected_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone",
+      "is_active": "boolean"
+    },
     "guardian_alerts": {
       "id": "uuid",
       "organization_id": "uuid",
@@ -13790,6 +15133,16 @@
       "source_room_id": "character varying",
       "created_at": "timestamp with time zone"
     },
+    "meeting_room_keywords": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "keyword": "character varying",
+      "chatwork_room_id": "character varying",
+      "room_name": "character varying",
+      "priority": "integer",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
     "monthly_records": {
       "id": "integer",
       "organization_id": "character varying",
@@ -13864,24 +15217,6 @@
       "action": "character varying",
       "created_at": "timestamp with time zone"
     },
-    "person_attributes": {
-      "id": "integer",
-      "person_id": "uuid",
-      "attribute_type": "character varying",
-      "attribute_value": "text",
-      "source": "character varying",
-      "organization_id": "uuid",
-      "created_at": "timestamp without time zone",
-      "updated_at": "timestamp without time zone"
-    },
-    "person_events": {
-      "id": "integer",
-      "person_id": "uuid",
-      "event_description": "text",
-      "event_date": "date",
-      "organization_id": "uuid",
-      "created_at": "timestamp without time zone"
-    },
     "persona_addons": {
       "id": "uuid",
       "organization_id": "uuid",
@@ -13922,13 +15257,6 @@
       "updated_by": "uuid",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone"
-    },
-    "persons": {
-      "id": "uuid",
-      "name": "character varying",
-      "organization_id": "uuid",
-      "created_at": "timestamp without time zone",
-      "updated_at": "timestamp without time zone"
     },
     "processed_messages_backup": {
       "message_id": "bigint",
@@ -14055,6 +15383,15 @@
       "classification": "character varying",
       "created_by": "uuid",
       "updated_by": "uuid",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
+    "supabase_employee_mapping": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "supabase_employee_id": "uuid",
+      "cloudsql_employee_id": "uuid",
+      "employee_name": "character varying",
       "created_at": "timestamp with time zone",
       "updated_at": "timestamp with time zone"
     },
@@ -14216,210 +15553,27 @@
       "error_message": "text",
       "dm_room_id": "bigint",
       "chatwork_message_id": "character varying"
+    },
+    "zoom_accounts": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "account_name": "character varying",
+      "zoom_account_id": "character varying",
+      "webhook_secret_token": "text",
+      "default_room_id": "character varying",
+      "is_active": "boolean",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
+    },
+    "zoom_meeting_configs": {
+      "id": "uuid",
+      "organization_id": "character varying",
+      "meeting_name_pattern": "text",
+      "chatwork_room_id": "character varying",
+      "room_name": "character varying",
+      "is_active": "boolean",
+      "created_at": "timestamp with time zone",
+      "updated_at": "timestamp with time zone"
     }
-  },
-  "brain_outcome_events": [
-    {
-      "column_name": "id",
-      "data_type": "uuid",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "organization_id",
-      "data_type": "uuid",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "event_type",
-      "data_type": "character varying",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "event_subtype",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "event_timestamp",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "target_account_id",
-      "data_type": "character varying",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "target_room_id",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "event_details",
-      "data_type": "jsonb",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "related_resource_type",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "related_resource_id",
-      "data_type": "uuid",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "outcome_detected",
-      "data_type": "boolean",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "outcome_type",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "outcome_detected_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "outcome_details",
-      "data_type": "jsonb",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "learning_extracted",
-      "data_type": "boolean",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "learning_id",
-      "data_type": "uuid",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "pattern_id",
-      "data_type": "uuid",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "context_snapshot",
-      "data_type": "jsonb",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "created_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    }
-  ],
-  "brain_outcome_patterns": [
-    {
-      "column_name": "id",
-      "data_type": "uuid",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "organization_id",
-      "data_type": "uuid",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "pattern_type",
-      "data_type": "character varying",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "pattern_category",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "scope",
-      "data_type": "character varying",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "scope_target_id",
-      "data_type": "character varying",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "pattern_content",
-      "data_type": "jsonb",
-      "is_nullable": "NO"
-    },
-    {
-      "column_name": "sample_count",
-      "data_type": "integer",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "success_count",
-      "data_type": "integer",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "failure_count",
-      "data_type": "integer",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "success_rate",
-      "data_type": "numeric",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "confidence_score",
-      "data_type": "numeric",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "effectiveness_score",
-      "data_type": "numeric",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "last_effectiveness_check",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "is_active",
-      "data_type": "boolean",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "is_validated",
-      "data_type": "boolean",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "validated_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "promoted_to_learning_id",
-      "data_type": "uuid",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "promoted_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "created_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    },
-    {
-      "column_name": "updated_at",
-      "data_type": "timestamp with time zone",
-      "is_nullable": "YES"
-    }
-  ]
+  }
 }

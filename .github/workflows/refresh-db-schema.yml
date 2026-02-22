@@ -1,0 +1,160 @@
+name: 🗺️ DB Schema 自動更新（毎朝6時）
+
+# 毎朝6時（JST）に本番DBのスキーマを取得してdb_schema.jsonを更新
+# 変更があればPRを自動作成する
+
+on:
+  schedule:
+    - cron: '0 21 * * *'  # UTC 21:00 = JST 06:00
+  workflow_dispatch:        # 手動実行も可能
+
+jobs:
+  refresh-schema:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: チェックアウト
+        uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: psql インストール
+        run: sudo apt-get install -y postgresql-client
+
+      - name: GCP認証
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: Cloud SQL Proxy インストール
+        run: |
+          curl -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.1/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          sudo mv cloud-sql-proxy /usr/local/bin/
+
+      - name: Cloud SQL Proxy 起動
+        run: |
+          cloud-sql-proxy \
+            "soulkun-production:asia-northeast1:soulkun-db" \
+            --port=15432 &
+          sleep 5
+          nc -z 127.0.0.1 15432 && echo "✅ Proxy ready" || (echo "❌ Proxy failed" && exit 1)
+
+      - name: db_schema.json 更新
+        env:
+          DB_USER: soulkun_user
+          PROXY_PORT: '15432'
+          DB_PASS: ${{ secrets.DB_PASSWORD }}
+        run: |
+          python3 -c "
+          import subprocess, json, sys, os, datetime
+
+          PROXY_PORT = os.environ['PROXY_PORT']
+          DB_USER = os.environ['DB_USER']
+          DB_PASS = os.environ['DB_PASS']
+
+          def get_columns(db):
+              sql = '''
+                  SELECT table_name, column_name, data_type, is_nullable
+                  FROM information_schema.columns
+                  WHERE table_schema = 'public'
+                  ORDER BY table_name, ordinal_position
+              '''
+              cmd = ['psql', '-h', '127.0.0.1', '-p', PROXY_PORT, '-U', DB_USER, '-d', db,
+                     '-t', '-A', '-F', '|', '-c', sql]
+              env = dict(os.environ)
+              env['PGPASSWORD'] = DB_PASS
+              result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+              if result.returncode != 0:
+                  print(f'Warning: {db}: {result.stderr[:100]}', file=sys.stderr)
+                  return {}
+              tables = {}
+              for line in result.stdout.strip().split('\n'):
+                  if not line or '|' not in line:
+                      continue
+                  parts = line.split('|')
+                  if len(parts) < 4:
+                      continue
+                  table, col, dtype, nullable = parts[0], parts[1], parts[2], parts[3]
+                  key = f'{db}.{table}'
+                  if key not in tables:
+                      tables[key] = {}
+                  tables[key][col] = {'type': dtype, 'nullable': nullable == 'YES'}
+              return tables
+
+          schema = {}
+          for db in ['soulkun', 'soulkun_tasks']:
+              schema.update(get_columns(db))
+
+          simple = {}
+          for full_key, cols in schema.items():
+              table = full_key.split('.', 1)[1]
+              if table not in simple:
+                  simple[table] = {}
+              simple[table].update({c: v['type'] for c, v in cols.items()})
+
+          output = {
+              'generated_at': datetime.datetime.now().isoformat(),
+              'databases': schema,
+              'tables': simple,
+          }
+          with open('db_schema.json', 'w') as f:
+              json.dump(output, f, indent=2, ensure_ascii=False)
+          table_count = len(simple)
+          print(f'✅ {table_count} テーブルのスキーマを更新しました')
+          "
+
+      - name: 差分確認
+        id: diff
+        run: |
+          if git diff --quiet db_schema.json; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "✅ スキーマに変更なし"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            TABLES=$(python3 -c "import json; d=json.load(open('db_schema.json')); print(len(d['tables']))")
+            echo "📋 テーブル数: $TABLES"
+            git diff --stat db_schema.json
+          fi
+
+      - name: PR自動作成（スキーマ変更があった場合）
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="auto/refresh-db-schema-$(date +%Y%m%d)"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git checkout -b "$BRANCH"
+          git add db_schema.json
+          git commit -m "chore(schema): 本番DBスキーマを自動更新 $(date +%Y-%m-%d)
+
+          毎朝6時の自動実行により db_schema.json を最新化。
+          3AIレビュー（brain-reviewer）が正確なスキーマ情報を参照できるようにする。
+
+          Co-Authored-By: github-actions[bot] <github-actions[bot]@users.noreply.github.com>"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "chore: db_schema.json 自動更新 $(date +%Y-%m-%d)" \
+            --body "## 📋 DB スキーマ自動更新
+
+          毎朝6時の自動ジョブにより本番DBの最新スキーマを取得しました。
+
+          ### 変更内容
+          - db_schema.json を本番DB（soulkun + soulkun_tasks）から再生成
+
+          ### なぜ重要か
+          - brain-reviewer / validate_sql_columns.sh がこのファイルを参照します
+          - スキーマが古いと AI レビューが誤判定します（2026-02-22の500エラーの根本原因）
+
+          🤖 自動生成 by refresh-db-schema.yml" \
+            --base main \
+            --head "$BRANCH"
+          echo "✅ PR作成完了: $BRANCH"

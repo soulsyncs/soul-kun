@@ -29,7 +29,7 @@ async def _log_tool_audit(**kwargs) -> bool:
         from lib.brain.audit_bridge import log_tool_execution
         return await log_tool_execution(**kwargs)
     except Exception as e:
-        logger.warning("[execute_tool] audit_bridge failed: %s", e)
+        logger.warning("[graph:execute_tool] audit_bridge failed: %s", e)
         return False
 
 

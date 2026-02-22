@@ -116,8 +116,8 @@ def make_handle_confirm(brain: "SoulkunBrain"):
                     if template:
                         params = tool_call.parameters or {}
                         template_msg = template.format_map({k: params.get(k, f"（{k}未指定）") for k in cap.get("parameters", {}).keys()})
-                except Exception:
-                    pass
+                except Exception as e_tmpl:
+                    logger.debug("[graph:handle_confirm] capability_bridge template fallback: %s", e_tmpl)
             confirm_question = (
                 guardian_result.confirmation_question
                 or template_msg

@@ -17,15 +17,14 @@ Created: 2026-02-22
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from lib.brain.core import SoulkunBrain
 
 from lib.brain.llm_brain import ToolCall
-from lib.brain.models import DecisionResult
-from lib.brain.execution import ExecutionResult
+from lib.brain.models import DecisionResult, HandlerResult
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +34,10 @@ class ToolExecutionOutcome:
     """
     ToolExecutor.execute() の戻り値
 
-    result: 実行層の実行結果（BrainExecution が返す ExecutionResult）
+    result: 実行層の実行結果（brain._execute() が返す HandlerResult）
     decision: 実行に使われた DecisionResult（LangGraph state["decision"] 用）
     """
-    result: ExecutionResult
+    result: HandlerResult
     decision: DecisionResult
 
 

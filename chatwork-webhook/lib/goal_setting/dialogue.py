@@ -861,7 +861,7 @@ class GoalSettingDialogue:
         goal_title = what_answer[:50] if len(what_answer) > 50 else what_answer
 
         # 数値目標かどうかを判定
-        numbers = re.findall(r'[\d,]+(?:万|億|千)?(?:円|件|個|回|%)?', what_answer)
+        numbers = re.findall(r'[\d,]+(?:万|億|千)?(?:円|件|個|回|%|人|名)?', what_answer)
         target_value = None
         unit = None
         goal_type = "action"  # デフォルトは行動目標
@@ -869,8 +869,8 @@ class GoalSettingDialogue:
         if numbers:
             # 最初の数値を抽出
             num_str = numbers[0]
-            # 単位を抽出
-            unit_match = re.search(r'(円|件|個|回|%|万|億)$', num_str)
+            # 単位を抽出（「人」「名」を追加: v11.3.0）
+            unit_match = re.search(r'(円|件|個|回|%|万|億|人|名)$', num_str)
             if unit_match:
                 unit = unit_match.group(1)
                 num_str = num_str[:-len(unit)]

@@ -753,7 +753,10 @@ async def _brain_handle_general_conversation(params, room_id, account_id, sender
             if persons_str:
                 context_parts.append(f"【覚えている人物】\n{persons_str}")
         context_str = "\n\n".join(context_parts) if context_parts else None
-        ai_response = get_ai_response(params.get("message", ""), history, sender_name, context_str, "ja", account_id)
+        message_text = params.get("message", "")
+        if not message_text and context and context.recent_conversation:
+            message_text = context.recent_conversation[-1].content or ""
+        ai_response = get_ai_response(message_text, history, sender_name, context_str, "ja", account_id)
         return HandlerResult(success=True, message=ai_response)
     except Exception as e:
         return HandlerResult(success=False, message=f"ごめんウル...もう一度試してほしいウル🐺")

@@ -199,6 +199,19 @@
 - **W-1**: f-string SQL（where_clause）。ユーザー入力非混入で安全だが鉄則#9精神に反する
 - **W-2 重要**: `find_applicable_patterns()` が `is_validated` を見ていない。未承認パターンもBrainが使う。ドキュメント「承認→本番反映」は誤解を招く。
 
+## TASK-14 CapabilityContract契約インターフェース (2026-02-22, PASS)
+
+- 変更ファイル: `lib/brain/operations/registry.py`, `lib/brain/operations/__init__.py`, `lib/brain/tool_converter.py`, `tests/test_operation_registry.py`
+- `CapabilityContract(TypedDict, total=False)`: 全フィールドを Optional 扱いにし、必須フィールドはランタイム検証 `validate_capability_contract()` で担保する設計
+- **TypedDict total=False の妥協点**: 静的型チェッカーには全フィールド省略可能に見える。Python 3.11+ の `Required[]`/`NotRequired[]` を使うとより厳密だが現時点では問題なし
+- **W-1 (SUGGESTION)**: `REQUIRED_CAPABILITY_FIELDS: tuple` → `tuple[str, ...]` の方が型アノテーションとして精度が高い
+- **W-2 (WARNING)**: `get_tool_metadata()` は `SYSTEM_CAPABILITIES` のみ参照し `OPERATION_CAPABILITIES` を見ない。`_ensure_loaded()` との不整合。`approval_gate.py` の `_get_risk_level()` が `get_tool_metadata()` 経由なので、将来 `OPERATION_CAPABILITIES` 専用エントリを追加した場合にリスクレベルが正しく返されない。現時点は全エントリが両方に重複存在するため問題なし
+- **W-3 (SUGGESTION)**: `OPERATION_CAPABILITIES` と `SYSTEM_CAPABILITIES` に同じキー（data_aggregate等）が重複存在し description が微妙に異なる。merged後はSYSTEM_CAPABILITIESが優先されるため機能上は問題ないが、2つのレジストリの同期メンテが必要
+- `merged = {**OPERATION_CAPABILITIES, **SYSTEM_CAPABILITIES}` の順序: SYSTEM_CAPABILITIES が後なので優先される = 正しい
+- 3コピー同期: PASS (lib/ chatwork-webhook/lib/ proactive-monitor/lib/ 全て一致)
+- TestCapabilityContract 6テスト: 全PASS。async test 15件の失敗は pre-existing（pytest-asyncio未設定）
+- `validate_capability_contract()` は本番コードから呼ばれていない（テスト/CI専用ユーティリティ）
+
 ## TASK-13 MessageEnvelope チャネル統一スキーマ (2026-02-22, CONDITIONAL PASS)
 
 - 変更ファイル: `lib/channels/base.py`, `lib/channels/__init__.py`, `lib/brain/core/message_processing.py`

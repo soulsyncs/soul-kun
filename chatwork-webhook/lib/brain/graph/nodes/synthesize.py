@@ -27,7 +27,7 @@ def make_synthesize_knowledge(brain: "SoulkunBrain"):
 
         try:
             if not tool_calls:
-                logger.error("[graph:synthesize] tool_calls is empty")
+                logger.warning("[graph:synthesize] tool_calls is empty, returning original result")
                 return {"execution_result": result}
 
             tool_call = tool_calls[0]

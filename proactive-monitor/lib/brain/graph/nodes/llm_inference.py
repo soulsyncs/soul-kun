@@ -44,7 +44,7 @@ async def _log_llm_usage(pool, org_id: str, model_id: str,
             )
         await asyncio.to_thread(_sync)
     except Exception as e:
-        logger.warning("[llm_inference] ai_usage_logs記録失敗: %s", type(e).__name__)
+        logger.warning("[graph:llm_inference] ai_usage_logs記録失敗: %s", e)
 
 
 def make_llm_inference(brain: "SoulkunBrain"):

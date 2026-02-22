@@ -182,3 +182,80 @@ class ChannelAdapter(ABC):
             ボット宛かどうか
         """
         return True
+
+
+# =============================================================================
+# MessageEnvelope — チャネル統一メッセージスキーマ（TASK-13）
+# =============================================================================
+
+
+@dataclass
+class MessageEnvelope:
+    """
+    チャネル統一メッセージエンベロープ
+
+    Brain が受け取る全チャネル共通の入力フォーマット。
+    ChatWork, LINE, iPhone, 音声対話 等どのチャネルからの入力も
+    この形式に変換してから Brain に渡す。
+
+    【将来の新チャネル追加手順】
+    1. ChannelAdapter のサブクラスを作成（例: LineAdapter）
+    2. parse_webhook() で ChannelMessage を生成
+    3. MessageEnvelope.from_channel_message(msg, org_id) で変換
+    4. brain.process_envelope(envelope) に渡す
+
+    設計書: CLAUDE.md §6（ソウルくんの役割）、§2（Truth順位）
+    """
+
+    # --- 必須フィールド ---
+    message: str       # クリーニング済みメッセージ本文（Brain に渡す）
+    room_id: str       # チャネルルームID（プラットフォーム非依存形式）
+    account_id: str    # 送信者アカウントID
+    sender_name: str   # 送信者表示名
+
+    # --- チャネルメタデータ ---
+    channel: str = "chatwork"
+    """入力チャネル種別。将来の値: "chatwork" | "line" | "iphone" | "voice" | "telegram" """
+
+    organization_id: str = ""
+    """テナントID（CLAUDE.md 鉄則#1: 全クエリに必須）"""
+
+    # --- デバッグ・拡張用 ---
+    raw: Optional["ChannelMessage"] = None
+    """元の ChannelMessage（デバッグ・プラットフォーム固有処理用）"""
+
+    @classmethod
+    def from_channel_message(
+        cls,
+        msg: "ChannelMessage",
+        organization_id: str = "",
+    ) -> "MessageEnvelope":
+        """
+        ChannelMessage から MessageEnvelope を生成するファクトリメソッド
+
+        各チャネルアダプターの parse_webhook() が返す ChannelMessage を
+        Brain が扱える統一形式に変換する。
+
+        Args:
+            msg: ChannelAdapter.parse_webhook() が返した ChannelMessage
+            organization_id: テナントID（鉄則#1）
+
+        Returns:
+            MessageEnvelope（brain.process_envelope() に渡す）
+
+        Example:
+            # ChatWork Adapter の場合
+            msg = chatwork_adapter.parse_webhook(request_data)
+            if msg and msg.should_process:
+                envelope = MessageEnvelope.from_channel_message(msg, org_id)
+                response = await brain.process_envelope(envelope)
+        """
+        return cls(
+            message=msg.body,
+            room_id=msg.room_id,
+            account_id=msg.sender_id,
+            sender_name=msg.sender_name,
+            channel=msg.platform,
+            organization_id=organization_id,
+            raw=msg,
+        )

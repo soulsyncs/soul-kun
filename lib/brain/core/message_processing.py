@@ -451,6 +451,36 @@ class MessageProcessingMixin:
             langfuse_flush()
 
     # =========================================================================
+    # TASK-13: チャネル統一スキーマ（MessageEnvelope サポート）
+    # =========================================================================
+
+    async def process_envelope(self, envelope: "MessageEnvelope") -> "BrainResponse":
+        """
+        MessageEnvelope を受け取って process_message() に委譲する。
+
+        将来の新チャネル（LINE, iPhone, 音声対話）はこのメソッドを使う。
+        既存の ChatWork Webhook は process_message() を継続使用（後方互換）。
+
+        【使用例（新チャネル追加時）】
+            from lib.channels.base import MessageEnvelope
+            envelope = MessageEnvelope.from_channel_message(msg, org_id)
+            response = await brain.process_envelope(envelope)
+
+        Args:
+            envelope: MessageEnvelope — チャネル統一メッセージ
+
+        Returns:
+            BrainResponse: 処理結果（process_message() と同一形式）
+        """
+        from lib.channels.base import MessageEnvelope  # 循環import回避
+        return await self.process_message(
+            message=envelope.message,
+            room_id=envelope.room_id,
+            account_id=envelope.account_id,
+            sender_name=envelope.sender_name,
+        )
+
+    # =========================================================================
     # v10.50.0 → v11.0 Phase 3: LangGraph Brain処理
     # 旧 _process_with_llm_brain() を StateGraph に分解
     # 設計書: docs/25_llm_native_brain_architecture.md

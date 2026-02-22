@@ -5,11 +5,12 @@ main.py - 求人問い合わせメール → ChatWork集約サービス
   Gmail → Pub/Sub → このCloud Runサービス → ChatWork
 
 【エンドポイント】
-  POST /receive         : Gmail Pub/Sub push notification を受信（OIDC認証必須）
-  POST /weekly-forecast : 先読み採用アラートをChatWorkに投稿（Cloud Scheduler→OIDC認証必須）
-  POST /renew-watch     : Gmail watchを更新（6日ごとのCloud Scheduler→OIDC認証必須）
-  POST /test            : 動作テスト用（APIキー認証必須）
-  GET  /health          : ヘルスチェック
+  POST /receive              : Gmail Pub/Sub push notification を受信（OIDC認証必須）
+  POST /weekly-forecast      : 先読み採用アラートをChatWorkに投稿（Cloud Scheduler→OIDC認証必須）
+  POST /weekly-job-research  : 週次求人媒体リサーチレポートをChatWorkに投稿（Cloud Scheduler→OIDC認証必須）
+  POST /renew-watch          : Gmail watchを更新（6日ごとのCloud Scheduler→OIDC認証必須）
+  POST /test                 : 動作テスト用（APIキー認証必須）
+  GET  /health               : ヘルスチェック
 
 【セキュリティ設計】
   - Cloud Run は --no-allow-unauthenticated でデプロイ
@@ -36,6 +37,7 @@ from lib.renk_os_client import RenkOsClient
 
 from gmail_client import GmailClient
 from mail_parser import parse_raw_email, format_chatwork_message
+from job_research import run_weekly_research
 
 # Firestore（historyId永続化用）
 try:
@@ -304,6 +306,51 @@ def weekly_forecast():
 
     except Exception as e:
         logger.error(f"weekly-forecast エラー: {e}", exc_info=True)
+        return jsonify({"error": "予期しないエラーが発生しました"}), 500
+
+
+@app.route("/weekly-job-research", methods=["POST"])
+def weekly_job_research():
+    """
+    週次求人媒体リサーチレポートを ChatWork に投稿するエンドポイント。
+
+    Cloud Scheduler から毎週火曜朝9時に呼び出される想定。
+    Indeed Japan の公開 RSS から競合求人情報（件数・給与・企業）を取得し、
+    ChatWork の求人グループに週次レポートとして投稿する。
+
+    【セキュリティ】
+    - Cloud Run は --no-allow-unauthenticated でデプロイ済み
+    - Cloud Scheduler の OIDC 認証で保護
+    """
+    try:
+        room_id = RECRUIT_CHATWORK_ROOM_ID
+        if not room_id:
+            logger.error("RECRUIT_CHATWORK_ROOM_ID が設定されていません")
+            return jsonify({"error": "RECRUIT_CHATWORK_ROOM_ID 未設定"}), 500
+
+        # Indeed RSS からリサーチ実行
+        try:
+            message = run_weekly_research()
+        except Exception as e:
+            logger.error(f"週次リサーチ実行失敗: {e}")
+            return jsonify({"error": "リサーチ実行に失敗しました"}), 500
+
+        if message is None:
+            logger.info("求人情報を1件も取得できなかった → リサーチをスキップ")
+            return jsonify({"status": "skipped", "reason": "求人情報取得不可"}), 200
+
+        # ChatWork に投稿
+        cw = _get_chatwork_client()
+        if cw is None:
+            return jsonify({"error": "ChatWork 初期化失敗"}), 500
+
+        cw.send_message(int(room_id), message)
+        logger.info("週次求人媒体リサーチレポートを ChatWork に投稿しました")
+
+        return jsonify({"status": "posted"}), 200
+
+    except Exception as e:
+        logger.error(f"weekly-job-research エラー: {e}", exc_info=True)
         return jsonify({"error": "予期しないエラーが発生しました"}), 500
 
 

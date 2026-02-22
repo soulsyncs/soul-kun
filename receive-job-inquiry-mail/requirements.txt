@@ -9,3 +9,4 @@ google-auth==2.40.0
 google-auth-httplib2==0.3.0
 google-auth-oauthlib==1.2.1
 pytz==2025.2
+defusedxml==0.7.1

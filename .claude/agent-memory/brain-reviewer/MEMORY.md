@@ -193,6 +193,15 @@
 - **CRITICAL test failure**: `tests/test_telegram_webhook.py::TestTelegramRateLimit::test_rate_limit_function_exists` fails because it AST-parses `main.py` and asserts `_check_telegram_rate_limit` and `telegram_webhook` exist there. Both are now in `routes/telegram.py`. Test must be updated to scan `routes/telegram.py` instead (or both files).
 - `test_no_print_statements_in_telegram_webhook` PASSES (it checks main.py, which no longer has the function — no prints = vacuous pass). This is a false-positive — the test now tests nothing.
 
+## TASK-12 Human-in-the-loop 学習パターン確認 (2026-02-22, CONDITIONAL PASS)
+
+- `brain_routes.py` GET /brain/learning/patterns + PATCH /validate 追加
+- **W-1**: f-string SQL（where_clause）。ユーザー入力非混入で安全だが鉄則#9精神に反する
+- **W-2 重要**: `find_applicable_patterns()` が `is_validated` を見ていない。未承認パターンもBrainが使う。ドキュメント「承認→本番反映」は誤解を招く。
+- **W-3**: validate（書き込み）が Level 5 (require_admin)。Brain状態変更なのでLevel 6適切かも。
+- brain_outcome_patterns.organization_id は **UUID型**（VARCHAR ではない）。`:org_id` 暗黙キャストで動作はするが repository.py の `CAST(:organization_id AS uuid)` と不一致（SUGGESTION）
+- 詳細: `topics/task12_human_in_the_loop_review.md`
+
 ## Phase 5 main.py split (feat/phase4-main-split, Zoom, reviewed 2026-02-19)
 
 - `chatwork-webhook/routes/zoom.py`: Blueprint split of Zoom webhook (176 lines)

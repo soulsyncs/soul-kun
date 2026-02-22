@@ -198,6 +198,19 @@
 - `brain_routes.py` GET /brain/learning/patterns + PATCH /validate 追加
 - **W-1**: f-string SQL（where_clause）。ユーザー入力非混入で安全だが鉄則#9精神に反する
 - **W-2 重要**: `find_applicable_patterns()` が `is_validated` を見ていない。未承認パターンもBrainが使う。ドキュメント「承認→本番反映」は誤解を招く。
+
+## TASK-13 MessageEnvelope チャネル統一スキーマ (2026-02-22, CONDITIONAL PASS)
+
+- 変更ファイル: `lib/channels/base.py`, `lib/channels/__init__.py`, `lib/brain/core/message_processing.py`
+- 3コピー同期: PASS（lib/ chatwork-webhook/lib/ proactive-monitor/lib/ 全て一致）
+- Brain バイパスなし: `process_envelope` は `process_message` に完全委譲 → §1「脳がすべて」準拠
+- **W-1（型アノテーション）**: `process_envelope` 戻り値型が `"BrainResponse"` (前方参照文字列) だが `BrainResponse` はモジュール先頭でインポート済み → 不要な文字列リテラル。`-> BrainResponse:` に修正すべき
+- **W-2（envelope.organization_id 未使用）**: `process_message()` は `organization_id` パラメータを持たず `self.org_id` を使う設計。`envelope.organization_id` は委譲時に捨てられる。実害なし（Brainインスタンスが既にorg_idを保持）だが、呼び出し側が「org_idをenvelopeに入れれば渡せる」と誤解する余地あり。コメントか検証追加を推奨
+- **W-3（冗長インポート）**: `process_envelope` 内の `from lib.channels.base import MessageEnvelope` は実行時に使用されない（型チェック用だが型エイリアスとして不使用）。削除すべき
+- **S-1（テストゼロ）**: `MessageEnvelope` + `process_envelope` の新規追加に対しテストなし。`from_channel_message()` と `process_envelope()` の動作確認テスト追加を推奨
+- `MessageEnvelope.organization_id` デフォルト `""` パターン: `id or ""` 禁止パターンとは異なる（コンストラクタのデフォルト値）。問題なし
+- `Optional["ChannelMessage"]` の前方参照: base.py内では `ChannelMessage` は既に定義済みのため文字列リテラル不要だが、`Optional[ChannelMessage]` への変更はSUGGESTION程度
+- **設計良好点**: Brain側がorg_idをインスタンスで保持する既存設計と整合している。channel_adapterの変換層がorg_idを知らなくてよい設計は合理的
 - **W-3**: validate（書き込み）が Level 5 (require_admin)。Brain状態変更なのでLevel 6適切かも。
 - brain_outcome_patterns.organization_id は **UUID型**（VARCHAR ではない）。`:org_id` 暗黙キャストで動作はするが repository.py の `CAST(:organization_id AS uuid)` と不一致（SUGGESTION）
 - 詳細: `topics/task12_human_in_the_loop_review.md`

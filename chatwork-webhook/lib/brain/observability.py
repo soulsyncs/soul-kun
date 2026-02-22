@@ -24,6 +24,7 @@ v10.46.0: 脳の判断過程を統一的にログ出力し、Cloud Logging + 将
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -371,8 +372,8 @@ class BrainObservability:
 
             self._log_buffer.append(log_entry)
 
-            # バッファが一定サイズに達したらフラッシュ
-            if len(self._log_buffer) >= 100:
+            # バッファが一定サイズに達したらフラッシュ（短いセッションでも確実に保存）
+            if len(self._log_buffer) >= 10:
                 self._flush_logs()
 
     def _flush_logs(self) -> None:
@@ -405,21 +406,32 @@ class BrainObservability:
 
             def _sync_flush():
                 with self.pool.connect() as conn:
+                    # RLS: 背景スレッドの新接続にorg_idをセット（鉄則#7/#9）
+                    conn.execute(
+                        text("SELECT set_config('app.current_organization_id', :org_id, true)"),
+                        {"org_id": self.org_id},
+                    )
                     # PII除去してパラメータ準備
                     prepared = []
                     for log in logs_to_flush:
-                        safe_details = None
+                        safe_details_dict: Dict[str, Any] = {}
                         if log.details:
-                            safe_details = {
+                            safe_details_dict = {
                                 k: v for k, v in log.details.items()
                                 if k not in _PII_KEYS
                             }
                         prepared.append({
                             "org_id": self.org_id,
-                            "room_id": (safe_details or {}).get("room_id", ""),
-                            "user_id": log.account_id,
-                            "action": log.path,
+                            "room_id": safe_details_dict.get("room_id", ""),
+                            "user_id": log.account_id or "",
+                            "user_message": "",  # PII保護のため空文字
+                            "understanding_result": json.dumps(safe_details_dict),
+                            "action": log.path or "",
                             "classification": log.context_type.value,
+                            "decision_confidence": safe_details_dict.get("confidence"),
+                            "execution_success": safe_details_dict.get("success"),
+                            "execution_time_ms": safe_details_dict.get("time_ms"),
+                            "execution_error": safe_details_dict.get("error"),
                             "created_at": log.timestamp,
                         })
                     # バッチINSERT（100件チャンク）
@@ -431,8 +443,14 @@ class BrainObservability:
                             key = f"_{j}"
                             values_clauses.append(
                                 f"(:org_id{key}::uuid, :room_id{key},"
-                                f" :user_id{key}, :action{key},"
-                                f" :classification{key}, :created_at{key})"
+                                f" :user_id{key}, :user_message{key},"
+                                f" :understanding_result{key}::jsonb,"
+                                f" :action{key}, :classification{key},"
+                                f" :decision_confidence{key},"
+                                f" :execution_success{key},"
+                                f" :execution_time_ms{key},"
+                                f" :execution_error{key},"
+                                f" :created_at{key})"
                             )
                             for k, v in p.items():
                                 params[f"{k}{key}"] = v
@@ -440,7 +458,10 @@ class BrainObservability:
                             text(
                                 "INSERT INTO brain_decision_logs"
                                 " (organization_id, room_id, user_id,"
+                                " user_message, understanding_result,"
                                 " selected_action, classification,"
+                                " decision_confidence, execution_success,"
+                                " execution_time_ms, execution_error,"
                                 " created_at)"
                                 " VALUES " + ", ".join(values_clauses)
                             ),

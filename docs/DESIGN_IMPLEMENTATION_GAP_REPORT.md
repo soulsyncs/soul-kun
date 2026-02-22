@@ -241,10 +241,10 @@ lib/brain/
 
 | # | タスク | 見積 | 状態 |
 |---|--------|------|------|
-| **TEST-1** | **Advanced Judgmentテスト追加** | 4h | ❌ 未着手 |
-| **TEST-2** | **Agentsテスト追加** | 4h | ❌ 未着手 |
-| **TEST-3** | **CEO Learningテスト追加** | 2h | ❌ 未着手 |
-| **TEST-4** | **プロンプト回帰テスト** | 6h | ❌ 未着手 |
+| **TEST-1** | **Advanced Judgmentテスト追加** | 4h | ✅ 完了（test_advanced_judgment.py 713行・40件確認済み） |
+| **TEST-2** | **Agentsテスト追加** | 4h | ✅ 完了（test_brain_agents.py 1232行・90件確認済み） |
+| **TEST-3** | **CEO Learningテスト追加** | 2h | ✅ 完了（test_ceo_learning.py 796行・50件確認済み） |
+| **TEST-4** | **プロンプト回帰テスト（Promptfoo拡充）** | 6h | 🔄 進行中（Promptfoo CI稼働中・テストケース拡充中） |
 
 ### 低優先度（便宜的改善）
 
@@ -287,6 +287,7 @@ lib/brain/
 | 2026-01-30 | 初版作成（全層の差分調査完了） |
 | **2026-01-31** | **v10.53.2: LLM Brain実装完了に伴い全面更新** |
 | **2026-02-08** | **コード監査: セキュリティ課題（org_id 114箇所、RLS 52テーブル不足、API認証0件、ILIKE脆弱性）を別途ロードマップ計画で対応。本レポートの脳アーキテクチャ差分は変更なし。** |
+| **2026-02-22** | **3AI合議による総点検: LangGraph 12ノード完了（11→12に修正）、Langfuse本番稼働確認、LangGraphノードテスト71→88件完了、Promptfoo CI稼働中（週次+PR時）、Terraform CI稼働中（PR時差分表示）。TEST-1〜3を完了ステータスに更新（test_advanced_judgment.py/test_brain_agents.py/test_ceo_learning.py 合計190件確認）。TEST-4（Promptfoo拡充）は継続中。** |
 
 ---
 

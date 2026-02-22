@@ -457,6 +457,9 @@ class ToolMetadataRegistry:
                     requires_confirmation=cap.get("requires_confirmation", False),
                     required_permission_level=TOOL_REQUIRED_LEVELS.get(
                         key, cap.get("required_level", 1)
+                        # NOTE: このPRはSoT定義のみ。実際の権限チェック(enforcement)は
+                        # authorization_gate.py で user_level >= required_permission_level
+                        # を実装するフォローアップPRが必要。現在は ToolMetadata に格納のみ。
                     ),
                 )
                 self.register(metadata)

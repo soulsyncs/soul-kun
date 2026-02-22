@@ -523,8 +523,12 @@ def get_tool_metadata(tool_name: str) -> Optional[Dict[str, Any]]:
 
     Guardian Layerで使用（requires_confirmation, risk_level等）
 
+    SYSTEM_CAPABILITIES を先に検索し、見つからない場合は OPERATION_CAPABILITIES も検索する。
+    これにより OPERATION_CAPABILITIES にのみ登録された capability も正しく評価される。
+    （TASK-14: MCP統合強化）
+
     Args:
-        tool_name: Tool名（例: "chatwork_task_create"）
+        tool_name: Tool名（例: "chatwork_task_create", "data_aggregate"）
 
     Returns:
         Capability定義、存在しない場合はNone
@@ -532,7 +536,15 @@ def get_tool_metadata(tool_name: str) -> Optional[Dict[str, Any]]:
     from handlers.registry import SYSTEM_CAPABILITIES
 
     result: Optional[Dict[str, Any]] = SYSTEM_CAPABILITIES.get(tool_name)
-    return result
+    if result is not None:
+        return result
+
+    # SYSTEM_CAPABILITIES に存在しない場合は OPERATION_CAPABILITIES も確認
+    try:
+        from lib.brain.operations.registry import OPERATION_CAPABILITIES
+        return OPERATION_CAPABILITIES.get(tool_name)  # type: ignore[return-value]
+    except ImportError:
+        return None
 
 
 def is_dangerous_operation(tool_name: str) -> tuple[bool, str]:

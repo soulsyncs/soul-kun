@@ -77,7 +77,7 @@ class CapabilityContract(TypedDict, total=False):
 
 
 # 必須フィールド一覧（validate_capability_contract() で使用）
-REQUIRED_CAPABILITY_FIELDS: tuple = (
+REQUIRED_CAPABILITY_FIELDS: tuple[str, ...] = (
     "name",
     "description",
     "category",

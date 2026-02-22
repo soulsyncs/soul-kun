@@ -5,9 +5,11 @@ main.py - 求人問い合わせメール → ChatWork集約サービス
   Gmail → Pub/Sub → このCloud Runサービス → ChatWork
 
 【エンドポイント】
-  POST /receive   : Gmail Pub/Sub push notification を受信（OIDC認証必須）
-  POST /test      : 動作テスト用（APIキー認証必須）
-  GET  /health    : ヘルスチェック
+  POST /receive         : Gmail Pub/Sub push notification を受信（OIDC認証必須）
+  POST /weekly-forecast : 先読み採用アラートをChatWorkに投稿（Cloud Scheduler→OIDC認証必須）
+  POST /renew-watch     : Gmail watchを更新（6日ごとのCloud Scheduler→OIDC認証必須）
+  POST /test            : 動作テスト用（APIキー認証必須）
+  GET  /health          : ヘルスチェック
 
 【セキュリティ設計】
   - Cloud Run は --no-allow-unauthenticated でデプロイ
@@ -302,6 +304,7 @@ def weekly_forecast():
 
     except Exception as e:
         logger.error(f"weekly-forecast エラー: {e}", exc_info=True)
+<<<<<<< HEAD
         return jsonify({"error": str(e)}), 500
 
 
@@ -341,6 +344,79 @@ def _build_screened_message(
 
     header = "\n".join(header_lines)
     return f"{header}\n{'-' * 30}\n{base_message}"
+=======
+        return jsonify({"error": "予期しないエラーが発生しました"}), 500
+
+
+@app.route("/renew-watch", methods=["POST"])
+def renew_watch():
+    """
+    Gmail watch を更新するエンドポイント。
+
+    Gmail の push 通知（= 新着メールをリアルタイムで受け取る設定）は
+    7日で期限切れになるため、6日ごとに Cloud Scheduler から呼び出す。
+
+    【セキュリティ】
+    - Cloud Run は --no-allow-unauthenticated でデプロイ済み
+    - Cloud Scheduler の OIDC 認証で保護
+    """
+    import httpx
+
+    GMAIL_PUBSUB_TOPIC = (
+        f"projects/{GOOGLE_PROJECT_ID}/topics/gmail-job-inquiry-notifications"
+    )
+    TOKEN_URL = "https://oauth2.googleapis.com/token"
+    WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
+
+    try:
+        # Secret Manager から OAuth2 認証情報を取得
+        refresh_token = get_secret_cached("gmail-oauth-refresh-token")
+        client_id = get_secret_cached("gmail-oauth-client-id")
+        client_secret = get_secret_cached("gmail-oauth-client-secret")
+
+        # アクセストークンを取得
+        with httpx.Client(timeout=10) as client:
+            token_resp = client.post(TOKEN_URL, data={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "refresh_token": refresh_token,
+                "grant_type": "refresh_token",
+            })
+            if token_resp.status_code != 200:
+                logger.error(f"OAuth2 トークン取得失敗: {token_resp.status_code}")
+                return jsonify({"error": "OAuth2 トークン取得失敗"}), 500
+
+            access_token = token_resp.json().get("access_token")
+            if not access_token:
+                logger.error("アクセストークンが空")
+                return jsonify({"error": "アクセストークン取得失敗"}), 500
+
+            # Gmail Watch API を呼び出し
+            watch_resp = client.post(
+                WATCH_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+                json={"topicName": GMAIL_PUBSUB_TOPIC, "labelIds": ["INBOX"]},
+            )
+
+        if watch_resp.status_code != 200:
+            logger.error(f"Gmail watch 更新失敗: {watch_resp.status_code}")
+            return jsonify({"error": "Gmail watch 更新失敗"}), 500
+
+        watch_data = watch_resp.json()
+        history_id = watch_data.get("historyId", "")
+        expiration = watch_data.get("expiration", "")
+        logger.info(f"Gmail watch 更新成功: historyId={history_id}")
+
+        return jsonify({
+            "status": "renewed",
+            "history_id": history_id,
+            "expiration_ms": expiration,
+        }), 200
+
+    except Exception as e:
+        logger.error(f"renew-watch エラー: {e}", exc_info=True)
+        return jsonify({"error": "予期しないエラーが発生しました"}), 500
+>>>>>>> 2ebf1e6 (feat(phase5+): weekly-forecast / renew-watch エンドポイント追加 + RenkOsClientを追加)
 
 
 # =============================================================================

@@ -240,8 +240,8 @@ def build_daily_check_message(user_name: str, goals: List[Dict]) -> str:
                 current_display = f"{current_value:,.0f}"
 
             message += f"【{title}】\n"
-            message += f"├ 目標: {target_display}{unit}\n"
-            message += f"├ 現在: {current_display}{unit}（達成率{achievement_rate:.0f}%）\n"
+            message += f"├ 目標: {target_display}{unit or ''}\n"
+            message += f"├ 現在: {current_display}{unit or ''}（達成率{achievement_rate:.0f}%）\n"
             message += f"└ 今日の実績は？（数字を入力してね）\n\n"
 
         elif goal_type == 'deadline':
@@ -348,8 +348,8 @@ def build_morning_feedback_message(
                 remaining = target_value - current_value
                 remaining_display = f"{remaining:,.0f}" if remaining > 0 else "0"
 
-            message += f"{title}：+{yesterday_display}{unit}\n"
-            message += f"月累計：{current_display}{unit} / {target_display}{unit}（達成率{achievement_rate:.0f}%）\n"
+            message += f"{title}：+{yesterday_display}{unit or ''}\n"
+            message += f"月累計：{current_display}{unit or ''} / {target_display}{unit or ''}（達成率{achievement_rate:.0f}%）\n"
 
             if rate_diff > 0:
                 message += f"前日比：+{rate_diff:.0f}%アップ！いい感じウル✨\n"
@@ -389,7 +389,7 @@ def build_morning_feedback_message(
                 remaining_display = _format_currency(remaining)
             else:
                 remaining_display = f"{remaining:,.0f}"
-            message += f"あと{remaining_display}{unit}、今月中に何があれば達成できそうウル？\n\n"
+            message += f"あと{remaining_display}{unit or ''}、今月中に何があれば達成できそうウル？\n\n"
         else:
             message += "目標達成おめでとうウル！次の挑戦は何にするウル？🎉\n\n"
     else:
@@ -505,7 +505,7 @@ def build_team_summary_message(
                 current_display = f"{m['current']:,.0f}"
                 target_display = f"{m['target']:,.0f}"
 
-            message += f"・{m['name']}：{current_display}/{target_display}{unit}（{m['rate']:.0f}%）{m['status']}\n"
+            message += f"・{m['name']}：{current_display}/{target_display}{unit or ''}（{m['rate']:.0f}%）{m['status']}\n"
 
         # チーム合計
         type_total_target = data.get('total_target', Decimal(0))
@@ -520,7 +520,7 @@ def build_team_summary_message(
                 total_target_display = f"{type_total_target:,.0f}"
 
             message += f"\n■ チーム合計\n"
-            message += f"{total_current_display} / {total_target_display}{unit}（{type_total_rate:.0f}%）\n"
+            message += f"{total_current_display} / {total_target_display}{unit or ''}（{type_total_rate:.0f}%）\n"
 
         message += "\n"
 

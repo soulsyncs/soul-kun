@@ -245,7 +245,13 @@ def _brain_continue_list_context(message, room_id, account_id, sender_name, stat
                 handle_goal_cleanup = getattr(main, 'handle_goal_cleanup')
 
                 # 削除系の入力（番号 / 以外削除 / 全削除）
-                if any(kw in message for kw in ["削除", "消", "以外", "全部", "全削除"]) or any(ch.isdigit() for ch in message):
+                # B-1修正: 進捗報告キーワードが含まれる場合は削除判定から除外
+                is_delete_request = any(kw in message for kw in ["削除", "消して", "消す", "以外", "全部消", "全削除"])
+                is_progress_report = any(kw in message for kw in [
+                    "売り上げ", "売上", "実績", "報告", "達成", "稼いだ", "万円", "受注", "成約",
+                    "今日は", "今日の", "今月は", "今月の", "今週は", "今週の",
+                ])
+                if is_delete_request or (any(ch.isdigit() for ch in message) and not is_progress_report):
                     context = {"original_message": message, "pending_data": pending_data}
                     result = handle_goal_delete(
                         params={},

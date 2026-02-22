@@ -306,9 +306,12 @@ async def get_brain_logs(
 
 ## 管理者確認フロー（Human-in-the-loop）
 - is_validated=false のパターンが「未確認」
-- 管理者は PATCH /brain/learning/patterns/{id}/validate で承認/却下できる
-- 承認: is_validated=true → 本番の判断に反映
-- 却下: is_active=false → パターン無効化
+- 管理者は PATCH /brain/learning/patterns/{id}/validate で確認/却下できる
+- 承認: is_validated=true に更新（「確認済みマーク」）
+  NOTE: Brain は is_active=true のパターンを使用するため、
+  is_validated=false のパターンも判断に使われる。
+  承認は「内容を人間が確認した」という記録であり、有効化ではない。
+- 却下: is_active=false → パターンを**無効化**（Brain が使用しなくなる）
 
 ## パラメータ
 - unvalidated_only: true（デフォルト）で未確認のみ取得
@@ -348,45 +351,46 @@ async def get_learning_patterns(
 
     pool = get_db_pool()
 
+    # W-1対応: f-string SQL を廃止し、bool に応じて2つのSQL文を使い分ける
+    _SQL_PATTERNS_UNVALIDATED = text("""
+        SELECT id, pattern_type, pattern_category, scope, sample_count,
+               success_count, failure_count, success_rate, confidence_score,
+               is_active, is_validated, validated_at, created_at
+        FROM brain_outcome_patterns
+        WHERE organization_id = :org_id AND is_active = true AND is_validated = false
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    _SQL_PATTERNS_ALL = text("""
+        SELECT id, pattern_type, pattern_category, scope, sample_count,
+               success_count, failure_count, success_rate, confidence_score,
+               is_active, is_validated, validated_at, created_at
+        FROM brain_outcome_patterns
+        WHERE organization_id = :org_id AND is_active = true
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+    """)
+    _SQL_COUNT_UNVALIDATED = text("""
+        SELECT COUNT(*) as total FROM brain_outcome_patterns
+        WHERE organization_id = :org_id AND is_active = true AND is_validated = false
+    """)
+    _SQL_COUNT_ALL = text("""
+        SELECT COUNT(*) as total FROM brain_outcome_patterns
+        WHERE organization_id = :org_id AND is_active = true
+    """)
+
     try:
         with pool.connect() as conn:
-            where_clause = "WHERE organization_id = :org_id AND is_active = true"
-            if unvalidated_only:
-                where_clause += " AND is_validated = false"
+            sql_patterns = _SQL_PATTERNS_UNVALIDATED if unvalidated_only else _SQL_PATTERNS_ALL
+            sql_count = _SQL_COUNT_UNVALIDATED if unvalidated_only else _SQL_COUNT_ALL
 
             result = conn.execute(
-                text(f"""
-                    SELECT
-                        id,
-                        pattern_type,
-                        pattern_category,
-                        scope,
-                        sample_count,
-                        success_count,
-                        failure_count,
-                        success_rate,
-                        confidence_score,
-                        is_active,
-                        is_validated,
-                        validated_at,
-                        created_at
-                    FROM brain_outcome_patterns
-                    {where_clause}
-                    ORDER BY created_at DESC
-                    LIMIT :limit OFFSET :offset
-                """),
+                sql_patterns,
                 {"org_id": organization_id, "limit": limit, "offset": offset},
             )
             rows = result.fetchall()
 
-            count_result = conn.execute(
-                text(f"""
-                    SELECT COUNT(*) as total
-                    FROM brain_outcome_patterns
-                    {where_clause}
-                """),
-                {"org_id": organization_id},
-            )
+            count_result = conn.execute(sql_count, {"org_id": organization_id})
             total_count = int(count_result.fetchone()[0])
 
         patterns = []

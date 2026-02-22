@@ -163,8 +163,9 @@ export function BrainLearningPage() {
               学習確認（Human-in-the-loop）
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              ソウルくんが自動で学んだパターンを確認・承認してください。
-              承認すると判断に反映され、却下すると無効化されます。
+              ソウルくんが自動で学んだパターンを確認してください。
+              <strong>承認</strong>は「内容を確認した」という記録です。
+              <strong>却下</strong>するとパターンが無効化され、判断に使われなくなります。
             </p>
           </div>
           <div className="flex items-center gap-2">

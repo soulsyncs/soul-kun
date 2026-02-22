@@ -107,7 +107,7 @@ async def get_brain_metrics(
                     LEFT JOIN (
                         SELECT
                             DATE(created_at) as cost_date,
-                            SUM(cost_jpy) as total_cost
+                            SUM(cost_usd) as total_cost
                         FROM ai_usage_logs
                         WHERE organization_id = :org_id
                           AND created_at >= :start_date

@@ -86,13 +86,13 @@ async def get_dashboard_summary(
                 text("""
                     SELECT
                         COUNT(*) as total_conversations,
-                        COALESCE(AVG(latency_ms), 0) as avg_response_time_ms,
+                        COALESCE(AVG(response_time_ms), 0) as avg_response_time_ms,
                         CASE
                             WHEN COUNT(*) > 0
-                            THEN COALESCE(SUM(CASE WHEN success = FALSE THEN 1 ELSE 0 END)::float / COUNT(*), 0)
+                            THEN COALESCE(SUM(CASE WHEN is_error = TRUE THEN 1 ELSE 0 END)::float / COUNT(*), 0)
                             ELSE 0
                         END as error_rate,
-                        COALESCE(SUM(cost_jpy), 0) as total_cost
+                        COALESCE(SUM(cost_usd), 0) as total_cost
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :start_date
@@ -109,7 +109,7 @@ async def get_dashboard_summary(
             # --- 今日のコスト（period問わず常にtodayを返す） ---
             today_cost_result = conn.execute(
                 text("""
-                    SELECT COALESCE(SUM(cost_jpy), 0) as cost_today
+                    SELECT COALESCE(SUM(cost_usd), 0) as cost_today
                     FROM ai_usage_logs
                     WHERE organization_id = :org_id
                       AND created_at >= :today
@@ -124,8 +124,8 @@ async def get_dashboard_summary(
             budget_result = conn.execute(
                 text("""
                     SELECT
-                        COALESCE(budget_jpy, 0) as budget,
-                        COALESCE(total_cost_jpy, 0) as spent
+                        COALESCE(budget_usd, 0) as budget,
+                        COALESCE(total_cost_usd, 0) as spent
                     FROM ai_monthly_cost_summary
                     WHERE organization_id = :org_id
                       AND year_month = :year_month

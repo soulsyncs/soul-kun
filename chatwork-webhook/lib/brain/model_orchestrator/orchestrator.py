@@ -261,7 +261,12 @@ class ModelOrchestrator:
 
             # Step 4: 実績コスト計算
             actual_cost_jpy = Decimal("0")
+            actual_cost_usd = Decimal("0")
             if result.success and result.model_used:
+                actual_cost_usd = result.model_used.calculate_cost_usd(
+                    result.input_tokens,
+                    result.output_tokens,
+                )
                 actual_cost_jpy = self._cost_manager.calculate_actual_cost(
                     model=result.model_used,
                     input_tokens=result.input_tokens,
@@ -277,6 +282,7 @@ class ModelOrchestrator:
                     input_tokens=result.input_tokens,
                     output_tokens=result.output_tokens,
                     cost_jpy=actual_cost_jpy,
+                    cost_usd=actual_cost_usd,
                     latency_ms=latency_ms,
                     success=result.success,
                     room_id=room_id,
@@ -293,9 +299,7 @@ class ModelOrchestrator:
             if self._config.enable_cost_management and result.success:
                 tier_used = result.model_used.tier if result.model_used else selection.tier
                 self._cost_manager.update_monthly_summary(
-                    cost_jpy=actual_cost_jpy,
-                    input_tokens=result.input_tokens,
-                    output_tokens=result.output_tokens,
+                    cost_usd=actual_cost_usd,
                     tier=tier_used,
                     was_fallback=result.was_fallback,
                     success=result.success,

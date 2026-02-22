@@ -104,6 +104,7 @@ class UsageLogger:
         cost_jpy: Decimal,
         latency_ms: int,
         success: bool,
+        cost_usd: Optional[Decimal] = None,
         room_id: Optional[str] = None,
         user_id: Optional[str] = None,
         was_fallback: bool = False,
@@ -162,7 +163,12 @@ class UsageLogger:
                 fallback_reason,
                 fallback_attempt,
                 success,
-                error_message
+                error_message,
+                model_name,
+                usage_tier,
+                response_time_ms,
+                is_error,
+                cost_usd
             ) VALUES (
                 CAST(:org_id AS uuid),
                 :model_id,
@@ -180,7 +186,12 @@ class UsageLogger:
                 :fallback_reason,
                 :fallback_attempt,
                 :success,
-                :error_message
+                :error_message,
+                :model_id,
+                :tier,
+                :latency_ms,
+                :is_error,
+                :cost_usd
             )
             RETURNING id
         """)
@@ -205,6 +216,8 @@ class UsageLogger:
                     "fallback_attempt": fallback_attempt,
                     "success": success,
                     "error_message": error_message,
+                    "is_error": not success,
+                    "cost_usd": float(cost_usd) if cost_usd is not None else None,
                 })
                 conn.commit()
 
@@ -446,8 +459,8 @@ class UsageLogger:
                 COUNT(DISTINCT error_message) as unique_errors
             FROM ai_usage_logs
             WHERE organization_id = CAST(:org_id AS uuid)
-              AND success = FALSE
-              AND created_at >= NOW() - INTERVAL :days DAY
+              AND (is_error = TRUE OR success = FALSE)
+              AND created_at >= NOW() - make_interval(days => :days)
             GROUP BY model_id
             ORDER BY error_count DESC
         """)
@@ -458,8 +471,8 @@ class UsageLogger:
                 COUNT(*) as count
             FROM ai_usage_logs
             WHERE organization_id = CAST(:org_id AS uuid)
-              AND success = FALSE
-              AND created_at >= NOW() - INTERVAL :days DAY
+              AND (is_error = TRUE OR success = FALSE)
+              AND created_at >= NOW() - make_interval(days => :days)
               AND error_message IS NOT NULL
             GROUP BY error_message
             ORDER BY count DESC
@@ -532,7 +545,7 @@ class UsageLogger:
             FROM ai_usage_logs
             WHERE organization_id = CAST(:org_id AS uuid)
               AND was_fallback = TRUE
-              AND created_at >= NOW() - INTERVAL :days DAY
+              AND created_at >= NOW() - make_interval(days => :days)
             GROUP BY original_model_id, model_id
             ORDER BY count DESC
         """)

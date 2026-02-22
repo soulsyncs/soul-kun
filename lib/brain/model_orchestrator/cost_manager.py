@@ -301,7 +301,9 @@ class CostManager:
         daily_cost = self._get_daily_cost()
         monthly_summary = self._get_monthly_summary()
 
-        monthly_cost = monthly_summary.get("total_cost_jpy", Decimal("0"))
+        # USD→JPY換算して予算チェック（閾値設定はJPY単位）
+        monthly_cost_usd = monthly_summary.get("total_cost_usd", Decimal("0"))
+        monthly_cost = monthly_cost_usd * settings.usd_to_jpy_rate
         budget_remaining = settings.monthly_budget_jpy - monthly_cost
 
         # 予算状態を判定
@@ -364,16 +366,16 @@ class CostManager:
     # 日次/月次コスト取得
     # -------------------------------------------------------------------------
 
-    def _get_daily_cost(self) -> Decimal:
-        """本日の累計コストを取得"""
+    def _get_daily_cost_usd(self) -> Decimal:
+        """本日の累計コストをUSDで取得"""
         today = date.today().isoformat()
 
         query = text("""
-            SELECT COALESCE(SUM(cost_jpy), 0)
+            SELECT COALESCE(SUM(cost_usd), 0)
             FROM ai_usage_logs
-            WHERE organization_id = CAST(:org_id AS uuid)
+            WHERE organization_id = :org_id
               AND DATE(created_at) = :today
-              AND success = TRUE
+              AND is_error IS NOT TRUE
         """)
 
         try:
@@ -389,21 +391,23 @@ class CostManager:
             logger.error(f"Failed to get daily cost: {type(e).__name__}")
             return Decimal("0")
 
+    def _get_daily_cost(self) -> Decimal:
+        """本日の累計コストを円換算で取得（後方互換）"""
+        settings = self.get_settings()
+        cost_usd = self._get_daily_cost_usd()
+        return cost_usd * settings.usd_to_jpy_rate
+
     def _get_monthly_summary(self) -> Dict[str, Any]:
-        """当月のサマリーを取得"""
+        """当月のサマリーを取得（USD単位）"""
         year_month = datetime.now().strftime("%Y-%m")
 
         query = text("""
             SELECT
-                total_cost_jpy,
-                total_requests,
-                total_input_tokens,
-                total_output_tokens,
-                budget_jpy,
-                budget_remaining_jpy,
-                budget_status
+                COALESCE(total_cost_usd, 0) as total_cost_usd,
+                COALESCE(total_requests, 0) as total_requests,
+                COALESCE(budget_usd, 0) as budget_usd
             FROM ai_monthly_cost_summary
-            WHERE organization_id = CAST(:org_id AS uuid)
+            WHERE organization_id = :org_id
               AND year_month = :year_month
         """)
 
@@ -417,35 +421,23 @@ class CostManager:
 
                 if row is None:
                     return {
-                        "total_cost_jpy": Decimal("0"),
+                        "total_cost_usd": Decimal("0"),
                         "total_requests": 0,
-                        "total_input_tokens": 0,
-                        "total_output_tokens": 0,
-                        "budget_jpy": MonthlyBudget.DEFAULT_JPY,
-                        "budget_remaining_jpy": MonthlyBudget.DEFAULT_JPY,
-                        "budget_status": BudgetStatus.NORMAL.value,
+                        "budget_usd": Decimal("0"),
                     }
 
                 return {
-                    "total_cost_jpy": Decimal(str(row[0])),
+                    "total_cost_usd": Decimal(str(row[0])),
                     "total_requests": row[1],
-                    "total_input_tokens": row[2],
-                    "total_output_tokens": row[3],
-                    "budget_jpy": Decimal(str(row[4])) if row[4] else MonthlyBudget.DEFAULT_JPY,
-                    "budget_remaining_jpy": Decimal(str(row[5])) if row[5] else MonthlyBudget.DEFAULT_JPY,
-                    "budget_status": row[6] or BudgetStatus.NORMAL.value,
+                    "budget_usd": Decimal(str(row[2])),
                 }
 
         except Exception as e:
             logger.error(f"Failed to get monthly summary: {type(e).__name__}")
             return {
-                "total_cost_jpy": Decimal("0"),
+                "total_cost_usd": Decimal("0"),
                 "total_requests": 0,
-                "total_input_tokens": 0,
-                "total_output_tokens": 0,
-                "budget_jpy": MonthlyBudget.DEFAULT_JPY,
-                "budget_remaining_jpy": MonthlyBudget.DEFAULT_JPY,
-                "budget_status": BudgetStatus.NORMAL.value,
+                "budget_usd": Decimal("0"),
             }
 
     # -------------------------------------------------------------------------
@@ -454,101 +446,63 @@ class CostManager:
 
     def update_monthly_summary(
         self,
-        cost_jpy: Decimal,
-        input_tokens: int,
-        output_tokens: int,
+        cost_usd: Decimal,
         tier: Tier,
         was_fallback: bool = False,
         success: bool = True,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
     ) -> None:
         """
         月次サマリーを更新（Upsert）
 
         Args:
-            cost_jpy: コスト（円）
-            input_tokens: 入力トークン数
-            output_tokens: 出力トークン数
+            cost_usd: コスト（USD）
             tier: 使用ティア
             was_fallback: フォールバックだったか
             success: 成功したか
+            input_tokens: 入力トークン数（未使用・後方互換）
+            output_tokens: 出力トークン数（未使用・後方互換）
         """
         year_month = datetime.now().strftime("%Y-%m")
-        settings = self.get_settings()
 
-        # ティア別コストカラム名
-        tier_cost_column = f"{tier.value}_cost_jpy"
-        tier_requests_column = f"{tier.value}_requests"
-
-        query = text(f"""
+        query = text("""
             INSERT INTO ai_monthly_cost_summary (
                 organization_id,
                 year_month,
-                total_cost_jpy,
+                total_cost_usd,
                 total_requests,
-                total_input_tokens,
-                total_output_tokens,
-                {tier_cost_column},
-                {tier_requests_column},
                 fallback_count,
                 fallback_success_count,
-                error_count,
-                budget_jpy,
-                budget_remaining_jpy,
-                budget_status
+                error_count
             ) VALUES (
-                CAST(:org_id AS uuid),
+                :org_id,
                 :year_month,
-                :cost_jpy,
-                1,
-                :input_tokens,
-                :output_tokens,
-                :cost_jpy,
+                :cost_usd,
                 1,
                 :fallback_count,
                 :fallback_success_count,
-                :error_count,
-                :budget_jpy,
-                :budget_remaining_jpy,
-                :budget_status
+                :error_count
             )
             ON CONFLICT (organization_id, year_month)
             DO UPDATE SET
-                total_cost_jpy = ai_monthly_cost_summary.total_cost_jpy + EXCLUDED.total_cost_jpy,
-                total_requests = ai_monthly_cost_summary.total_requests + 1,
-                total_input_tokens = ai_monthly_cost_summary.total_input_tokens + EXCLUDED.total_input_tokens,
-                total_output_tokens = ai_monthly_cost_summary.total_output_tokens + EXCLUDED.total_output_tokens,
-                {tier_cost_column} = COALESCE(ai_monthly_cost_summary.{tier_cost_column}, 0) + EXCLUDED.{tier_cost_column},
-                {tier_requests_column} = COALESCE(ai_monthly_cost_summary.{tier_requests_column}, 0) + 1,
-                fallback_count = ai_monthly_cost_summary.fallback_count + EXCLUDED.fallback_count,
-                fallback_success_count = ai_monthly_cost_summary.fallback_success_count + EXCLUDED.fallback_success_count,
-                error_count = ai_monthly_cost_summary.error_count + EXCLUDED.error_count,
-                budget_remaining_jpy = COALESCE(ai_monthly_cost_summary.budget_jpy, :budget_jpy) - (ai_monthly_cost_summary.total_cost_jpy + EXCLUDED.total_cost_jpy),
+                total_cost_usd = COALESCE(ai_monthly_cost_summary.total_cost_usd, 0) + EXCLUDED.total_cost_usd,
+                total_requests = COALESCE(ai_monthly_cost_summary.total_requests, 0) + 1,
+                fallback_count = COALESCE(ai_monthly_cost_summary.fallback_count, 0) + EXCLUDED.fallback_count,
+                fallback_success_count = COALESCE(ai_monthly_cost_summary.fallback_success_count, 0) + EXCLUDED.fallback_success_count,
+                error_count = COALESCE(ai_monthly_cost_summary.error_count, 0) + EXCLUDED.error_count,
                 updated_at = NOW()
         """)
-
-        # 予算状態を計算
-        monthly_summary = self._get_monthly_summary()
-        new_total = monthly_summary["total_cost_jpy"] + cost_jpy
-        budget_remaining = settings.monthly_budget_jpy - new_total
-        budget_status = self._calculate_budget_status(
-            budget_remaining,
-            settings.monthly_budget_jpy
-        )
 
         try:
             with self._pool.connect() as conn:
                 conn.execute(query, {
                     "org_id": self._organization_id,
                     "year_month": year_month,
-                    "cost_jpy": float(cost_jpy),
-                    "input_tokens": input_tokens,
-                    "output_tokens": output_tokens,
+                    "cost_usd": float(cost_usd),
                     "fallback_count": 1 if was_fallback else 0,
                     "fallback_success_count": 1 if was_fallback and success else 0,
                     "error_count": 0 if success else 1,
-                    "budget_jpy": float(settings.monthly_budget_jpy),
-                    "budget_remaining_jpy": float(budget_remaining),
-                    "budget_status": budget_status.value,
                 })
                 conn.commit()
 

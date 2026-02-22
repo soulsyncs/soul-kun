@@ -47,6 +47,25 @@ class ModelInfo:
     created_at: datetime
     updated_at: datetime
 
+    def calculate_cost_usd(
+        self,
+        input_tokens: int,
+        output_tokens: int,
+    ) -> Decimal:
+        """
+        コストをUSDで計算
+
+        Args:
+            input_tokens: 入力トークン数
+            output_tokens: 出力トークン数
+
+        Returns:
+            コスト（USD）
+        """
+        input_cost_usd = (Decimal(input_tokens) / Decimal(1_000_000)) * self.input_cost_per_1m_usd
+        output_cost_usd = (Decimal(output_tokens) / Decimal(1_000_000)) * self.output_cost_per_1m_usd
+        return input_cost_usd + output_cost_usd
+
     def calculate_cost_jpy(
         self,
         input_tokens: int,
@@ -64,10 +83,7 @@ class ModelInfo:
         Returns:
             コスト（円）
         """
-        input_cost_usd = (Decimal(input_tokens) / Decimal(1_000_000)) * self.input_cost_per_1m_usd
-        output_cost_usd = (Decimal(output_tokens) / Decimal(1_000_000)) * self.output_cost_per_1m_usd
-        total_usd = input_cost_usd + output_cost_usd
-        return total_usd * usd_to_jpy_rate
+        return self.calculate_cost_usd(input_tokens, output_tokens) * usd_to_jpy_rate
 
 
 # =============================================================================
